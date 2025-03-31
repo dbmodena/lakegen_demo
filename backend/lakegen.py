@@ -1,46 +1,31 @@
-from collections import defaultdict
-from functools import lru_cache
 import os
-
-os.environ["no_proxy"] = "localhost,127.0.0.1,geonext.comune.modena.it"
-
-import streamlit as st
-from dotenv import load_dotenv
-import asyncio
-import autogen
+import sys
 import json
-import requests
+import shutil
+import asyncio
+from functools import lru_cache
+from collections import defaultdict
 from typing import Any, Dict, Annotated
+
 import pandas as pd
 import pandas.api.types as ptypes
-import io
-from contextlib import redirect_stdout, redirect_stderr
-from autogen import AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
-from autogen.coding import LocalCommandLineCodeExecutor
-import sqlite3
-from dataclasses import dataclass
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from dotenv import load_dotenv
 
 # for BLEND
 import duckdb
 import bidict
 
-import os
-
-import shutil
-import requests
-import csv
-import zipfile
-from urllib.parse import urlparse
-
-import sys
-
-sys.path.append("backend")
-
-
 from process_ckan import process_datasets
-from autogen_core.tools import FunctionTool
 from typing_extensions import Annotated
+
+from autogen_core.tools import FunctionTool
+from autogen_agentchat.agents import AssistantAgent, CodeExecutorAgent, UserProxyAgent, SocietyOfMindAgent 
+from autogen_agentchat.teams import RoundRobinGroupChat
+from autogen_agentchat.conditions import TextMentionTermination
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+from autogen_ext.tools.code_execution import PythonCodeExecutionTool
+from autogen_ext.code_executors.local import LocalCommandLineCodeExecutor
 
 
 # set seed
@@ -49,6 +34,10 @@ import numpy as np
 
 random.seed(42)
 np.random.seed(42)
+
+os.environ["no_proxy"] = "localhost,127.0.0.1,geonext.comune.modena.it"
+sys.path.append("backend")
+
 
 # Create a function tool.
 process_ckan_results_tool = FunctionTool(
@@ -92,7 +81,9 @@ async def table_sampling(selected_tables: list) -> Annotated[
 
     # a bidirectional-values dictionary, this avoids storing
     # original values into the index, which increases memory
-    # and insert/search time usage
+    # and insert/search time usage (to just get the overlap,
+    # this is not necessary, only if we want to see which 
+    # values overlap)
     values_bidict = defaultdict(int)
 
     # used to create final results
@@ -148,7 +139,7 @@ async def table_sampling(selected_tables: list) -> Annotated[
     # a list of tuples <q_table_title, r_table_title, q_column, r_column, overlap_size>
     final_results = []
 
-    # for each table, query with K=5 with the Single-Column Seeker approach from BLEND
+    # for each table, query with the Single-Column Seeker approach from BLEND
     for table_id, t in enumerate(selected_tables):
         query_table = pd.read_csv(t["path"], on_bad_lines="skip")        
         for query_column_name in query_table.columns:
@@ -210,24 +201,15 @@ def get_model_client(model_name):  # type: ignore
         api_key="NotRequiredSinceWeAreLocal",
         base_url="http://0.0.0.0:4323",
         model_capabilities={
-            "cache_seed": None,
-            "json_output": False,
-            "vision": False,
-            "function_calling": True,
+            "cache_seed"        : None,
+            "json_output"       : False,
+            "vision"            : False,
+            "function_calling"  : True,
         },
         temperature=0.0,
         seed=42,
     )
 
-
-import asyncio
-from autogen_agentchat.ui import Console
-from autogen_agentchat.agents import AssistantAgent, SocietyOfMindAgent
-from autogen_ext.models.openai import OpenAIChatCompletionClient
-from autogen_agentchat.teams import RoundRobinGroupChat
-from autogen_agentchat.conditions import TextMentionTermination
-from autogen_agentchat.agents import UserProxyAgent
-from autogen_ext.tools.code_execution import PythonCodeExecutionTool
 
 load_dotenv()
 
@@ -244,6 +226,7 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
         shutil.rmtree("coding")
 
     api = portal[: portal.index("api") + 3]
+
     query_analyzer = AssistantAgent(
         name="QueryAnalyzer",
         system_message=f"""You are a Query Analyzer.  
@@ -262,7 +245,7 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
         - Remove aggregations 
         - Remove specific filters like explicit values or names.
         - Ensure the location keyword is included for accurate dataset retrieval, if non leave blank.
-        4. Extract MAX 2-3 keywords (separated by +, keyword1+keyword2+...) to maximize dataset matches while preserving relevance, remember to use the identified language.
+        4. Extract MAX 2-3 keywords (separated by +, keyword1+keyword2+..., like dog+animal) to maximize dataset matches while preserving relevance, remember to use the identified language.
         5. Generate three query:
             1. use generalized terms, 
             2. include synonyms or alternative terms for broader coverage, 
@@ -275,11 +258,11 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
         {portal}<keywords>;limit={top_k_results}
 
         Format your answer in markdown to prettify and make readable.
+        Remember to separate keywords with +
+
         """,
         model_client=model_client,
     )
-
-    # user_proxy = AssistantAgent(name="User")
 
     ckan_generator = AssistantAgent(
         name="CKANGenerator",
@@ -288,14 +271,14 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
         Return the results from the CKAN query provided by the Query Analyzer. call process_ckan_results().
         The function returns a dictionary with the following structure:
         {
-        "tables": [
-            {
-            "title": "<title>",
-            "description": "<desc>",
-            "path": "<url>",
-            "schema": <schema>
-            }
-        ]
+            "tables": [
+                {
+                    "title": "<title>",
+                    "description": "<desc>",
+                    "path": "<url>",
+                    "schema": <schema>
+                }
+            ]
         }
         
         Output only the result call process_ckan_results().""",
@@ -303,10 +286,15 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
         tools=[process_ckan_results_tool],
     )
 
-    agent3 = AssistantAgent(
-        "assistant3",
+    relevant_tables_critic = AssistantAgent(
+        "RelevantTablesCritic",
         model_client=model_client,
-        system_message=f"You are a critic. Respond with 'APPROVE' if some of the tables are relevant to the question: {question}. Otherwise write only the question: {question}",
+        system_message=f"""You are a critic.
+            Respond with 'APPROVE' if some of the tables are relevant to the question:
+            {question}. 
+            
+            Otherwise write only the question: 
+            {question}"""
     )
 
     table_selector = AssistantAgent(
@@ -321,14 +309,14 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
         
         selected_tables = [
             {
-            "title": "<title>",
-            "description": "<desc>",
-            "path": "<url>"
+                "title": "<title>",
+                "description": "<desc>",
+                "path": "<url>"
             },
             {
-            "title": "<title>",
-            "description": "<desc>",
-            "path": "<url>"
+                "title": "<title>",
+                "description": "<desc>",
+                "path": "<url>"
             }
         ]
         
@@ -342,28 +330,32 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
     inner_termination = TextMentionTermination("APPROVE")
 
     inner_team = RoundRobinGroupChat(
-        [query_analyzer, ckan_generator, agent3],
+        participants=[
+            query_analyzer, 
+            ckan_generator, 
+            relevant_tables_critic
+        ],
         termination_condition=inner_termination,
         max_turns=6,
     )
 
     ckan_mind = SocietyOfMindAgent(
-        "ckan_mind",
+        name="ckan_mind",
         team=inner_team,
         model_client=model_client,
         instruction=""""
-        You have only to return a dictionary of gatered tables to pass to the next agent.
+        You have only to return a dictionary of gathered tables to pass to the next agent.
         Output only this dictionary:
         {
-        "tables": [
-            {
-            "title": "<title>",
-            "description": "<desc>",
-            "path": "<url>",
-            "schema": <schema>
-            }
-            ...
-        ]
+            "tables": [
+                {
+                "title": "<title>",
+                "description": "<desc>",
+                "path": "<url>",
+                "schema": <schema>
+                },
+                ...
+            ]
         }
         DO NOT ADD ANY OTHER INFORMATION.
         """,
@@ -373,13 +365,14 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
         # Be very coicise in your answers.
         # """,
     )
-
-    tool = PythonCodeExecutionTool(LocalCommandLineCodeExecutor(work_dir="coding"))
-
-    termination = TextMentionTermination("STOP")
-
+    
     integrator = RoundRobinGroupChat(
-        [ckan_mind, table_selector], termination_condition=termination, max_turns=2
+        participants=[
+            ckan_mind, 
+            table_selector
+        ], 
+        max_turns=2,
+        termination_condition=TextMentionTermination("STOP") 
     )
 
     final_result = []
@@ -439,7 +432,6 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
             model_client=model_client,
         )
 
-        from autogen_agentchat.agents import CodeExecutorAgent
 
         code_executor_agent = CodeExecutorAgent(
             "code_executor",
@@ -455,13 +447,16 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
         )
 
         executor_team = RoundRobinGroupChat(
-            [critic, code_executor_agent, agent4],
+            participants=[
+                critic, 
+                code_executor_agent, 
+                agent4
+            ],
             termination_condition=inner_termination,
             max_turns=12,
         )
 
         # read output
-
         executor_mind = SocietyOfMindAgent(
             "executor_mind",
             team=executor_team,
@@ -485,11 +480,11 @@ async def main(question: str, portal: str, model_name: str, top_k_results: int):
 
 if __name__ == "__main__":
     dict_portal = {
-        "MO": "https://opendata.comune.modena.it/api/3/action/package_search?q=",
-        "IT": "https://www.dati.gov.it/opendata/api/3/action/package_search?q=",
-        "USA": "https://catalog.data.gov/api/3/action/package_search?q=",
-        "CAN": "https://open.canada.ca/data/api/3/action/package_search?q=",
-        "UK": "https://data.gov.uk/api/3/action/package_search?q=",
+        "MO"    : "https://opendata.comune.modena.it/api/3/action/package_search?q=",
+        "IT"    : "https://www.dati.gov.it/opendata/api/3/action/package_search?q=",
+        "USA"   : "https://catalog.data.gov/api/3/action/package_search?q=",
+        "CAN"   : "https://open.canada.ca/data/api/3/action/package_search?q=",
+        "UK"    : "https://data.gov.uk/api/3/action/package_search?q=",
     }
     # get api until 'api' in the url
     portal = dict_portal["CAN"]

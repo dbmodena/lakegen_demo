@@ -60,7 +60,7 @@ def clear_downloads():
 async def fetch_ckan_results(ckan_query_url: str):
     #find limit in the url and take the value
     match = re.search(r'limit=(\d+)', ckan_query_url)
-    limit_value = int(match.group(1) if match else None)
+    limit_value = int(match.group(1)) if match else None
     # Remove everything after and including the first semicolon
     ckan_query_url = re.sub(r';.*', '', ckan_query_url)
     
@@ -98,8 +98,6 @@ async def fetch_schema(session, url):
                         return None
 
                     # ✅ Open and read only the first line efficiently
-
-  
                     with z.open(csv_file) as f:
                         raw_data = f.read(1024)  # Read a portion of the file
                         detected = chardet.detect(raw_data)
