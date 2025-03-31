@@ -2,7 +2,7 @@
 
 
 # LakeGen
-[![Watch the video](frontend/static/images/image.png)](frontend/static/images/demo.mov)
+[![Watch the video](https://github.com/dbmodena/lakegen_demo/raw/refs/heads/main/frontend/static/images/screen.png)](https://github.com/dbmodena/lakegen_demo/raw/refs/heads/main/frontend/static/images/demo.mov)
 
 ## Abstract
 The increasing availability of tabular data in open data lakes presents significant opportunities for data-driven analysis. 
