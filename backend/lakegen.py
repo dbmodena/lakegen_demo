@@ -1,3 +1,5 @@
+from collections import defaultdict
+from functools import lru_cache
 import os
 
 os.environ["no_proxy"] = "localhost,127.0.0.1,geonext.comune.modena.it"
@@ -8,8 +10,9 @@ import asyncio
 import autogen
 import json
 import requests
-from typing import Dict, Annotated
+from typing import Any, Dict, Annotated
 import pandas as pd
+import pandas.api.types as ptypes
 import io
 from contextlib import redirect_stdout, redirect_stderr
 from autogen import AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
@@ -17,6 +20,10 @@ from autogen.coding import LocalCommandLineCodeExecutor
 import sqlite3
 from dataclasses import dataclass
 from autogen_ext.models.openai import OpenAIChatCompletionClient
+
+# for BLEND
+import duckdb
+import bidict
 
 import os
 
@@ -50,20 +57,55 @@ process_ckan_results_tool = FunctionTool(
 )
 
 
+@lru_cache(maxsize=int(1e3))
+def clear_string(s: Any):
+    """Now, no actual clearing is done."""
+    return str(s)
+
+
 async def table_sampling(selected_tables: list) -> Annotated[
     Dict[str, str],
     "Dictionary with keys 'result' (table details) and 'error' (if any error occurs)",
 ]:
     print("Entrato")
     print(selected_tables)
+    
+    # to define as function parameter?
+    K : int = 3
+
     sampled_tables = []
     if type(selected_tables) is str:
         selected_tables = json.loads(selected_tables)
 
-    for t in selected_tables:
+    # create a in-memory duckdb database
+    blend_tmp_con = duckdb.connect()
+    blend_tmp_con.sql(
+        """
+        CREATE TABLE AllTables (
+            TableId     INT,
+            ColumnId    INT,
+            RowId       INT,
+            CellValue   INT
+        );
+        """
+    )
+
+    # a bidirectional-values dictionary, this avoids storing
+    # original values into the index, which increases memory
+    # and insert/search time usage
+    values_bidict = defaultdict(int)
+
+    # used to create final results
+    tables_schema = {}
+
+    for table_id, t in enumerate(selected_tables):
         try:
             print(t)
-            table_sample = pd.read_csv(t["path"], nrows=3)
+            df = pd.read_csv(t["path"], on_bad_lines="skip")
+            tables_schema[t["title"]] = df.columns.to_list()
+
+            table_sample = df.iloc[:3]
+
             sampled_tables.append(
                 {
                     "title": t["title"],
@@ -73,8 +115,71 @@ async def table_sampling(selected_tables: list) -> Annotated[
                 }
             )
 
+            # Add values to the bidict, exluding numeric and boolean columns 
+            # which can cause casual joins and are generally filtered in these operations
+            for column_name in df.select_dtypes(exclude=["number", "bool"]).columns:
+                for value in map(clear_string, df[column_name].dropna().unique()):
+                    if value not in values_bidict:
+                        values_bidict[value] = len(values_bidict)
+                
+            # create the records for the BLEND-like index
+            table_blend_records = [
+                [
+                    table_id, 
+                    column_id, 
+                    row_id, 
+                    values_bidict[clear_string(cell)] if clear_string(cell) in values_bidict else pd.NA
+                ]
+                for row_id, row in df.iterrows()
+                for column_id, cell in enumerate(row)
+            ]
+
+            # insert the records through the duckdb API, filtering those records with a nan,
+            # which are numeric and boolean values (to optimize this step...)
+            records_df = pd.DataFrame(table_blend_records, columns=['TableId', 'ColumnId', 'RowId', 'CellValue']).dropna(axis=0, how='any')
+            blend_tmp_con.execute(query="INSERT INTO AllTables SELECT * FROM records_df;")
+            blend_tmp_con.commit()
         except Exception as e:
             print(e)
+
+    # actually create a "bi-dictionary"
+    values_bidict = bidict.bidict(values_bidict)
+
+    # a list of tuples <q_table_title, r_table_title, q_column, r_column, overlap_size>
+    final_results = []
+
+    # for each table, query with K=5 with the Single-Column Seeker approach from BLEND
+    for table_id, t in enumerate(selected_tables):
+        query_table = pd.read_csv(t["path"], on_bad_lines="skip")        
+        for query_column_name in query_table.columns:
+            query_column = query_table[query_column_name]
+            # again, filter numeric and boolean columns 
+            # (not done before, to avoid mismatch into column index number)
+            if ptypes.is_numeric_dtype(query_column) or ptypes.is_bool_dtype(query_column):
+                continue
+            
+            query_column = query_column.apply(lambda v: values_bidict[clear_string(v)])
+            results = blend_tmp_con.sql(f"""
+                SELECT TableId, ColumnId, COUNT(DISTINCT CellValue) AS overlap 
+                FROM AllTables
+                WHERE CellValue IN ({ ','.join(query_column) })
+                AND TableId <> {table_id}
+                GROUP BY TableId, ColumnId
+                ORDER BY COUNT(DISTINCT CellValue) DESC
+                LIMIT {K};
+            """).fetchall()
+
+            for r_table_id, r_column_id, overlap in results:
+                final_results.append(
+                    [
+                        t["title"],
+                        selected_tables[r_table_id]["title"],
+                        query_column_name,
+                        tables_schema[selected_tables[r_table_id]["title"]][r_column_id],
+                        overlap
+                    ]
+                )
+
 
     if not selected_tables:
         return {"result": [], "error": "empty tables, regenerate keywords"}
