@@ -2,9 +2,7 @@
 
 
 # LakeGen
-<video controls>
-  <source src="frontend/static/images/demo.mov" type="video/mp4">
-</video>
+[![Watch the video](frontend/static/images/image.png)](frontend/static/images/demo.mov)
 
 ## Abstract
 The increasing availability of tabular data in open data lakes presents significant opportunities for data-driven analysis. 
