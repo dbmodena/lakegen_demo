@@ -3,7 +3,7 @@
 
 # LakeGen
 <video controls>
-  <source src="frontend/static/images/demo.mp4" type="video/mp4">
+  <source src="frontend/static/images/demo.mov" type="video/mp4">
 </video>
 
 ## Abstract
