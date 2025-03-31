@@ -2,7 +2,9 @@
 
 
 # LakeGen
-
+<video controls>
+  <source src="frontend/static/images/demo.mp4" type="video/mp4">
+</video>
 ## Abstract
 The increasing availability of tabular data in open data lakes presents significant opportunities for data-driven analysis. 
 Yet, it also introduces substantial challenges in data discovery and integration, as users must contend with diverse formats, inconsistent schemas, and incomplete metadata—issues that complicate the retrieval of relevant datasets and the extraction of meaningful insights. 
