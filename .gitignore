@@ -25,6 +25,11 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+coding
+logs
+outputs
+*.lock
+.DS_Store
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
