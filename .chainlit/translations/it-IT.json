@@ -1,0 +1,214 @@
+{
+    "common": {
+        "actions": {
+            "cancel": "Annulla",
+            "confirm": "Conferma",
+            "continue": "Continua",
+            "goBack": "Torna indietro",
+            "reset": "Reimposta",
+            "submit": "Invia"
+        },
+        "status": {
+            "loading": "Caricamento...",
+            "error": {
+                "default": "Si è verificato un errore",
+                "serverConnection": "Impossibile raggiungere il server"
+            }
+        }
+    },
+    "auth": {
+        "login": {
+            "title": "Accedi per utilizzare l'app",
+            "form": {
+                "email": {
+                    "label": "Indirizzo email",
+                    "required": "l'email è un campo obbligatorio"
+                },
+                "password": {
+                    "label": "Password",
+                    "required": "la password è un campo obbligatorio"
+                },
+                "actions": {
+                    "signin": "Accedi"
+                },
+                "alternativeText": {
+                    "or": "O"
+                }
+            },
+            "errors": {
+                "default": "Impossibile accedere",
+                "signin": "Prova ad accedere con un account diverso",
+                "oauthSignin": "Prova ad accedere con un account diverso",
+                "redirectUriMismatch": "L'URI di reindirizzamento non corrisponde alla configurazione dell'app oauth",
+                "oauthCallback": "Prova ad accedere con un account diverso",
+                "oauthCreateAccount": "Prova ad accedere con un account diverso",
+                "emailCreateAccount": "Prova ad accedere con un account diverso",
+                "callback": "Prova ad accedere con un account diverso",
+                "oauthAccountNotLinked": "Per confermare la tua identità, accedi con lo stesso account che hai usato in origine",
+                "emailSignin": "Non è stato possibile inviare l'e-mail",
+                "emailVerify": "Verifica la tua email, una nuova email è stata inviata",
+                "credentialsSignin": "Accesso fallito. Controlla che i dettagli forniti siano corretti",
+                "sessionRequired": "Effettua l'accesso per visualizzare questa pagina"
+            }
+        },
+        "provider": {
+            "continue": "Continua con {{provider}}"
+        }
+    },
+    "chat": {
+        "input": {
+            "placeholder": "Scrivi qui il tuo messaggio...",
+            "actions": {
+                "send": "Invia messaggio",
+                "stop": "Interrompi attività",
+                "attachFiles": "Allega file"
+            }
+        },
+        "speech": {
+            "start": "Inizia a registrare",
+            "stop": "Interrompi la registrazione",
+            "connecting": "Connessione in corso"
+        },
+        "fileUpload": {
+            "dragDrop": "Trascina e rilascia i file qui",
+            "browse": "Sfoglia file",
+            "sizeLimit": "Limite:",
+            "errors": {
+                "failed": "Caricamento non riuscito",
+                "cancelled": "Caricamento di annullato"
+            }
+        },
+        "messages": {
+            "status": {
+                "using": "In uso",
+                "used": "Usato"
+            },
+            "actions": {
+                "copy": {
+                    "button": "Copia negli appunti",
+                    "success": "Copiato!"
+                }
+            },
+            "feedback": {
+                "positive": "Utile",
+                "negative": "Non utile",
+                "edit": "Modifica feedback",
+                "dialog": {
+                    "title": "Aggiungi un commento",
+                    "submit": "Invia feedback"
+                },
+                "status": {
+                    "updating": "Aggiornamento in corso",
+                    "updated": "Feedback aggiornato"
+                }
+            }
+        },
+        "history": {
+            "title": "Ultimi input",
+            "empty": "Nessun contenuto...",
+            "show": "Mostra cronologia"
+        },
+        "settings": {
+            "title": "Pannello impostazioni"
+        },
+        "watermark": "Costruito con"
+    },
+    "threadHistory": {
+        "sidebar": {
+            "title": "Chat passate",
+            "filters": {
+                "search": "Cerca",
+                "placeholder": "Cerca conversazioni..."
+            },
+            "timeframes": {
+                "today": "Oggi",
+                "yesterday": "Ieri",
+                "previous7days": "Ultimi 7 giorni",
+                "previous30days": "Ultimi 30 giorni"
+            },
+            "empty": "Nessun thread trovato",
+            "actions": {
+                "close": "Chiudi barra laterale",
+                "open": "Apri barra laterale"
+            }
+        },
+        "thread": {
+            "untitled": "Conversazione senza titolo",
+            "menu": {
+                "rename": "Rinomina",
+                "delete": "Elimina"
+            },
+            "actions": {
+                "delete": {
+                    "title": "Conferma eliminazione",
+                    "description": "Questo eliminerà il thread, i suoi messaggi e gli elementi. Questa azione non può essere annullata",
+                    "success": "Chat eliminata",
+                    "inProgress": "Eliminazione della chat in corso"
+                },
+                "rename": {
+                    "title": "Rinomina Thread",
+                    "description": "Inserisci un nuovo nome per questo thread",
+                    "form": {
+                        "name": {
+                            "label": "Nome",
+                            "placeholder": "Inserisci nuovo nome"
+                        }
+                    },
+                    "success": "Thread rinominato!",
+                    "inProgress": "Ridenominazione del thread in corso"
+                }
+            }
+        }
+    },
+    "navigation": {
+        "header": {
+            "chat": "Chat",
+            "readme": "Leggimi",
+            "theme": {
+                "light": "Tema Chiaro",
+                "dark": "Tema Scuro",
+                "system": "Segui Sistema"
+            }
+        },
+        "newChat": {
+            "button": "Nuova Chat",
+            "dialog": {
+                "title": "Crea Nuova Chat",
+                "description": "Questo cancellerà la cronologia della chat corrente. Sei sicuro di voler continuare?",
+                "tooltip": "Nuova Chat"
+            }
+        },
+        "user": {
+            "menu": {
+                "settings": "Impostazioni",
+                "settingsKey": "I",
+                "apiKeys": "Chiavi API",
+                "logout": "Esci"
+            }
+        }
+    },
+    "apiKeys": {
+        "title": "Chiavi API Richieste",
+        "description": "Per utilizzare questa app, sono necessarie le seguenti chiavi API. Le chiavi vengono memorizzate nella memoria locale del tuo dispositivo.",
+        "success": {
+            "saved": "Salvato con successo"
+        }
+    },
+    "alerts": {
+        "info": "Info",
+        "note": "Nota",
+        "tip": "Suggerimento",
+        "important": "Importante",
+        "warning": "Avviso",
+        "caution": "Attenzione",
+        "debug": "Debug",
+        "example": "Esempio",
+        "success": "Successo",
+        "help": "Aiuto",
+        "idea": "Idea",
+        "pending": "In attesa",
+        "security": "Sicurezza",
+        "beta": "Beta",
+        "best-practice": "Buona pratica"
+    }
+}

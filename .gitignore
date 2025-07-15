@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+old.*
 
 # C extensions
 *.so
@@ -27,6 +28,9 @@ share/python-wheels/
 MANIFEST
 coding
 logs
+node_modules/
+backend/prompts/
+*.lock
 outputs
 *.lock
 .DS_Store
@@ -140,6 +144,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+notebooks/
 
 # Spyder project settings
 .spyderproject
