@@ -1,1 +1,1 @@
-./chainlit.md
+chainlit.md
