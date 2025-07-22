@@ -144,7 +144,9 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-notebooks/
+*.csv
+.files/
+*.pdf
 
 # Spyder project settings
 .spyderproject
