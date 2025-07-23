@@ -34,6 +34,7 @@ backend/prompts/
 outputs
 *.lock
 .DS_Store
+exp.ipynb
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
