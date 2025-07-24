@@ -22,17 +22,25 @@ class CKAN:
         return response.json()
 
     def _complete_url_with_kwargs(self, url, **kwargs):
-        for k, v in kwargs.items():
-            if v is not None:  # do not take None values
-                url += f"{k}={v}"
-        return url
+        url += '&'.join(
+            map(
+                lambda x: f"{x[0]}={x[1]}",
+                filter(
+                    lambda v: v[1] is not None,
+                    kwargs.items()
+                )
+            )
+        )
 
+        return url
+        
     def package_search(self, **kwargs):
         match self._country:
             case "UK" | "CANADA":
                 action = self._complete_url_with_kwargs("/package_search?", **kwargs)
 
         url = f"{self._final_url}{action}"
+        print(url)
 
         return self._make_request(url)
     
