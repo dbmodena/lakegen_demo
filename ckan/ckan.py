@@ -40,8 +40,7 @@ class CKAN:
                 action = self._complete_url_with_kwargs("/package_search?", **kwargs)
 
         url = f"{self._final_url}{action}"
-        print(url)
-
+        
         return self._make_request(url)
     
     def package_show(self, **kwargs):

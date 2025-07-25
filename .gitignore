@@ -7,6 +7,8 @@ old.*
 # C extensions
 *.so
 
+answers
+
 # Distribution / packaging
 .Python
 build/
