@@ -200,7 +200,7 @@ class BLEND:
         self._db_handler: DBHandler | None = None
 
         if self._in_memory:
-            raise NotImplementedError("In-memory database still not correctly handled")
+            raise NotImplementedError("In-memory database still not correctly handled. Provide a DB path: db_path=...")
 
     def create_index(
         self,
@@ -247,13 +247,8 @@ class BLEND:
             dbcon = duckdb.connect(self._db_path)
 
             drop_table(dbcon)
-            try:
-                print(dbcon.table("AllTables").show())
-            except:
-                pass
             create_table(dbcon)
-            print(dbcon.table("AllTables").show())
-
+            
             for future in tqdm(
                 futures, desc="Parsing and storing tables: ", disable=not verbose
             ):
