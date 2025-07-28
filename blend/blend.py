@@ -6,17 +6,15 @@ from time import time
 from typing import Dict, List, Tuple
 
 import duckdb
-import pandas as pd
-from pandas import DataFrame
 import polars as pl
 import polars.selectors as cs
 from duckdb import DuckDBPyConnection
 from tqdm import tqdm
 
+from .Plan import Plan
 from .DBHandler import DBHandler
+from .Operators.Seekers import SingleColumnOverlap
 
-# from .Tasks.SingleColumnJoinSearch import SingleColumnJoinSearch
-from .Tasks import SingleColumnJoinSearch, MultiColumnJoinSearch
 from .utils import calculate_xash, clean
 
 BASE_TEMPORAL_GRANULARITY = {
@@ -200,7 +198,12 @@ class BLEND:
         self._db_handler: DBHandler | None = None
 
         if self._in_memory:
-            raise NotImplementedError("In-memory database still not correctly handled. Provide a DB path: db_path=...")
+            raise NotImplementedError(
+                "In-memory database still not correctly handled. Provide a DB path: db_path=..."
+            )
+
+        if os.path.exists(db_path):
+            self._db_handler = DBHandler(db_path)
 
     def create_index(
         self,
@@ -212,14 +215,30 @@ class BLEND:
         # clear_db: bool = True,
         limit_table_rows: int | None = None,
         verbose: bool = False,
-    ) -> Tuple[Tuple, DuckDBPyConnection | None]:
+    ) -> Tuple:
+        """
+        Create the BLEND index for the given tables.
+        The index is named AllTables and is stored under the path passed in the init function.
+
+        :param data_path: the directory where tables are stored.
+        :param table_ids: a subset of table IDs (without any type extension) to use for the index creation. If None, all tables are used.
+        :param max_workers: number of parallel workers to use during index creation. If None, only one process is used.
+        :param batch_size: number of batch rows to commit during index creation.
+        :param granularities: <do not use this param, under design>
+        :param limit_table_rows: maximum number of rows per table. If None, entire table is loaded.
+        :return: a tuple with insertion, indexes creation and total time.
+        """
+
         dbcon: DuckDBPyConnection | None = None
 
-        # get IDs of the effective tables
+        # take table IDs
         table_ids = list(
             filter(
                 lambda _id: True if table_ids is None else _id in table_ids,
-                os.listdir(data_path),
+                map(
+                    lambda _id: re.sub(r"(.csv|.parquet)$", "", _id),
+                    os.listdir(data_path),
+                ),
             )
         )
 
@@ -248,7 +267,7 @@ class BLEND:
 
             drop_table(dbcon)
             create_table(dbcon)
-            
+
             for future in tqdm(
                 futures, desc="Parsing and storing tables: ", disable=not verbose
             ):
@@ -277,8 +296,8 @@ class BLEND:
         create_column_indexes(dbcon)
 
         if not self._in_memory:
+            dbcon.commit()
             dbcon.close()
-            dbcon = None
 
         end_idx_t = time()
 
@@ -286,14 +305,12 @@ class BLEND:
 
         if verbose:
             print("Index creation completed.")
-        return (end_ins_t - start_t, end_idx_t - end_ins_t, end_idx_t - start_t), dbcon
+        return (end_ins_t - start_t, end_idx_t - end_ins_t, end_idx_t - start_t)
 
     def single_column_join_search(
         self, values: List[str], k: int, granularity: str = "base"
     ):
-        return SingleColumnJoinSearch(values, k, granularity).run()
+        plan = Plan(db=self._db_handler)
+        plan.add("single_column_overlap", SingleColumnOverlap(values, k, granularity))
+        return plan.run()
 
-    def multi_column_join_search(self, query_dataset: DataFrame | List[List], k: int):
-        if isinstance(query_dataset, List):
-            query_dataset = pd.DataFrame(query_dataset)
-        return MultiColumnJoinSearch()

@@ -19,7 +19,7 @@ class DBHandler(object):
         self.connection = None
         self.cursor = None
         self.index_table = None
-        self.dbms = "duckdb"  # I'll use only duckdb
+        self.dbms = "duckdb"  # we'll use only duckdb
 
         self.db_path = ":memory:" if not db_path else db_path
         self.in_memory = self.db_path == ":memory:"
@@ -30,9 +30,6 @@ class DBHandler(object):
 
         self.index_table = index_table
         self.use_ml_optimizer = use_ml_optimizer
-
-        # self.connection = duckdb.connect(self.db_path, read_only=not self.in_memory)
-        # self.cursor = self.connection.cursor()
 
         if self.use_ml_optimizer:
             assert freq_dict_path, (

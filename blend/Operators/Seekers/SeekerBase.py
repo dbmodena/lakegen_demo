@@ -8,17 +8,20 @@ class Seeker(Operator, ABC):
     def __init__(self, k: int, granularity: str) -> None:
         super().__init__(k, granularity)
 
-        self._cached_predicted_runtime = None
-        if self.DB.USE_ML_OPTIMIZER:
-            from xgboost import XGBRegressor
-
-            self.model = XGBRegressor()
-            self.model.load_model(
-                Path(__file__).parent / f"{self.__class__.__name__}_model.json"
-            )
-        else:
-            self.model = None
-            self._cached_predicted_runtime = 1
+        # self._cached_predicted_runtime = None
+        # if self.DB.use_ml_optimizer:
+        #     from xgboost import XGBRegressor
+        #     self.model = XGBRegressor()
+        #     self.model.load_model(
+        #         Path(__file__).parent / f"{self.__class__.__name__}_model.json"
+        #     )
+        # else:
+        #     self.model = None
+        #     self._cached_predicted_runtime = 1
+        
+        # I want use ML opt so use static values
+        self.model = None
+        self._cached_predicted_runtime = 1
 
     def _predict_runtime(self, columns: list, db: DBHandler) -> float:
         if self._cached_predicted_runtime is not None:

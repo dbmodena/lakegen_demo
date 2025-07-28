@@ -1,8 +1,8 @@
 # Typing imports
 from typing import Iterable, List, Optional, Set
 
-from blend.DBHandler import DBHandler
-from blend.Operators import Combiner, Operator, Seeker
+from .DBHandler import DBHandler
+from .Operators import Combiner, Operator, Seeker
 
 
 class Plan(object):

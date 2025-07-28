@@ -23,7 +23,7 @@ def search_single_joins(
     :param tables_path: directory where table (CSV/parquet) files are stored.
     :param searcher: an instance of BLEND searcher. If None, db_path is required to create a new one.
     :param db_path: a path where to store the BLEND database, required if searcher parameter is None.
-    :param table_ids: a subset of tables to use for the search. If None, all tables are used.
+    :param table_ids: a subset of table IDs (without any type extension) to use for the search. If None, all tables are used.
     :param format: format of tables. Default is CSV.
     :param join_on_columns: a dictionary where, for each table,
                             is provided a list of columns on which the search is performed.
@@ -34,10 +34,10 @@ def search_single_joins(
     """
 
     # take table IDs
-    table_ids = filter(
+    table_ids = list(filter(
         lambda _id: True if table_ids is None else _id in table_ids,
         map(lambda _id: re.sub(r"(.csv|.parquet)$", "", _id), os.listdir(tables_path)),
-    )
+    ))
 
     if not searcher:
         searcher = BLEND(db_path)
