@@ -31,7 +31,7 @@ MANIFEST
 coding
 logs
 node_modules/
-backend/prompts/
+# backend/prompts/
 *.lock
 outputs
 *.lock
