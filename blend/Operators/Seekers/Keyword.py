@@ -7,13 +7,12 @@ from blend.Operators.Seekers.SeekerBase import Seeker
 
 class Keyword(Seeker):
     def __init__(
-        self, input_query_values: Iterable[str], k: int = 10, verbosity: int = 1
+        self, input_query_values: Iterable[str], k: int = 10
     ) -> None:
-        assert 1 <= verbosity <= 2
-        super().__init__(k, verbosity)
+        super().__init__(k, "base")
         self.input = set(input_query_values)
         self.base_sql = """
-        SELECT $VERBOSITY$ FROM AllTables
+        SELECT TableId, COUNT(DISTINCT CellValue) FROM AllTables
         WHERE CellValue IN ($TOKENS$) $ADDITIONALS$
         GROUP BY TableId
         ORDER BY COUNT(DISTINCT CellValue) DESC
@@ -21,9 +20,7 @@ class Keyword(Seeker):
         """
 
     def create_sql_query(self, db: DBHandler, additionals: str = "") -> str:
-        v = ", ".join(["TableId", "COUNT(DISTINCT CellValue)"][: self.verbosity])
-        sql = self.base_sql.replace("$VERBOSITY$", v)
-        sql = self.replace("$TOPK$", str(self.k))
+        sql = self.base_sql.replace("$TOPK$", str(self.k))
         sql = sql.replace("$ADDITIONALS$", additionals)
         sql = sql.replace(
             "$TOKENS$", db.create_sql_list_str(db.clean_value_collection(self.input))

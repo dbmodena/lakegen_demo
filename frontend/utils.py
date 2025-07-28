@@ -37,6 +37,11 @@ MODEL_SETTINGS = {
 DOWNLOAD_FOLDER = "downloads"
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
+
+BLEND_DB = "database/blend.db"
+if not os.path.exists(os.path.dirname(BLEND_DB)):
+    os.makedirs(BLEND_DB)
+
     
 MODEL_APIS = {
     "https://api.together.xyz/v1/": "TOGETHER_API_KEY",

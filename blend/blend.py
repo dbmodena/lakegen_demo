@@ -3,7 +3,7 @@ import re
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from time import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Literal, Tuple
 
 import duckdb
 import polars as pl
@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from .Plan import Plan
 from .DBHandler import DBHandler
-from .Operators.Seekers import SingleColumnOverlap
+from .Operators.Seekers import SingleColumnOverlap, Keyword
 
 from .utils import calculate_xash, clean
 
@@ -30,23 +30,20 @@ BASE_TEMPORAL_GRANULARITY = {
 def parse_table(
     table_path: str,
     granularities: Dict | None,
+    format: Literal["csv", "parquet"],
     limit_table_rows: int | None,
-    # non_numeric_column_tokens: List[str] = ['year']
 ):
-    data_dict = defaultdict(list)
 
-    table_id = str(re.sub(r"(\.csv|\.parquet)", "", os.path.basename(table_path)))
-
-    format = re.search(r"(csv|parquet)$", table_path).group(0)
+    table_id = os.path.basename(table_path)
 
     try:
         match format:
             case "csv":
                 table_df = pl.scan_csv(
-                    table_path, ignore_errors=True, n_rows=limit_table_rows
+                    table_path + '.csv', ignore_errors=True, n_rows=limit_table_rows
                 )
             case "parquet":
-                table_df = pl.scan_parquet(table_path, n_rows=limit_table_rows)
+                table_df = pl.scan_parquet(table_path + '.parquet', n_rows=limit_table_rows)
         table_df = (
             table_df.with_row_index(name="blend_row_index").drop_nulls().collect()
         )
@@ -56,6 +53,8 @@ def parse_table(
 
     if table_df.shape[0] == 0 or table_df.shape[1] == 0:
         return {}
+    
+    data_dict = defaultdict(list)
 
     # identify the numeric columns
     # for the correlation part
@@ -212,7 +211,7 @@ class BLEND:
         max_workers: int | None = None,
         batch_size: int = 1_000,
         granularities: Dict | None = None,
-        # clear_db: bool = True,
+        format: Literal["csv", "parquet"] = "csv",
         limit_table_rows: int | None = None,
         verbose: bool = False,
     ) -> Tuple:
@@ -256,6 +255,7 @@ class BLEND:
                     parse_table,
                     os.path.join(data_path, table_path),
                     granularities,
+                    format,
                     limit_table_rows,
                 )
                 for table_path in table_ids
@@ -313,4 +313,12 @@ class BLEND:
         plan = Plan(db=self._db_handler)
         plan.add("single_column_overlap", SingleColumnOverlap(values, k, granularity))
         return plan.run()
+    
+    def keyword_search(
+        self, values: List[str], k: int
+    ):
+        plan = Plan(db=self._db_handler)
+        plan.add("keyword", Keyword(values, k))
+        return plan.run()
+
 
