@@ -30,7 +30,7 @@ class Evaluation(BaseModel):
 
 async def llm():
     keywords_gt = pd.read_csv(
-        os.path.join(os.path.dirname(__file__), '..', 'data', 'keywords_gt_with_examples_all.csv')
+        os.path.join(os.path.dirname(__file__), '..', 'data', 'keywords_gt_with_examples.csv')
     )
 
     # take only those cases where the r package 
@@ -65,16 +65,16 @@ async def llm():
     )
 
     with open(os.path.join('prompts', 'TablePreFilter-allatonce.md')) as file:
-        TABLE_PRE_FILTER_ALL_SYSTEM_PROMPT = file.read()
+        TABLE_PRE_FILTER_SYSTEM_PROMPT = file.read()
 
-    TABLE_PRE_FILTER_ALL_TASK_QUESTION_PROMPT = "<question>{question}</question>"
-    TABLE_PRE_FILTER_ALL_TASK_PACKAGE_PROMPT = "<package>{title}</package><notes>{notes}</notes>"
+    TABLE_PRE_FILTER_TASK_QUESTION_PROMPT = "<question>{question}</question>"
+    TABLE_PRE_FILTER_TASK_PACKAGE_PROMPT = "<package>{title}</package><notes>{notes}</notes>"
 
     # analyze packages all-at-once
-    analyzer_all = AssistantAgent(
-        name="TablePreFilter_all", 
+    analyzer = AssistantAgent(
+        name="TablePreFilter", 
         model_client=model_client, 
-        system_message=TABLE_PRE_FILTER_ALL_SYSTEM_PROMPT
+        system_message=TABLE_PRE_FILTER_SYSTEM_PROMPT
     )
 
     # ask the agent for an answer. If no_think=True, the thinking process is truncated.
@@ -108,11 +108,11 @@ async def llm():
         total_time = None
         n_selected = selected_ids = None
 
-        prompt = TABLE_PRE_FILTER_ALL_TASK_QUESTION_PROMPT
+        prompt = TABLE_PRE_FILTER_TASK_QUESTION_PROMPT
         prompt = prompt.format(question=question)
 
         for package in packages:
-            prompt += TABLE_PRE_FILTER_ALL_TASK_PACKAGE_PROMPT.format(
+            prompt += TABLE_PRE_FILTER_TASK_PACKAGE_PROMPT.format(
                 title=package['title'],
                 notes=package['notes'][:200]
             ) + '\n'
@@ -122,10 +122,10 @@ async def llm():
         
         try:
             start_t = time.time()
-            # response = await analyzer_all.run(task=prompt)
+            # response = await analyzer.run(task=prompt)
             response = await model_client.create(
                 messages=[
-                    SystemMessage(content=TABLE_PRE_FILTER_ALL_SYSTEM_PROMPT),
+                    SystemMessage(content=TABLE_PRE_FILTER_SYSTEM_PROMPT),
                     UserMessage(content=prompt, source='user')
                 ],
                 extra_create_args={"response_format": Evaluation}
@@ -213,16 +213,16 @@ async def select_packages_subset(
         prompts_directory = 'prompts'
 
     with open(os.path.join(prompts_directory, 'TablePreFilter-allatonce.md')) as file:
-        TABLE_PRE_FILTER_ALL_SYSTEM_PROMPT = file.read()
+        TABLE_PRE_FILTER_SYSTEM_PROMPT = file.read()
 
-    TABLE_PRE_FILTER_ALL_TASK_QUESTION_PROMPT = "<question>{question}</question>"
-    TABLE_PRE_FILTER_ALL_TASK_PACKAGE_PROMPT = "<package>{title}</package><notes>{notes}</notes>"
+    TABLE_PRE_FILTER_TASK_QUESTION_PROMPT = "<question>{question}</question>"
+    TABLE_PRE_FILTER_TASK_PACKAGE_PROMPT = "<package>{title}</package><notes>{notes}</notes>"
 
-    prompt = TABLE_PRE_FILTER_ALL_TASK_QUESTION_PROMPT
+    prompt = TABLE_PRE_FILTER_TASK_QUESTION_PROMPT
     prompt = prompt.format(question=question)
 
     for package in packages:
-        prompt += TABLE_PRE_FILTER_ALL_TASK_PACKAGE_PROMPT.format(
+        prompt += TABLE_PRE_FILTER_TASK_PACKAGE_PROMPT.format(
             title=package['title'],
             notes=package['notes'][:200] if use_notes else 'N/A'
         ) + '\n'
@@ -232,7 +232,7 @@ async def select_packages_subset(
     
     response = await model_client.create(
         messages=[
-            SystemMessage(content=TABLE_PRE_FILTER_ALL_SYSTEM_PROMPT),
+            SystemMessage(content=TABLE_PRE_FILTER_SYSTEM_PROMPT),
             UserMessage(content=prompt, source='user')
         ],
         extra_create_args={"response_format": Evaluation}
@@ -262,14 +262,46 @@ from scipy.spatial.distance import cosine
 def distance(x, y):
     return cosine(x, y)
 
+def clean_text(text):
+    if not text:
+        return ""
+    # Remove or replace problematic characters
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', str(text))
+    return text.strip()
+
+def get_embedding_safe(s: str, client: Together, item_id=None):
+    try:
+        
+
+        if not s or not s.strip():
+            print(f"Warning: Empty input for item {item_id}")
+            return None
+        
+        cleaned_text = clean_text(s)
+        if not cleaned_text:
+            return None
+        
+        response = client.embeddings.create(
+            model="BAAI/bge-large-en-v1.5",
+            input=cleaned_text  # Limit input length to 2000 characters
+        )
+        return response.data[0].embedding
+    
+    except Exception as e:
+        print(f"Error processing item {item_id}: {e}")
+        print(f"Input text length: {len(s) if s else 0}")
+        print(f"Input preview: {repr(s[:100]) if s else 'None'}")
+        return None
 
 def get_embedding(s: str, client: Together):
+    if not s or not s.strip():
+        raise ValueError("Input text cannot be empty or None")
     response = client.embeddings.create(
-        model="BAAI/bge-large-en-v1.5",
-        input = s
+        model="intfloat/multilingual-e5-large-instruct",
+        input=s
     )
 
-    return list(response.data[0].embedding)
+    return response.data[0].embedding
 
 
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
@@ -281,7 +313,7 @@ def bge_embedding(s: str, embedder: BGEM3EmbeddingFunction):
 
 async def embedding():
     keywords_gt = pd.read_csv(
-        os.path.join(os.path.dirname(__file__), '..', 'data', 'keywords_gt_with_examples_all.csv')
+        os.path.join(os.path.dirname(__file__), '..', 'data', 'keywords_gt_with_examples.csv')
     )
 
     # take only those cases where the r package 
@@ -446,36 +478,45 @@ def main():
 
 def milvus_embedding():
     keywords_gt = pd.read_csv(
-        os.path.join(os.path.dirname(__file__), '..', 'data', 'keywords_gt_with_examples_all.csv')
+        os.path.join(os.path.dirname(__file__), '..', 'data', 'keywords_gt_with_examples.csv')
     )
 
     # take only those cases where the r package 
     # is within the first 30 results
     data = keywords_gt[
         (keywords_gt['n_keywords'] == 2) & 
-        (keywords_gt['presence'] == 1) &
+        (keywords_gt['presence'] == '1') &
         (keywords_gt['r_id_index'] < 50) &
         ((keywords_gt['s_id_index'] < 50) | (pd.isna(keywords_gt['s_id_index'])))
-    ].sample(100, random_state=42)
+    ].sample(200, random_state=42)
+    # take last 5 
+    #data = data.tail(5)
 
     # set up our custom CKAN client
     ckan_client = CanadaCKAN() 
 
-    # together_client = Together()
+    together_client = Together()
     # 
     # response = together_client.embeddings.create(
     #     model="BAAI/bge-large-en-v1.5",
     #     input="Hi"
     # )
-    # embedding_dim = len(response.data[0].embedding)
     
-    bge_m3_ef = BGEM3EmbeddingFunction(
-        model_name='BAAI/bge-m3', # Specify the model name
-        device='cpu', # Specify the device to use, e.g., 'cpu' or 'cuda:0'
-        use_fp16=False # Specify whether to use fp16. Set to `False` if `device` is `cpu`.
-    )
+    embedding_dim = len(get_embedding_safe("Hi", together_client))
+    
+    # bge_m3_ef = BGEM3EmbeddingFunction(
+    #     model_name='BAAI/bge-m3', # Specify the model name
+    #     device='cuda:0', # Specify the device to use, e.g., 'cpu' or 'cuda:0'
+    #     #use_fp16=False # Specify whether to use fp16. Set to `False` if `device` is `cpu`.
+    # )
+    
+    
+    
+    
+    
 
-    embedding_dim = bge_m3_ef.dim
+    #embedding_dim = bge_m3_ef.dim
+    print(f"Embedding dimension: {embedding_dim}")
 
     milvus_client = pymilvus.MilvusClient('./milvus_embeddings.db')
     
@@ -491,9 +532,9 @@ def milvus_embedding():
     total_results = []
 
     for idx, row in tqdm(data.iterrows(), desc="All-at-once prompt analysis: ", total=data.shape[0]):
-        milvus_client.drop_collection('packages_collection')
+        milvus_client.drop_collection('packages')
         milvus_client.create_collection(
-            collection_name="packages_collection",
+            collection_name="packages",
             schema=schema,
             index_params=index_params,
             overwrite=True
@@ -503,7 +544,8 @@ def milvus_embedding():
         keywords = row['keywords']
         question = row['nl']
 
-        e_question = bge_embedding(question, bge_m3_ef)
+        e_question = get_embedding_safe(question, together_client)
+        # e_question = bge_embedding(question, bge_m3_ef)
 
         ckan_response = ckan_client.package_search(q=keywords, rows=top_k, defType='edismax', sort='sort desc')
         packages = ckan_response['result']['results']
@@ -516,17 +558,29 @@ def milvus_embedding():
         total_time = None
         n_selected = selected_ids = None
 
-        docs = [
-            {
-                'id': p['id'],
-                'text': f"{p['title']} {p['notes']}",
-                'text_dense': bge_embedding(f"{p['title']} {p['notes']}", bge_m3_ef)
-            }
-            for p in packages
-        ]
+        # docs = [
+        #     {
+        #         'id': p['id'],
+        #         'text': f"{p['title']} {p['notes']}",
+        #         'text_dense': get_embedding(f"{p['title']} {p['notes']}", together_client),
+        #     }
+        #     for p in packages
+        # ]
+        
+        docs = []
+        for p in packages:
+            text = f"{p.get('title', '')} {p.get('notes', '')[:1024]}"
+            embedding = get_embedding_safe(text, together_client, p.get('id'))
+            
+            if embedding is not None:
+                docs.append({
+                    'id': p['id'],
+                    'text': text,
+                    'text_dense': embedding,
+                })
 
         results = milvus_client.insert(
-            collection_name="packages_collection",
+            collection_name="packages",
             data=docs
         )
 
@@ -556,7 +610,7 @@ def milvus_embedding():
             ranker = RRFRanker(100)
 
             results = milvus_client.hybrid_search(
-                collection_name='packages_collection',
+                collection_name='packages',
                 reqs=reqs,
                 ranker=ranker,
                 limit=2
@@ -609,7 +663,7 @@ def milvus_embedding():
             }
         )
 
-        if len(total_results) > 0 and len(total_results) % 10 == 0:
+        if len(total_results) > 0 and len(total_results) % 5 == 0:
             pd.DataFrame(total_results) \
                 .to_csv(os.path.join(os.path.dirname(__file__), 'data', f'milvus_eval_k{top_k}.csv'), index=False)
 

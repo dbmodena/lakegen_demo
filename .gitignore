@@ -150,6 +150,7 @@ venv.bak/
 *.csv
 .files/
 *.pdf
+*.db
 
 # Spyder project settings
 .spyderproject

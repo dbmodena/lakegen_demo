@@ -32,21 +32,35 @@ def search_single_joins(
     :param blend_kwargs: keyword arguments passed to blend.create_index.
     :return: a list of dictionaries, where each reports the pair of tablees and columns and the relative overlap.
     """
-
-    # take table IDs
-    table_ids = list(filter(
-        lambda _id: True if table_ids is None else _id in table_ids,
-        map(lambda _id: re.sub(r"(.csv|.parquet)$", "", _id), os.listdir(tables_path)),
-    ))
+    print(os.listdir(tables_path))
+    
+    # FIXED: Store the original table_ids parameter before reassigning
+    allowed_table_ids = table_ids
+    
+    # Get all table files and filter them
+    all_files = os.listdir(tables_path)
+    table_ids = []
+    
+    for filename in all_files:
+        if filename.endswith(('.csv', '.parquet')):
+            table_id = re.sub(r"\.(csv|parquet)$", "", filename)
+            # Apply filter if provided
+            if allowed_table_ids is None or table_id in allowed_table_ids:
+                table_ids.append(table_id)
+    
+    print(f"Searching in tables: {table_ids}")
 
     if not searcher:
+        print(f"Creating a new BLEND searcher with db_path: {db_path}")
         searcher = BLEND(db_path)
         searcher.create_index(data_path=tables_path, **blend_kwargs)
 
     results = []
 
     for table_id in table_ids:
+        print(f"Searching in table {table_id}...")
         n_rows = blend_kwargs.get("limit_table_rows", None)
+        print(f"Number of rows to read: {n_rows}")
 
         # read the current query table
         match format:
