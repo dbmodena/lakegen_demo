@@ -305,16 +305,6 @@ async def answer(selected_tables, question, settings):
             await current_step.stream_token(chunk)
 
         await executor.stop()
-        #await coder.stop()
-        #await code_execution_agent.stop()
-        
-                
-        # for msg in result.messages:
-        #     if msg.source == 'user':
-        #         continue  # Skip user messages in the output
-        #     current_step.output += msg.content + "\n"
-        
-        
         
     answerer = AssistantAgent(
             "Answerer",
@@ -338,40 +328,7 @@ async def answer(selected_tables, question, settings):
             chunk = chunk.content
         await msg.stream_token(chunk)
     
-    #await msg.update()
-    #     # If the final answer is empty, return a message indicating no code was generated
-    #     if not final_answer.messages[-1].content.strip():
-    #         current_step.output += "No code generated."
-    #         return "No code generated."
-        
-    #     # take the <think> block from the final answer
-    #     think_block = final_answer.messages[-1].content
-
-        
-    #     # remove the think block from the final answer
-    #     answer = final_answer.messages[-1].content
-    #     #print(f"Final answer: {answer}")
-    
-    # current_step.output += think_block
-    # return answer
-    
-    
-    
-
-    # final_content = ""
-    # stream = selector.run_stream(task=f"Question: {question}\n\nTables:\n{retrieved_tables}\n\n")
-    # async for chunk in stream:
-
-    #     if type(chunk) is TextMessage:
-    #         final_content = chunk.content
-    #         continue
-    #     if type(chunk) is TaskResult:
-    #         continue
-    #     #current_step.output += chunk.content
-    #     await current_step.stream_token(chunk.content)
-    
-    # return final_content
-
+   
 # == Chainlit Settings ===
 
 @cl.set_starters
