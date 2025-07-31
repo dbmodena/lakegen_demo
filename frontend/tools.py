@@ -15,9 +15,12 @@ from utils import DOWNLOAD_FOLDER, BLEND_DB
 async def search_single_joins(
     # tables_path: Annotated[str | None, "Path to the tables directory. If None, default location is used. Default is None."],
     # db_path: Annotated[str | None, "Path to the BLEND database file. If None, default location is used. Default is None."],
-    table_ids: Annotated[List[str] | None, "A subset of table IDs to use for the search. If None, all tables are used. Default is None."],
+    table_ids: Annotated[
+        List[str] | None,
+        "A subset of table IDs to use for the search. If None, all tables are used. Default is None.",
+    ],
     k: Annotated[int, "Number of results to return for each search. Default is 3."],
-    n_rows: Annotated[int, "Number of rows to load for each table. Default is 1000."]
+    n_rows: Annotated[int, "Number of rows to load for each table. Default is 1000."],
 ) -> List[Dict]:
     """
     Run a single-column-join search on the given tables.
@@ -26,10 +29,10 @@ async def search_single_joins(
     """
 
     s = f" Running Single JOIN Search with {k=} "
-    print(s.center(len(s) + 100, '#'))
+    print(s.center(len(s) + 100, "#"))
     print(s)
-    print(s.center(len(s) + 100, '#'))
-    
+    print(s.center(len(s) + 100, "#"))
+
     tables_path = None
     db_path = None
 
@@ -44,23 +47,25 @@ async def search_single_joins(
 
     # FIXED: Store the original table_ids parameter before reassigning
     allowed_table_ids = table_ids
-    
+
     # Get all table files and filter them
     all_files = os.listdir(tables_path)
     table_ids = []
-    
+
     for filename in all_files:
-        if filename.endswith(('.csv', '.parquet')):
+        if filename.endswith((".csv", ".parquet")):
             table_id = re.sub(r"\.(csv|parquet)$", "", filename)
             # Apply filter if provided
             if allowed_table_ids is None or table_id in allowed_table_ids:
                 table_ids.append(table_id)
-    
+
     print(f"Searching in tables: {table_ids}")
 
-    if not searcher:
+    searcher = BLEND(db_path)
+
+    # if the database file does not exists, create a new databse
+    if not os.path.exists(db_path):
         print(f"Creating a new BLEND searcher with db_path: {db_path}")
-        searcher = BLEND(db_path)
         searcher.create_index(data_path=tables_path, limit_table_rows=n_rows)
 
     results = []
@@ -111,20 +116,33 @@ async def search_single_joins(
 
     print(f"Obtained results from JOIN search: ")
     print(results)
-    print('#' * (len(s) + 100))
+    print("#" * (len(s) + 100))
 
     return results
 
 
-
 async def search_unions(
-    tables_path: Annotated[str | None, "Path to the tables directory. If None, default location is used. Default is None."] = None,
-    db_path: Annotated[str | None, "Path to the BLEND database file. If None, default location is used. Default is None."] = None,
-    table_ids: Annotated[List[str] | None, "A subset of table IDs to use for the search. If None, all tables are used. Default is None."] = None,
+    tables_path: Annotated[
+        str | None,
+        "Path to the tables directory. If None, default location is used. Default is None.",
+    ] = None,
+    db_path: Annotated[
+        str | None,
+        "Path to the BLEND database file. If None, default location is used. Default is None.",
+    ] = None,
+    table_ids: Annotated[
+        List[str] | None,
+        "A subset of table IDs to use for the search. If None, all tables are used. Default is None.",
+    ] = None,
     k: Annotated[int, "Number of results to return for each search. Default is 3."] = 3,
-    n_rows: Annotated[int, "Number of rows to load for each table. Default is 1000."] = 1000,
+    n_rows: Annotated[
+        int, "Number of rows to load for each table. Default is 1000."
+    ] = 1000,
     # check_headers: Annotated[bool, "If True, use overlapping headers to identify potential unionable tables."] = True,
-    check_data: Annotated[bool, "If True, use BLEND combined with SLOTH to identify potential unionable tables. Default is True."] = True
+    check_data: Annotated[
+        bool,
+        "If True, use BLEND combined with SLOTH to identify potential unionable tables. Default is True.",
+    ] = True,
 ) -> List[Dict]:
     """
     Run a union search on the given tables.
@@ -132,34 +150,40 @@ async def search_unions(
     :return: a list of dictionaries, where each reports the pair of tablees and columns and the relative overlap.
     """
 
+    if not check_data:
+        raise ValueError(
+            "check_data must be set to True. Headers-only search not yet implemented."
+        )
+
     format = "csv"
 
     # FIXED: Store the original table_ids parameter before reassigning
     allowed_table_ids = table_ids
-    
+
     # Get all table files and filter them
     all_files = os.listdir(tables_path)
     table_ids = []
-    
+
     for filename in all_files:
-        if filename.endswith(('.csv', '.parquet')):
+        if filename.endswith((".csv", ".parquet")):
             table_id = re.sub(r"\.(csv|parquet)$", "", filename)
             # Apply filter if provided
             if allowed_table_ids is None or table_id in allowed_table_ids:
                 table_ids.append(table_id)
-    
+
     print(f"Searching in tables: {table_ids}")
 
-    if not searcher:
+    searcher = BLEND(db_path)
+
+    # if the database file does not exists, create a new databse
+    if not os.path.exists(db_path):
         print(f"Creating a new BLEND searcher with db_path: {db_path}")
-        searcher = BLEND(db_path)
         searcher.create_index(data_path=tables_path, limit_table_rows=n_rows)
 
     results_by_data = []
 
     if check_data:
         for table_id in table_ids:
-
             # read the current query table
             match format:
                 case "csv":
@@ -175,8 +199,8 @@ async def search_unions(
             query_values = list(chain(*df.rows()))
             res = searcher.keyword_search(query_values, k)
 
-            # then, for each identified pairs, 
-            # check its largest overlap in terms of width 
+            # then, for each identified pairs,
+            # check its largest overlap in terms of width
             for res_table_id, overlap in res:
                 match format:
                     case "csv":
@@ -185,31 +209,30 @@ async def search_unions(
                         )
                     case "parquet":
                         s_df = pl.read_parquet(
-                            os.path.join(tables_path, table_id + ".parquet"), r_rows=n_rows
+                            os.path.join(tables_path, table_id + ".parquet"),
+                            r_rows=n_rows,
                         )
-                
+
                 min_w = min(df.shape[1], s_df.shape[1])
 
                 while min_w >= 1:
                     sloth_metrics = {}
-                    success, sloth_results, sloth_metrics = sloth(df, s_df, min_w=min_w, metrics=sloth_metrics)
-                    
+                    success, sloth_results, sloth_metrics = sloth(
+                        df, s_df, min_w=min_w, metrics=sloth_metrics
+                    )
+
                     if sloth_results == []:
                         # if any result is found, decrease the required width
                         min_w -= 1
-                    
+
                     else:
                         # if a valid overlap is found, then stop the search for the
                         # current table and pass to the next one
-                        
-                        left_columns = [
-                            df.columns[p[0]]
-                            for p in sloth_results[0][0]
-                        ]
+
+                        left_columns = [df.columns[p[0]] for p in sloth_results[0][0]]
 
                         right_columns = [
-                            s_df.columns[p[1]]
-                            for p in sloth_results[0][0]
+                            s_df.columns[p[1]] for p in sloth_results[0][0]
                         ]
 
                         results_by_data.append(
@@ -220,12 +243,11 @@ async def search_unions(
                                 "right_columns": right_columns,
                                 "width": sloth_metrics["largest_overlap_width"],
                                 "heigth": sloth_metrics["largest_overlap_heigth"],
-                                "area": sloth_metrics["largest_overlap_area"] 
+                                "area": sloth_metrics["largest_overlap_area"],
                             }
                         )
 
                         break
-
 
     # if check_headers:
     #     raise NotImplementedError("Headers mode not implemented yet.")
