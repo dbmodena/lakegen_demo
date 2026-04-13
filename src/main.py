@@ -22,6 +22,9 @@ from valentine import valentine_match
 from valentine.algorithms import JaccardDistanceMatcher
 
 # from llama_index.llms.openai_like import OpenAILike
+import tiktoken
+from llama_index.core import Settings
+from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 from llama_index.llms.ollama import Ollama
 from llama_index.core.workflow import Workflow, step, StartEvent, StopEvent, Event
 from llama_index.core.llms import ChatMessage
@@ -79,7 +82,7 @@ class RobustLakeGenWorkflow(Workflow):
         
         print(f"\nPHASE 1: KEYWORD GENERATION")
         print(f"    Question: '{self.question}'")
-        print(f"    Keyword base: {default_keywords}")
+        print(f"    Base keywords: {default_keywords}")
 
         keyword_hint = ""
         while True:
@@ -105,9 +108,14 @@ class RobustLakeGenWorkflow(Workflow):
                 ChatMessage(role="user", content=user_prompt)
             ])
 
+            if res.raw:
+                in_t = res.raw.get('prompt_eval_count', 0)
+                out_t = res.raw.get('eval_count', 0)
+                print(f"    📊 [TOKEN PHASE 1] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
+
             raw_content = str(res.message.content).strip().lower()
             print(f"    DEBUG raw: '{raw_content}'")
-            # res.message.
+
             # Takes only valid words
             extracted_words = re.findall(r'\b[a-z0-9_]+\b', raw_content)
 
@@ -155,6 +163,10 @@ class RobustLakeGenWorkflow(Workflow):
             system_prompt="You are a Data Architect. Inspect CSVs. AS SOON as you know which files are needed, call the 'confirm_table_selection' tool. You MUST provide both the filenames and a brief reasoning of your choice for the Data Scientist."
         )
 
+        token_counter = next((h for h in Settings.callback_manager.handlers if hasattr(h, 'reset_counts')), None)
+        if token_counter:
+            token_counter.reset_counts()
+
         table_hint = ""
         while True:
             enriched_candidates_info = ""
@@ -200,9 +212,16 @@ class RobustLakeGenWorkflow(Workflow):
                 agent_resp = f'FINAL_PAYLOAD: {{"tabelle": "{", ".join(top_10[:2])}", "ragionamento": "Timeout reached. Fallback to top 2 tables."}}'
             finally:
                 sys.stdout = logger_capture.terminal 
-                traccia_completa = logger_capture.log_str.getvalue()
+                full_trace = logger_capture.log_str.getvalue()
                 logger_capture.log_str.close()
             
+            # Print total tokens for the agent
+            if token_counter:
+                pt = token_counter.prompt_llm_token_count
+                ct = token_counter.completion_llm_token_count
+                print(f"\n    📊 [TOKEN PHASE 2 - Agent] Prompt: {pt} | Generate: {ct} | Tot: {pt + ct}")
+                token_counter.reset_counts()
+
             selected_tables = ""
             architect_reasoning = "No reasoning provided."
 
@@ -237,11 +256,14 @@ class RobustLakeGenWorkflow(Workflow):
             if not user_input_tables or user_input_tables.lower() in ['ok', 'y', 'si', 'yes']:
                 print("    [✓] Table selection approved!")
                 break
-            
+
             table_hint = user_input_tables
             print(f"    [!] Recalculating based on: '{table_hint}'...")
 
-        return TableSelectionEvent(selected_files=selected, reasoning=ragionamento_architetto, full_trace=traccia_completa)
+        # Turning off the callback to not interfere with Phases 3 and 5
+        Settings.callback_manager = CallbackManager([])
+
+        return TableSelectionEvent(selected_files=selected, reasoning=architect_reasoning, full_trace=full_trace)
 
     @step
     async def generate_or_correct_code(self, ev: TableSelectionEvent | CodeErrorEvent) -> ExecutionEvent | FinalResultEvent:
@@ -254,7 +276,7 @@ class RobustLakeGenWorkflow(Workflow):
             self.tables_info = get_filtered_tables_info(ev.selected_files)
             self.selected_files_list = ev.selected_files
             retries = 0
-            print(f"\n[3] Generating initial code...")
+            print(f"\nPHASE 3: Generating initial code...")
         else:
             retries = ev.retries
             print(f"\n[Corrector] Execution failed. Attempting correction (Attempt {retries}/{self.max_retries})...")
@@ -304,12 +326,18 @@ class RobustLakeGenWorkflow(Workflow):
             """
 
         res = await self.llm_versatile.achat([ChatMessage(role="user", content=prompt)])
+
+        if res.raw:
+            in_t = res.raw.get('prompt_eval_count', 0)
+            out_t = res.raw.get('eval_count', 0)
+            print(f"    📊 [TOKEN PHASE 3 (Attempt {retries+1})] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
+
         return ExecutionEvent(code=str(res.message.content), retries=retries)
 
     @step
     async def execute_code(self, ev: ExecutionEvent) -> CodeErrorEvent | FinalResultEvent:
         """PHASE 4: Execute the Python script in a separate process."""
-        print(f"[4] Executing Python script...")
+        print(f"PHASE 4: Executing Python script...")
         code = ev.code
 
         # Extracting clean code
@@ -375,6 +403,11 @@ class RobustLakeGenWorkflow(Workflow):
             res = await self.llm_instant.achat([
                 ChatMessage(role="user", content=prompt)
             ])
+
+            if res.raw:
+                in_t = res.raw.get('prompt_eval_count', 0)
+                out_t = res.raw.get('eval_count', 0)
+                print(f"    📊 [TOKEN PHASE 5] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
             
             final_answer = str(res.message.content).strip()
             
@@ -402,6 +435,12 @@ async def main():
     except FileNotFoundError:
         print("❌ Indices not found! Run 'python index.py' first")
         return
+
+    print("🔄 Initializing Token Tracking System...")
+    token_counter = TokenCountingHandler(
+        tokenizer=tiktoken.encoding_for_model("gpt-3.5-turbo").encode
+    )
+    Settings.callback_manager = CallbackManager([token_counter])
 
     # LLM Configuration with Ollama
     # Available models: gpt-oss:20b (context: 128K), qwen3.5:latest (context: 256K), llama3.1:8b (context: 128k)
