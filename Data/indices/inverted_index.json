@@ -1,0 +1,609 @@
+{
+  "tv": [
+    "netflix_titles.csv"
+  ],
+  "season": [
+    "netflix_titles.csv"
+  ],
+  "duration": [
+    "netflix_titles.csv"
+  ],
+  "description": [
+    "netflix_titles.csv"
+  ],
+  "title": [
+    "netflix_titles.csv"
+  ],
+  "every": [
+    "netflix_titles.csv"
+  ],
+  "show": [
+    "netflix_titles.csv"
+  ],
+  "meta": [
+    "netflix_titles.csv"
+  ],
+  "movie": [
+    "netflix_titles.csv"
+  ],
+  "genere": [
+    "netflix_titles.csv"
+  ],
+  "release_year": [
+    "netflix_titles.csv"
+  ],
+  "netflix": [
+    "netflix_titles.csv"
+  ],
+  "director": [
+    "netflix_titles.csv"
+  ],
+  "rating": [
+    "netflix_titles.csv"
+  ],
+  "listed_in": [
+    "netflix_titles.csv"
+  ],
+  "city": [
+    "Cost_of_Living_Index_by_Country_2024.csv",
+    "SuperMarket Analysis.csv"
+  ],
+  "cost": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "york": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "price": [
+    "Cost_of_Living_Index_by_Country_2024.csv",
+    "avocado.csv"
+  ],
+  "numbeo": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "average": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "rent": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "living": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "power": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "purchasing": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "index": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "new": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "relative": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "salary": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "grocery": [
+    "Cost_of_Living_Index_by_Country_2024.csv"
+  ],
+  "unit": [
+    "SuperMarket Analysis.csv"
+  ],
+  "mandalay": [
+    "SuperMarket Analysis.csv"
+  ],
+  "dataset": [
+    "SuperMarket Analysis.csv"
+  ],
+  "gender": [
+    "SuperMarket Analysis.csv"
+  ],
+  "gross": [
+    "SuperMarket Analysis.csv"
+  ],
+  "size": [
+    "SuperMarket Analysis.csv"
+  ],
+  "product": [
+    "SuperMarket Analysis.csv"
+  ],
+  "supermarket": [
+    "SuperMarket Analysis.csv"
+  ],
+  "payment": [
+    "SuperMarket Analysis.csv"
+  ],
+  "sale": [
+    "SuperMarket Analysis.csv"
+  ],
+  "transaction": [
+    "SuperMarket Analysis.csv"
+  ],
+  "branch": [
+    "SuperMarket Analysis.csv"
+  ],
+  "customer": [
+    "SuperMarket Analysis.csv"
+  ],
+  "tax": [
+    "SuperMarket Analysis.csv"
+  ],
+  "type": [
+    "Pokemon.csv"
+  ],
+  "generation": [
+    "Pokemon.csv"
+  ],
+  "49": [
+    "Pokemon.csv"
+  ],
+  "attack": [
+    "Pokemon.csv"
+  ],
+  "speed": [
+    "Pokemon.csv"
+  ],
+  "45": [
+    "Pokemon.csv"
+  ],
+  "strength": [
+    "Pokemon.csv"
+  ],
+  "sp": [
+    "Pokemon.csv"
+  ],
+  "false": [
+    "Pokemon.csv"
+  ],
+  "defensive": [
+    "Pokemon.csv"
+  ],
+  "number": [
+    "Pokemon.csv",
+    "avocado.csv",
+    "shanghaiData.csv",
+    "timesData.csv"
+  ],
+  "65": [
+    "Pokemon.csv"
+  ],
+  "legendary": [
+    "Pokemon.csv"
+  ],
+  "pokemon": [
+    "Pokemon.csv"
+  ],
+  "special": [
+    "Pokemon.csv"
+  ],
+  "sold": [
+    "avocado.csv"
+  ],
+  "4225": [
+    "avocado.csv"
+  ],
+  "total": [
+    "avocado.csv",
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "large": [
+    "avocado.csv"
+  ],
+  "4046": [
+    "avocado.csv"
+  ],
+  "avocado": [
+    "avocado.csv"
+  ],
+  "observation": [
+    "avocado.csv"
+  ],
+  "4770": [
+    "avocado.csv"
+  ],
+  "hass": [
+    "avocado.csv"
+  ],
+  "date": [
+    "avocado.csv"
+  ],
+  "small": [
+    "avocado.csv"
+  ],
+  "bag": [
+    "avocado.csv"
+  ],
+  "plu": [
+    "avocado.csv"
+  ],
+  "br": [
+    "cwurData.csv",
+    "timesData.csv"
+  ],
+  "methodology": [
+    "cwurData.csv"
+  ],
+  "rank": [
+    "cwurData.csv",
+    "2015.csv",
+    "2017.csv",
+    "2018.csv",
+    "2019.csv"
+  ],
+  "2015": [
+    "cwurData.csv",
+    "2015.csv"
+  ],
+  "year": [
+    "cwurData.csv"
+  ],
+  "world": [
+    "cwurData.csv"
+  ],
+  "http": [
+    "cwurData.csv",
+    "timesData.csv"
+  ],
+  "patent": [
+    "cwurData.csv"
+  ],
+  "university": [
+    "cwurData.csv",
+    "school_and_country_table.csv",
+    "shanghaiData.csv",
+    "timesData.csv"
+  ],
+  "quality": [
+    "cwurData.csv"
+  ],
+  "cwur": [
+    "cwurData.csv"
+  ],
+  "publication": [
+    "cwurData.csv"
+  ],
+  "wikipedia": [
+    "cwurData.csv"
+  ],
+  "org": [
+    "cwurData.csv"
+  ],
+  "influence": [
+    "cwurData.csv"
+  ],
+  "oecd": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "2011": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "table": [
+    "education_expenditure_supplementary_data.csv",
+    "school_and_country_table.csv"
+  ],
+  "institution": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "public": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "private": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "plus": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "nces": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "preprimary": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "education": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "direct": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "expenditure": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "d14": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "subsidy": [
+    "education_expenditure_supplementary_data.csv"
+  ],
+  "2006": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1991": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1998": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1996": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1993": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "2003": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1990": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1987": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "2007": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "2004": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1997": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "2008": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1999": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "1992": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "2001": [
+    "educational_attainment_supplementary_data.csv"
+  ],
+  "school_name": [
+    "school_and_country_table.csv"
+  ],
+  "file": [
+    "school_and_country_table.csv"
+  ],
+  "shanghai": [
+    "school_and_country_table.csv"
+  ],
+  "lookup": [
+    "school_and_country_table.csv"
+  ],
+  "used": [
+    "school_and_country_table.csv"
+  ],
+  "country": [
+    "school_and_country_table.csv",
+    "2015.csv",
+    "2016.csv",
+    "2017.csv",
+    "2018.csv",
+    "2019.csv"
+  ],
+  "timesdata": [
+    "school_and_country_table.csv"
+  ],
+  "missing": [
+    "school_and_country_table.csv"
+  ],
+  "data": [
+    "school_and_country_table.csv"
+  ],
+  "populate": [
+    "school_and_country_table.csv"
+  ],
+  "ranking": [
+    "school_and_country_table.csv"
+  ],
+  "paper": [
+    "shanghaiData.csv"
+  ],
+  "citation": [
+    "shanghaiData.csv",
+    "timesData.csv"
+  ],
+  "medal": [
+    "shanghaiData.csv"
+  ],
+  "score": [
+    "shanghaiData.csv",
+    "timesData.csv",
+    "2015.csv",
+    "2016.csv"
+  ],
+  "shanghairanking": [
+    "shanghaiData.csv"
+  ],
+  "nobel": [
+    "shanghaiData.csv"
+  ],
+  "pub": [
+    "shanghaiData.csv"
+  ],
+  "field": [
+    "shanghaiData.csv"
+  ],
+  "science": [
+    "shanghaiData.csv"
+  ],
+  "alumnus": [
+    "shanghaiData.csv"
+  ],
+  "prize": [
+    "shanghaiData.csv"
+  ],
+  "based": [
+    "shanghaiData.csv"
+  ],
+  "hici": [
+    "shanghaiData.csv"
+  ],
+  "2016": [
+    "timesData.csv",
+    "2016.csv",
+    "2017.csv"
+  ],
+  "student": [
+    "timesData.csv"
+  ],
+  "research": [
+    "timesData.csv"
+  ],
+  "staff": [
+    "timesData.csv"
+  ],
+  "international": [
+    "timesData.csv"
+  ],
+  "income": [
+    "timesData.csv"
+  ],
+  "teaching": [
+    "timesData.csv"
+  ],
+  "timeshighereducation": [
+    "timesData.csv"
+  ],
+  "extent": [
+    "2015.csv",
+    "2016.csv"
+  ],
+  "contributes": [
+    "2015.csv",
+    "2016.csv"
+  ],
+  "happiness": [
+    "2015.csv",
+    "2016.csv",
+    "2017.csv",
+    "2018.csv",
+    "2019.csv"
+  ],
+  "standard": [
+    "2015.csv"
+  ],
+  "residual": [
+    "2015.csv",
+    "2016.csv",
+    "2017.csv"
+  ],
+  "error": [
+    "2015.csv"
+  ],
+  "family": [
+    "2015.csv",
+    "2016.csv"
+  ],
+  "contributed": [
+    "2015.csv",
+    "2016.csv"
+  ],
+  "10": [
+    "2015.csv",
+    "2017.csv"
+  ],
+  "dystopia": [
+    "2015.csv",
+    "2016.csv"
+  ],
+  "calculation": [
+    "2015.csv",
+    "2016.csv"
+  ],
+  "lower": [
+    "2016.csv"
+  ],
+  "interval": [
+    "2016.csv"
+  ],
+  "upper": [
+    "2016.csv"
+  ],
+  "confidence": [
+    "2016.csv"
+  ],
+  "measured": [
+    "2017.csv"
+  ],
+  "sampled": [
+    "2017.csv"
+  ],
+  "low": [
+    "2017.csv"
+  ],
+  "whisker": [
+    "2017.csv"
+  ],
+  "2017": [
+    "2017.csv"
+  ],
+  "government": [
+    "2017.csv"
+  ],
+  "people": [
+    "2017.csv"
+  ],
+  "high": [
+    "2017.csv"
+  ],
+  "trust": [
+    "2017.csv"
+  ],
+  "choice": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "generosity": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "overall": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "social": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "life": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "caput": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "freedom": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "healthy": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "make": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "2018": [
+    "2018.csv"
+  ],
+  "perception": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "support": [
+    "2018.csv",
+    "2019.csv"
+  ],
+  "2019": [
+    "2019.csv"
+  ]
+}

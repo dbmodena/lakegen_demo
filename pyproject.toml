@@ -1,0 +1,23 @@
+[project]
+name = "lakegen"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "bitarray>=3.8.0",
+    "dotenv>=0.9.9",
+    "duckdb>=1.5.1",
+    "llama-index>=0.14.19",
+    "llama-index-llms-ollama>=0.10.1",
+    "llama-index-llms-openai-like>=0.7.1",
+    "nltk>=3.9.4",
+    "pandas>=2.3.3",
+    "polars>=1.39.3",
+    "pyarrow>=23.0.1",
+    "python-dotenv>=1.2.2",
+    "scikit-learn>=1.8.0",
+    "thefuzz>=0.22.1",
+    "timeout-decorator>=0.5.0",
+    "valentine>=0.4.1",
+]

@@ -1,0 +1,456 @@
+# Download wordnet and omw-1.4 before running the program (only the first time)
+# uv run python3 -c "import nltk; nltk.download('wordnet'); nltk.download('omw-1.4')"
+
+import os
+import sys
+import io
+import re
+import json
+import asyncio
+import datetime
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import polars as pl
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
+from thefuzz import fuzz
+from valentine import valentine_match
+from valentine.algorithms import JaccardDistanceMatcher
+
+# from llama_index.llms.openai_like import OpenAILike
+from llama_index.llms.ollama import Ollama
+from llama_index.core.workflow import Workflow, step, StartEvent, StopEvent, Event
+from llama_index.core.llms import ChatMessage
+from llama_index.core.tools import FunctionTool
+from llama_index.core.agent import ReActAgent
+
+from utils import (
+    BASE_DIR,
+    DATA_DIR,
+    CSV_DIR,
+    INDICI_DIR,
+    DB_PATH,
+    LOG_DIR,
+    get_filtered_tables_info,
+    extract_query_keywords,
+    save_experiment_log,
+    DualLogger
+)
+from tools import agent_tools
+
+# ==========================================
+# WORKFLOW DEFINITION (Events and Class)
+# ==========================================
+class TableSelectionEvent(Event): 
+    selected_files: list
+    reasoning: str
+    full_trace: str
+class ExecutionEvent(Event): 
+    code: str
+    retries: int
+class CodeErrorEvent(Event): 
+    error_message: str
+    retries: int
+class FinalResultEvent(Event): 
+    raw_result: Any
+
+class RobustLakeGenWorkflow(Workflow):
+    def __init__(self, llm_instant, llm_versatile, inverted_index: dict, table_kw: dict, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.llm_instant = llm_instant
+        self.llm_versatile = llm_versatile
+        self.inverted_index = inverted_index
+        self.table_kw = table_kw
+        self.max_retries = 3
+        self.all_available_files = list(set([f for files in self.inverted_index.values() for f in files]))
+
+    @step
+    async def select_tables(self, ev: StartEvent) -> TableSelectionEvent:
+        """PHASE 1 and 2: Generate keywords and select tables."""
+        self.question = ev.question
+
+        # PHASE 1: KEYWORD GENERATION WITH LOOP
+        raw_keywords_str = extract_query_keywords(self.question)
+        default_keywords = [k.strip() for k in raw_keywords_str.split(',') if k.strip()]
+        
+        print(f"\nPHASE 1: KEYWORD GENERATION")
+        print(f"    Question: '{self.question}'")
+        print(f"    Keyword base: {default_keywords}")
+
+        keyword_hint = ""
+        while True:
+            hint_section = f'\nUSER HINT (CRITICAL): "{keyword_hint}"' if keyword_hint else ""
+
+            system_prompt = system_prompt = """You are a Data Processing API.
+            TASK: Generate ONLY 3 to 5 NEW domain-specific synonyms or related technical terms.
+            STRICT RULES:
+            1. DO NOT repeat the words provided in the input.
+            2. Reply ONLY with a single line of comma-separated lowercase words.
+            3. NO conversational text.
+            """
+
+            user_prompt = f"""Question: What are the best restaurants in Rome?
+            Answer: restaurants, Rome, best
+            Input Question: "{self.question}"
+            Existing Words (DO NOT REPEAT THESE): "{raw_keywords_str}"
+            {hint_section}
+            New Synonyms:"""
+
+            res = await self.llm_instant.achat([
+                ChatMessage(role="system", content=system_prompt),
+                ChatMessage(role="user", content=user_prompt)
+            ])
+
+            raw_content = str(res.message.content).strip().lower()
+            print(f"    DEBUG raw: '{raw_content}'")
+            # res.message.
+            # Takes only valid words
+            extracted_words = re.findall(r'\b[a-z0-9_]+\b', raw_content)
+
+            llm_fluff = {"here", "is", "are", "the", "list", "keywords", "output", "of", "sure", "certainly", "based", "on", "and", "or"}
+            brute_keywords = [w for w in extracted_words if w not in llm_fluff]
+
+            enriched_keywords = default_keywords.copy()
+            for w in brute_keywords:
+                if w not in enriched_keywords:
+                    enriched_keywords.append(w)
+
+            # Truncate excess words
+            enriched_keywords = enriched_keywords[:12]
+
+            print(f"\n    -> Elaborated keywords: {enriched_keywords}")
+            user_input = input("    Press ENTER to confirm, or write a suggestion: ").strip()
+
+            if not user_input or user_input.lower() in ['ok', 'y', 'si', 'yes']:
+                print("    [✓] Keywords approved!")
+                break
+            
+            keyword_hint = user_input
+            print(f"    [!] Recalculating...")
+
+        # PHASE 2: TABLE SELECTION WITH LOOP
+        print(f"\nPHASE 2: TABLE SELECTION (Agent is inspecting files...)")
+
+        table_scores = {}
+        for kw in enriched_keywords:
+            for index_kw, files in self.inverted_index.items():
+                score = fuzz.ratio(kw, index_kw)
+                if score >= 80:
+                    for f in files:
+                        table_scores[f] = table_scores.get(f, 0.0) + (score / 100.0)
+
+        sorted_tables = sorted(table_scores.items(), key=lambda x: x[1], reverse=True)
+        top_10 = [t[0] for t in sorted_tables if t[1] > 0.0][:10] or self.all_available_files[:5]
+
+        explorer_agent = ReActAgent(
+            name="data_explorer",
+            tools=agent_tools,
+            llm=self.llm_versatile,
+            verbose=True,
+            max_iterations=10,
+            system_prompt="You are a Data Architect. Inspect CSVs. AS SOON as you know which files are needed, call the 'confirm_table_selection' tool. You MUST provide both the filenames and a brief reasoning of your choice for the Data Scientist."
+        )
+
+        table_hint = ""
+        while True:
+            enriched_candidates_info = ""
+            for file_name in top_10:
+                topics = ", ".join(self.table_kw.get(file_name, ["No specific topics"]))
+                enriched_candidates_info += f"- {file_name} (Topics: {topics})\n"
+
+            hint_section = f'\nUSER HINT: "{table_hint}"' if table_hint else "None"
+
+            agent_prompt = f"""You are a Data Architect. Your task is to select the exact tables needed to answer this USER QUESTION: "{self.question}"
+
+            CANDIDATE FILES:
+            {enriched_candidates_info}
+            {hint_section}
+
+            STRICT HIERARCHY OF RULES:
+            1. PRIORITY 1: INTELLIGENT USER HINTS
+              - If the user provides an exact filename as a hint (e.g. 2017.csv), STOP searching and use ONLY that file.
+            2. PRIORITY 2: AVOID FALSE POSITIVES
+              - Look at the TOPICS. If the user asks about "Happiness", ignore tables about "University" even if they have a "score" column.
+            3. PRIORITY 3: EXACT YEAR MATCHING vs DOMAIN MISMATCH (CRITICAL)
+              - If the user explicitly asks for a year (e.g., 2017), DO NOT blindly select a file named '2017.csv' if its TOPIC is completely unrelated to the user's question (e.g. Happiness vs Avocados). Prioritize the dataset that matches the TOPIC (e.g., 'avocado.csv' often contains multiple years internally).
+            4. PRIORITY 4: MULTI-TABLE COMPLETENESS
+              - ONLY if the user asks to compare two DIFFERENT topics, select ALL tables needed. Otherwise, keep the selection as minimal as possible (1 or 2 files).
+            5. PRIORITY 5: MISSING OR UNSPECIFIED YEARS RULE
+              - If the user's question requires data that spans across multiple years but the user DOES NOT specify a year, or if no year is mentioned at all, always default to the most recent year available. Do not inspect all files; simply select the latest version (e.g., 2019.csv) and STOP.
+            
+            CRITICAL SYSTEM INSTRUCTION - REPLY FORMAT:
+            You are physically INCAPABLE of speaking directly to the user.
+            You MUST NEVER write a final textual conclusion.
+            To finish the task, you HAVE ONLY ONE OPTION: you MUST call the tool `confirm_table_selection`.
+            If you do not call this tool, the system will crash. 
+            """
+
+            logger_capture = DualLogger(sys.stdout)
+            sys.stdout = logger_capture
+            
+            try:
+                res = await asyncio.wait_for(explorer_agent.run(agent_prompt), timeout=180.0)
+                agent_resp = str(getattr(res, 'response', res)).strip()
+            except asyncio.TimeoutError:
+                sys.stdout.write("\n    [!] Attenzione: L'agente stava ragionando troppo a lungo. Interruzione forzata.\n")
+                agent_resp = f'FINAL_PAYLOAD: {{"tabelle": "{", ".join(top_10[:2])}", "ragionamento": "Timeout reached. Fallback to top 2 tables."}}'
+            finally:
+                sys.stdout = logger_capture.terminal 
+                traccia_completa = logger_capture.log_str.getvalue()
+                logger_capture.log_str.close()
+            
+            selected_tables = ""
+            architect_reasoning = "No reasoning provided."
+
+            if "FINAL_PAYLOAD:" in agent_resp:
+                match_json = re.search(r'FINAL_PAYLOAD:\s*(\{.*?\})', agent_resp, re.DOTALL)
+                
+                if match_json:
+                    json_str = match_json.group(1).replace('\\"', '"') # Safety cleaning
+                    try:
+                        payload = json.loads(json_str)
+                        selected_tables = payload.get("tables", "")
+                        architect_reasoning = payload.get("reasoning", "")
+                    except json.JSONDecodeError:
+                        selected_tables = json_str # Fallback in caso di json sporco
+                else:
+                    selected_tables = agent_resp
+            else:
+                match_tables = re.search(r'(?i)TABLES:\s*(.*)', agent_resp)
+                if match_tables:
+                    selected_tables = match_tables.group(1).replace("tables:", "").strip()
+
+            selected_tables = selected_tables.replace("'", "").replace('"', "")
+            
+            selected = [f.strip() for f in selected_tables.split(',') if f.strip() in self.all_available_files]
+            if not selected:
+                selected = top_10[:2]
+
+            print(f"\n    [💡] Architect Reasoning: {architect_reasoning}")
+
+            user_input_tables = input(f"    Tables ({selected}) - Press ENTER to confirm, or write a suggestion: ").strip()
+            
+            if not user_input_tables or user_input_tables.lower() in ['ok', 'y', 'si', 'yes']:
+                print("    [✓] Table selection approved!")
+                break
+            
+            table_hint = user_input_tables
+            print(f"    [!] Recalculating based on: '{table_hint}'...")
+
+        return TableSelectionEvent(selected_files=selected, reasoning=ragionamento_architetto, full_trace=traccia_completa)
+
+    @step
+    async def generate_or_correct_code(self, ev: TableSelectionEvent | CodeErrorEvent) -> ExecutionEvent | FinalResultEvent:
+        """PHASE 3: Generate or correct code based on the chosen tables."""
+
+        # Saving state at the first pass
+        if isinstance(ev, TableSelectionEvent):
+            self.arch_reasoning = ev.reasoning
+            self.agent_full_trace = ev.full_trace
+            self.tables_info = get_filtered_tables_info(ev.selected_files)
+            self.selected_files_list = ev.selected_files
+            retries = 0
+            print(f"\n[3] Generating initial code...")
+        else:
+            retries = ev.retries
+            print(f"\n[Corrector] Execution failed. Attempting correction (Attempt {retries}/{self.max_retries})...")
+            if retries >= self.max_retries:
+                print(f"    [!] Maximum number of attempts ({self.max_retries}) reached.")
+                messaggio_di_resa = f"I tried my best, but I encountered a technical error: {getattr(ev, 'error_message', 'Unknown error')}"
+                return FinalResultEvent(raw_result=messaggio_di_resa)
+
+        if retries == 0:
+            prompt = f"""You are an expert Data Scientist.
+            Write ONLY the Python (Pandas) code to answer the following user question: "{self.question}"
+
+            DATA ARCHITECT'S INSTRUCTIONS:
+            "{self.arch_reasoning}"
+
+            AVAILABLE TABLES (YOU MUST USE EXACTLY THESE PATHS):
+            {self.tables_info}
+
+            CRITICAL RULES:
+            1. DO NOT invent file paths. You MUST use the exact file paths listed above inside `pd.read_csv()`.
+            2. DO NOT USE PROXIES. If the user asks for a specific metric (e.g. 'Local Purchasing Power Index'), you MUST find the table that contains it. Do not use another column (like GDP) as a replacement.
+            3. You MUST use 'pd.merge()' to join tables if the user's question compares different datasets.
+            4. Make sure to handle potential naming mismatches in the country columns using `left_on` and `right_on`.
+            5. You MUST use `print()` at the end of the script to output the final answer clearly.
+            6. Reply EXCLUSIVELY with the raw Python code block. Do not add any conversational text or explanations.
+            7. BE DEFENSIVE WITH STRINGS: When filtering string columns (like cities or categories), ALWAYS convert both the column and your filter condition to lowercase to avoid case-sensitivity mismatches (e.g., use `df[df['region'].str.lower() == 'chicago']`).
+            8. HANDLE EMPTY RESULTS: If your final calculation results in `NaN` or an empty series, DO NOT print `NaN`. You must print a descriptive error message like "ERROR_EMPTY: No matching records found for those filters" so the system knows the query failed.
+            """
+        else:
+            prompt = f"""The Python code you previously generated for "{self.question}" resulted in a fatal error:
+
+            ERROR TRACEBACK:
+            {ev.error_message}
+
+            DATA ARCHITECT'S INSTRUCTIONS (CRITICAL FOR JOINING):
+            "{self.arch_reasoning}"
+
+            AVAILABLE TABLES (YOU MUST USE EXACTLY THESE PATHS):
+            {self.tables_info}
+
+            CRITICAL FIX REQUIRED:
+            If the error is a FileNotFoundError, it means you hallucinated the file path. Look at the AVAILABLE TABLES list above and USE EXACTLY THOSE PATHS.
+
+            Fix the error and rewrite the complete, working Python script.
+            Remember to use `print()` to output the final result.
+            Reply EXCLUSIVELY with the raw Python code block. Do not apologize or explain.
+            """
+
+        res = await self.llm_versatile.achat([ChatMessage(role="user", content=prompt)])
+        return ExecutionEvent(code=str(res.message.content), retries=retries)
+
+    @step
+    async def execute_code(self, ev: ExecutionEvent) -> CodeErrorEvent | FinalResultEvent:
+        """PHASE 4: Execute the Python script in a separate process."""
+        print(f"[4] Executing Python script...")
+        code = ev.code
+
+        # Extracting clean code
+        match = re.search(r'```python\n(.*?)\n```', code, re.DOTALL)
+        if match:
+            code = match.group(1).strip()
+        else:
+            code = code.replace("```python", "").replace("```", "").strip()
+
+        # Security check
+        forbidden = ["import os", "import sys", "import shutil", "subprocess", "eval(", "exec("]
+        if any(f in code for f in forbidden):
+            return CodeErrorEvent(error_message="Security Error: Forbidden libraries used.", retries=ev.retries + 1)
+
+        # Creating folder and script file
+        coding_dir = BASE_DIR / "coding"
+        coding_dir.mkdir(exist_ok=True)
+        filepath = coding_dir / "script.py"
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        trace_to_log = getattr(self, 'agent_full_trace', getattr(self, 'arch_reasoning', 'Trace not available'))
+        tabelle_log = getattr(self, 'selected_files_list', None)
+
+        try:
+            # Isolated execution with 15 second timeout
+            result = subprocess.run([sys.executable, str(filepath)], capture_output=True, text=True, timeout=15)
+            
+            if result.returncode == 0:
+                print("    [✓] Execution completed successfully!")
+                save_experiment_log(self.question, code, result.stdout.strip(), ev.retries, reasoning=trace_to_log, tables=tabelle_log)
+                return FinalResultEvent(raw_result=result.stdout.strip())
+            else:
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                print(f"    [!] Error during code execution.")
+                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=trace_to_log, tables=tabelle_log)
+                return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
+                
+        except Exception as e:
+            error_msg = str(e)
+            print(f"    [!] Critical system error: {error_msg}")
+            save_experiment_log(self.question, code, f"[CRITICAL ERROR]:\n{error_msg}", ev.retries, reasoning=trace_to_log, tables=tabelle_log)
+            return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
+
+    @step
+    async def synthesize_response(self, ev: FinalResultEvent) -> StopEvent:
+        """PHASE 5: Generate response."""
+        print("\n[5] Generating response...")
+
+        prompt = f"""You are a friendly data assistant.
+        The system ran a Python script to answer the user's question. Below is the RAW PANDAS OUTPUT.
+        
+        TASK: Read the raw table below and summarize the findings in a clear, natural English sentence. 
+        Do NOT paste the raw table format. Read the data and speak like a human.
+        
+        USER QUESTION: "{self.question}"
+        RAW PANDAS OUTPUT: 
+        {ev.raw_result}
+        
+        Natural Human Answer:"""
+
+        try:
+            res = await self.llm_instant.achat([
+                ChatMessage(role="user", content=prompt)
+            ])
+            
+            final_answer = str(res.message.content).strip()
+            
+            # Automatic cleaning if the model repeats the prefix
+            if final_answer.lower().startswith("final answer:"):
+                final_answer = final_answer[13:].strip()
+                
+            # Fallback if it still returns empty
+            if not final_answer:
+                final_answer = f"The raw result is:\n{ev.raw_result}"
+                
+        except Exception as e:
+            final_answer = f"An error occurred during response generation. Raw output: {ev.raw_result}"
+
+        return StopEvent(result=final_answer)
+
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
+async def main():
+    # Loading pre-calculated indices
+    try:
+        with open(INDICI_DIR / "table_keywords.json", "r") as f: table_kw = json.load(f)
+        with open(INDICI_DIR / "inverted_index.json", "r") as f: inv_index = json.load(f)
+    except FileNotFoundError:
+        print("❌ Indices not found! Run 'python index.py' first")
+        return
+
+    # LLM Configuration with Ollama
+    # Available models: gpt-oss:20b (context: 128K), qwen3.5:latest (context: 256K), llama3.1:8b (context: 128k)
+    MODEL_NAME = "qwen3.5:latest" 
+    URL_SERVER = "http://127.0.0.1:11434"
+
+    print(f"🔄 Initializing local Ollama model: '{MODEL_NAME}'...")
+    
+    llm_versatile = Ollama(
+        model=MODEL_NAME,
+        base_url=URL_SERVER,
+        request_timeout=300.0, 
+        temperature=0.0,
+        additional_kwargs={
+            "num_ctx": 8192,
+            "presence_penalty": 0.1,    # Encourages the model to search for new paths if it gets stuck
+            "frequency_penalty": 0.1,   # Strongly penalizes the repetition of the same "ThinkingBlock" and tool calls
+        }
+    )
+
+    llm_instant = Ollama(
+        model=MODEL_NAME,
+        base_url=URL_SERVER,
+        request_timeout=300.0, 
+        temperature=0.6,
+        additional_kwargs={
+            "num_ctx": 8192,
+            "presence_penalty": 0.1,
+            "top_p": 0.7,                # Limits the choice to the best words, avoiding total delirium
+            "top_k": 30
+        }
+    )
+
+    wf = RobustLakeGenWorkflow(
+        timeout=900.0,
+        llm_instant=llm_instant,
+        llm_versatile=llm_versatile,
+        inverted_index=inv_index, 
+        table_kw=table_kw
+    )
+    
+    query = input("\n🤖 Hi! What do you want to search for in the Data Lake? \n> ")
+    
+    result = await wf.run(question=query)
+
+    print("\n" + "="*20 + " FINAL RESULT " + "="*20)
+    output = result if isinstance(result, str) else getattr(result, 'result', str(result))
+    print(f"\n{output}\n")
+    print("="*54)
+
+if __name__ == "__main__":
+    asyncio.run(main())

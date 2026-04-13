@@ -1,0 +1,80 @@
+import os
+import sys
+import io
+import re
+import datetime
+from pathlib import Path
+
+import pandas as pd
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+from nltk.stem import WordNetLemmatizer
+
+CURRENT_DIR = Path(__file__).parent.resolve()
+
+if CURRENT_DIR.name == "src":
+    BASE_DIR = CURRENT_DIR.parent
+else:
+    BASE_DIR = CURRENT_DIR
+
+percorso_src = str(BASE_DIR / "src")
+percorso_blend = str(BASE_DIR / "src" / "blend")
+percorso_sloth = str(BASE_DIR / "src" / "Sloth")
+
+# Inserendoli a indice 0, Python cercherà PRIMA QUI dentro
+if percorso_sloth not in sys.path:
+    sys.path.insert(0, percorso_sloth)
+if percorso_blend not in sys.path:
+    sys.path.insert(0, percorso_blend)
+if percorso_src in sys.path:
+    sys.path.remove(percorso_src)
+sys.path.insert(0, percorso_src)
+
+DATA_DIR = BASE_DIR / "Data"
+CSV_DIR = DATA_DIR / "data_csv"
+DB_PATH = DATA_DIR / "blend_index.db"
+INDICI_DIR = DATA_DIR / "indices"
+LOG_DIR = BASE_DIR / "logs"
+
+# ==========================================
+# UTILITIES
+# ==========================================
+def get_filtered_tables_info(selected_files: list) -> str:
+    info_lines = [f"AVAILABLE SELECTED TABLES IN '{CSV_DIR}/':"]
+    if not selected_files:
+        selected_files = [f for f in os.listdir(CSV_DIR) if f.endswith('.csv')]
+    for idx, filename in enumerate(selected_files, 1):
+        filepath = os.path.join(CSV_DIR, filename.strip())
+        if not os.path.exists(filepath): continue
+        try:
+            df = pd.read_csv(filepath, nrows=3)
+            cols_with_types = [f"'{col}' ({dtype})" for col, dtype in df.dtypes.items()]
+            info_lines.append(f"{idx}. '{filepath}'")
+            info_lines.append(f"   Columns: [" + ", ".join(cols_with_types) + "]")
+        except Exception as e:
+            pass
+    return "\n".join(info_lines)
+
+def extract_query_keywords(query: str) -> str:
+    lemmatizer = WordNetLemmatizer()
+    words = re.findall(r'\b\w+\b', query.lower())
+    extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in ENGLISH_STOP_WORDS]
+    return ", ".join(list(dict.fromkeys(extracted_keywords)))
+
+def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    filepath = os.path.join(LOG_DIR, "experiments_log.txt")
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    tables_str = f"\nTABLES SELECTED: {', '.join(tables)}" if tables else ""
+    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}\nMODEL REASONING:\n{reasoning}\nRETRIES: {retries}\nCODE:\n{code}\n\nOUTPUT:\n{result}\n{'='*50}\n"
+    with open(filepath, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+class DualLogger:
+    def __init__(self, terminal):
+        self.terminal = terminal
+        self.log_str = io.StringIO()
+    def write(self, message):
+        self.terminal.write(message)
+        self.log_str.write(message)
+    def flush(self):
+        self.terminal.flush()
