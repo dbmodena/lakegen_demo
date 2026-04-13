@@ -1,11 +1,54 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
+# ========================
+# 1. Secrets
+# ========================
 .env
+*.pem
+secrets/
+
+# ========================
+# 2. Virtual Environments 
+# ========================
+.venv/
+venv/
+env/
+
+# ========================
+# 3. Python Cache and Build
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ========================
+# 4. Specific Project Files (LakeGen)
+# ========================
+# Ignore heavy CSVs and databases
+#data/
+#csv/
+#*.csv
+#*.sqlite
+#*.db
+
+# Ignore auto-generated JSON indices (e.g., inverted_index.json if generated locally)
+indici/
+*.json
+
+# Ignore dynamically generated Python code by the agent
+coding/
+script.py
+
+# Ignore execution log files (DualLogger)
+logs/
+*.log
+
+# ========================
+# 5. IDE and Operating System
+# ========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
