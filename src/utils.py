@@ -3,6 +3,7 @@ import sys
 import io
 import re
 import csv
+import uuid
 import datetime
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def extract_query_keywords(query: str) -> str:
     extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in ENGLISH_STOP_WORDS]
     return ", ".join(list(dict.fromkeys(extracted_keywords)))
 
-CSV_LOG_COLUMNS = ["TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "RAW_RESULT", "FINAL_RESULT"]
+CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "RAW_RESULT", "FINAL_RESULT"]
 
 def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, final_result: str = ""):
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -81,7 +82,21 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
     csv_path = os.path.join(LOG_DIR, "experiments_log.csv")
     is_new_file = not os.path.exists(csv_path)
     success = not result.startswith("[EXECUTION ERROR]") and not result.startswith("[CRITICAL ERROR]")
+    
+    next_id = 1
+    if not is_new_file:
+        try:
+            df = pd.read_csv(csv_path, usecols=["ID"])
+            numeric_ids = pd.to_numeric(df["ID"], errors="coerce")
+            if not numeric_ids.isna().all():
+                next_id = int(numeric_ids.max()) + 1
+            else:
+                next_id = len(df) + 1
+        except Exception:
+            pass
+
     row = {
+        "ID":              next_id,
         "TIMESTAMP":       timestamp,
         "QUESTION":        question,
         "TABLES_SELECTED": ", ".join(tables) if tables else "",

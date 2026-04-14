@@ -89,7 +89,7 @@ class RobustLakeGenWorkflow(Workflow):
             hint_section = f'\nUSER HINT (CRITICAL): "{keyword_hint}"' if keyword_hint else ""
 
             system_prompt = system_prompt = """You are a Data Processing API.
-            TASK: Generate ONLY 3 to 5 NEW domain-specific synonyms or related technical terms.
+            TASK: Generate MAX 5 NEW domain-specific synonyms or related technical terms.
             STRICT RULES:
             1. DO NOT repeat the words provided in the input.
             2. Reply ONLY with a single line of comma-separated lowercase words.
@@ -341,7 +341,7 @@ class RobustLakeGenWorkflow(Workflow):
     @step
     async def execute_code(self, ev: ExecutionEvent) -> CodeErrorEvent | FinalResultEvent:
         """PHASE 4: Execute the Python script in a separate process."""
-        print(f"PHASE 4: Executing Python script...")
+        print(f"\nPHASE 4: Executing Python script...")
         code = ev.code
 
         # Extracting clean code
@@ -394,7 +394,7 @@ class RobustLakeGenWorkflow(Workflow):
     @step
     async def synthesize_response(self, ev: FinalResultEvent) -> StopEvent:
         """PHASE 5: Generate response."""
-        print("\n[5] Generating response...")
+        print("\nPHASE 5: Generating response...")
 
         prompt = f"""You are a friendly data assistant.
         The system run a Python script to answer the user's question. Below is the RAW PANDAS OUTPUT.
@@ -465,8 +465,8 @@ async def main():
     Settings.callback_manager = CallbackManager([token_counter])
 
     # LLM Configuration with Ollama
-    # Available models: gpt-oss:20b (context: 128K), qwen3.5:latest (context: 256K), llama3.1:8b (context: 128k)
-    MODEL_NAME = "qwen3.5:latest" 
+    # Available models: gpt-oss:20b (context: 128K), qwen3.5:latest (context: 256K), llama3.1:8b (context: 128k), gemma4:26b
+    MODEL_NAME = "gemma4:26b" 
     URL_SERVER = "http://127.0.0.1:11434"
 
     print(f"🔄 Initializing local Ollama model: '{MODEL_NAME}'...")
@@ -475,11 +475,12 @@ async def main():
         model=MODEL_NAME,
         base_url=URL_SERVER,
         request_timeout=300.0, 
-        temperature=0.0,
+        temperature=0.1,
         additional_kwargs={
             "num_ctx": 8192,
-            "presence_penalty": 0.1,    # Encourages the model to search for new paths if it gets stuck
-            "frequency_penalty": 0.1,   # Strongly penalizes the repetition of the same "ThinkingBlock" and tool calls
+            # qwen3.5:latest
+            # "presence_penalty": 0.1,    # Encourages the model to search for new paths if it gets stuck
+            # "frequency_penalty": 0.1,   # Strongly penalizes the repetition of the same "ThinkingBlock" and tool calls
         }
     )
 
@@ -487,10 +488,10 @@ async def main():
         model=MODEL_NAME,
         base_url=URL_SERVER,
         request_timeout=300.0, 
-        temperature=0.6,
+        temperature=0.5,
         additional_kwargs={
             "num_ctx": 8192,
-            "presence_penalty": 0.1,
+            # "presence_penalty": 0.1,
             "top_p": 0.7,                # Limits the choice to the best words, avoiding total delirium
             "top_k": 30
         }
