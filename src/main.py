@@ -114,7 +114,7 @@ class RobustLakeGenWorkflow(Workflow):
                 print(f"    📊 [TOKEN PHASE 1] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
 
             raw_content = str(res.message.content).strip().lower()
-            print(f"    DEBUG raw: '{raw_content}'")
+            print(f"    🔍 DEBUG raw model output: '{raw_content}'")
 
             # Takes only valid words
             extracted_words = re.findall(r'\b[a-z0-9_]+\b', raw_content)
@@ -130,7 +130,7 @@ class RobustLakeGenWorkflow(Workflow):
             # Truncate excess words
             enriched_keywords = enriched_keywords[:12]
 
-            print(f"\n    -> Elaborated keywords: {enriched_keywords}")
+            print(f"    📝 Final elaborated keywords: {enriched_keywords}")
             user_input = input("    Press ENTER to confirm, or write a suggestion: ").strip()
 
             if not user_input or user_input.lower() in ['ok', 'y', 'si', 'yes']:
@@ -190,7 +190,7 @@ class RobustLakeGenWorkflow(Workflow):
             3. PRIORITY 3: EXACT YEAR MATCHING vs DOMAIN MISMATCH (CRITICAL)
               - If the user explicitly asks for a year (e.g., 2017), DO NOT blindly select a file named '2017.csv' if its TOPIC is completely unrelated to the user's question (e.g. Happiness vs Avocados). Prioritize the dataset that matches the TOPIC (e.g., 'avocado.csv' often contains multiple years internally).
             4. PRIORITY 4: MULTI-TABLE COMPLETENESS
-              - ONLY if the user asks to compare two DIFFERENT topics, select ALL tables needed. Otherwise, keep the selection as minimal as possible (1 or 2 files).
+              - ONLY if the user asks to compare two DIFFERENT topics, select ALL tables needed.
             5. PRIORITY 5: MISSING OR UNSPECIFIED YEARS RULE
               - If the user's question requires data that spans across multiple years but the user DOES NOT specify a year, or if no year is mentioned at all, always default to the most recent year available. Do not inspect all files; simply select the latest version (e.g., 2019.csv) and STOP.
             
@@ -208,8 +208,8 @@ class RobustLakeGenWorkflow(Workflow):
                 res = await asyncio.wait_for(explorer_agent.run(agent_prompt), timeout=180.0)
                 agent_resp = str(getattr(res, 'response', res)).strip()
             except asyncio.TimeoutError:
-                sys.stdout.write("\n    [!] Attenzione: L'agente stava ragionando troppo a lungo. Interruzione forzata.\n")
-                agent_resp = f'FINAL_PAYLOAD: {{"tabelle": "{", ".join(top_10[:2])}", "ragionamento": "Timeout reached. Fallback to top 2 tables."}}'
+                sys.stdout.write("\n    [!] Attention: The agent was reasoning for too long. Forced interruption.\n")
+                agent_resp = f'FINAL_PAYLOAD: {{"tables": "{", ".join(top_10[:2])}", "reasoning": "Timeout reached. Fallback to top 2 tables."}}'
             finally:
                 sys.stdout = logger_capture.terminal 
                 full_trace = logger_capture.log_str.getvalue()
@@ -259,6 +259,10 @@ class RobustLakeGenWorkflow(Workflow):
 
             table_hint = user_input_tables
             print(f"    [!] Recalculating based on: '{table_hint}'...")
+
+        # Save keywords for logging
+        self.raw_model_keywords = raw_content
+        self.final_keywords = enriched_keywords
 
         # Turning off the callback to not interfere with Phases 3 and 5
         Settings.callback_manager = CallbackManager([])
@@ -366,14 +370,19 @@ class RobustLakeGenWorkflow(Workflow):
             # Isolated execution with 15 second timeout
             result = subprocess.run([sys.executable, str(filepath)], capture_output=True, text=True, timeout=15)
             
+            raw_kw = getattr(self, 'raw_model_keywords', '')
+            final_kw = getattr(self, 'final_keywords', None)
+
             if result.returncode == 0:
                 print("    [✓] Execution completed successfully!")
-                save_experiment_log(self.question, code, result.stdout.strip(), ev.retries, reasoning=trace_to_log, tables=tabelle_log)
+                # Store state for phase 5 logging (final_result not yet available)
+                self.log_payload = dict(code=code, raw_result=result.stdout.strip(), retries=ev.retries,
+                                        reasoning=trace_to_log, tables=tabelle_log, raw_kw=raw_kw, final_kw=final_kw)
                 return FinalResultEvent(raw_result=result.stdout.strip())
             else:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 print(f"    [!] Error during code execution.")
-                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=trace_to_log, tables=tabelle_log)
+                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=trace_to_log, tables=tabelle_log, raw_keywords=raw_kw, final_keywords=final_kw)
                 return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
                 
         except Exception as e:
@@ -388,10 +397,12 @@ class RobustLakeGenWorkflow(Workflow):
         print("\n[5] Generating response...")
 
         prompt = f"""You are a friendly data assistant.
-        The system ran a Python script to answer the user's question. Below is the RAW PANDAS OUTPUT.
+        The system run a Python script to answer the user's question. Below is the RAW PANDAS OUTPUT.
         
-        TASK: Read the raw table below and summarize the findings in a clear, natural English sentence. 
-        Do NOT paste the raw table format. Read the data and speak like a human.
+        TASK: 
+        - Read the raw table below and summarize the findings in a clear, natural English sentence. 
+        - Do NOT paste the raw table format. Read the data and speak like a human. 
+        - If the output is empty or NaN, say that there are no results.
         
         USER QUESTION: "{self.question}"
         RAW PANDAS OUTPUT: 
@@ -421,6 +432,17 @@ class RobustLakeGenWorkflow(Workflow):
                 
         except Exception as e:
             final_answer = f"An error occurred during response generation. Raw output: {ev.raw_result}"
+
+        # Log experiments here
+        payload = getattr(self, 'log_payload', None)
+        if payload:
+            save_experiment_log(
+                self.question, payload['code'], payload['raw_result'], payload['retries'],
+                reasoning=payload['reasoning'], tables=payload['tables'],
+                raw_keywords=payload['raw_kw'], final_keywords=payload['final_kw'],
+                final_result=final_answer
+            )
+            self.log_payload = None  # Reset to avoid duplicate logging on retries
 
         return StopEvent(result=final_answer)
 
