@@ -41,11 +41,6 @@ indici/
 coding/
 script.py
 
-# Ignore execution log files (DualLogger)
-logs/
-*.log
-*.csv
-
 # ========================
 # 5. IDE and Operating System
 # ========================

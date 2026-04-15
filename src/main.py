@@ -305,9 +305,10 @@ class RobustLakeGenWorkflow(Workflow):
             3. You MUST use 'pd.merge()' to join tables if the user's question compares different datasets.
             4. Make sure to handle potential naming mismatches in the country columns using `left_on` and `right_on`.
             5. You MUST use `print()` at the end of the script to output the final answer clearly.
-            6. Reply EXCLUSIVELY with the raw Python code block. Do not add any conversational text or explanations.
+            6. Reply ALWAYS with the raw Python code block. Do not add any conversational text or explanations.
             7. BE DEFENSIVE WITH STRINGS: When filtering string columns (like cities or categories), ALWAYS convert both the column and your filter condition to lowercase to avoid case-sensitivity mismatches (e.g., use `df[df['region'].str.lower() == 'chicago']`).
             8. HANDLE EMPTY RESULTS: If your final calculation results in `NaN` or an empty series, DO NOT print `NaN`. You must print a descriptive error message like "ERROR_EMPTY: No matching records found for those filters" so the system knows the query failed.
+            9. You ALWAYS return python code that can be run with `python script.py`.
             """
         else:
             prompt = f"""The Python code you previously generated for "{self.question}" resulted in a fatal error:
@@ -466,7 +467,7 @@ async def main():
 
     # LLM Configuration with Ollama
     # Available models: gpt-oss:20b (context: 128K), qwen3.5:latest (context: 256K), llama3.1:8b (context: 128k), gemma4:26b
-    MODEL_NAME = "gemma4:26b" 
+    MODEL_NAME = "qwen3.5:latest" 
     URL_SERVER = "http://127.0.0.1:11434"
 
     print(f"🔄 Initializing local Ollama model: '{MODEL_NAME}'...")
@@ -475,12 +476,12 @@ async def main():
         model=MODEL_NAME,
         base_url=URL_SERVER,
         request_timeout=300.0, 
-        temperature=0.1,
+        temperature=0.0,
         additional_kwargs={
             "num_ctx": 8192,
             # qwen3.5:latest
-            # "presence_penalty": 0.1,    # Encourages the model to search for new paths if it gets stuck
-            # "frequency_penalty": 0.1,   # Strongly penalizes the repetition of the same "ThinkingBlock" and tool calls
+            #"presence_penalty": 0.1,    # Encourages the model to search for new paths if it gets stuck
+            #"frequency_penalty": 0.1,   # Strongly penalizes the repetition of the same "ThinkingBlock" and tool calls
         }
     )
 
@@ -491,7 +492,7 @@ async def main():
         temperature=0.5,
         additional_kwargs={
             "num_ctx": 8192,
-            # "presence_penalty": 0.1,
+            "presence_penalty": 0.1,
             "top_p": 0.7,                # Limits the choice to the best words, avoiding total delirium
             "top_k": 30
         }

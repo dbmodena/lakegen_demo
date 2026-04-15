@@ -22,7 +22,7 @@ percorso_src = str(BASE_DIR / "src")
 percorso_blend = str(BASE_DIR / "src" / "blend")
 percorso_sloth = str(BASE_DIR / "src" / "Sloth")
 
-# Inserendoli a indice 0, Python cercherà PRIMA QUI dentro
+# Inserting at index 0, Python will search HERE FIRST
 if percorso_sloth not in sys.path:
     sys.path.insert(0, percorso_sloth)
 if percorso_blend not in sys.path:
