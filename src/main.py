@@ -364,7 +364,8 @@ class RobustLakeGenWorkflow(Workflow):
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(code)
 
-        trace_to_log = getattr(self, 'agent_full_trace', 'Trace not available')
+        raw_kw = getattr(self, 'raw_model_keywords', '')
+        trace_to_log = raw_kw
         reasoning_to_log = getattr(self, 'arch_reasoning', 'Reasoning not available')
         tabelle_log = getattr(self, 'selected_files_list', None)
 
@@ -372,7 +373,6 @@ class RobustLakeGenWorkflow(Workflow):
             # Isolated execution with 15 second timeout
             result = subprocess.run([sys.executable, str(filepath)], capture_output=True, text=True, timeout=15)
             
-            raw_kw = getattr(self, 'raw_model_keywords', '')
             final_kw = getattr(self, 'final_keywords', None)
 
             if result.returncode == 0:
