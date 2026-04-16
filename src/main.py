@@ -127,8 +127,8 @@ class RobustLakeGenWorkflow(Workflow):
                 if w not in enriched_keywords:
                     enriched_keywords.append(w)
 
-            # Truncate excess words
-            enriched_keywords = enriched_keywords[:12]
+            # Truncate excess words (base keywords + 5 new ones from LLM)
+            enriched_keywords = enriched_keywords[:len(default_keywords) + 5]
 
             print(f"    📝 Final elaborated keywords: {enriched_keywords}")
             user_input = input("    Press ENTER to confirm, or write a suggestion: ").strip()
@@ -159,7 +159,7 @@ class RobustLakeGenWorkflow(Workflow):
             tools=agent_tools,
             llm=self.llm_versatile,
             verbose=True,
-            max_iterations=10,
+            max_iterations=15,
             system_prompt="You are a Data Architect. Inspect CSVs. AS SOON as you know which files are needed, call the 'confirm_table_selection' tool. You MUST provide both the filenames and a brief reasoning of your choice for the Data Scientist."
         )
 
@@ -290,26 +290,47 @@ class RobustLakeGenWorkflow(Workflow):
                 return FinalResultEvent(raw_result=messaggio_di_resa)
 
         if retries == 0:
-            prompt = f"""You are an expert Data Scientist.
-            Write ONLY the Python (Pandas) code to answer the following user question: "{self.question}"
+            prompt = f"""You are an expert Data Scientist. Your ONLY task is to write a standalone Python script using Pandas to answer the user's question.
 
-            DATA ARCHITECT'S INSTRUCTIONS:
-            "{self.arch_reasoning}"
+            <USER_QUESTION>
+            {self.question}
+            </USER_QUESTION>
 
-            AVAILABLE TABLES (YOU MUST USE EXACTLY THESE PATHS):
+            <DATA_ARCHITECT_INSTRUCTIONS>
+            {self.arch_reasoning}
+            </DATA_ARCHITECT_INSTRUCTIONS>
+
+            <AVAILABLE_TABLES>
             {self.tables_info}
+            </AVAILABLE_TABLES>
 
-            CRITICAL RULES:
-            1. DO NOT invent file paths. You MUST use the exact file paths listed above inside `pd.read_csv()`.
-            2. DO NOT USE PROXIES. If the user asks for a specific metric (e.g. 'Local Purchasing Power Index'), you MUST find the table that contains it. Do not use another column (like GDP) as a replacement.
-            3. You MUST use 'pd.merge()' to join tables if the user's question compares different datasets.
-            4. Make sure to handle potential naming mismatches in the country columns using `left_on` and `right_on`.
-            5. You MUST use `print()` at the end of the script to output the final answer clearly.
-            6. Reply ALWAYS with the raw Python code block. Do not add any conversational text or explanations.
-            7. BE DEFENSIVE WITH STRINGS: When filtering string columns (like cities or categories), ALWAYS convert both the column and your filter condition to lowercase to avoid case-sensitivity mismatches (e.g., use `df[df['region'].str.lower() == 'chicago']`).
-            8. HANDLE EMPTY RESULTS: If your final calculation results in `NaN` or an empty series, DO NOT print `NaN`. You must print a descriptive error message like "ERROR_EMPTY: No matching records found for those filters" so the system knows the query failed.
-            9. You ALWAYS return python code that can be run with `python script.py`.
-            """
+            <RULES>
+            1. EXACT PATHS: You must use the exact file paths provided in <AVAILABLE_TABLES> inside `pd.read_csv()`. Never invent file paths.
+            2. NO PROXIES: Use the exact metrics requested. If a specific column doesn't exist, do not substitute it with a similar one.
+            3. JOINING: Use `pd.merge()` with robust `left_on` and `right_on` handling if the question requires crossing multiple tables.
+            4. DEFENSIVE FILTERING: When filtering strings, ALWAYS use `.str.lower()` on the DataFrame column and lowercase your search term (e.g., `df[df['city'].str.lower() == 'rome']`).
+            5. ARCHITECT FIRST: The Data Architect's instructions take precedence over your own assumptions.
+            6. AVOID .apply() FOR DATA CLEANING: When extracting numbers from text columns (e.g., "90 min" -> 90), DO NOT write custom functions with .apply(), as they will crash on NaN float values. You MUST use vectorized Pandas string methods like df['column'].str.extract(r'(\\d+)').astype(float) to ensure missing values are handled gracefully.
+            </RULES>
+
+            <OUTPUT_FORMAT>
+            Return ONLY valid Python code enclosed in a single Markdown code block (```python ... ```). 
+            Do NOT add any conversational text before or after the code block.
+
+            Your code MUST follow this exact structure:
+
+            ```python
+            import pandas as pd
+
+            # 1. Load data
+            # 2. Process data (apply Architect's logic)
+            # 3. Check for empty results and Print
+
+            # Example of required error handling at the end:
+            # if final_df.empty or pd.isna(result):
+            #     print("ERROR_EMPTY: No matching records found for those filters")
+            # else:
+            #     print(result)"""
         else:
             prompt = f"""The Python code you previously generated for "{self.question}" resulted in a fatal error:
 
@@ -335,7 +356,7 @@ class RobustLakeGenWorkflow(Workflow):
         if res.raw:
             in_t = res.raw.get('prompt_eval_count', 0)
             out_t = res.raw.get('eval_count', 0)
-            print(f"    📊 [TOKEN PHASE 3 (Attempt {retries+1})] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
+            print(f"    📊 [TOKEN PHASE 3 (Attempt {retries+2})] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
 
         return ExecutionEvent(code=str(res.message.content), retries=retries)
 
@@ -368,6 +389,7 @@ class RobustLakeGenWorkflow(Workflow):
         trace_to_log = raw_kw
         reasoning_to_log = getattr(self, 'arch_reasoning', 'Reasoning not available')
         tabelle_log = getattr(self, 'selected_files_list', None)
+        full_trace_to_log = getattr(self, 'agent_full_trace', '')
 
         try:
             # Isolated execution with 15 second timeout
@@ -379,18 +401,18 @@ class RobustLakeGenWorkflow(Workflow):
                 print("    [✓] Execution completed successfully!")
                 # Store state for phase 5 logging (final_result not yet available)
                 self.log_payload = dict(code=code, raw_result=result.stdout.strip(), retries=ev.retries,
-                                        reasoning=reasoning_to_log, tables=tabelle_log, raw_kw=raw_kw, final_kw=final_kw, debug_raw=trace_to_log)
+                                        reasoning=reasoning_to_log, tables=tabelle_log, raw_kw=raw_kw, final_kw=final_kw, debug_raw=trace_to_log, full_trace=full_trace_to_log)
                 return FinalResultEvent(raw_result=result.stdout.strip())
             else:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 print(f"    [!] Error during code execution.")
-                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, raw_keywords=raw_kw, final_keywords=final_kw, debug_raw=trace_to_log)
+                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, raw_keywords=raw_kw, final_keywords=final_kw, debug_raw=trace_to_log, full_trace=full_trace_to_log)
                 return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
                 
         except Exception as e:
             error_msg = str(e)
             print(f"    [!] Critical system error: {error_msg}")
-            save_experiment_log(self.question, code, f"[CRITICAL ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, debug_raw=trace_to_log)
+            save_experiment_log(self.question, code, f"[CRITICAL ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, debug_raw=trace_to_log, full_trace=full_trace_to_log)
             return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
 
     @step
@@ -442,7 +464,8 @@ class RobustLakeGenWorkflow(Workflow):
                 self.question, payload['code'], payload['raw_result'], payload['retries'],
                 reasoning=payload['reasoning'], tables=payload['tables'],
                 raw_keywords=payload['raw_kw'], final_keywords=payload['final_kw'],
-                debug_raw=payload.get('debug_raw', ''), final_result=final_answer
+                debug_raw=payload.get('debug_raw', ''), final_result=final_answer,
+                full_trace=payload.get('full_trace', '')
             )
             self.log_payload = None  # Reset to avoid duplicate logging on retries
 
@@ -477,7 +500,7 @@ async def main():
         model=MODEL_NAME,
         base_url=URL_SERVER,
         request_timeout=300.0, 
-        temperature=0.0,
+        temperature=0.1,
         additional_kwargs={
             "num_ctx": 8192,
             # qwen3.5:latest

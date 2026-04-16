@@ -64,7 +64,7 @@ def extract_query_keywords(query: str) -> str:
 
 CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT"]
 
-def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = ""):
+def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = "", full_trace: str = ""):
     os.makedirs(LOG_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -75,7 +75,8 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
     final_kw_str = f"\nKEYWORDS (final elaborated): {', '.join(final_keywords)}" if final_keywords else ""
     final_result_str = f"\nFINAL RESULT (Phase 5):\n{final_result}" if final_result else ""
     debug_raw_str = f"\nDEBUG RAW:\n{debug_raw}" if debug_raw else ""
-    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING:\n{reasoning}{debug_raw_str}\nRETRIES: {retries}\nCODE:\n{code}\n\nRAW OUTPUT (Phase 4):\n{result}{final_result_str}\n{'='*50}\n"
+    reasoning_txt = full_trace if full_trace else reasoning
+    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}\nRETRIES: {retries}\nCODE:\n{code}\n\nRAW OUTPUT (Phase 4):\n{result}{final_result_str}\n{'='*50}\n"
     with open(txt_path, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
