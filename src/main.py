@@ -364,7 +364,8 @@ class RobustLakeGenWorkflow(Workflow):
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(code)
 
-        trace_to_log = getattr(self, 'agent_full_trace', getattr(self, 'arch_reasoning', 'Trace not available'))
+        trace_to_log = getattr(self, 'agent_full_trace', 'Trace not available')
+        reasoning_to_log = getattr(self, 'arch_reasoning', 'Reasoning not available')
         tabelle_log = getattr(self, 'selected_files_list', None)
 
         try:
@@ -378,18 +379,18 @@ class RobustLakeGenWorkflow(Workflow):
                 print("    [✓] Execution completed successfully!")
                 # Store state for phase 5 logging (final_result not yet available)
                 self.log_payload = dict(code=code, raw_result=result.stdout.strip(), retries=ev.retries,
-                                        reasoning=trace_to_log, tables=tabelle_log, raw_kw=raw_kw, final_kw=final_kw)
+                                        reasoning=reasoning_to_log, tables=tabelle_log, raw_kw=raw_kw, final_kw=final_kw, debug_raw=trace_to_log)
                 return FinalResultEvent(raw_result=result.stdout.strip())
             else:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 print(f"    [!] Error during code execution.")
-                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=trace_to_log, tables=tabelle_log, raw_keywords=raw_kw, final_keywords=final_kw)
+                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, raw_keywords=raw_kw, final_keywords=final_kw, debug_raw=trace_to_log)
                 return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
                 
         except Exception as e:
             error_msg = str(e)
             print(f"    [!] Critical system error: {error_msg}")
-            save_experiment_log(self.question, code, f"[CRITICAL ERROR]:\n{error_msg}", ev.retries, reasoning=trace_to_log, tables=tabelle_log)
+            save_experiment_log(self.question, code, f"[CRITICAL ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, debug_raw=trace_to_log)
             return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
 
     @step
@@ -397,19 +398,22 @@ class RobustLakeGenWorkflow(Workflow):
         """PHASE 5: Generate response."""
         print("\nPHASE 5: Generating response...")
 
-        prompt = f"""You are a friendly data assistant.
-        The system run a Python script to answer the user's question. Below is the RAW PANDAS OUTPUT.
-        
-        TASK: 
-        - Read the raw table below and summarize the findings in a clear, natural English sentence. 
-        - Do NOT paste the raw table format. Read the data and speak like a human. 
-        - If the output is empty or NaN, say that there are no results.
-        
-        USER QUESTION: "{self.question}"
-        RAW PANDAS OUTPUT: 
+        prompt = f"""You are a helpful and conversational data assistant.
+        Your task is to read raw data extracted from a database and use it to answer the user's question clearly and naturally.
+
+        ### INSTRUCTIONS:
+        1. Direct Answer: Answer the user's question using ONLY the provided data.
+        2. Natural Language: Speak like a human. Write 1 or 2 clear sentences.
+        3. No Technical Jargon: Do NOT mention "pandas", "dataframes", "Python", "scripts", or "raw data". 
+        4. No Formatting: Do NOT copy-paste the table format or row numbers (indexes). Extract the meaning.
+        5. Empty Data: If the data shows "Empty DataFrame", "NaN", or has no actual results, politely say that no data was found for this specific request.
+
+        ### USER QUESTION:
+        {self.question}
+
+        ### DATA RESULTS:
         {ev.raw_result}
-        
-        Natural Human Answer:"""
+        """
 
         try:
             res = await self.llm_instant.achat([
@@ -422,18 +426,15 @@ class RobustLakeGenWorkflow(Workflow):
                 print(f"    📊 [TOKEN PHASE 5] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
             
             final_answer = str(res.message.content).strip()
-            
-            # Automatic cleaning if the model repeats the prefix
-            if final_answer.lower().startswith("final answer:"):
-                final_answer = final_answer[13:].strip()
                 
-            # Fallback if it still returns empty
+            # Fallback robusto
             if not final_answer:
                 final_answer = f"The raw result is:\n{ev.raw_result}"
                 
         except Exception as e:
             final_answer = f"An error occurred during response generation. Raw output: {ev.raw_result}"
-
+            print(f"Error Phase 5: {e}")
+    
         # Log experiments here
         payload = getattr(self, 'log_payload', None)
         if payload:
@@ -441,7 +442,7 @@ class RobustLakeGenWorkflow(Workflow):
                 self.question, payload['code'], payload['raw_result'], payload['retries'],
                 reasoning=payload['reasoning'], tables=payload['tables'],
                 raw_keywords=payload['raw_kw'], final_keywords=payload['final_kw'],
-                final_result=final_answer
+                debug_raw=payload.get('debug_raw', ''), final_result=final_answer
             )
             self.log_payload = None  # Reset to avoid duplicate logging on retries
 
@@ -489,7 +490,7 @@ async def main():
         model=MODEL_NAME,
         base_url=URL_SERVER,
         request_timeout=300.0, 
-        temperature=0.5,
+        temperature=0.6,
         additional_kwargs={
             "num_ctx": 8192,
             "presence_penalty": 0.1,
