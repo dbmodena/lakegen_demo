@@ -429,6 +429,7 @@ class RobustLakeGenWorkflow(Workflow):
         3. No Technical Jargon: Do NOT mention "pandas", "dataframes", "Python", "scripts", or "raw data". 
         4. No Formatting: Do NOT copy-paste the table format or row numbers (indexes). Extract the meaning.
         5. Empty Data: If the data shows "Empty DataFrame", "NaN", or has no actual results, politely say that no data was found for this specific request.
+        6. Use the user question for create the final answer.
 
         ### USER QUESTION:
         {self.question}

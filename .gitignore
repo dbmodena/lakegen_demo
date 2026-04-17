@@ -34,8 +34,8 @@ htmlcov/
 #*.db
 
 # Ignore auto-generated JSON indices (e.g., inverted_index.json if generated locally)
-indici/
-*.json
+#indici/
+#*.json
 
 # Ignore dynamically generated Python code by the agent
 coding/
