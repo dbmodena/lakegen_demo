@@ -235,7 +235,7 @@ class RobustLakeGenWorkflow(Workflow):
                         selected_tables = payload.get("tables", "")
                         architect_reasoning = payload.get("reasoning", "")
                     except json.JSONDecodeError:
-                        selected_tables = json_str # Fallback in caso di json sporco
+                        selected_tables = json_str
                 else:
                     selected_tables = agent_resp
             else:
@@ -330,7 +330,10 @@ class RobustLakeGenWorkflow(Workflow):
             # if final_df.empty or pd.isna(result):
             #     print("ERROR_EMPTY: No matching records found for those filters")
             # else:
-            #     print(result)"""
+            #     if isinstance(result, (pd.Series, pd.DataFrame)):
+            #         print(result.to_string(index=False))
+            #     else:
+            #         print(result)"""
         else:
             prompt = f"""The Python code you previously generated for "{self.question}" resulted in a fatal error:
 
@@ -399,7 +402,7 @@ class RobustLakeGenWorkflow(Workflow):
 
             if result.returncode == 0:
                 print("    [✓] Execution completed successfully!")
-                # Store state for phase 5 logging (final_result not yet available)
+                # Store state for phase 5 logging
                 self.log_payload = dict(code=code, raw_result=result.stdout.strip(), retries=ev.retries,
                                         reasoning=reasoning_to_log, tables=tabelle_log, raw_kw=raw_kw, final_kw=final_kw, debug_raw=trace_to_log, full_trace=full_trace_to_log)
                 return FinalResultEvent(raw_result=result.stdout.strip())
@@ -450,7 +453,7 @@ class RobustLakeGenWorkflow(Workflow):
             
             final_answer = str(res.message.content).strip()
                 
-            # Fallback robusto
+            # Robust fallback
             if not final_answer:
                 final_answer = f"The raw result is:\n{ev.raw_result}"
                 
@@ -533,12 +536,42 @@ async def main():
     
     query = input("\n🤖 Hi! What do you want to search for in the Data Lake? \n> ")
     
-    result = await wf.run(question=query)
+    try:
+        result = await wf.run(question=query)
 
-    print("\n" + "="*20 + " FINAL RESULT " + "="*20)
-    output = result if isinstance(result, str) else getattr(result, 'result', str(result))
-    print(f"\n{output}\n")
-    print("="*54)
+        print("\n" + "="*20 + " FINAL RESULT " + "="*20)
+        output = result if isinstance(result, str) else getattr(result, 'result', str(result))
+        print(f"\n{output}\n")
+        print("="*54)
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"\n[!] A fatal error occurred during the workflow: {error_msg}")
+        
+        # Recover partial state from workflow
+        raw_kw = getattr(wf, 'raw_model_keywords', '')
+        final_kw = getattr(wf, 'final_keywords', None)
+        reasoning = getattr(wf, 'arch_reasoning', '')
+        tables = getattr(wf, 'selected_files_list', None)
+        full_trace = getattr(wf, 'agent_full_trace', '')
+        
+        payload = getattr(wf, 'log_payload', None)
+        if payload:
+            code = payload.get('code', '')
+            raw_result = payload.get('raw_result', '')
+            retries = payload.get('retries', 0)
+            debug_raw = payload.get('debug_raw', raw_kw)
+        else:
+            code = ""
+            raw_result = ""
+            retries = 0
+            debug_raw = raw_kw
+
+        save_experiment_log(
+            question=query, code=code, result=raw_result, retries=retries,
+            reasoning=reasoning, tables=tables, raw_keywords=raw_kw,
+            final_keywords=final_kw, debug_raw=debug_raw, full_trace=full_trace,
+            error=error_msg
+        )
 
 if __name__ == "__main__":
     asyncio.run(main())

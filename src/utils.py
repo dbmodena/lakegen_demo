@@ -62,9 +62,9 @@ def extract_query_keywords(query: str) -> str:
     extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in ENGLISH_STOP_WORDS]
     return ", ".join(list(dict.fromkeys(extracted_keywords)))
 
-CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT"]
+CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", "ERROR"]
 
-def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = "", full_trace: str = ""):
+def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = "", full_trace: str = "", error: str = ""):
     os.makedirs(LOG_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -75,15 +75,16 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
     final_kw_str = f"\nKEYWORDS (final elaborated): {', '.join(final_keywords)}" if final_keywords else ""
     final_result_str = f"\nFINAL RESULT (Phase 5):\n{final_result}" if final_result else ""
     debug_raw_str = f"\nDEBUG RAW:\n{debug_raw}" if debug_raw else ""
+    error_str = f"\nERROR:\n{error}" if error else ""
     reasoning_txt = full_trace if full_trace else reasoning
-    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}\nRETRIES: {retries}\nCODE:\n{code}\n\nRAW OUTPUT (Phase 4):\n{result}{final_result_str}\n{'='*50}\n"
+    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}\nRETRIES: {retries}\nCODE:\n{code}\n\nRAW OUTPUT (Phase 4):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
     with open(txt_path, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
     # --- CSV log (structured, for analysis) ---
     csv_path = os.path.join(LOG_DIR, "experiments_log.csv")
     is_new_file = not os.path.exists(csv_path)
-    success = not result.startswith("[EXECUTION ERROR]") and not result.startswith("[CRITICAL ERROR]")
+    success = not result.startswith("[EXECUTION ERROR]") and not result.startswith("[CRITICAL ERROR]") and not error
     
     next_id = 1
     if not is_new_file:
@@ -108,8 +109,9 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
         "SUCCESS":         success,
         "REASONING":       reasoning,
         "DEBUG_RAW":       debug_raw[:100].replace("'", "").replace('"', "").replace("\n", " "),
-        "RAW_RESULT":      result[:500],
-        "FINAL_RESULT":    final_result[:500] if final_result else "",
+        "RAW_RESULT":      result[:500].replace("\n", "  "),
+        "FINAL_RESULT":    final_result[:500].replace("\n", "  ") if final_result else "",
+        "ERROR":           error.replace("\n", "  "),
     }
     with open(csv_path, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_LOG_COLUMNS)
