@@ -495,7 +495,7 @@ async def main():
 
     # LLM Configuration with Ollama
     # Available models: gpt-oss:20b (context: 128K), qwen3.5:latest (context: 256K), llama3.1:8b (context: 128k), gemma4:26b
-    MODEL_NAME = "qwen3.5:latest" 
+    MODEL_NAME = "gemma4:26b" 
     URL_SERVER = "http://127.0.0.1:11434"
 
     print(f"🔄 Initializing local Ollama model: '{MODEL_NAME}'...")
