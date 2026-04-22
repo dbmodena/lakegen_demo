@@ -1,6 +1,5 @@
 # Download wordnet and omw-1.4 before running the program (only the first time)
 # uv run python3 -c "import nltk; nltk.download('wordnet'); nltk.download('omw-1.4')"
-
 import os
 import sys
 import io
@@ -45,6 +44,7 @@ from utils import (
 )
 
 from tools import agent_tools
+from prompts.prompt_manager import PromptManager
 
 # ==========================================
 # WORKFLOW DEFINITION (Events and Class)
@@ -74,6 +74,7 @@ class RobustLakeGenWorkflow(Workflow):
         self.table_kw = table_kw
         self.max_retries = 3
         self.all_available_files = list(set([f for files in self.inverted_index.values() for f in files]))
+        self.prompt_manager = PromptManager()
 
     @step
     async def generate_keywords(self, ev: StartEvent) -> KeywordEvent:
@@ -87,6 +88,7 @@ class RobustLakeGenWorkflow(Workflow):
         print(f"    Question: '{self.question}'")
         print(f"    Base keywords: {default_keywords}")
 
+        self.tokens_phase1 = 0
         keyword_hint = ""
         while True:
             hint_section = f'\nUSER HINT (CRITICAL): "{keyword_hint}"' if keyword_hint else ""
@@ -115,6 +117,7 @@ class RobustLakeGenWorkflow(Workflow):
             if res.raw:
                 in_t = res.raw.get('prompt_eval_count', 0)
                 out_t = res.raw.get('eval_count', 0)
+                self.tokens_phase1 += in_t + out_t
                 print(f"    📊 [TOKEN PHASE 1] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
 
             raw_content = str(res.message.content).strip().lower()
@@ -155,6 +158,8 @@ class RobustLakeGenWorkflow(Workflow):
         enriched_keywords = ev.enriched_keywords
 
         print(f"\nPHASE 2: TABLE SELECTION (Agent is inspecting files...)")
+
+        self.tokens_phase2 = 0
 
         table_scores = {}
         for kw in enriched_keywords:
@@ -232,6 +237,7 @@ class RobustLakeGenWorkflow(Workflow):
             if token_counter:
                 pt = token_counter.prompt_llm_token_count
                 ct = token_counter.completion_llm_token_count
+                self.tokens_phase2 += pt + ct
                 print(f"\n    📊 [TOKEN PHASE 2 - Agent] Prompt: {pt} | Generate: {ct} | Tot: {pt + ct}")
                 token_counter.reset_counts()
 
@@ -460,7 +466,10 @@ class RobustLakeGenWorkflow(Workflow):
             if res.raw:
                 in_t = res.raw.get('prompt_eval_count', 0)
                 out_t = res.raw.get('eval_count', 0)
-                print(f"    📊 [TOKEN PHASE 5] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
+                tokens_phase5 = in_t + out_t
+                print(f"    📊 [TOKEN PHASE 5] Prompt: {in_t} | Generate: {out_t} | Tot: {tokens_phase5}")
+            else:
+                tokens_phase5 = 0
             
             final_answer = str(res.message.content).strip()
                 
@@ -470,6 +479,7 @@ class RobustLakeGenWorkflow(Workflow):
                 
         except Exception as e:
             final_answer = f"An error occurred during response generation. Raw output: {ev.raw_result}"
+            tokens_phase5 = 0
             print(f"Error Phase 5: {e}")
     
         # Log experiments here
@@ -480,7 +490,10 @@ class RobustLakeGenWorkflow(Workflow):
                 reasoning=payload['reasoning'], tables=payload['tables'],
                 raw_keywords=payload['raw_kw'], final_keywords=payload['final_kw'],
                 debug_raw=payload.get('debug_raw', ''), final_result=final_answer,
-                full_trace=payload.get('full_trace', '')
+                full_trace=payload.get('full_trace', ''),
+                tokens_phase1=getattr(self, 'tokens_phase1', 0),
+                tokens_phase2=getattr(self, 'tokens_phase2', 0),
+                tokens_phase5=tokens_phase5
             )
             self.log_payload = None  # Reset to avoid duplicate logging on retries
 

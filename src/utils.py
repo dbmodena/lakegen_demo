@@ -31,6 +31,11 @@ if percorso_src in sys.path:
     sys.path.remove(percorso_src)
 sys.path.insert(0, percorso_src)
 
+# Add project root so top-level packages (e.g. prompts/) are importable
+percorso_root = str(BASE_DIR)
+if percorso_root not in sys.path:
+    sys.path.insert(0, percorso_root)
+
 DATA_DIR = BASE_DIR / "Data"
 CSV_DIR = DATA_DIR / "data_csv"
 DB_PATH = DATA_DIR / "blend_index.db"
@@ -62,9 +67,9 @@ def extract_query_keywords(query: str) -> str:
     extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in ENGLISH_STOP_WORDS]
     return ", ".join(list(dict.fromkeys(extracted_keywords)))
 
-CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", "ERROR"]
+CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE5", "ERROR"]
 
-def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = "", full_trace: str = "", error: str = ""):
+def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = "", full_trace: str = "", tokens_phase1: int = 0, tokens_phase2: int = 0, tokens_phase5: int = 0, error: str = ""):
     os.makedirs(LOG_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -77,7 +82,8 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
     debug_raw_str = f"\nDEBUG RAW:\n{debug_raw}" if debug_raw else ""
     error_str = f"\nERROR:\n{error}" if error else ""
     reasoning_txt = full_trace if full_trace else reasoning
-    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}\nRETRIES: {retries}\nCODE:\n{code}\n\nRAW OUTPUT (Phase 4):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
+    tokens_str = f"\nTOKENS: Phase1={tokens_phase1} | Phase2={tokens_phase2} | Phase5={tokens_phase5}" if any([tokens_phase1, tokens_phase2, tokens_phase5]) else ""
+    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}{tokens_str}\nRETRIES: {retries}\nCODE:\n{code}\n\nRAW OUTPUT (Phase 4):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
     with open(txt_path, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
@@ -111,6 +117,9 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
         "DEBUG_RAW":       debug_raw[:100].replace("'", "").replace('"', "").replace("\n", " "),
         "RAW_RESULT":      result[:500].replace("\n", "  "),
         "FINAL_RESULT":    final_result[:500].replace("\n", "  ") if final_result else "",
+        "TOKENS_PHASE1":   tokens_phase1,
+        "TOKENS_PHASE2":   tokens_phase2,
+        "TOKENS_PHASE5":   tokens_phase5,
         "ERROR":           error.replace("\n", "  "),
     }
     with open(csv_path, "a", newline="", encoding="utf-8") as f:
