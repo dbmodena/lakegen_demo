@@ -94,6 +94,7 @@ class RobustLakeGenWorkflow(Workflow):
             1. DO NOT repeat the words provided in the input.
             2. Reply ONLY with a single line of comma-separated lowercase words.
             3. NO conversational text.
+            4. DO NOT think too much.
             """
 
             user_prompt = f"""Question: What are the best restaurants in Rome?
@@ -305,12 +306,13 @@ class RobustLakeGenWorkflow(Workflow):
             </AVAILABLE_TABLES>
 
             <RULES>
-            1. EXACT PATHS: You must use the exact file paths provided in <AVAILABLE_TABLES> inside `pd.read_csv()`. Never invent file paths.
-            2. NO PROXIES: Use the exact metrics requested. If a specific column doesn't exist, do not substitute it with a similar one.
-            3. JOINING: Use `pd.merge()` with robust `left_on` and `right_on` handling if the question requires crossing multiple tables.
-            4. DEFENSIVE FILTERING: When filtering strings, ALWAYS use `.str.lower()` on the DataFrame column and lowercase your search term (e.g., `df[df['city'].str.lower() == 'rome']`).
-            5. ARCHITECT FIRST: The Data Architect's instructions take precedence over your own assumptions.
-            6. AVOID .apply() FOR DATA CLEANING: When extracting numbers from text columns (e.g., "90 min" -> 90), DO NOT write custom functions with .apply(), as they will crash on NaN float values. You MUST use vectorized Pandas string methods like df['column'].str.extract(r'(\\d+)').astype(float) to ensure missing values are handled gracefully.
+            1. DO NOT INVENT any information, use the <AVAILABLE_TABLES> as the only source of truth.
+            2. EXACT PATHS: You must use the exact file paths provided in <AVAILABLE_TABLES> inside `pd.read_csv()`. Never invent file paths.
+            3. NO PROXIES: Use the exact metrics requested. If a specific column doesn't exist, do not substitute it with a similar one.
+            4. JOINING: Use `pd.merge()` with robust `left_on` and `right_on` handling if the question requires crossing multiple tables.
+            5. DEFENSIVE FILTERING: When filtering strings, ALWAYS use `.str.lower()` on the DataFrame column and lowercase your search term (e.g., `df[df['city'].str.lower() == 'rome']`).
+            6. ARCHITECT FIRST: The Data Architect's instructions take precedence over your own assumptions.
+            7. AVOID .apply() FOR DATA CLEANING: When extracting numbers from text columns (e.g., "90 min" -> 90), DO NOT write custom functions with .apply(), as they will crash on NaN float values. You MUST use vectorized Pandas string methods like df['column'].str.extract(r'(\\d+)').astype(float) to ensure missing values are handled gracefully.
             </RULES>
 
             <OUTPUT_FORMAT>
@@ -433,6 +435,7 @@ class RobustLakeGenWorkflow(Workflow):
         4. No Formatting: Do NOT copy-paste the table format or row numbers (indexes). Extract the meaning.
         5. Empty Data: If the data shows "Empty DataFrame", "NaN", or has no actual results, politely say that no data was found for this specific request.
         6. Use the user question for create the final answer.
+        7. If the result of the code are a number use the question to understand what the number means.
 
         ### USER QUESTION:
         {self.question}
@@ -506,10 +509,7 @@ async def main():
         request_timeout=300.0, 
         temperature=0.1,
         additional_kwargs={
-            "num_ctx": 8192,
-            # qwen3.5:latest
-            #"presence_penalty": 0.1,    # Encourages the model to search for new paths if it gets stuck
-            #"frequency_penalty": 0.1,   # Strongly penalizes the repetition of the same "ThinkingBlock" and tool calls
+            "num_ctx": 8192
         }
     )
 
