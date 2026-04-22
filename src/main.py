@@ -91,23 +91,13 @@ class RobustLakeGenWorkflow(Workflow):
         self.tokens_phase1 = 0
         keyword_hint = ""
         while True:
-            hint_section = f'\nUSER HINT (CRITICAL): "{keyword_hint}"' if keyword_hint else ""
-
-            system_prompt = """You are a Data Processing API.
-            TASK: Generate MAX 5 NEW domain-specific synonyms or related technical terms.
-            STRICT RULES:
-            1. DO NOT repeat the words provided in the input.
-            2. Reply ONLY with a single line of comma-separated lowercase words.
-            3. NO conversational text.
-            4. DO NOT think too much.
-            """
-
-            user_prompt = f"""Question: What are the best restaurants in Rome?
-            Answer: restaurants, Rome, best
-            Input Question: "{self.question}"
-            Existing Words (DO NOT REPEAT THESE): "{raw_keywords_str}"
-            {hint_section}
-            New Synonyms:"""
+            system_prompt = self.prompt_manager.render("keyword_generator", "system_prompt")
+            user_prompt = self.prompt_manager.render(
+                "keyword_generator", "user_prompt",
+                question=self.question,
+                raw_keywords_str=raw_keywords_str,
+                keyword_hint=keyword_hint
+            )
 
             res = await self.llm_instant.achat([
                 ChatMessage(role="system", content=system_prompt),
@@ -172,13 +162,15 @@ class RobustLakeGenWorkflow(Workflow):
         sorted_tables = sorted(table_scores.items(), key=lambda x: x[1], reverse=True)
         top_10 = [t[0] for t in sorted_tables if t[1] > 0.0][:10] or self.all_available_files[:5]
 
+        system_prompt = self.prompt_manager.render("data_architect", "system_prompt")
+
         explorer_agent = ReActAgent(
             name="data_explorer",
             tools=agent_tools,
             llm=self.llm_versatile,
             verbose=True,
             max_iterations=15,
-            system_prompt="You are a Data Architect. Inspect CSVs. AS SOON as you know which files are needed, call the 'confirm_table_selection' tool. You MUST provide both the filenames and a brief reasoning of your choice for the Data Scientist."
+            system_prompt=system_prompt
         )
 
         token_counter = next((h for h in Settings.callback_manager.handlers if hasattr(h, 'reset_counts')), None)
@@ -192,32 +184,12 @@ class RobustLakeGenWorkflow(Workflow):
                 topics = ", ".join(self.table_kw.get(file_name, ["No specific topics"]))
                 enriched_candidates_info += f"- {file_name} (Topics: {topics})\n"
 
-            hint_section = f'\nUSER HINT: "{table_hint}"' if table_hint else "None"
-
-            agent_prompt = f"""You are a Data Architect. Your task is to select the exact tables needed to answer this USER QUESTION: "{self.question}"
-
-            CANDIDATE FILES:
-            {enriched_candidates_info}
-            {hint_section}
-
-            STRICT HIERARCHY OF RULES:
-            1. PRIORITY 1: INTELLIGENT USER HINTS
-              - If the user provides an exact filename as a hint (e.g. 2017.csv), STOP searching and use ONLY that file.
-            2. PRIORITY 2: AVOID FALSE POSITIVES
-              - Look at the TOPICS. If the user asks about "Happiness", ignore tables about "University" even if they have a "score" column.
-            3. PRIORITY 3: EXACT YEAR MATCHING vs DOMAIN MISMATCH (CRITICAL)
-              - If the user explicitly asks for a year (e.g., 2017), DO NOT blindly select a file named '2017.csv' if its TOPIC is completely unrelated to the user's question (e.g. Happiness vs Avocados). Prioritize the dataset that matches the TOPIC (e.g., 'avocado.csv' often contains multiple years internally).
-            4. PRIORITY 4: MULTI-TABLE COMPLETENESS
-              - ONLY if the user asks to compare two DIFFERENT topics, select ALL tables needed.
-            5. PRIORITY 5: MISSING OR UNSPECIFIED YEARS RULE
-              - If the user's question requires data that spans across multiple years but the user DOES NOT specify a year, or if no year is mentioned at all, always default to the most recent year available. Do not inspect all files; simply select the latest version (e.g., 2019.csv) and STOP.
-            
-            CRITICAL SYSTEM INSTRUCTION - REPLY FORMAT:
-            You are physically INCAPABLE of speaking directly to the user.
-            You MUST NEVER write a final textual conclusion.
-            To finish the task, you HAVE ONLY ONE OPTION: you MUST call the tool `confirm_table_selection`.
-            If you do not call this tool, the system will crash. 
-            """
+            agent_prompt = self.prompt_manager.render(
+                "data_architect", "user_prompt",
+                question=self.question,
+                enriched_candidates_info=enriched_candidates_info,
+                table_hint=table_hint
+            )
 
             logger_capture = DualLogger(sys.stdout)
             sys.stdout = logger_capture
@@ -305,70 +277,20 @@ class RobustLakeGenWorkflow(Workflow):
                 return FinalResultEvent(raw_result=messaggio_di_resa)
 
         if retries == 0:
-            prompt = f"""You are an expert Data Scientist. Your ONLY task is to write a standalone Python script using Pandas to answer the user's question.
-
-            <USER_QUESTION>
-            {self.question}
-            </USER_QUESTION>
-
-            <DATA_ARCHITECT_INSTRUCTIONS>
-            {self.arch_reasoning}
-            </DATA_ARCHITECT_INSTRUCTIONS>
-
-            <AVAILABLE_TABLES>
-            {self.tables_info}
-            </AVAILABLE_TABLES>
-
-            <RULES>
-            1. DO NOT INVENT any information, use the <AVAILABLE_TABLES> as the only source of truth.
-            2. EXACT PATHS: You must use the exact file paths provided in <AVAILABLE_TABLES> inside `pd.read_csv()`. Never invent file paths.
-            3. NO PROXIES: Use the exact metrics requested. If a specific column doesn't exist, do not substitute it with a similar one.
-            4. JOINING: Use `pd.merge()` with robust `left_on` and `right_on` handling if the question requires crossing multiple tables.
-            5. DEFENSIVE FILTERING: When filtering strings, ALWAYS use `.str.lower()` on the DataFrame column and lowercase your search term (e.g., `df[df['city'].str.lower() == 'rome']`).
-            6. ARCHITECT FIRST: The Data Architect's instructions take precedence over your own assumptions.
-            7. AVOID .apply() FOR DATA CLEANING: When extracting numbers from text columns (e.g., "90 min" -> 90), DO NOT write custom functions with .apply(), as they will crash on NaN float values. You MUST use vectorized Pandas string methods like df['column'].str.extract(r'(\\d+)').astype(float) to ensure missing values are handled gracefully.
-            </RULES>
-
-            <OUTPUT_FORMAT>
-            Return ONLY valid Python code enclosed in a single Markdown code block (```python ... ```). 
-            Do NOT add any conversational text before or after the code block.
-
-            Your code MUST follow this exact structure:
-
-            ```python
-            import pandas as pd
-
-            # 1. Load data
-            # 2. Process data (apply Architect's logic)
-            # 3. Check for empty results and Print
-
-            # Example of required error handling at the end:
-            # if final_df.empty or pd.isna(result):
-            #     print("ERROR_EMPTY: No matching records found for those filters")
-            # else:
-            #     if isinstance(result, (pd.Series, pd.DataFrame)):
-            #         print(result.to_string(index=False))
-            #     else:
-            #         print(result)"""
+            prompt = self.prompt_manager.render(
+                "code_generator", "initial_prompt",
+                question=self.question,
+                arch_reasoning=self.arch_reasoning,
+                tables_info=self.tables_info
+            )
         else:
-            prompt = f"""The Python code you previously generated for "{self.question}" resulted in a fatal error:
-
-            ERROR TRACEBACK:
-            {ev.error_message}
-
-            DATA ARCHITECT'S INSTRUCTIONS (CRITICAL FOR JOINING):
-            "{self.arch_reasoning}"
-
-            AVAILABLE TABLES (YOU MUST USE EXACTLY THESE PATHS):
-            {self.tables_info}
-
-            CRITICAL FIX REQUIRED:
-            If the error is a FileNotFoundError, it means you hallucinated the file path. Look at the AVAILABLE TABLES list above and USE EXACTLY THOSE PATHS.
-
-            Fix the error and rewrite the complete, working Python script.
-            Remember to use `print()` to output the final result.
-            Reply EXCLUSIVELY with the raw Python code block. Do not apologize or explain.
-            """
+            prompt = self.prompt_manager.render(
+                "code_generator", "correction_prompt",
+                question=self.question,
+                error_message=ev.error_message,
+                arch_reasoning=self.arch_reasoning,
+                tables_info=self.tables_info
+            )
 
         res = await self.llm_versatile.achat([ChatMessage(role="user", content=prompt)])
 
@@ -439,24 +361,11 @@ class RobustLakeGenWorkflow(Workflow):
         """PHASE 5: Generate response."""
         print("\nPHASE 5: Generating response...")
 
-        prompt = f"""You are a helpful and conversational data assistant.
-        Your task is to read raw data extracted from a database and use it to answer the user's question clearly and naturally.
-
-        ### INSTRUCTIONS:
-        1. Direct Answer: Answer the user's question using ONLY the provided data.
-        2. Natural Language: Speak like a human. Write 1 or 2 clear sentences.
-        3. No Technical Jargon: Do NOT mention "pandas", "dataframes", "Python", "scripts", or "raw data". 
-        4. No Formatting: Do NOT copy-paste the table format or row numbers (indexes). Extract the meaning.
-        5. Empty Data: If the data shows "Empty DataFrame", "NaN", or has no actual results, politely say that no data was found for this specific request.
-        6. Use the user question for create the final answer.
-        7. If the result of the code are a number use the question to understand what the number means.
-
-        ### USER QUESTION:
-        {self.question}
-
-        ### DATA RESULTS:
-        {ev.raw_result}
-        """
+        prompt = self.prompt_manager.render(
+            "synthesizer", "prompt",
+            question=self.question,
+            raw_result=ev.raw_result
+        )
 
         try:
             res = await self.llm_instant.achat([
@@ -473,7 +382,6 @@ class RobustLakeGenWorkflow(Workflow):
             
             final_answer = str(res.message.content).strip()
                 
-            # Robust fallback
             if not final_answer:
                 final_answer = f"The raw result is:\n{ev.raw_result}"
                 

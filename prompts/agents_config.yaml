@@ -3,27 +3,24 @@ keyword_generator:
     You are a Data Processing API.
     TASK: Generate MAX 5 NEW domain-specific synonyms or related technical terms.
     
-    <strict_rules>
+    STRICT RULES:
     1. DO NOT repeat the words provided in the input.
     2. Reply ONLY with a single line of comma-separated lowercase words.
     3. NO conversational text.
     4. DO NOT think too much.
-    </strict_rules>
 
   user_prompt: |
-    <examples>
+    EXAMPLES
     Question: What are the best restaurants in Rome?
     Answer: restaurants, Rome, best
-    </examples>
 
-    <input>
+    INPUT
     Question: "{{ question }}"
     Existing Words (DO NOT REPEAT THESE): "{{ raw_keywords_str }}"
     {% if keyword_hint %}
     USER HINT (CRITICAL): "{{ keyword_hint }}"
     {% endif %}
-    </input>
-    
+
     New Synonyms:
 
 data_architect:
@@ -33,17 +30,15 @@ data_architect:
   user_prompt: |
     You are a Data Architect. Your task is to select the exact tables needed to answer this USER QUESTION: "{{ question }}"
 
-    <candidate_files>
+    CANDIDATE FILES
     {{ enriched_candidates_info }}
-    </candidate_files>
 
     {% if table_hint %}
-    <user_hint>
+    USER HINT
     "{{ table_hint }}"
-    </user_hint>
     {% endif %}
 
-    <strict_hierarchy_of_rules>
+    STRICT HIERARCHY OF RULES
     1. PRIORITY 1: INTELLIGENT USER HINTS
       - If the user provides an exact filename as a hint (e.g. 2017.csv), STOP searching and use ONLY that file.
     2. PRIORITY 2: AVOID FALSE POSITIVES
@@ -54,42 +49,37 @@ data_architect:
       - ONLY if the user asks to compare two DIFFERENT topics, select ALL tables needed.
     5. PRIORITY 5: MISSING OR UNSPECIFIED YEARS RULE
       - If the user's question requires data that spans across multiple years but the user DOES NOT specify a year, or if no year is mentioned at all, always default to the most recent year available. Do not inspect all files; simply select the latest version (e.g., 2019.csv) and STOP.
-    </strict_hierarchy_of_rules>
 
-    <critical_system_instruction>
+    CRITICAL SYSTEM INSTRUCTION
     You are physically INCAPABLE of speaking directly to the user.
     You MUST NEVER write a final textual conclusion.
     To finish the task, you HAVE ONLY ONE OPTION: you MUST call the tool `confirm_table_selection`.
     If you do not call this tool, the system will crash. 
-    </critical_system_instruction>
 
 code_generator:
   initial_prompt: |
     You are an expert Data Scientist. Your ONLY task is to write a standalone Python script using Pandas to answer the user's question.
 
-    <user_question>
-    {{ question }}
-    </user_question>
+    USER QUESTION:
+    "{{ question }}"
 
-    <data_architect_instructions>
-    {{ arch_reasoning }}
-    </data_architect_instructions>
+    DATA ARCHITECT INSTRUCTIONS
+    "{{ arch_reasoning }}"
 
-    <available_tables>
-    {{ tables_info }}
-    </available_tables>
+    AVAILABLE TABLES
+    "{{ tables_info }}"
 
-    <rules>
-    1. DO NOT INVENT any information, use the <available_tables> as the only source of truth.
-    2. EXACT PATHS: You must use the exact file paths provided in <available_tables> inside `pd.read_csv()`. Never invent file paths.
-    3. NO PROXIES: Use the exact metrics requested. If a specific column doesn't exist, do not substitute it with a similar one.
-    4. JOINING: Use `pd.merge()` with robust `left_on` and `right_on` handling if the question requires crossing multiple tables.
-    5. DEFENSIVE FILTERING: When filtering strings, ALWAYS use `.str.lower()` on the DataFrame column and lowercase your search term (e.g., `df[df['city'].str.lower() == 'rome']`).
-    6. ARCHITECT FIRST: The Data Architect's instructions take precedence over your own assumptions.
-    7. AVOID .apply() FOR DATA CLEANING: When extracting numbers from text columns (e.g., "90 min" -> 90), DO NOT write custom functions with .apply(), as they will crash on NaN float values. You MUST use vectorized Pandas string methods like df['column'].str.extract(r'(\d+)').astype(float) to ensure missing values are handled gracefully.
-    </rules>
+    RULES
+    1. DO NOT think too much.
+    2. DO NOT INVENT any information, use the <available_tables> as the only source of truth.
+    3. EXACT PATHS: You MUST use the exact file paths provided in <available_tables> inside `pd.read_csv()`. Never invent file paths.
+    4. NO PROXIES: Use the exact metrics requested. If a specific column doesn't exist, do not substitute it with a similar one.
+    5. JOINING: Use `pd.merge()` with robust `left_on` and `right_on` handling if the question requires crossing multiple tables.
+    6. DEFENSIVE FILTERING: When filtering strings, ALWAYS use `.str.lower()` on the DataFrame column and lowercase your search term (e.g., `df[df['city'].str.lower() == 'rome']`).
+    7. ARCHITECT FIRST: The Data Architect's instructions take precedence over your own assumptions.
+    8. AVOID .apply() FOR DATA CLEANING: When extracting numbers from text columns (e.g., "90 min" -> 90), DO NOT write custom functions with .apply(), as they will crash on NaN float values. You MUST use vectorized Pandas string methods like df['column'].str.extract(r'(\d+)').astype(float) to ensure missing values are handled gracefully.
 
-    <output_format>
+    OUTPUT FORMAT
     Return ONLY valid Python code enclosed in a single Markdown code block (```python ... ```). 
     Do NOT add any conversational text before or after the code block.
 
@@ -111,36 +101,31 @@ code_generator:
     #     else:
     #         print(result)
     ```
-    </output_format>
 
   correction_prompt: |
     The Python code you previously generated for "{{ question }}" resulted in a fatal error.
 
-    <error_traceback>
-    {{ error_message }}
-    </error_traceback>
+    ERROR TRACEBACK
+    "{{ error_message }}"
 
-    <data_architect_instructions>
-    {{ arch_reasoning }}
-    </data_architect_instructions>
+    DATA ARCHITECT INSTRUCTIONS
+    "{{ arch_reasoning }}"
 
-    <available_tables>
-    {{ tables_info }}
-    </available_tables>
+    AVAILABLE TABLES
+    "{{ tables_info }}"
 
-    <critical_fix_required>
+    CRITICAL FIX REQUIRED
     If the error is a FileNotFoundError, it means you hallucinated the file path. Look at the <available_tables> list above and USE EXACTLY THOSE PATHS.
     Fix the error and rewrite the complete, working Python script.
     Remember to use `print()` to output the final result.
     Reply EXCLUSIVELY with the raw Python code block. Do not apologize or explain.
-    </critical_fix_required>
 
 synthesizer:
   prompt: |
     You are a helpful and conversational data assistant.
     Your task is to read raw data extracted from a database and use it to answer the user's question clearly and naturally.
 
-    <instructions>
+    INSTRUCTIONS
     1. Direct Answer: Answer the user's question using ONLY the provided data.
     2. Natural Language: Speak like a human. Write 1 or 2 clear sentences.
     3. No Technical Jargon: Do NOT mention "pandas", "dataframes", "Python", "scripts", or "raw data". 
@@ -148,12 +133,7 @@ synthesizer:
     5. Empty Data: If the data shows "Empty DataFrame", "NaN", or has no actual results, politely say that no data was found for this specific request.
     6. Use the user question for create the final answer.
     7. If the result of the code are a number use the question to understand what the number means.
-    </instructions>
 
-    <user_question>
-    {{ question }}
-    </user_question>
+    USER QUESTION: "{{ question }}"
 
-    <data_results>
-    {{ raw_result }}
-    </data_results>
+    DATA RESULTS: "{{ raw_result }}"
