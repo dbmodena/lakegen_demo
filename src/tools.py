@@ -7,7 +7,7 @@ import polars as pl
 from llama_index.core.tools import FunctionTool
 
 from utils import CSV_DIR, DB_PATH
-from indexes.blend_indexer import BlendIndexer
+from build_indexes.blend_indexer import BlendIndexer
 
 try:
     from blend.blend import BLEND
@@ -33,7 +33,8 @@ def inspect_columns(file_name: str) -> str:
     Use this tool to understand what data a table contains before deciding whether or not to use it.
     """
     path = CSV_DIR / file_name.strip()
-    if not path.exists(): return f"Error: The file {file_name} does not exist."
+    if not path.exists(): 
+        return f"Error: The file {file_name} does not exist."
     return f"Columns in {file_name}: {list(pd.read_csv(path, nrows=0).columns)}"
 
 def preview_data(file_name: str, n_rows: int = 3) -> str:
@@ -43,7 +44,8 @@ def preview_data(file_name: str, n_rows: int = 3) -> str:
     Trust the column names. The Python script will do the filtering later.
     """
     path = CSV_DIR / file_name.strip()
-    if not path.exists(): return f"Error: File missing."
+    if not path.exists(): 
+        return "Error: File missing."
     return f"Preview of {file_name}:\n{pd.read_csv(path, nrows=n_rows).to_string(index=False)}"
 
 def find_joinable_tables(file_name: str, target_columns: list[str], candidate_files: list[str]) -> str:
@@ -63,8 +65,10 @@ def find_joinable_tables(file_name: str, target_columns: list[str], candidate_fi
     """
     file_name = file_name.strip()
     path_file = CSV_DIR / file_name
-    if not path_file.exists(): return "Error: Target file missing."
-    if not candidate_files: return "Error: You must provide a list of candidate_files to search against."
+    if not path_file.exists(): 
+        return "Error: Target file missing."
+    if not candidate_files: 
+        return "Error: You must provide a list of candidate_files to search against."
     
     temp_db_name = f"temp_blend_{uuid.uuid4().hex}.db"
     temp_db_path = DB_PATH.parent / temp_db_name
@@ -89,7 +93,8 @@ def find_joinable_tables(file_name: str, target_columns: list[str], candidate_fi
         
         if temp_db_path.exists(): os.remove(temp_db_path)
         
-        if not results: return "No compatible table found."
+        if not results: 
+            return "No compatible table found."
         output = f"BLEND Results for '{file_name}' using columns {valid_cols}:\n"
         for t_id, _, score in results:
             if t_id != file_name: output += f"-> {t_id} (Score: {score:.3f})\n"
@@ -114,7 +119,8 @@ def find_exact_overlaps(file_name_1: str, file_name_2: str) -> str:
         r_tab = [df1[col].tolist() for col in df1.columns]
         s_tab = [df2[col].tolist() for col in df2.columns]
         results = sloth(r_tab=r_tab, s_tab=s_tab, min_a=10, min_w=1, max_w=min(len(df1.columns), len(df2.columns)), min_h=5, max_h=min(len(df1), len(df2)), complete=False, verbose=False)
-        if not results: return f"No exact overlap found."
+        if not results: 
+            return "No exact overlap found."
         return "Exact overlap found!"
     except Exception as e:
         return f"Error SLOTH: {e}"

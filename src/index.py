@@ -16,19 +16,19 @@ sys.path.append(str(BASE_DIR / "src"))
 DATA_DIR = BASE_DIR / "Data"
 CSV_DIR = DATA_DIR / "data_csv"
 JSON_DIR = DATA_DIR / "data_json"
-INDICI_DIR = DATA_DIR / "indices"
+INDEXES_DIR = DATA_DIR / "indexes"
 DB_PATH = DATA_DIR / "blend_index.db"
 
 # Import the new separated indexers
-from indexes.metadata_indexer import MetadataIndexer
-from indexes.blend_indexer import BlendIndexer
+from build_indexes.metadata_indexer import MetadataIndexer
+from build_indexes.blend_indexer import BlendIndexer
 
 # ==========================================
 # 2. INDEXER CLASS
 # ==========================================
 class DataLakeIndexer:
-    def __init__(self, json_dir: Path, csv_dir: Path, db_path: Path, indici_dir: Path):
-        self.metadata_indexer = MetadataIndexer(json_dir=json_dir, indici_dir=indici_dir)
+    def __init__(self, json_dir: Path, csv_dir: Path, db_path: Path, indexes_dir: Path):
+        self.metadata_indexer = MetadataIndexer(json_dir=json_dir, indexes_dir=indexes_dir)
         self.blend_indexer = BlendIndexer(csv_dir=csv_dir, db_path=db_path)
 
     def run(self):
@@ -50,6 +50,6 @@ if __name__ == "__main__":
         json_dir=JSON_DIR, 
         csv_dir=CSV_DIR, 
         db_path=DB_PATH,
-        indici_dir=INDICI_DIR
+        indexes_dir=INDEXES_DIR
     )
     indexer.run()

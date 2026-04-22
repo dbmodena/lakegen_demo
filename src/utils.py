@@ -34,7 +34,7 @@ sys.path.insert(0, percorso_src)
 DATA_DIR = BASE_DIR / "Data"
 CSV_DIR = DATA_DIR / "data_csv"
 DB_PATH = DATA_DIR / "blend_index.db"
-INDICI_DIR = DATA_DIR / "indices"
+INDEXES_DIR = DATA_DIR / "indexes"
 LOG_DIR = BASE_DIR / "logs"
 
 # ==========================================

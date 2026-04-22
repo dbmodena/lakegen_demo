@@ -35,7 +35,7 @@ from utils import (
     BASE_DIR,
     DATA_DIR,
     CSV_DIR,
-    INDICI_DIR,
+    INDEXES_DIR,
     DB_PATH,
     LOG_DIR,
     get_filtered_tables_info,
@@ -43,11 +43,15 @@ from utils import (
     save_experiment_log,
     DualLogger
 )
+
 from tools import agent_tools
 
 # ==========================================
 # WORKFLOW DEFINITION (Events and Class)
 # ==========================================
+class KeywordEvent(Event):
+    enriched_keywords: list
+    raw_content: str
 class TableSelectionEvent(Event): 
     selected_files: list
     reasoning: str
@@ -72,11 +76,10 @@ class RobustLakeGenWorkflow(Workflow):
         self.all_available_files = list(set([f for files in self.inverted_index.values() for f in files]))
 
     @step
-    async def select_tables(self, ev: StartEvent) -> TableSelectionEvent:
-        """PHASE 1 and 2: Generate keywords and select tables."""
+    async def generate_keywords(self, ev: StartEvent) -> KeywordEvent:
+        """PHASE 1: Generate keywords from the user question."""
         self.question = ev.question
 
-        # PHASE 1: KEYWORD GENERATION WITH LOOP
         raw_keywords_str = extract_query_keywords(self.question)
         default_keywords = [k.strip() for k in raw_keywords_str.split(',') if k.strip()]
         
@@ -88,7 +91,7 @@ class RobustLakeGenWorkflow(Workflow):
         while True:
             hint_section = f'\nUSER HINT (CRITICAL): "{keyword_hint}"' if keyword_hint else ""
 
-            system_prompt = system_prompt = """You are a Data Processing API.
+            system_prompt = """You are a Data Processing API.
             TASK: Generate MAX 5 NEW domain-specific synonyms or related technical terms.
             STRICT RULES:
             1. DO NOT repeat the words provided in the input.
@@ -119,7 +122,6 @@ class RobustLakeGenWorkflow(Workflow):
 
             # Takes only valid words
             extracted_words = re.findall(r'\b[a-z0-9_]+\b', raw_content)
-
             llm_fluff = {"here", "is", "are", "the", "list", "keywords", "output", "of", "sure", "certainly", "based", "on", "and", "or"}
             brute_keywords = [w for w in extracted_words if w not in llm_fluff]
 
@@ -141,7 +143,17 @@ class RobustLakeGenWorkflow(Workflow):
             keyword_hint = user_input
             print(f"    [!] Recalculating...")
 
-        # PHASE 2: TABLE SELECTION WITH LOOP
+        # Save keywords for logging
+        self.raw_model_keywords = raw_content
+        self.final_keywords = enriched_keywords
+
+        return KeywordEvent(enriched_keywords=enriched_keywords, raw_content=raw_content)
+
+    @step
+    async def select_tables(self, ev: KeywordEvent) -> TableSelectionEvent:
+        """PHASE 2: Select the most relevant tables using the generated keywords."""
+        enriched_keywords = ev.enriched_keywords
+
         print(f"\nPHASE 2: TABLE SELECTION (Agent is inspecting files...)")
 
         table_scores = {}
@@ -260,10 +272,6 @@ class RobustLakeGenWorkflow(Workflow):
 
             table_hint = user_input_tables
             print(f"    [!] Recalculating based on: '{table_hint}'...")
-
-        # Save keywords for logging
-        self.raw_model_keywords = raw_content
-        self.final_keywords = enriched_keywords
 
         # Turning off the callback to not interfere with Phases 3 and 5
         Settings.callback_manager = CallbackManager([])
@@ -482,12 +490,12 @@ class RobustLakeGenWorkflow(Workflow):
 # MAIN EXECUTION
 # ==========================================
 async def main():
-    # Loading pre-calculated indices
+    # Loading pre-calculated indexes
     try:
-        with open(INDICI_DIR / "table_keywords.json", "r") as f: table_kw = json.load(f)
-        with open(INDICI_DIR / "inverted_index.json", "r") as f: inv_index = json.load(f)
+        with open(INDEXES_DIR / "table_keywords.json", "r") as f: table_kw = json.load(f)
+        with open(INDEXES_DIR / "inverted_index.json", "r") as f: inv_index = json.load(f)
     except FileNotFoundError:
-        print("❌ Indices not found! Run 'python index.py' first")
+        print("❌ Indexes not found! Run 'python build_indexes.py' first")
         return
 
     print("🔄 Initializing Token Tracking System...")
