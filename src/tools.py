@@ -1,10 +1,13 @@
 import sys
+import os
+import uuid
 import json
 import pandas as pd
 import polars as pl
 from llama_index.core.tools import FunctionTool
 
 from utils import CSV_DIR, DB_PATH
+from indexes.blend_indexer import BlendIndexer
 
 try:
     from blend.blend import BLEND
@@ -43,9 +46,14 @@ def preview_data(file_name: str, n_rows: int = 3) -> str:
     if not path.exists(): return f"Error: File missing."
     return f"Preview of {file_name}:\n{pd.read_csv(path, nrows=n_rows).to_string(index=False)}"
 
-def find_joinable_tables(file_name: str) -> str:
+def find_joinable_tables(file_name: str, target_columns: list[str], candidate_files: list[str]) -> str:
     """
     Use the BLEND engine to find which other tables in the Data Lake can be joined with the specified file.
+    
+    Args:
+        file_name: The name of the file to search for joins.
+        target_columns: A list of strings representing the specific columns of interest to use for the join search. Do NOT use all columns, only those relevant to the user's query.
+        candidate_files: A list of filenames to search against. Provide the list of tables you want to check for possible joins.
 
     PAY ATTENTION TO SCORE RULES:
     The score is an AVERAGE across all columns. A low score (e.g., 0.05 - 0.20) is actually EXCELLENT
@@ -55,18 +63,43 @@ def find_joinable_tables(file_name: str) -> str:
     """
     file_name = file_name.strip()
     path_file = CSV_DIR / file_name
-    if not DB_PATH.exists() or not path_file.exists(): return "Error: DB or file missing."
+    if not path_file.exists(): return "Error: Target file missing."
+    if not candidate_files: return "Error: You must provide a list of candidate_files to search against."
+    
+    temp_db_name = f"temp_blend_{uuid.uuid4().hex}.db"
+    temp_db_path = DB_PATH.parent / temp_db_name
+    
     try:
-        blend_indexer = BLEND(db_path=DB_PATH)
+        indexer = BlendIndexer(csv_dir=CSV_DIR, db_path=temp_db_path)
+        indexer.build_index(specific_files=candidate_files, silent=True)
+        
+        blend_engine = BLEND(db_path=temp_db_path)
         df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
-        results = blend_indexer.multi_column_join_search(table=df_target, k=5, clean=True)
-        blend_indexer.close()
+        
+        valid_cols = [col for col in target_columns if col in df_target.columns]
+        if not valid_cols:
+            blend_engine.close()
+            if temp_db_path.exists(): os.remove(temp_db_path)
+            return f"Error: None of the specified target_columns {target_columns} exist in {file_name}."
+            
+        df_target = df_target.select(valid_cols)
+        
+        results = blend_engine.multi_column_join_search(table=df_target, k=5, clean=True)
+        blend_engine.close()
+        
+        if temp_db_path.exists(): os.remove(temp_db_path)
+        
         if not results: return "No compatible table found."
-        output = f"BLEND Results for '{file_name}':\n"
+        output = f"BLEND Results for '{file_name}' using columns {valid_cols}:\n"
         for t_id, _, score in results:
             if t_id != file_name: output += f"-> {t_id} (Score: {score:.3f})\n"
         return output
     except Exception as e:
+        if temp_db_path.exists():
+            try:
+                os.remove(temp_db_path)
+            except:
+                pass
         return f"Error BLEND: {e}"
 
 def find_exact_overlaps(file_name_1: str, file_name_2: str) -> str:
