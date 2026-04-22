@@ -276,15 +276,17 @@ class RobustLakeGenWorkflow(Workflow):
                 messaggio_di_resa = f"I tried my best, but I encountered a technical error: {getattr(ev, 'error_message', 'Unknown error')}"
                 return FinalResultEvent(raw_result=messaggio_di_resa)
 
+        system_prompt = self.prompt_manager.render("code_generator", "system_prompt")
+
         if retries == 0:
-            prompt = self.prompt_manager.render(
+            user_prompt = self.prompt_manager.render(
                 "code_generator", "initial_prompt",
                 question=self.question,
                 arch_reasoning=self.arch_reasoning,
                 tables_info=self.tables_info
             )
         else:
-            prompt = self.prompt_manager.render(
+            user_prompt = self.prompt_manager.render(
                 "code_generator", "correction_prompt",
                 question=self.question,
                 error_message=ev.error_message,
@@ -292,11 +294,14 @@ class RobustLakeGenWorkflow(Workflow):
                 tables_info=self.tables_info
             )
 
-        res = await self.llm_versatile.achat([ChatMessage(role="user", content=prompt)])
+        res = await self.llm_versatile.achat([
+            ChatMessage(role="system", content=system_prompt),
+            ChatMessage(role="user", content=user_prompt)
+        ])
 
         if res.raw:
-            in_t = res.raw.get('prompt_eval_count', 0)
-            out_t = res.raw.get('eval_count', 0)
+            in_t = res.raw.get('prompt_eval_count') or 0
+            out_t = res.raw.get('eval_count') or 0
             print(f"    📊 [TOKEN PHASE 3 (Attempt {retries+2})] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
 
         return ExecutionEvent(code=str(res.message.content), retries=retries)
