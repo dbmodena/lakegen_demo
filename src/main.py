@@ -4,6 +4,7 @@ import os
 import sys
 import io
 import re
+import uuid
 import json
 import asyncio
 import datetime
@@ -29,6 +30,8 @@ from llama_index.core.workflow import Workflow, step, StartEvent, StopEvent, Eve
 from llama_index.core.llms import ChatMessage
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent import ReActAgent
+from llama_index.core.instrumentation import get_dispatcher
+from llama_index.core.workflow import Context
 
 from utils import (
     BASE_DIR,
@@ -40,10 +43,12 @@ from utils import (
     get_filtered_tables_info,
     extract_query_keywords,
     save_experiment_log,
-    DualLogger
+    DualLogger,
+    ThinkingCapture
 )
 
-from tools import agent_tools
+from tools import make_agent_tools
+from build_indexes.blend_indexer import BlendIndexer
 from prompts.prompt_manager import PromptManager
 
 # ==========================================
@@ -162,99 +167,128 @@ class RobustLakeGenWorkflow(Workflow):
         sorted_tables = sorted(table_scores.items(), key=lambda x: x[1], reverse=True)
         top_10 = [t[0] for t in sorted_tables if t[1] > 0.0][:10] or self.all_available_files[:5]
 
-        system_prompt = self.prompt_manager.render("data_architect", "system_prompt")
-
-        explorer_agent = ReActAgent(
-            name="data_explorer",
-            tools=agent_tools,
-            llm=self.llm_versatile,
-            verbose=True,
-            max_iterations=15,
-            system_prompt=system_prompt
-        )
-
-        token_counter = next((h for h in Settings.callback_manager.handlers if hasattr(h, 'reset_counts')), None)
-        if token_counter:
-            token_counter.reset_counts()
-
-        table_hint = ""
-        while True:
-            enriched_candidates_info = ""
-            for file_name in top_10:
-                topics = ", ".join(self.table_kw.get(file_name, ["No specific topics"]))
-                enriched_candidates_info += f"- {file_name} (Topics: {topics})\n"
-
-            agent_prompt = self.prompt_manager.render(
-                "data_architect", "user_prompt",
-                question=self.question,
-                enriched_candidates_info=enriched_candidates_info,
-                table_hint=table_hint
+        # Build the BLEND index
+        blend_db_name = f"temp_blend_{uuid.uuid4().hex}.db"
+        self.blend_db_path = DB_PATH.parent / blend_db_name
+        
+        try:
+            print(f"    🔨 Building BLEND index for {len(top_10)} candidate tables...")
+            indexer = BlendIndexer(csv_dir=CSV_DIR, db_path=self.blend_db_path)
+            indexer.build_index(specific_files=top_10, silent=True)
+            print(f"    [✓] BLEND index ready: {self.blend_db_path.name}\n")
+            print("    Start reasoning...")
+    
+            system_prompt = self.prompt_manager.render("data_architect", "system_prompt")
+    
+            agent_tools = make_agent_tools(self.blend_db_path)
+            explorer_agent = ReActAgent(
+                name="data_explorer",
+                tools=agent_tools,
+                llm=self.llm_versatile,
+                verbose=True,
+                max_iterations=15,
+                system_prompt=system_prompt
             )
-
-            logger_capture = DualLogger(sys.stdout)
-            sys.stdout = logger_capture
-            
-            try:
-                res = await asyncio.wait_for(explorer_agent.run(agent_prompt), timeout=180.0)
-                agent_resp = str(getattr(res, 'response', res)).strip()
-            except asyncio.TimeoutError:
-                sys.stdout.write("\n    [!] Attention: The agent was reasoning for too long. Forced interruption.\n")
-                agent_resp = f'FINAL_PAYLOAD: {{"tables": "{", ".join(top_10[:2])}", "reasoning": "Timeout reached. Fallback to top 2 tables."}}'
-            finally:
-                sys.stdout = logger_capture.terminal 
-                full_trace = logger_capture.log_str.getvalue()
-                logger_capture.log_str.close()
-            
-            # Print total tokens for the agent
+    
+            token_counter = next((h for h in Settings.callback_manager.handlers if hasattr(h, 'reset_counts')), None)
             if token_counter:
-                pt = token_counter.prompt_llm_token_count
-                ct = token_counter.completion_llm_token_count
-                self.tokens_phase2 += pt + ct
-                print(f"\n    📊 [TOKEN PHASE 2 - Agent] Prompt: {pt} | Generate: {ct} | Tot: {pt + ct}")
                 token_counter.reset_counts()
-
-            selected_tables = ""
-            architect_reasoning = "No reasoning provided."
-
-            if "FINAL_PAYLOAD:" in agent_resp:
-                match_json = re.search(r'FINAL_PAYLOAD:\s*(\{.*?\})', agent_resp, re.DOTALL)
+    
+            table_hint = ""
+            while True:
+                enriched_candidates_info = ""
+                for file_name in top_10:
+                    topics = ", ".join(self.table_kw.get(file_name, ["No specific topics"]))
+                    enriched_candidates_info += f"- {file_name} (Topics: {topics})\n"
+    
+                agent_prompt = self.prompt_manager.render(
+                    "data_architect", "user_prompt",
+                    question=self.question,
+                    enriched_candidates_info=enriched_candidates_info,
+                    table_hint=table_hint
+                )
+    
+                logger_capture = DualLogger(sys.stdout)
+                sys.stdout = logger_capture
+    
+                thinking_capture = ThinkingCapture()
+                dispatcher = get_dispatcher()
+                dispatcher.add_event_handler(thinking_capture)
+    
+                try:
+                    res = await asyncio.wait_for(explorer_agent.run(agent_prompt), timeout=180.0)
+                    agent_resp = str(getattr(res, 'response', res)).strip()
+                except asyncio.TimeoutError:
+                    sys.stdout.write("\n    [!] Attention: The agent was reasoning for too long. Forced interruption.\n")
+                    agent_resp = f'FINAL_PAYLOAD: {{"tables": "{", ".join(top_10[:2])}", "reasoning": "Timeout reached. Fallback to top 2 tables."}}'
+                finally:
+                    sys.stdout = logger_capture.terminal
+                    full_trace = logger_capture.log_str.getvalue()
+                    logger_capture.log_str.close()
+                    dispatcher.event_handlers.remove(thinking_capture)
+    
+                agent_thinking = "\n\n--- [next thinking block] ---\n".join(thinking_capture.parts)
                 
-                if match_json:
-                    json_str = match_json.group(1).replace('\\"', '"') # Safety cleaning
-                    try:
-                        payload = json.loads(json_str)
-                        selected_tables = payload.get("tables", "")
-                        architect_reasoning = payload.get("reasoning", "")
-                    except json.JSONDecodeError:
-                        selected_tables = json_str
+                # Print total tokens for the agent
+                if token_counter:
+                    pt = token_counter.prompt_llm_token_count
+                    ct = token_counter.completion_llm_token_count
+                    self.tokens_phase2 += pt + ct
+                    print(f"\n    📊 [TOKEN PHASE 2 - Agent] Prompt: {pt} | Generate: {ct} | Tot: {pt + ct}")
+                    token_counter.reset_counts()
+    
+                selected_tables = ""
+                architect_reasoning = "No reasoning provided."
+    
+                if "FINAL_PAYLOAD:" in agent_resp:
+                    match_json = re.search(r'FINAL_PAYLOAD:\s*(\{.*?\})', agent_resp, re.DOTALL)
+                    
+                    if match_json:
+                        json_str = match_json.group(1).replace('\\"', '"') # Safety cleaning
+                        try:
+                            payload = json.loads(json_str)
+                            selected_tables = payload.get("tables", "")
+                            architect_reasoning = payload.get("reasoning", "")
+                        except json.JSONDecodeError:
+                            selected_tables = json_str
+                    else:
+                        selected_tables = agent_resp
                 else:
-                    selected_tables = agent_resp
-            else:
-                match_tables = re.search(r'(?i)TABLES:\s*(.*)', agent_resp)
-                if match_tables:
-                    selected_tables = match_tables.group(1).replace("tables:", "").strip()
-
-            selected_tables = selected_tables.replace("'", "").replace('"', "")
-            
-            selected = [f.strip() for f in selected_tables.split(',') if f.strip() in self.all_available_files]
-            if not selected:
-                selected = top_10[:2]
-
-            print(f"\n    [💡] Architect Reasoning: {architect_reasoning}")
-
-            user_input_tables = input(f"    Tables ({selected}) - Press ENTER to confirm, or write a suggestion: ").strip()
-            
-            if not user_input_tables or user_input_tables.lower() in ['ok', 'y', 'si', 'yes']:
-                print("    [✓] Table selection approved!")
-                break
-
-            table_hint = user_input_tables
-            print(f"    [!] Recalculating based on: '{table_hint}'...")
-
-        # Turning off the callback to not interfere with Phases 3 and 5
-        Settings.callback_manager = CallbackManager([])
-
-        return TableSelectionEvent(selected_files=selected, reasoning=architect_reasoning, full_trace=full_trace)
+                    match_tables = re.search(r'(?i)TABLES:\s*(.*)', agent_resp)
+                    if match_tables:
+                        selected_tables = match_tables.group(1).replace("tables:", "").strip()
+    
+                selected_tables = selected_tables.replace("'", "").replace('"', "")
+                
+                selected = [f.strip() for f in selected_tables.split(',') if f.strip() in self.all_available_files]
+                if not selected:
+                    selected = top_10[:2]
+    
+                print(f"\n    [💡] Architect Reasoning: {architect_reasoning}")
+    
+                user_input_tables = input(f"    Tables ({selected}) - Press ENTER to confirm, or write a suggestion: ").strip()
+                
+                if not user_input_tables or user_input_tables.lower() in ['ok', 'y', 'si', 'yes']:
+                    print("    [✓] Table selection approved!")
+                    break
+    
+                table_hint = user_input_tables
+                print(f"    [!] Recalculating based on: '{table_hint}'...")
+    
+            # Turning off the callback to not interfere with Phases 3 and 5
+            Settings.callback_manager = CallbackManager([])
+    
+            self.agent_thinking = agent_thinking
+            return TableSelectionEvent(selected_files=selected, reasoning=architect_reasoning, full_trace=full_trace)
+    
+        finally:
+            # Clean up the temporary BLEND index
+            if hasattr(self, 'blend_db_path') and self.blend_db_path.exists():
+                try:
+                    os.remove(self.blend_db_path)
+                    print(f"    🗑️  Temporary BLEND index removed.")
+                except Exception as e:
+                    print(f"    [!] Could not remove temp BLEND index: {e}")
 
     @step
     async def generate_or_correct_code(self, ev: TableSelectionEvent | CodeErrorEvent) -> ExecutionEvent | FinalResultEvent:
@@ -266,6 +300,7 @@ class RobustLakeGenWorkflow(Workflow):
             self.agent_full_trace = ev.full_trace
             self.tables_info = get_filtered_tables_info(ev.selected_files)
             self.selected_files_list = ev.selected_files
+            self.tokens_phase3 = 0
             retries = 0
             print(f"\nPHASE 3: Generating initial code...")
         else:
@@ -302,7 +337,8 @@ class RobustLakeGenWorkflow(Workflow):
         if res.raw:
             in_t = res.raw.get('prompt_eval_count') or 0
             out_t = res.raw.get('eval_count') or 0
-            print(f"    📊 [TOKEN PHASE 3 (Attempt {retries+2})] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
+            self.tokens_phase3 += in_t + out_t
+            print(f"    📊 [TOKEN PHASE 3 (Attempt {retries+1})] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
 
         return ExecutionEvent(code=str(res.message.content), retries=retries)
 
@@ -336,6 +372,8 @@ class RobustLakeGenWorkflow(Workflow):
         reasoning_to_log = getattr(self, 'arch_reasoning', 'Reasoning not available')
         tabelle_log = getattr(self, 'selected_files_list', None)
         full_trace_to_log = getattr(self, 'agent_full_trace', '')
+        agent_thinking_to_log = getattr(self, 'agent_thinking', '')
+        llm_thinking = getattr(self, 'llm_thinking_phase3', '')
 
         try:
             # Isolated execution with 15 second timeout
@@ -347,18 +385,22 @@ class RobustLakeGenWorkflow(Workflow):
                 print("    [✓] Execution completed successfully!")
                 # Store state for phase 5 logging
                 self.log_payload = dict(code=code, raw_result=result.stdout.strip(), retries=ev.retries,
-                                        reasoning=reasoning_to_log, tables=tabelle_log, raw_kw=raw_kw, final_kw=final_kw, debug_raw=trace_to_log, full_trace=full_trace_to_log)
+                                        reasoning=reasoning_to_log, tables=tabelle_log, raw_kw=raw_kw, final_kw=final_kw,
+                                        debug_raw=trace_to_log, full_trace=full_trace_to_log,
+                                        tokens_phase3=getattr(self, 'tokens_phase3', 0),
+                                        llm_thinking=llm_thinking,
+                                        agent_thinking=agent_thinking_to_log)
                 return FinalResultEvent(raw_result=result.stdout.strip())
             else:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 print(f"    [!] Error during code execution.")
-                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, raw_keywords=raw_kw, final_keywords=final_kw, debug_raw=trace_to_log, full_trace=full_trace_to_log)
+                save_experiment_log(self.question, code, f"[EXECUTION ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, raw_keywords=raw_kw, final_keywords=final_kw, debug_raw=trace_to_log, full_trace=full_trace_to_log, tokens_phase3=getattr(self, 'tokens_phase3', 0), llm_thinking=llm_thinking, agent_thinking=agent_thinking_to_log)
                 return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
                 
         except Exception as e:
             error_msg = str(e)
             print(f"    [!] Critical system error: {error_msg}")
-            save_experiment_log(self.question, code, f"[CRITICAL ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, debug_raw=trace_to_log, full_trace=full_trace_to_log)
+            save_experiment_log(self.question, code, f"[CRITICAL ERROR]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, debug_raw=trace_to_log, full_trace=full_trace_to_log, tokens_phase3=getattr(self, 'tokens_phase3', 0), llm_thinking=llm_thinking, agent_thinking=agent_thinking_to_log)
             return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
 
     @step
@@ -406,7 +448,10 @@ class RobustLakeGenWorkflow(Workflow):
                 full_trace=payload.get('full_trace', ''),
                 tokens_phase1=getattr(self, 'tokens_phase1', 0),
                 tokens_phase2=getattr(self, 'tokens_phase2', 0),
-                tokens_phase5=tokens_phase5
+                tokens_phase3=payload.get('tokens_phase3', 0),
+                tokens_phase5=tokens_phase5,
+                llm_thinking=payload.get('llm_thinking', ''),
+                agent_thinking=payload.get('agent_thinking', '')
             )
             self.log_payload = None  # Reset to avoid duplicate logging on retries
 
@@ -416,6 +461,13 @@ class RobustLakeGenWorkflow(Workflow):
 # MAIN EXECUTION
 # ==========================================
 async def main():
+    # Cleanup orphan temp db files
+    for db_file in DB_PATH.parent.glob("temp_blend_*.db"):
+        try:
+            os.remove(db_file)
+        except Exception:
+            pass
+
     # Loading pre-calculated indexes
     try:
         with open(INDEXES_DIR / "table_keywords.json", "r") as f: table_kw = json.load(f)

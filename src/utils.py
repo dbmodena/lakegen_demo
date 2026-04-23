@@ -10,6 +10,12 @@ from pathlib import Path
 import pandas as pd
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from nltk.stem import WordNetLemmatizer
+from typing import List, Any
+from pydantic import Field
+
+# LlamaIndex Instrumentation for Thinking Capture
+from llama_index.core.instrumentation.event_handlers import BaseEventHandler
+from llama_index.core.instrumentation.events.agent import AgentRunStepEndEvent
 
 CURRENT_DIR = Path(__file__).parent.resolve()
 
@@ -67,9 +73,9 @@ def extract_query_keywords(query: str) -> str:
     extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in ENGLISH_STOP_WORDS]
     return ", ".join(list(dict.fromkeys(extracted_keywords)))
 
-CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE5", "ERROR"]
+CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3", "TOKENS_PHASE5", "ERROR"]
 
-def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = "", full_trace: str = "", tokens_phase1: int = 0, tokens_phase2: int = 0, tokens_phase5: int = 0, error: str = ""):
+def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = "", full_trace: str = "", tokens_phase1: int = 0, tokens_phase2: int = 0, tokens_phase3: int = 0, tokens_phase5: int = 0, llm_thinking: str = "", agent_thinking: str = "", error: str = ""):
     os.makedirs(LOG_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -80,10 +86,19 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
     final_kw_str = f"\nKEYWORDS (final elaborated): {', '.join(final_keywords)}" if final_keywords else ""
     final_result_str = f"\nFINAL RESULT (Phase 5):\n{final_result}" if final_result else ""
     debug_raw_str = f"\nDEBUG RAW:\n{debug_raw}" if debug_raw else ""
+    llm_thinking_str = f"\n{'-'*40}\nMODEL THINKING (Phase 3 - Code Generator):\n{llm_thinking}\n{'-'*40}" if llm_thinking else ""
     error_str = f"\nERROR:\n{error}" if error else ""
-    reasoning_txt = full_trace if full_trace else reasoning
-    tokens_str = f"\nTOKENS: Phase1={tokens_phase1} | Phase2={tokens_phase2} | Phase5={tokens_phase5}" if any([tokens_phase1, tokens_phase2, tokens_phase5]) else ""
-    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}{tokens_str}\nRETRIES: {retries}\nCODE:\n{code}\n\nRAW OUTPUT (Phase 4):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
+    
+    reasoning_parts = []
+    if full_trace:
+        reasoning_parts.append(f"=== WORKFLOW TRACE ===\n{full_trace.strip()}")
+    if agent_thinking:
+        reasoning_parts.append(f"=== FULL UNTRUNCATED REASONING ===\n{agent_thinking.strip()}")
+        
+    reasoning_txt = "\n\n".join(reasoning_parts) if reasoning_parts else reasoning
+    
+    tokens_str = f"\nTOKENS: Phase1={tokens_phase1} | Phase2={tokens_phase2} | Phase3={tokens_phase3} | Phase5={tokens_phase5}" if any([tokens_phase1, tokens_phase2, tokens_phase3, tokens_phase5]) else ""
+    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}{tokens_str}\nRETRIES: {retries}{llm_thinking_str}\nCODE (extracted):\n{code}\n\nRAW OUTPUT (Phase 4):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
     with open(txt_path, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
@@ -119,6 +134,7 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
         "FINAL_RESULT":    final_result[:500].replace("\n", "  ") if final_result else "",
         "TOKENS_PHASE1":   tokens_phase1,
         "TOKENS_PHASE2":   tokens_phase2,
+        "TOKENS_PHASE3":   tokens_phase3,
         "TOKENS_PHASE5":   tokens_phase5,
         "ERROR":           error.replace("\n", "  "),
     }
@@ -137,3 +153,47 @@ class DualLogger:
         self.log_str.write(message)
     def flush(self):
         self.terminal.flush()
+
+class ThinkingCapture(BaseEventHandler):
+    parts: List[str] = Field(default_factory=list)
+
+    @classmethod
+    def class_name(cls) -> str:
+        return "ThinkingCapture"
+
+    def handle(self, event) -> None:
+        event_type = type(event).__name__
+        
+        def extract_thinking(msg):
+            # Extract from LlamaIndex structured thinking blocks
+            for block in getattr(msg, 'blocks', []):
+                if getattr(block, 'block_type', '') == 'thinking':
+                    content = getattr(block, 'content', '')
+                    if content and content not in self.parts:
+                        self.parts.append(content)
+                        
+            # Extract from raw text using <think> tags (fallback for some Ollama models)
+            content = getattr(msg, 'content', '')
+            if content and isinstance(content, str):
+                matches = re.findall(r'<think>(.*?)</think>', content, re.DOTALL | re.IGNORECASE)
+                for match in matches:
+                    text = match.strip()
+                    if text and text not in self.parts:
+                        self.parts.append(text)
+                        
+        # Capture from LLMChatEndEvent
+        if event_type == "LLMChatEndEvent":
+            response = getattr(event, 'response', None)
+            if response:
+                msg = getattr(response, 'message', None)
+                if msg:
+                    extract_thinking(msg)
+                                
+        # Capture from AgentRunStepEndEvent or Workflow Step Events
+        elif event_type in ["AgentRunStepEndEvent", "StepEndEvent", "AgentOutput"]:
+            output = getattr(event, 'step_output', None) or getattr(event, 'output', None) or event
+            if output is None:
+                return
+            msg = getattr(output, 'output', None) or getattr(output, 'response', None)
+            if msg:
+                extract_thinking(msg)
