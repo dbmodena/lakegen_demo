@@ -30,6 +30,7 @@ htmlcov/
 Data/bologna_update/datasets/*.csv
 Data/bologna_update/metadata/*.json
 Data/bologna_update
+dataset_list.txt
 #csv/
 #*.csv
 #*.sqlite
