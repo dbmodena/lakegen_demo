@@ -95,9 +95,10 @@ if __name__ == "__main__":
     else:
         BASE_DIR = CURRENT_DIR
 
-    DATA_DIR = BASE_DIR / "Data"
-    CSV_DIR = DATA_DIR / "data_csv"
-    DB_PATH = DATA_DIR / "blend_index.db"
+    if str(BASE_DIR) not in sys.path:
+        sys.path.insert(0, str(BASE_DIR))
+        
+    from src.utils import DATA_DIR, CSV_DIR, DB_PATH
 
     if not DATA_DIR.exists():
         print(f"❌ ERROR: The data folder does not exist in the expected path:\n{DATA_DIR}")

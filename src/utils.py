@@ -3,6 +3,7 @@ import sys
 import io
 import re
 import csv
+import json
 import uuid
 import datetime
 from pathlib import Path
@@ -42,11 +43,21 @@ percorso_root = str(BASE_DIR)
 if percorso_root not in sys.path:
     sys.path.insert(0, percorso_root)
 
-DATA_DIR = BASE_DIR / "Data"
-CSV_DIR = DATA_DIR / "data_csv"
-DB_PATH = DATA_DIR / "blend_index.db"
-INDEXES_DIR = DATA_DIR / "indexes"
-LOG_DIR = BASE_DIR / "logs"
+CONFIG_FILE = BASE_DIR / "config.json"
+if CONFIG_FILE.exists():
+    with open(CONFIG_FILE, "r") as f:
+        config_data = json.load(f)
+else:
+    config_data = {"paths": {}}
+
+paths = config_data.get("paths", {})
+
+DATA_DIR = BASE_DIR / paths.get("data_dir", "Data")
+CSV_DIR = BASE_DIR / paths.get("csv_dir", "Data/bologna_update/datasets/csv")
+JSON_DIR = BASE_DIR / paths.get("json_metadata_dir", "Data/bologna_update/metadata")
+DB_PATH = BASE_DIR / paths.get("blend_db_path", "Data/blend_index.db")
+INDEXES_DIR = BASE_DIR / paths.get("indexes_dir", "Data/indexes")
+LOG_DIR = BASE_DIR / paths.get("logs_dir", "logs")
 
 # ==========================================
 # UTILITIES

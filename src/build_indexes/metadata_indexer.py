@@ -37,8 +37,19 @@ class MetadataIndexer:
                         descriptions.append(f"{t_desc} {col_text}")
                 elif isinstance(metadata, list):
                     for item in metadata:
-                        table_names.append(item.get('name', item.get('title', 'unknown_table')))
-                        descriptions.append(item.get('description', ''))
+                        if "dataset_id" in item:
+                            dataset_id = item.get("dataset_id", "unknown")
+                            table_names.append(f"{dataset_id}.csv")
+                            t_desc = item.get("description") or ""
+                            t_title = item.get("title") or ""
+                            col_text = " ".join([
+                                f"{col.get('name', '')} {col.get('label', '')} {col.get('description') or ''}" 
+                                for col in item.get("columns", [])
+                            ])
+                            descriptions.append(f"{t_title} {t_desc} {col_text}")
+                        else:
+                            table_names.append(item.get('name', item.get('title', 'unknown_table')))
+                            descriptions.append(item.get('description', ''))
             except Exception as e:
                 print(f"      -> Warning: Error reading {json_filepath.name}: {e}")
                 continue
@@ -81,9 +92,10 @@ if __name__ == "__main__":
     else:
         BASE_DIR = CURRENT_DIR
 
-    DATA_DIR = BASE_DIR / "Data"
-    JSON_DIR = DATA_DIR / "data_json"
-    INDEXES_DIR = DATA_DIR / "indexes"
+    if str(BASE_DIR) not in sys.path:
+        sys.path.insert(0, str(BASE_DIR))
+        
+    from src.utils import DATA_DIR, JSON_DIR, INDEXES_DIR
 
     if not DATA_DIR.exists():
         print(f"❌ ERROR: The data folder does not exist in the expected path:\n{DATA_DIR}")

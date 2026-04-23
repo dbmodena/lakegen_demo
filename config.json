@@ -1,0 +1,10 @@
+{
+  "paths": {
+    "data_dir": "Data",
+    "csv_dir": "Data/bologna_update/datasets/csv",
+    "json_metadata_dir": "Data/bologna_update/metadata",
+    "blend_db_path": "Data/blend_index.db",
+    "indexes_dir": "Data/indexes",
+    "logs_dir": "logs"
+  }
+}

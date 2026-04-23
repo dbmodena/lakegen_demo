@@ -27,7 +27,9 @@ htmlcov/
 # 4. Specific Project Files (LakeGen)
 # ========================
 # Ignore heavy CSVs and databases
-#data/
+Data/bologna_update/datasets/*.csv
+Data/bologna_update/metadata/*.json
+Data/bologna_update
 #csv/
 #*.csv
 #*.sqlite
