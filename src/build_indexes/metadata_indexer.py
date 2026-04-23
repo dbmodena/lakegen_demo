@@ -19,8 +19,8 @@ class MetadataIndexer:
         nltk.download('stopwords', quiet=True)
 
     def build_index(self, top_n_keywords: int = 15):
-        print("[1/2] Metadata extraction and TF-IDF calculation in progress...")
-        stop_words = list(stopwords.words('english'))
+        print("[] Metadata extraction and TF-IDF calculation in progress...")
+        stop_words = list(stopwords.words('italian')) + list(stopwords.words('english'))
         lemmatizer = WordNetLemmatizer()
         table_names, descriptions = [], []
 
@@ -37,7 +37,7 @@ class MetadataIndexer:
                         descriptions.append(f"{t_desc} {col_text}")
                 elif isinstance(metadata, list):
                     for item in metadata:
-                        if "dataset_id" in item:
+                        if isinstance(item, dict) and "dataset_id" in item:
                             dataset_id = item.get("dataset_id", "unknown")
                             table_names.append(f"{dataset_id}.csv")
                             t_desc = item.get("description") or ""
@@ -47,7 +47,7 @@ class MetadataIndexer:
                                 for col in item.get("columns", [])
                             ])
                             descriptions.append(f"{t_title} {t_desc} {col_text}")
-                        else:
+                        elif isinstance(item, dict):
                             table_names.append(item.get('name', item.get('title', 'unknown_table')))
                             descriptions.append(item.get('description', ''))
             except Exception as e:

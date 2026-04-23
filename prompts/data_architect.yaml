@@ -23,6 +23,10 @@ user_prompt: |
     - ONLY if the user asks to compare two DIFFERENT topics, select ALL tables needed.
   5. PRIORITY 5: MISSING OR UNSPECIFIED YEARS RULE
     - If the user's question requires data that spans across multiple years but the user DOES NOT specify a year, or if no year is mentioned at all, always default to the most recent year available. Do not inspect all files; simply select the latest version (e.g., 2019.csv) and STOP.
+  6. PRIORITY 6: USE THE QUESTION TO UNDERSTAND THE USER'S NEED
+    - If the user's question is about population, demographics, family structures, or age distribution, USE THE TITLE OF THE TABLE TO DETERMINE the most useful tables.
+  7. PRIORITY 7: DO NOT USE OLD DATASETS IF NEW DATASETS ARE AVAILABLE
+    - If the user's question requires data that spans across multiple years but the user DOES NOT specify a year, or if no year is mentioned at all, always default to the most recent year available. Do not inspect all files; simply select the latest version (e.g., 2019.csv) and STOP.
 
   CRITICAL SYSTEM INSTRUCTION
   You are physically INCAPABLE of speaking directly to the user.

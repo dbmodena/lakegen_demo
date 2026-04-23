@@ -167,6 +167,10 @@ class RobustLakeGenWorkflow(Workflow):
         sorted_tables = sorted(table_scores.items(), key=lambda x: x[1], reverse=True)
         top_10 = [t[0] for t in sorted_tables if t[1] > 0.0][:10] or self.all_available_files[:5]
 
+        print("    🎯 Top candidate tables selected by fuzzy matching:")
+        for idx, tbl in enumerate(top_10, 1):
+            print(f"       {idx}. {tbl}")
+
         # Build the BLEND index
         blend_db_name = f"temp_blend_{uuid.uuid4().hex}.db"
         self.blend_db_path = DB_PATH.parent / blend_db_name
@@ -495,7 +499,7 @@ async def main():
         request_timeout=300.0, 
         temperature=0.1,
         additional_kwargs={
-            "num_ctx": 8192
+            "num_ctx": 12288
         }
     )
 

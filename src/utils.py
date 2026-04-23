@@ -11,6 +11,8 @@ from pathlib import Path
 import pandas as pd
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
+import nltk
 from typing import List, Any
 from pydantic import Field
 
@@ -81,7 +83,16 @@ def get_filtered_tables_info(selected_files: list) -> str:
 def extract_query_keywords(query: str) -> str:
     lemmatizer = WordNetLemmatizer()
     words = re.findall(r'\b\w+\b', query.lower())
-    extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in ENGLISH_STOP_WORDS]
+    
+    try:
+        ita_stops = set(stopwords.words('italian'))
+    except LookupError:
+        nltk.download('stopwords', quiet=True)
+        ita_stops = set(stopwords.words('italian'))
+        
+    combined_stops = ita_stops.union(ENGLISH_STOP_WORDS)
+    
+    extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in combined_stops]
     return ", ".join(list(dict.fromkeys(extracted_keywords)))
 
 CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3", "TOKENS_PHASE5", "ERROR"]
