@@ -30,11 +30,8 @@ htmlcov/
 Data/bologna_update/datasets/*.csv
 Data/bologna_update/metadata/*.json
 Data/bologna_update
-dataset_list.txt
-#csv/
-#*.csv
-#*.sqlite
-#*.db
+*.zip
+
 
 # Ignore auto-generated JSON indices (e.g., inverted_index.json if generated locally)
 #indici/
