@@ -41,7 +41,6 @@ from utils import (
     INDEXES_DIR,
     DB_PATH,
     LOG_DIR,
-    get_filtered_tables_info,
     extract_query_keywords,
     save_experiment_log,
     DualLogger,
@@ -51,6 +50,8 @@ from utils import (
 from tools import make_agent_tools
 from build_indexes.blend_indexer import BlendIndexer
 from prompts.prompt_manager import PromptManager
+
+from client_solr import LocalSolrClient
 
 # ==========================================
 # WORKFLOW DEFINITION (Events and Class)
@@ -72,14 +73,12 @@ class FinalResultEvent(Event):
     raw_result: Any
 
 class RobustLakeGenWorkflow(Workflow):
-    def __init__(self, llm_instant, llm_versatile, inverted_index: dict, table_kw: dict, *args, **kwargs):
+    def __init__(self, llm_instant, llm_versatile, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.llm_instant = llm_instant
         self.llm_versatile = llm_versatile
-        self.inverted_index = inverted_index
-        self.table_kw = table_kw
         self.max_retries = 3
-        self.all_available_files = list(set([f for files in self.inverted_index.values() for f in files]))
+        self.all_available_files = [f for f in os.listdir(CSV_DIR) if f.endswith('.csv')]
         self.prompt_manager = PromptManager()
 
     @step
@@ -157,43 +156,55 @@ class RobustLakeGenWorkflow(Workflow):
 
         self.tokens_phase2 = 0
 
-        table_scores = {f: 0.0 for f in self.all_available_files}
-        # Total number of documents (for IDF calculation)
-        N = len(self.all_available_files) 
-
-        for kw in enriched_keywords:
-            # Track the best score for the current keyword per file to avoid "double dipping"
-            # (e.g., if a file has both "residenti" and "residente", we only count the highest match once)
-            kw_scores_per_file = {}
-            for index_kw, files in self.inverted_index.items():
-                score = fuzz.ratio(kw, index_kw)
-                # A higher threshold (85) prevents weak/false positive matches (like 'santo' matching 'stato')
-                if score >= 85:
-                    # Calculate Inverse Document Frequency (IDF) to give higher weight to rare keywords
-                    # Common words across many tables will have a lower impact.
-                    idf = math.log((N + 1) / (len(files) + 1)) + 1
-                    weighted_score = (score / 100.0) * idf
-                    for f in files:
-                        # Keep the maximum score obtained by this specific user keyword for the file
-                        kw_scores_per_file[f] = max(kw_scores_per_file.get(f, 0.0), weighted_score)
+        # Instantiate the Solr client with the correct core
+        solr_client = LocalSolrClient(core="bologna")
+        
+        try:
+            # Query Solr using the enriched keywords.
+            response = solr_client.select(
+                tokens=enriched_keywords,
+                q_op = "OR",
+                rows=10
+            )
             
-            # Aggregate the best scores for all user keywords into the final table scores
-            for f, best_score in kw_scores_per_file.items():
-                table_scores[f] += best_score
+            docs = response.get("response", {}).get("docs", [])
+            
+            top_10 = []
+            self.solr_metadata_map = {}
+            for doc in docs:
+                dataset_id = doc.get("dataset_id")
+                if dataset_id:
+                    file_name = f"{dataset_id}.csv"
+                    # Append if it exists in our available files
+                    if file_name in self.all_available_files and file_name not in top_10:
+                        top_10.append(file_name)
+                        # Extract tags directly from Solr doc
+                        tags = doc.get("tags", [])
+                        if not isinstance(tags, list):
+                            tags = [str(tags)]
+                        else:
+                            tags = [str(t) for t in tags]
+                            
+                        # Solr client parses columns into a list of dicts
+                        columns = doc.get("columns", [])
+                        cols_name = [c.get("name") for c in columns if c.get("name")]
+                        cols_type = [c.get("type") for c in columns if c.get("type")]
+                            
+                        self.solr_metadata_map[file_name] = {
+                            "tags": tags,
+                            "columns.name": cols_name,
+                            "columns.type": cols_type
+                        }
+            
+            # Fallback if Solr returns nothing
+            if not top_10:
+                top_10 = self.all_available_files[:5]
+                
+        except Exception as e:
+            print(f"    [!] Error querying Solr: {e}")
+            top_10 = self.all_available_files[:5]
 
-        # Document Length Normalization (similar to BM25):
-        # Penalize tables with a huge amount of keywords to avoid length bias. 
-        for f in table_scores:
-            kw_count = len(self.table_kw.get(f, []))
-            if kw_count > 0:
-                table_scores[f] = table_scores[f] / math.sqrt(kw_count)
-
-        # Sort the tables by their normalized score in descending order
-        sorted_tables = sorted(table_scores.items(), key=lambda x: x[1], reverse=True)
-        # Select the top 10 tables that have a score > 0
-        top_10 = [t[0] for t in sorted_tables if t[1] > 0.0][:10] or self.all_available_files[:5]
-
-        print("    🎯 Top candidate tables selected by fuzzy matching:")
+        print("    🎯 Top candidate tables selected by Solr indexing:")
         for idx, tbl in enumerate(top_10, 1):
             print(f"       {idx}. {tbl}")
 
@@ -229,7 +240,9 @@ class RobustLakeGenWorkflow(Workflow):
             while True:
                 enriched_candidates_info = ""
                 for file_name in top_10:
-                    all_kws = self.table_kw.get(file_name, ["No specific topics"])
+                    all_kws = getattr(self, "solr_metadata_map", {}).get(file_name, {}).get("tags", [])
+                    if not all_kws:
+                        all_kws = ["No specific topics"]
                     limited_topics = ", ".join(all_kws[:15]) 
                     enriched_candidates_info += f"- {file_name} (Topics: {limited_topics})\n"
     
@@ -330,7 +343,25 @@ class RobustLakeGenWorkflow(Workflow):
         if isinstance(ev, TableSelectionEvent):
             self.arch_reasoning = ev.reasoning
             self.agent_full_trace = ev.full_trace
-            self.tables_info = get_filtered_tables_info(ev.selected_files)
+            
+            info_lines = [f"AVAILABLE SELECTED TABLES IN '{CSV_DIR}/':"]
+            for idx, filename in enumerate(ev.selected_files, 1):
+                filepath = os.path.join(CSV_DIR, filename.strip())
+                meta = getattr(self, "solr_metadata_map", {}).get(filename, {})
+                cols_name = meta.get("columns.name", [])
+                cols_type = meta.get("columns.type", [])
+                
+                if cols_name and len(cols_name) == len(cols_type):
+                    cols_with_types = [f"'{n}' ({t})" for n, t in zip(cols_name, cols_type)]
+                elif cols_name:
+                    cols_with_types = [f"'{n}'" for n in cols_name]
+                else:
+                    cols_with_types = ["Unknown columns"]
+                    
+                info_lines.append(f"{idx}. '{filepath}'")
+                info_lines.append(f"   Columns: [" + ", ".join(cols_with_types) + "]")
+                
+            self.tables_info = "\n".join(info_lines)
             self.selected_files_list = ev.selected_files
             self.tokens_phase3 = 0
             retries = 0
@@ -500,14 +531,6 @@ async def main():
         except Exception:
             pass
 
-    # Loading pre-calculated indexes
-    try:
-        with open(INDEXES_DIR / "table_keywords.json", "r") as f: table_kw = json.load(f)
-        with open(INDEXES_DIR / "inverted_index.json", "r") as f: inv_index = json.load(f)
-    except FileNotFoundError:
-        print("❌ Indexes not found! Run 'python build_indexes.py' first")
-        return
-
     print("🔄 Initializing Token Tracking System...")
     token_counter = TokenCountingHandler(
         tokenizer=tiktoken.encoding_for_model("gpt-3.5-turbo").encode
@@ -547,9 +570,7 @@ async def main():
     wf = RobustLakeGenWorkflow(
         timeout=900.0,
         llm_instant=llm_instant,
-        llm_versatile=llm_versatile,
-        inverted_index=inv_index, 
-        table_kw=table_kw
+        llm_versatile=llm_versatile
     )
     
     query = input("\n🤖 Hi! What do you want to search for in the Data Lake? \n> ")

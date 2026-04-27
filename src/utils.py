@@ -64,22 +64,6 @@ LOG_DIR = BASE_DIR / paths.get("logs_dir", "logs")
 # ==========================================
 # UTILITIES
 # ==========================================
-def get_filtered_tables_info(selected_files: list) -> str:
-    info_lines = [f"AVAILABLE SELECTED TABLES IN '{CSV_DIR}/':"]
-    if not selected_files:
-        selected_files = [f for f in os.listdir(CSV_DIR) if f.endswith('.csv')]
-    for idx, filename in enumerate(selected_files, 1):
-        filepath = os.path.join(CSV_DIR, filename.strip())
-        if not os.path.exists(filepath): continue
-        try:
-            df = pd.read_csv(filepath, nrows=3)
-            cols_with_types = [f"'{col}' ({dtype})" for col, dtype in df.dtypes.items()]
-            info_lines.append(f"{idx}. '{filepath}'")
-            info_lines.append(f"   Columns: [" + ", ".join(cols_with_types) + "]")
-        except Exception as e:
-            pass
-    return "\n".join(info_lines)
-
 def extract_query_keywords(query: str) -> str:
     lemmatizer = WordNetLemmatizer()
     words = re.findall(r'\b\w+\b', query.lower())

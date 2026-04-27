@@ -28,13 +28,26 @@ except ImportError as e:
 # ==========================================
 def inspect_columns(file_name: str) -> str:
     """
-    Reads a CSV file from the Data Lake and returns the exact list of column names.
-    Use this tool to understand what data a table contains before deciding whether or not to use it.
+    Returns the exact list of column names in a CSV file. 
+    If a column is categorical (low cardinality), shows its unique values.
     """
-    path = CSV_DIR / file_name.strip()
-    if not path.exists(): 
-        return f"Error: The file {file_name} does not exist."
-    return f"Columns in {file_name}: {list(pd.read_csv(path, nrows=0).columns)}"
+    file_path = os.path.join(CSV_DIR, file_name)
+    try:
+        df = pd.read_csv(file_path)
+        schema_info = []
+        
+        for col in df.columns:
+            dtype = str(df[col].dtype)
+            # Se la colonna è testo/stringa e ha pochi valori univoci (es. meno di 15)
+            if dtype == 'object' and df[col].nunique() < 15:
+                unique_vals = df[col].dropna().unique().tolist()
+                schema_info.append(f"- {col} (Category): {unique_vals}")
+            else:
+                schema_info.append(f"- {col} ({dtype})")
+                
+        return f"Schema for {file_name}:\n" + "\n".join(schema_info)
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 def preview_data(file_name: str, n_rows: int = 3) -> str:
     """
