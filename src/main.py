@@ -157,6 +157,7 @@ class RobustLakeGenWorkflow(Workflow):
         self.tokens_phase2 = 0
 
         # Instantiate the Solr client with the correct core
+        # Available cores: bologna, valencia, paris
         solr_client = LocalSolrClient(core="bologna")
         
         try:
