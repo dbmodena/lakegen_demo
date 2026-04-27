@@ -73,12 +73,16 @@ class FinalResultEvent(Event):
     raw_result: Any
 
 class RobustLakeGenWorkflow(Workflow):
-    def __init__(self, llm_instant, llm_versatile, *args, **kwargs):
+    def __init__(self, llm_instant, llm_versatile, solr_client, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.llm_instant = llm_instant
         self.llm_versatile = llm_versatile
+        self.solr_client = solr_client
         self.max_retries = 3
-        self.all_available_files = [f for f in os.listdir(CSV_DIR) if f.endswith('.csv')]
+        try:
+            self.all_available_files = [f for f in os.listdir(CSV_DIR) if f.endswith('.csv')]
+        except FileNotFoundError:
+            self.all_available_files = []
         self.prompt_manager = PromptManager()
 
     @step
@@ -156,13 +160,9 @@ class RobustLakeGenWorkflow(Workflow):
 
         self.tokens_phase2 = 0
 
-        # Instantiate the Solr client with the correct core
-        # Available cores: bologna, valencia, paris
-        solr_client = LocalSolrClient(core="bologna")
-        
         try:
             # Query Solr using the enriched keywords.
-            response = solr_client.select(
+            response = self.solr_client.select(
                 tokens=enriched_keywords,
                 q_op = "OR",
                 rows=10
@@ -199,6 +199,7 @@ class RobustLakeGenWorkflow(Workflow):
             
             # Fallback if Solr returns nothing
             if not top_10:
+                print("    [!] Nessun risultato da Solr o file non trovati. Fallback sulle prime 5 tabelle disponibili.")
                 top_10 = self.all_available_files[:5]
                 
         except Exception as e:
@@ -568,10 +569,15 @@ async def main():
         }
     )
 
+    # Define the solr client
+    # Available cores: bologna, valencia, paris
+    solr_client = LocalSolrClient(core="bologna")
+
     wf = RobustLakeGenWorkflow(
         timeout=900.0,
         llm_instant=llm_instant,
-        llm_versatile=llm_versatile
+        llm_versatile=llm_versatile,
+        solr_client=solr_client
     )
     
     query = input("\n🤖 Hi! What do you want to search for in the Data Lake? \n> ")

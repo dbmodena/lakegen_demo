@@ -70,11 +70,13 @@ def extract_query_keywords(query: str) -> str:
     
     try:
         ita_stops = set(stopwords.words('italian'))
+        spa_stops = set(stopwords.words('spanish'))
     except LookupError:
         nltk.download('stopwords', quiet=True)
         ita_stops = set(stopwords.words('italian'))
+        spa_stops = set(stopwords.words('spanish'))
         
-    combined_stops = ita_stops.union(ENGLISH_STOP_WORDS)
+    combined_stops = ita_stops.union(spa_stops).union(ENGLISH_STOP_WORDS)
     
     extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in combined_stops]
     return ", ".join(list(dict.fromkeys(extracted_keywords)))
