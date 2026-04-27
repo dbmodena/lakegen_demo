@@ -18,7 +18,7 @@ class MetadataIndexer:
         nltk.download('omw-1.4', quiet=True)
         nltk.download('stopwords', quiet=True)
 
-    def build_index(self, top_n_keywords: int = 15):
+    def build_index(self, top_n_keywords: int = 30):
         print("[] Metadata extraction and TF-IDF calculation in progress...")
         stop_words = list(stopwords.words('italian')) + list(stopwords.words('english'))
         lemmatizer = WordNetLemmatizer()
@@ -31,10 +31,12 @@ class MetadataIndexer:
                 
                 if isinstance(metadata, dict) and "recordSet" in metadata:
                     for record in metadata["recordSet"]:
-                        table_names.append(record.get("name", "unknown_table"))
+                        t_name = record.get("name", "unknown_table")
+                        t_title = record.get("title", "")
+                        table_names.append(t_name)
                         t_desc = record.get("description", "")
                         col_text = "".join([f"{field.get('name', '')} {field.get('description', '')} " for field in record.get("field", [])])
-                        descriptions.append(f"{t_desc} {col_text}")
+                        descriptions.append(f"{t_name} {t_title} {t_desc} {col_text}")
                 elif isinstance(metadata, list):
                     for item in metadata:
                         if isinstance(item, dict) and "dataset_id" in item:
@@ -48,8 +50,10 @@ class MetadataIndexer:
                             ])
                             descriptions.append(f"{t_title} {t_desc} {col_text}")
                         elif isinstance(item, dict):
-                            table_names.append(item.get('name', item.get('title', 'unknown_table')))
-                            descriptions.append(item.get('description', ''))
+                            t_name = item.get('name', item.get('title', 'unknown_table'))
+                            table_names.append(t_name)
+                            t_desc = item.get('description', '')
+                            descriptions.append(f"{t_name} {t_desc}")
             except Exception as e:
                 print(f"      -> Warning: Error reading {json_filepath.name}: {e}")
                 continue
@@ -58,7 +62,7 @@ class MetadataIndexer:
             print("❌ No valid metadata found in JSON. The text index will be empty.")
             return
 
-        vectorizer = TfidfVectorizer(stop_words=stop_words, max_features=1000)
+        vectorizer = TfidfVectorizer(stop_words=stop_words)
         tfidf_matrix = vectorizer.fit_transform(descriptions)
         feature_names = np.array(vectorizer.get_feature_names_out())
 

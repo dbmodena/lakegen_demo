@@ -190,8 +190,9 @@ class RobustLakeGenWorkflow(Workflow):
                 tools=agent_tools,
                 llm=self.llm_versatile,
                 verbose=True,
-                max_iterations=15,
-                system_prompt=system_prompt
+                max_iterations=20,
+                system_prompt=system_prompt,
+                early_stopping_method='generate'
             )
     
             token_counter = next((h for h in Settings.callback_manager.handlers if hasattr(h, 'reset_counts')), None)
@@ -220,7 +221,7 @@ class RobustLakeGenWorkflow(Workflow):
                 dispatcher.add_event_handler(thinking_capture)
     
                 try:
-                    res = await asyncio.wait_for(explorer_agent.run(agent_prompt), timeout=180.0)
+                    res = await asyncio.wait_for(explorer_agent.run(agent_prompt), timeout=240.0)
                     agent_resp = str(getattr(res, 'response', res)).strip()
                 except asyncio.TimeoutError:
                     sys.stdout.write("\n    [!] Attention: The agent was reasoning for too long. Forced interruption.\n")
