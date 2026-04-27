@@ -18,7 +18,7 @@ class MetadataIndexer:
         nltk.download('omw-1.4', quiet=True)
         nltk.download('stopwords', quiet=True)
 
-    def build_index(self, top_n_keywords: int = 30):
+    def build_index(self):
         print("[] Metadata extraction and TF-IDF calculation in progress...")
         stop_words = list(stopwords.words('italian')) + list(stopwords.words('english'))
         lemmatizer = WordNetLemmatizer()
@@ -68,8 +68,8 @@ class MetadataIndexer:
 
         for i, table_name in enumerate(table_names):
             row = tfidf_matrix.getrow(i).toarray()[0]
-            top_indixes = row.argsort()[-top_n_keywords:][::-1]
-            raw_keywords = [feature_names[idx] for idx in top_indixes if row[idx] > 0]
+            all_positive_indices = np.where(row > 0)[0]
+            raw_keywords = [feature_names[idx] for idx in all_positive_indices]
             unique_lemmatized = list(set([lemmatizer.lemmatize(kw) for kw in raw_keywords]))
             self.table_keywords[table_name] = unique_lemmatized
 

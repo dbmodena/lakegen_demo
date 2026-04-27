@@ -6,6 +6,7 @@ import io
 import re
 import uuid
 import json
+import math
 import asyncio
 import datetime
 import subprocess
@@ -156,15 +157,40 @@ class RobustLakeGenWorkflow(Workflow):
 
         self.tokens_phase2 = 0
 
-        table_scores = {}
+        # Initialize scores for all available tables to 0
+        table_scores = {f: 0.0 for f in self.all_available_files}
+        N = len(self.all_available_files) # Total number of documents (for IDF calculation)
+
         for kw in enriched_keywords:
+            # Track the best score for the current keyword per file to avoid "double dipping"
+            # (e.g., if a file has both "residenti" and "residente", we only count the highest match once)
+            kw_scores_per_file = {}
             for index_kw, files in self.inverted_index.items():
                 score = fuzz.ratio(kw, index_kw)
-                if score >= 80:
+                # A higher threshold (85) prevents weak/false positive matches (like 'santo' matching 'stato')
+                if score >= 85:
+                    # Calculate Inverse Document Frequency (IDF) to give higher weight to rare keywords
+                    # Common words across many tables will have a lower impact.
+                    idf = math.log((N + 1) / (len(files) + 1)) + 1
+                    weighted_score = (score / 100.0) * idf
                     for f in files:
-                        table_scores[f] = table_scores.get(f, 0.0) + (score / 100.0)
+                        # Keep the maximum score obtained by this specific user keyword for the file
+                        kw_scores_per_file[f] = max(kw_scores_per_file.get(f, 0.0), weighted_score)
+            
+            # Aggregate the best scores for all user keywords into the final table scores
+            for f, best_score in kw_scores_per_file.items():
+                table_scores[f] += best_score
 
+        # Document Length Normalization (similar to BM25):
+        # Penalize tables with a huge amount of keywords to avoid length bias. 
+        for f in table_scores:
+            kw_count = len(self.table_kw.get(f, []))
+            if kw_count > 0:
+                table_scores[f] = table_scores[f] / math.sqrt(kw_count)
+
+        # Sort the tables by their normalized score in descending order
         sorted_tables = sorted(table_scores.items(), key=lambda x: x[1], reverse=True)
+        # Select the top 10 tables that have a score > 0
         top_10 = [t[0] for t in sorted_tables if t[1] > 0.0][:10] or self.all_available_files[:5]
 
         print("    🎯 Top candidate tables selected by fuzzy matching:")
@@ -203,8 +229,9 @@ class RobustLakeGenWorkflow(Workflow):
             while True:
                 enriched_candidates_info = ""
                 for file_name in top_10:
-                    topics = ", ".join(self.table_kw.get(file_name, ["No specific topics"]))
-                    enriched_candidates_info += f"- {file_name} (Topics: {topics})\n"
+                    all_kws = self.table_kw.get(file_name, ["No specific topics"])
+                    limited_topics = ", ".join(all_kws[:15]) 
+                    enriched_candidates_info += f"- {file_name} (Topics: {limited_topics})\n"
     
                 agent_prompt = self.prompt_manager.render(
                     "data_architect", "user_prompt",
