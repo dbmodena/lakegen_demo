@@ -157,9 +157,9 @@ class RobustLakeGenWorkflow(Workflow):
 
         self.tokens_phase2 = 0
 
-        # Initialize scores for all available tables to 0
         table_scores = {f: 0.0 for f in self.all_available_files}
-        N = len(self.all_available_files) # Total number of documents (for IDF calculation)
+        # Total number of documents (for IDF calculation)
+        N = len(self.all_available_files) 
 
         for kw in enriched_keywords:
             # Track the best score for the current keyword per file to avoid "double dipping"

@@ -13,16 +13,16 @@ user_prompt: |
   {% endif %}
 
   EVALUATION RULES (STRICT HIERARCHY):
-  1. EXACT HINT MATCH:
+   1. EXACT HINT MATCH:
      - If the user provides an exact filename as a hint (e.g., '2017.csv'), STOP searching and select ONLY that file.
-  2. TOPIC RELEVANCE OVER SUPERFICIAL MATCHES:
+   2. TOPIC RELEVANCE OVER SUPERFICIAL MATCHES:
      - Always prioritize the dataset's TOPIC over exact filename matches for dates. If the user asks for "2017 Avocados", do NOT select an unrelated '2017.csv' (e.g., a Happiness dataset). Select the 'avocado' dataset, as it likely contains multiple years internally.
      - Avoid false positives: If the question is about "Happiness", strictly ignore datasets about "Universities", even if they share common column names like "score".
-  3. RELY ON TITLES AND METADATA FIRST:
+   3. RELY ON TITLES AND METADATA FIRST:
      - Use the provided titles and descriptions (e.g., population, demographics, age distribution) to determine utility. Only use inspection tools if the provided candidate info is highly ambiguous.
-  4. DEFAULT TO MOST RECENT DATA:
+   4. DEFAULT TO MOST RECENT DATA:
      - If the user's question requires multi-year data BUT does not specify a year (or mentions no year at all), always default to the most recent year available for that topic (e.g., select '2019.csv' and STOP). Do not inspect older files.
-  5. MULTI-TABLE SELECTION:
+   5. MULTI-TABLE SELECTION:
      - Select multiple tables ONLY if the user explicitly asks to compare DIFFERENT, distinct topics that require joining multiple domains.
 
   CRITICAL EXECUTION INSTRUCTIONS:

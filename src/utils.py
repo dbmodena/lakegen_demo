@@ -45,7 +45,7 @@ percorso_root = str(BASE_DIR)
 if percorso_root not in sys.path:
     sys.path.insert(0, percorso_root)
 
-CONFIG_FILE = BASE_DIR / "config.json"
+CONFIG_FILE = BASE_DIR / "config_paths.json"
 if CONFIG_FILE.exists():
     with open(CONFIG_FILE, "r") as f:
         config_data = json.load(f)
