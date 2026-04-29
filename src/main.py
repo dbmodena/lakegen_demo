@@ -195,8 +195,13 @@ class RobustLakeGenWorkflow(Workflow):
                         columns = doc.get("columns", [])
                         cols_name = [c.get("name") for c in columns if c.get("name")]
                         cols_type = [c.get("type") for c in columns if c.get("type")]
-                            
-                        self.solr_metadata_map[file_name] = {
+                        
+                        title = doc.get("title", "")
+                        desc = doc.get("description", "")
+
+                        self.solr_metadata_map[matched_file] = {
+                            "title": title,
+                            "description": desc,
                             "tags": tags,
                             "columns.name": cols_name,
                             "columns.type": cols_type
@@ -247,11 +252,16 @@ class RobustLakeGenWorkflow(Workflow):
             while True:
                 enriched_candidates_info = ""
                 for file_name in top_10:
-                    all_kws = getattr(self, "solr_metadata_map", {}).get(file_name, {}).get("tags", [])
+                    meta = getattr(self, "solr_metadata_map", {}).get(file_name, {})
+                    title = meta.get("title", "Unknown")
+                    desc = meta.get("description", "")
+                    
+                    all_kws = meta.get("tags", [])
                     if not all_kws:
                         all_kws = ["No specific topics"]
                     limited_topics = ", ".join(all_kws[:15]) 
-                    enriched_candidates_info += f"- {file_name} (Topics: {limited_topics})\n"
+                    
+                    enriched_candidates_info += f"- File: {file_name}\n  Title: {title}\n  Topics: {limited_topics}\n\n"
     
                 agent_prompt = self.prompt_manager.render(
                     "data_architect", "user_prompt",
