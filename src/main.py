@@ -373,7 +373,13 @@ class RobustLakeGenWorkflow(Workflow):
                 elif cols_name:
                     cols_with_types = [f"'{n}'" for n in cols_name]
                 else:
-                    cols_with_types = ["Unknown columns"]
+                    try:
+                        df_preview = pd.read_csv(filepath, nrows=5)
+                        cols_name = df_preview.columns.tolist()
+                        cols_type = [str(dt) for dt in df_preview.dtypes]
+                        cols_with_types = [f"'{n}' ({t})" for n, t in zip(cols_name, cols_type)]
+                    except Exception:
+                        cols_with_types = ["Unknown columns"]
                     
                 info_lines.append(f"{idx}. '{filepath}'")
                 info_lines.append(f"   Columns: [" + ", ".join(cols_with_types) + "]")
