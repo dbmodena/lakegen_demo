@@ -124,7 +124,8 @@ class RobustLakeGenWorkflow(Workflow):
 
             # Takes only valid words
             extracted_words = re.findall(r'\b[a-z0-9_]+\b', raw_content)
-            llm_fluff = {"here", "is", "are", "the", "list", "keywords", "output", "of", "sure", "certainly", "based", "on", "and", "or"}
+            llm_fluff = {"here", "is", "are", "the", "list", "keywords", "output", "of", "sure", "certainly", "based", "on", "and", "or",
+                         "voici", "la", "les", "des", "une", "liste", "mots", "cles", "bien", "sur", "certainement", "base", "et", "ou", "de", "pour", "ces"}
             brute_keywords = [w for w in extracted_words if w not in llm_fluff]
 
             enriched_keywords = default_keywords.copy()
@@ -592,7 +593,7 @@ async def main():
 
     # Define the solr client
     # Available cores: bologna, valencia, paris
-    solr_client = LocalSolrClient(core="valencia")
+    solr_client = LocalSolrClient(core="paris")
 
     wf = RobustLakeGenWorkflow(
         timeout=900.0,

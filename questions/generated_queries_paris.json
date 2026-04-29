@@ -1,0 +1,976 @@
+{
+  "meta.llama-3.3-70b-instruct": {
+    "SQL": {
+      "0": {
+        "status": "success",
+        "proposed_columns": [
+          {
+            "table_alias": "Table_0",
+            "columns_provided": [
+              "n_sq_ca",
+              "n_sq_ess"
+            ]
+          },
+          {
+            "table_alias": "Table_1",
+            "columns_provided": [
+              "n_sq_evp",
+              "n_sq_ca",
+              "st_area_shape",
+              "st_perimeter_shape"
+            ]
+          }
+        ],
+        "data": {
+          "queries": [
+            {
+              "question": "What are the protected areas for social and solidarity economy activities in Paris that also have protected green spaces?",
+              "translated_question": "Quelles sont les zones protégées pour les activités de l'économie sociale et solidaire à Paris qui ont aussi des espaces verts protégés?",
+              "detected_language": "French",
+              "code": "SELECT Table_0.n_sq_ess, Table_1.n_sq_evp FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR)",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information about the protected areas for social and solidarity economy activities in Paris.",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information about the protected green spaces in Paris.",
+                  "columns_involved": [
+                    "n_sq_evp"
+                  ]
+                }
+              ],
+              "id": "0",
+              "response": "The protected areas for social and solidarity economy activities in Paris that also have protected green spaces are identified by their matching identifiers in both tables. This result can inform urban planning and development decisions. The areas are specifically located in Paris, making the result relevant to local stakeholders.",
+              "translated_response": "Les zones protégées pour les activités de l'économie sociale et solidaire à Paris qui ont aussi des espaces verts protégés sont identifiées par leurs identificateurs correspondants dans les deux tables. Ce résultat peut éclairer les décisions d'urbanisme et de développement. Les zones sont spécifiquement situées à Paris, ce qui rend le résultat pertinent pour les parties prenantes locales.",
+              "judge_feedback": "The result is meaningful because it provides a clear list of areas that meet both conditions, and the query complexity is justified because it requires joining two tables to identify the matching areas.",
+              "keyword_count": {
+                "AS": 2,
+                "CAST": 2,
+                "FROM": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1
+              }
+            },
+            {
+              "question": "What is the total area of protected green spaces in Paris that are also designated as social and solidarity economy activity areas?",
+              "translated_question": "Quelle est la superficie totale des espaces verts protégés à Paris qui sont également désignés comme zones d'activités de l'économie sociale et solidaire?",
+              "detected_language": "French",
+              "code": "SELECT SUM(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR)",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information about the protected areas for social and solidarity economy activities in Paris.",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information about the protected green spaces in Paris and their areas.",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "st_area_shape"
+                  ]
+                }
+              ],
+              "id": "1",
+              "response": "The total area of protected green spaces in Paris that are also designated as social and solidarity economy activity areas is approximately 42873.849435 square units. This result can inform decisions about resource allocation and urban development. The calculation is specific to Paris, making it relevant to local planning.",
+              "translated_response": "La superficie totale des espaces verts protégés à Paris qui sont également désignés comme zones d'activités de l'économie sociale et solidaire est d'environ 42873,849435 unités carrées. Ce résultat peut éclairer les décisions concernant l'allocation des ressources et le développement urbain. Le calcul est spécifique à Paris, ce qui le rend pertinent pour la planification locale.",
+              "judge_feedback": "The result is meaningful because it provides a quantitative measure of the total area that meets both conditions, and the query complexity is justified because it requires summing the areas of the matching spaces.",
+              "keyword_count": {
+                "AS": 2,
+                "CAST": 2,
+                "FROM": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1,
+                "SUM": 1
+              }
+            }
+          ]
+        },
+        "tokens": {
+          "prompt_tokens": 10282,
+          "completion_tokens": 2751,
+          "total_tokens": 13033
+        },
+        "tables": {
+          "Table_0": "plub_ess",
+          "Table_1": "plub_evp"
+        },
+        "errors": [
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error ValueError: Query must reference ALL tables. Missing: Table_1 (plub_evp).\nRequired: Table_0, Table_1. Join all tables into a single result.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ... SUM(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....st_perimeter_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                   ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Question contains technical terms: correlation.\nRephrase as a non-technical business question.\nSuggestions: correlation → \"relationship\" or \"pattern\" — e.g. \"Is there a pattern between X and Y?\"."
+        ],
+        "generation_time": 66.22379244305193,
+        "avg_cols": 3.0
+      },
+      "1": {
+        "status": "success",
+        "proposed_columns": [
+          {
+            "table_alias": "Table_0",
+            "columns_provided": [
+              "n_sq_ca",
+              "n_sq_ess"
+            ]
+          },
+          {
+            "table_alias": "Table_1",
+            "columns_provided": [
+              "n_sq_evp",
+              "n_sq_ca",
+              "st_area_shape",
+              "st_perimeter_shape"
+            ]
+          }
+        ],
+        "data": {
+          "queries": [
+            {
+              "question": "What are the protected areas for social and solidarity economy activities in Paris?",
+              "translated_question": "Quelles sont les zones protégées pour les activités de l'économie sociale et solidaire à Paris?",
+              "detected_language": "English",
+              "code": "SELECT Table_0.n_sq_ess, Table_1.n_sq_evp FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR)",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information about the protected areas for social and solidarity economy activities in Paris.",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information about the protected green spaces in Paris.",
+                  "columns_involved": [
+                    "n_sq_evp"
+                  ]
+                }
+              ],
+              "id": "0",
+              "response": "The protected areas for social and solidarity economy activities in Paris are identified by their unique identifiers. These areas are also protected green spaces, indicating a focus on sustainability and community development.",
+              "translated_response": "Les zones protégées pour les activités de l'économie sociale et solidaire à Paris sont identifiées par leurs identifiants uniques. Ces zones sont également des espaces verts protégés, indiquant un focus sur la durabilité et le développement communautaire.",
+              "judge_feedback": "The result is meaningful because it provides specific information about protected areas in Paris. The query complexity is justified because it requires joining two tables to match the question's requirements.",
+              "keyword_count": {
+                "AS": 2,
+                "CAST": 2,
+                "FROM": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1
+              }
+            },
+            {
+              "question": "What is the total area of protected green spaces in Paris that are also designated for social and solidarity economy activities?",
+              "translated_question": "Quelle est la superficie totale des espaces verts protégés à Paris qui sont également désignés pour les activités de l'économie sociale et solidaire?",
+              "detected_language": "English",
+              "code": "SELECT SUM(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR)",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information about the protected areas for social and solidarity economy activities in Paris.",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information about the protected green spaces in Paris, including their area.",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "st_area_shape"
+                  ]
+                }
+              ],
+              "id": "1",
+              "response": "The total area of protected green spaces in Paris that are also designated for social and solidarity economy activities is approximately 42,873.85 square units. This indicates a significant investment in sustainable and community-focused initiatives.",
+              "translated_response": "La superficie totale des espaces verts protégés à Paris qui sont également désignés pour les activités de l'économie sociale et solidaire est d'environ 42 873,85 unités carrées. Cela indique un investissement important dans les initiatives durables et axées sur la communauté.",
+              "judge_feedback": "The result is meaningful because it provides a quantitative measure of the total area dedicated to both environmental protection and social economy in Paris. The query complexity is justified because it requires joining tables and aggregating data to answer the question.",
+              "keyword_count": {
+                "AS": 2,
+                "CAST": 2,
+                "FROM": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1,
+                "SUM": 1
+              }
+            },
+            {
+              "question": "What is the average perimeter of protected green spaces in Paris that are also designated for social and solidarity economy activities, grouped by the type of social and solidarity economy activity?",
+              "translated_question": "Quel est le périmètre moyen des espaces verts protégés à Paris qui sont également désignés pour les activités de l'économie sociale et solidaire, regroupés par type d'activité de l'économie sociale et solidaire?",
+              "detected_language": "English",
+              "code": "SELECT Table_0.n_sq_ca, AVG(Table_1.st_perimeter_shape) FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR) GROUP BY Table_0.n_sq_ca",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information about the protected areas for social and solidarity economy activities in Paris, including the type of activity.",
+                  "columns_involved": [
+                    "n_sq_ess",
+                    "n_sq_ca"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information about the protected green spaces in Paris, including their perimeter.",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "st_perimeter_shape"
+                  ]
+                }
+              ],
+              "id": "2",
+              "response": "The average perimeter of protected green spaces in Paris that are also designated for social and solidarity economy activities varies by the type of activity, ranging from approximately 80 to 250 units. This variation suggests different spatial needs or priorities across activity types.",
+              "translated_response": "Le périmètre moyen des espaces verts protégés à Paris qui sont également désignés pour les activités de l'économie sociale et solidaire varie en fonction du type d'activité, allant d'environ 80 à 250 unités. Cette variation suggère des besoins ou des priorités spatiales différents selon les types d'activités.",
+              "judge_feedback": "The result is meaningful because it provides insights into the spatial characteristics of protected green spaces in relation to different types of social and solidarity economy activities in Paris. The query complexity is justified because it requires joining tables, grouping data, and aggregating to answer the question.",
+              "keyword_count": {
+                "AS": 2,
+                "AVG": 1,
+                "CAST": 2,
+                "FROM": 1,
+                "GROUP BY": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1
+              }
+            }
+          ]
+        },
+        "tokens": {
+          "prompt_tokens": 10654,
+          "completion_tokens": 2570,
+          "total_tokens": 13224
+        },
+        "tables": {
+          "Table_0": "plub_ess",
+          "Table_1": "plub_evp"
+        },
+        "errors": [
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....n_sq_ess, Table_1.n_sq_evp FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ... SUM(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....st_perimeter_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) GROUP...\n                                                                   ^\nHint: Check that all referenced columns, tables, and aliases are valid."
+        ],
+        "generation_time": 62.72110314294696,
+        "avg_cols": 3.0
+      },
+      "2": {
+        "status": "success",
+        "proposed_columns": [
+          {
+            "table_alias": "Table_0",
+            "columns_provided": [
+              "n_sq_ca",
+              "n_sq_ess"
+            ]
+          },
+          {
+            "table_alias": "Table_1",
+            "columns_provided": [
+              "n_sq_evp",
+              "n_sq_ca",
+              "st_area_shape",
+              "st_perimeter_shape"
+            ]
+          },
+          {
+            "table_alias": "Table_2",
+            "columns_provided": [
+              "n_sq_ap",
+              "n_sq_ca",
+              "num_plub",
+              "a08_n_plub",
+              "a08_adr",
+              "a08_nom_us",
+              "a08_nom_sc",
+              "a08_rayon"
+            ]
+          }
+        ],
+        "data": {
+          "queries": [
+            {
+              "question": "What are the protected economic and social activities in Paris, their corresponding areas, and the total count of remarkable trees in each of these areas?",
+              "translated_question": "Quelles sont les activités économiques et sociales protégées à Paris, leurs superficies correspondantes et le nombre total d'arbres remarquables dans chaque espace?",
+              "detected_language": "French",
+              "code": "SELECT Table_0.n_sq_ess, Table_1.st_area_shape, COUNT(Table_2.n_sq_ap) AS total_remarkable_trees FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR) INNER JOIN Table_2 ON CAST(Table_1.n_sq_evp AS VARCHAR) = CAST(Table_2.n_sq_ap AS VARCHAR) GROUP BY Table_0.n_sq_ess, Table_1.st_area_shape",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "Contributes the list of protected economic and social activities",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "Provides the areas of the protected spaces",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "st_area_shape"
+                  ]
+                },
+                {
+                  "name": "Table_2",
+                  "reason": "Contributes the information about the protected trees",
+                  "columns_involved": [
+                    "n_sq_ap"
+                  ]
+                }
+              ],
+              "id": "0",
+              "response": "The protected economic and social activities in Paris have corresponding areas with remarkable trees. The total count of remarkable trees in each area is 1. This information can be used to understand the distribution of remarkable trees across different protected areas in Paris.",
+              "translated_response": "Les activités économiques et sociales protégées à Paris ont des superficies correspondantes avec des arbres remarquables. Le nombre total d'arbres remarquables dans chaque espace est 1. Ces informations peuvent être utilisées pour comprendre la répartition des arbres remarquables dans les différentes zones protégées de Paris.",
+              "judge_feedback": "The query is approved because it faithfully implements the question requirements and all tables are necessary for the query. The result is meaningful as it provides the required information about protected economic and social activities in Paris and the total count of remarkable trees in each area.",
+              "keyword_count": {
+                "AS": 5,
+                "CAST": 4,
+                "COUNT": 1,
+                "FROM": 1,
+                "GROUP BY": 1,
+                "INNER JOIN": 2,
+                "JOIN": 2,
+                "ON": 2,
+                "SELECT": 1
+              }
+            }
+          ]
+        },
+        "tokens": {
+          "prompt_tokens": 26269,
+          "completion_tokens": 5721,
+          "total_tokens": 31990
+        },
+        "tables": {
+          "Table_0": "plub_ess",
+          "Table_1": "plub_evp",
+          "Table_2": "plub_arbre"
+        },
+        "errors": [
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ..., Table_1.st_area_shape FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ..._ess, Table_1.n_sq_evp) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ..., COUNT(Table_2.n_sq_ap) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                       ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Query must reference ALL tables. Missing: Table_2 (plub_arbre).\nRequired: Table_0, Table_1, Table_2. Join all tables into a single result.",
+          "Error ValueError: Question contains technical terms: correlation.\nRephrase as a non-technical business question.\nSuggestions: correlation → \"relationship\" or \"pattern\" — e.g. \"Is there a pattern between X and Y?\".",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ..., Table_2.a08_nom_us FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                   ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...), COUNT(Table_1.n_sq_evp) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                         ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ..., Table_2.a08_nom_us FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                   ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...) AS total_remarkable_trees FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Query must reference ALL tables. Missing: Table_0 (plub_ess).\nRequired: Table_0, Table_1, Table_2. Join all tables into a single result.",
+          "Error ValueError: Query must reference ALL tables. Missing: Table_1 (plub_evp), Table_2 (plub_arbre).\nRequired: Table_0, Table_1, Table_2. Join all tables into a single result.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ... DISTINCT Table_0.n_sq_ess FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                         ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ... AVG(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....n_sq_ap) AS num_trees FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                     ^\nHint: Check that all referenced columns, tables, and aliases are valid."
+        ],
+        "generation_time": 116.06173291336745,
+        "avg_cols": 4.666666666666667
+      },
+      "3": {
+        "status": "success",
+        "proposed_columns": [
+          {
+            "table_alias": "Table_0",
+            "columns_provided": [
+              "n_sq_ca",
+              "n_sq_ess"
+            ]
+          },
+          {
+            "table_alias": "Table_1",
+            "columns_provided": [
+              "n_sq_evp",
+              "n_sq_ca",
+              "st_area_shape",
+              "st_perimeter_shape"
+            ]
+          }
+        ],
+        "data": {
+          "queries": [
+            {
+              "question": "What are the protected areas for social and solidarity economy activities in Paris that also have protected green spaces?",
+              "translated_question": "Quelles sont les zones protégées pour les activités de l'économie sociale et solidaire à Paris qui ont aussi des espaces verts protégés?",
+              "detected_language": "French",
+              "code": "SELECT Table_0.n_sq_ess, Table_1.n_sq_evp FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR)",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information on protected areas for social and solidarity economy activities in Paris.",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information on protected green spaces in Paris.",
+                  "columns_involved": [
+                    "n_sq_evp"
+                  ]
+                }
+              ],
+              "id": "0",
+              "response": "The protected areas for social and solidarity economy activities in Paris that also have protected green spaces are identified by their unique identifiers. This information can be used to inform urban planning and development decisions. The presence of both types of protected areas in a single location can have synergistic benefits for the community.",
+              "translated_response": "Les zones protégées pour les activités de l'économie sociale et solidaire à Paris qui ont aussi des espaces verts protégés sont identifiées par leurs identifiants uniques. Ces informations peuvent être utilisées pour éclairer les décisions d'urbanisme et de développement. La présence des deux types de zones protégées dans un même lieu peut avoir des avantages synergiques pour la communauté.",
+              "judge_feedback": "The result is meaningful because it provides a clear list of areas that meet both conditions, and the query complexity is justified because it requires joining two tables to achieve this. Every table is necessary because they provide the required information about protected areas and green spaces.",
+              "keyword_count": {
+                "AS": 2,
+                "CAST": 2,
+                "FROM": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1
+              }
+            },
+            {
+              "question": "What is the total area of protected green spaces in Paris that are also designated as social and solidarity economy activity areas?",
+              "translated_question": "Quelle est la superficie totale des espaces verts protégés à Paris qui sont également désignés comme zones d'activités de l'économie sociale et solidaire?",
+              "detected_language": "French",
+              "code": "SELECT SUM(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR)",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information on protected areas for social and solidarity economy activities in Paris, which is used to filter the green spaces.",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information on protected green spaces in Paris, including their area.",
+                  "columns_involved": [
+                    "st_area_shape",
+                    "n_sq_evp"
+                  ]
+                }
+              ],
+              "id": "1",
+              "response": "The total area of protected green spaces in Paris that are also designated as social and solidarity economy activity areas is approximately 42873.85 square units. This information can be used to assess the extent of green spaces that serve both environmental and social purposes. The size of these areas can impact their effectiveness in supporting local ecosystems and community activities.",
+              "translated_response": "La superficie totale des espaces verts protégés à Paris qui sont également désignés comme zones d'activités de l'économie sociale et solidaire est d'environ 42873,85 unités carrées. Ces informations peuvent être utilisées pour évaluer l'étendue des espaces verts qui servent à la fois des objectifs environnementaux et sociaux. La taille de ces zones peut avoir un impact sur leur efficacité à soutenir les écosystèmes locaux et les activités communautaires.",
+              "judge_feedback": "The result is meaningful because it provides a quantitative measure of the total area that meets both conditions, and the query complexity is justified because it requires aggregating data from one table to achieve this. Every table is necessary because it provides the required information about green spaces.",
+              "keyword_count": {
+                "AS": 2,
+                "CAST": 2,
+                "FROM": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1,
+                "SUM": 1
+              }
+            },
+            {
+              "question": "What is the average perimeter of protected green spaces in Paris that are also designated as social and solidarity economy activity areas, grouped by the type of social and solidarity economy activity?",
+              "translated_question": "Quel est le périmètre moyen des espaces verts protégés à Paris qui sont également désignés comme zones d'activités de l'économie sociale et solidaire, regroupés par type d'activité de l'économie sociale et solidaire?",
+              "detected_language": "French",
+              "code": "SELECT Table_0.n_sq_ca, AVG(Table_1.st_perimeter_shape) FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR) GROUP BY Table_0.n_sq_ca",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information on protected areas for social and solidarity economy activities in Paris, including the type of activity, which is used for grouping.",
+                  "columns_involved": [
+                    "n_sq_ess",
+                    "n_sq_ca"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information on protected green spaces in Paris, including their perimeter.",
+                  "columns_involved": [
+                    "st_perimeter_shape",
+                    "n_sq_evp"
+                  ]
+                }
+              ],
+              "id": "2",
+              "response": "The average perimeter of protected green spaces in Paris that are also designated as social and solidarity economy activity areas varies by the type of social and solidarity economy activity. For example, areas with activity type 11 have an average perimeter of approximately 232.13 units, while those with activity type 3 have an average perimeter of about 149.00 units. This information can be used to understand how the design and layout of green spaces might support different types of community activities.",
+              "translated_response": "Le périmètre moyen des espaces verts protégés à Paris qui sont également désignés comme zones d'activités de l'économie sociale et solidaire varie selon le type d'activité de l'économie sociale et solidaire. Par exemple, les zones avec le type d'activité 11 ont un périmètre moyen d'environ 232,13 unités, tandis que celles avec le type d'activité 3 ont un périmètre moyen d'environ 149,00 unités. Ces informations peuvent être utilisées pour comprendre comment la conception et la disposition des espaces verts peuvent soutenir différents types d'activités communautaires.",
+              "judge_feedback": "The result is meaningful because it provides a quantitative measure of the average perimeter that meets both conditions, grouped by activity type, and the query complexity is justified because it requires aggregating and grouping data from two tables to achieve this. Every table is necessary because they provide the required information about green spaces and activity types.",
+              "keyword_count": {
+                "AS": 2,
+                "AVG": 1,
+                "CAST": 2,
+                "FROM": 1,
+                "GROUP BY": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1
+              }
+            }
+          ]
+        },
+        "tokens": {
+          "prompt_tokens": 10450,
+          "completion_tokens": 3005,
+          "total_tokens": 13455
+        },
+        "tables": {
+          "Table_0": "plub_ess",
+          "Table_1": "plub_evp"
+        },
+        "errors": [
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error ValueError: Query must reference ALL tables. Missing: Table_1 (plub_evp).\nRequired: Table_0, Table_1. Join all tables into a single result.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ... SUM(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....st_perimeter_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) GROUP...\n                                                                   ^\nHint: Check that all referenced columns, tables, and aliases are valid."
+        ],
+        "generation_time": 77.20227668341249,
+        "avg_cols": 3.0
+      },
+      "4": {
+        "status": "success",
+        "proposed_columns": [
+          {
+            "table_alias": "Table_0",
+            "columns_provided": [
+              "n_sq_ca",
+              "n_sq_ess"
+            ]
+          },
+          {
+            "table_alias": "Table_1",
+            "columns_provided": [
+              "n_sq_evp",
+              "n_sq_ca",
+              "st_area_shape",
+              "st_perimeter_shape"
+            ]
+          },
+          {
+            "table_alias": "Table_2",
+            "columns_provided": [
+              "n_sq_ap",
+              "n_sq_ca",
+              "num_plub",
+              "a08_n_plub",
+              "a08_adr",
+              "a08_nom_us",
+              "a08_nom_sc",
+              "a08_rayon"
+            ]
+          }
+        ],
+        "data": {
+          "queries": [
+            {
+              "question": "What are the areas of protected green spaces in Paris where remarkable trees are located?",
+              "translated_question": "Quelles sont les superficies des espaces verts protégés à Paris où les arbres remarquables sont situés?",
+              "detected_language": "French",
+              "code": "SELECT Table_1.st_area_shape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON Table_0.n_sq_ess = Table_1.n_sq_evp INNER JOIN Table_2 ON Table_1.n_sq_ca = Table_2.n_sq_ca",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "Provides information about the protected areas",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "Provides information about the green spaces",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "n_sq_ca",
+                    "st_area_shape"
+                  ]
+                },
+                {
+                  "name": "Table_2",
+                  "reason": "Provides information about the remarkable trees",
+                  "columns_involved": [
+                    "n_sq_ca",
+                    "a08_rayon"
+                  ]
+                }
+              ],
+              "id": "0",
+              "response": "The areas of protected green spaces in Paris where remarkable trees are located range from 51.70 to 1129.53 square units. The average area is approximately 329.50 square units. This information can be used to inform urban planning and conservation efforts.",
+              "translated_response": "Les superficies des espaces verts protégés à Paris où les arbres remarquables sont situés vont de 51,70 à 1129,53 unités carrées. La superficie moyenne est d'environ 329,50 unités carrées. Ces informations peuvent être utilisées pour éclairer les efforts d'urbanisme et de conservation.",
+              "judge_feedback": "The result is meaningful because it provides specific information about the areas of protected green spaces in Paris where remarkable trees are located. The query complexity is justified because it requires joining multiple tables to retrieve the necessary information.",
+              "keyword_count": {
+                "FROM": 1,
+                "INNER JOIN": 2,
+                "JOIN": 2,
+                "ON": 2,
+                "SELECT": 1
+              }
+            },
+            {
+              "question": "What is the average area of protected green spaces in Paris where remarkable trees are located, grouped by the type of tree?",
+              "translated_question": "Quelle est la superficie moyenne des espaces verts protégés à Paris où les arbres remarquables sont situés, regroupée par type d'arbre?",
+              "detected_language": "French",
+              "code": "SELECT Table_2.a08_nom_us, AVG(Table_1.st_area_shape) AS average_area FROM Table_0 INNER JOIN Table_1 ON Table_0.n_sq_ess = Table_1.n_sq_evp INNER JOIN Table_2 ON Table_1.n_sq_ca = Table_2.n_sq_ca GROUP BY Table_2.a08_nom_us",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "Provides information about the protected areas",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "Provides information about the green spaces",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "n_sq_ca",
+                    "st_area_shape"
+                  ]
+                },
+                {
+                  "name": "Table_2",
+                  "reason": "Provides information about the remarkable trees",
+                  "columns_involved": [
+                    "n_sq_ca",
+                    "a08_nom_us"
+                  ]
+                }
+              ],
+              "id": 1,
+              "response": "The average area of protected green spaces in Paris where remarkable trees are located ranges from 451.84 to 2573.28 square units, depending on the type of tree. This information can be used to inform urban planning and conservation efforts, and to identify areas where specific types of trees are more prevalent.",
+              "translated_response": "La superficie moyenne des espaces verts protégés à Paris où les arbres remarquables sont situés va de 451,84 à 2573,28 unités carrées, selon le type d'arbre. Ces informations peuvent être utilisées pour éclairer les efforts d'urbanisme et de conservation, et pour identifier les zones où des types spécifiques d'arbres sont plus répandus.",
+              "judge_feedback": "The result is meaningful because it provides specific information about the average area of protected green spaces in Paris where remarkable trees are located, grouped by the type of tree. The query complexity is justified because it requires joining multiple tables and grouping the results to retrieve the necessary information.",
+              "keyword_count": {
+                "AS": 1,
+                "AVG": 1,
+                "FROM": 1,
+                "GROUP BY": 1,
+                "INNER JOIN": 2,
+                "JOIN": 2,
+                "ON": 2,
+                "SELECT": 1
+              }
+            }
+          ]
+        },
+        "tokens": {
+          "prompt_tokens": 26049,
+          "completion_tokens": 5662,
+          "total_tokens": 31711
+        },
+        "tables": {
+          "Table_0": "plub_ess",
+          "Table_1": "plub_evp",
+          "Table_2": "plub_arbre"
+        },
+        "errors": [
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ..., Table_1.st_area_shape FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_1 INNER JOIN Table_2 ON LOWER(Table_1.n_sq_evp) = LOWER(Table_2.n_sq_ap) INNER JOIN...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Query must reference ALL tables. Missing: Table_2 (plub_arbre).\nRequired: Table_0, Table_1, Table_2. Join all tables into a single result.",
+          "Error ValueError: Question contains technical terms: correlation.\nRephrase as a non-technical business question.\nSuggestions: correlation → \"relationship\" or \"pattern\" — e.g. \"Is there a pattern between X and Y?\".",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_1 INNER JOIN Table_2 ON LOWER(Table_1.n_sq_evp) = LOWER(Table_2.n_sq_ap) LIMIT 100\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Question contains technical terms: correlation.\nRephrase as a non-technical business question.\nSuggestions: correlation → \"relationship\" or \"pattern\" — e.g. \"Is there a pattern between X and Y?\".",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....n_sq_ess, Table_2.n_sq_ap FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                         ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....n_sq_ap) AS tree_count FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....st_area_shape) AS density FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                         ^\nHint: Check that all referenced columns, tables, and aliases are valid."
+        ],
+        "generation_time": 153.5510550737381,
+        "avg_cols": 4.666666666666667
+      },
+      "5": {
+        "status": "success",
+        "proposed_columns": [
+          {
+            "table_alias": "Table_0",
+            "columns_provided": [
+              "n_sq_ca",
+              "n_sq_ess"
+            ]
+          },
+          {
+            "table_alias": "Table_1",
+            "columns_provided": [
+              "n_sq_evp",
+              "n_sq_ca",
+              "st_area_shape",
+              "st_perimeter_shape"
+            ]
+          }
+        ],
+        "data": {
+          "queries": [
+            {
+              "question": "What is the total area of protected green spaces in Paris that are also protected areas for social and solidarity economy activities?",
+              "translated_question": "Quelle est la superficie totale des espaces verts protégés à Paris qui sont également des zones protégées pour les activités de l'économie sociale et solidaire?",
+              "detected_language": "French",
+              "code": "SELECT SUM(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR)",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information about the protected areas for social and solidarity economy activities in Paris.",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information about the protected green spaces in Paris, which is necessary to identify the protected areas for social and solidarity economy activities and calculate their total area.",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "st_area_shape"
+                  ]
+                }
+              ],
+              "id": "1",
+              "response": "The total area of protected green spaces in Paris that are also protected areas for social and solidarity economy activities is approximately 42873.85 square units.",
+              "translated_response": "La superficie totale des espaces verts protégés à Paris qui sont également des zones protégées pour les activités de l'économie sociale et solidaire est d'environ 42873,85 unités carrées.",
+              "judge_feedback": "The query is faithful to the question and provides a meaningful result. The complexity of the query is justified as it is necessary to calculate the total area.",
+              "keyword_count": {
+                "AS": 2,
+                "CAST": 2,
+                "FROM": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1,
+                "SUM": 1
+              }
+            },
+            {
+              "question": "What is the average perimeter of protected green spaces in Paris that are also protected areas for social and solidarity economy activities, grouped by the type of protected area?",
+              "translated_question": "Quel est le périmètre moyen des espaces verts protégés à Paris qui sont également des zones protégées pour les activités de l'économie sociale et solidaire, regroupés par type de zone protégée?",
+              "detected_language": "French",
+              "code": "SELECT Table_0.n_sq_ca, AVG(Table_1.st_perimeter_shape) FROM Table_0 INNER JOIN Table_1 ON CAST(Table_0.n_sq_ess AS VARCHAR) = CAST(Table_1.n_sq_evp AS VARCHAR) GROUP BY Table_0.n_sq_ca",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "This table provides information about the protected areas for social and solidarity economy activities in Paris, including the type of protected area.",
+                  "columns_involved": [
+                    "n_sq_ess",
+                    "n_sq_ca"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "This table provides information about the protected green spaces in Paris, which is necessary to identify the protected areas for social and solidarity economy activities and calculate their average perimeter.",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "st_perimeter_shape"
+                  ]
+                }
+              ],
+              "id": "2",
+              "response": "The average perimeter of protected green spaces in Paris that are also protected areas for social and solidarity economy activities varies by type of protected area, with an average perimeter of 168.56 units for type 2, 232.13 units for type 11, and so on.",
+              "translated_response": "Le périmètre moyen des espaces verts protégés à Paris qui sont également des zones protégées pour les activités de l'économie sociale et solidaire varie selon le type de zone protégée, avec un périmètre moyen de 168,56 unités pour le type 2, 232,13 unités pour le type 11, etc.",
+              "judge_feedback": "The query is faithful to the question and provides a meaningful result. The complexity of the query is justified as it is necessary to calculate the average perimeter for each group.",
+              "keyword_count": {
+                "AS": 2,
+                "AVG": 1,
+                "CAST": 2,
+                "FROM": 1,
+                "GROUP BY": 1,
+                "INNER JOIN": 1,
+                "JOIN": 1,
+                "ON": 1,
+                "SELECT": 1
+              }
+            }
+          ]
+        },
+        "tokens": {
+          "prompt_tokens": 17250,
+          "completion_tokens": 4461,
+          "total_tokens": 21711
+        },
+        "tables": {
+          "Table_0": "plub_ess",
+          "Table_1": "plub_evp"
+        },
+        "errors": [
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error KeyError: Table 'plub_ess' not found. Available: ['Table_0', 'Table_1'].\nCheck for a typo or stale table name.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: SELECT Table_0.n_sq_ess FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                   ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ... SUM(Table_1.st_area_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....st_perimeter_shape) FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) GROUP...\n                                                                   ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ... Table_1.st_perimeter_shape FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid."
+        ],
+        "generation_time": 112.81533967610449,
+        "avg_cols": 3.0
+      },
+      "6": {
+        "status": "success",
+        "proposed_columns": [
+          {
+            "table_alias": "Table_0",
+            "columns_provided": [
+              "n_sq_ca",
+              "n_sq_ess"
+            ]
+          },
+          {
+            "table_alias": "Table_1",
+            "columns_provided": [
+              "n_sq_evp",
+              "n_sq_ca",
+              "st_area_shape",
+              "st_perimeter_shape"
+            ]
+          },
+          {
+            "table_alias": "Table_2",
+            "columns_provided": [
+              "n_sq_ap",
+              "n_sq_ca",
+              "num_plub",
+              "a08_n_plub",
+              "a08_adr",
+              "a08_nom_us",
+              "a08_nom_sc",
+              "a08_rayon"
+            ]
+          }
+        ],
+        "data": {
+          "queries": [
+            {
+              "question": "What is the overall average area of protected green spaces in Paris where remarkable trees are found, and how many remarkable trees are there in total?",
+              "translated_question": "Quelle est la superficie moyenne globale des espaces verts protégés à Paris où des arbres remarquables sont trouvés, et combien y a-t-il d'arbres remarquables au total?",
+              "detected_language": "French",
+              "code": "SELECT AVG(T1.st_area_shape) AS avg_area, COUNT(T2.n_sq_ap) AS total_remarkable_trees FROM Table_0 AS T0 INNER JOIN Table_1 AS T1 ON CAST(T0.n_sq_ess AS VARCHAR) = CAST(T1.n_sq_evp AS VARCHAR) INNER JOIN Table_2 AS T2 ON CAST(T1.n_sq_evp AS VARCHAR) = CAST(T2.n_sq_ap AS VARCHAR)",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "Contributes the list of protected economic and social activities",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "Provides the areas of the protected green spaces",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "st_area_shape"
+                  ]
+                },
+                {
+                  "name": "Table_2",
+                  "reason": "Contributes the information about remarkable trees",
+                  "columns_involved": [
+                    "n_sq_ap"
+                  ]
+                }
+              ],
+              "id": "0",
+              "response": "The overall average area of protected green spaces in Paris where remarkable trees are found is approximately 1514 square meters, and there are a total of 8 remarkable trees. This information can be used to inform urban planning and conservation efforts.",
+              "translated_response": "La superficie moyenne globale des espaces verts protégés à Paris où des arbres remarquables sont trouvés est d'environ 1514 mètres carrés, et il y a un total de 8 arbres remarquables. Ces informations peuvent être utilisées pour éclairer les efforts de planification urbaine et de conservation.",
+              "judge_feedback": "The query is approved because it faithfully implements the question requirements and the result is meaningful. The complexity of the query is justified by the need to join multiple tables to calculate the required metrics.",
+              "keyword_count": {
+                "AS": 9,
+                "AVG": 1,
+                "CAST": 4,
+                "COUNT": 1,
+                "FROM": 1,
+                "INNER JOIN": 2,
+                "JOIN": 2,
+                "ON": 2,
+                "SELECT": 1
+              }
+            },
+            {
+              "question": "What is the total perimeter of protected green spaces in Paris where remarkable trees are found, grouped by the type of remarkable tree?",
+              "translated_question": "Quel est le périmètre total des espaces verts protégés à Paris où des arbres remarquables sont trouvés, regroupé par type d'arbre remarquable?",
+              "detected_language": "French",
+              "code": "SELECT T2.a08_nom_us, SUM(T1.st_perimeter_shape) AS total_perimeter FROM Table_0 AS T0 INNER JOIN Table_1 AS T1 ON CAST(T0.n_sq_ess AS VARCHAR) = CAST(T1.n_sq_evp AS VARCHAR) INNER JOIN Table_2 AS T2 ON CAST(T1.n_sq_evp AS VARCHAR) = CAST(T2.n_sq_ap AS VARCHAR) GROUP BY T2.a08_nom_us",
+              "tables": [
+                {
+                  "name": "Table_0",
+                  "reason": "Contributes the list of protected economic and social activities",
+                  "columns_involved": [
+                    "n_sq_ess"
+                  ]
+                },
+                {
+                  "name": "Table_1",
+                  "reason": "Provides the perimeters of the protected green spaces",
+                  "columns_involved": [
+                    "n_sq_evp",
+                    "st_perimeter_shape"
+                  ]
+                },
+                {
+                  "name": "Table_2",
+                  "reason": "Contributes the information about remarkable trees",
+                  "columns_involved": [
+                    "n_sq_ap",
+                    "a08_nom_us"
+                  ]
+                }
+              ],
+              "id": 1,
+              "response": "The total perimeter of protected green spaces in Paris where remarkable trees are found is approximately 1434 meters, with the largest perimeter found for the 'Platane d'orient (groupe)' type of remarkable tree. This information can be used to inform urban planning and conservation efforts.",
+              "translated_response": "Le périmètre total des espaces verts protégés à Paris où des arbres remarquables sont trouvés est d'environ 1434 mètres, avec le plus grand périmètre trouvé pour le type d'arbre remarquable 'Platane d'orient (groupe)'. Ces informations peuvent être utilisées pour éclairer les efforts de planification urbaine et de conservation.",
+              "judge_feedback": "The query is approved because it faithfully implements the question requirements and the result is meaningful. The complexity of the query is justified by the need to join multiple tables to calculate the required metrics.",
+              "keyword_count": {
+                "AS": 8,
+                "CAST": 4,
+                "FROM": 1,
+                "GROUP BY": 1,
+                "INNER JOIN": 2,
+                "JOIN": 2,
+                "ON": 2,
+                "SELECT": 1,
+                "SUM": 1
+              }
+            }
+          ]
+        },
+        "tokens": {
+          "prompt_tokens": 34549,
+          "completion_tokens": 7084,
+          "total_tokens": 41633
+        },
+        "tables": {
+          "Table_0": "plub_ess",
+          "Table_1": "plub_evp",
+          "Table_2": "plub_arbre"
+        },
+        "errors": [
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ..., Table_1.st_area_shape FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) LIMIT 100\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_1 INNER JOIN Table_2 ON LOWER(Table_1.n_sq_evp) = LOWER(Table_2.n_sq_ap) INNER JOIN...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Query must reference ALL tables. Missing: Table_2 (plub_arbre).\nRequired: Table_0, Table_1, Table_2. Join all tables into a single result.",
+          "Error ValueError: Question contains technical terms: correlation.\nRephrase as a non-technical business question.\nSuggestions: correlation → \"relationship\" or \"pattern\" — e.g. \"Is there a pattern between X and Y?\".",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...hape, Table_2.a08_rayon FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                      ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...) AS num_remarkable_trees FROM Table_1 INNER JOIN Table_2 ON LOWER(Table_1.n_sq_evp) = LOWER(Table_2.n_sq_ap) INNER JOIN...\n                                                                        ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Query must reference ALL tables. Missing: Table_1 (plub_evp), Table_2 (plub_arbre).\nRequired: Table_0, Table_1, Table_2. Join all tables into a single result.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....n_sq_ap) AS count_arbre FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                       ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....st_area_shape) AS avg_area FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ....a08_rayon) AS correlation FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                         ^\nHint: Check that all referenced columns, tables, and aliases are valid.",
+          "Error ValueError: Binder error: Binder Error: No function matches the given name and argument types 'lower(BIGINT)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlower(VARCHAR) -> VARCHAR\n\n\nLINE 1: ...) AS total_remarkable_trees FROM Table_0 INNER JOIN Table_1 ON LOWER(Table_0.n_sq_ess) = LOWER(Table_1.n_sq_evp) INNER...\n                                                                          ^\nHint: Check that all referenced columns, tables, and aliases are valid."
+        ],
+        "generation_time": 161.26123915985227,
+        "avg_cols": 4.666666666666667
+      }
+    }
+  }
+}

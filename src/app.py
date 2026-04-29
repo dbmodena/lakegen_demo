@@ -239,7 +239,9 @@ def phase1_generate_keywords(query, llm_instant, pm, hint=""):
     raw_content = str(res.message.content).strip().lower()
     extracted = re.findall(r"\b[a-z0-9_]+\b", raw_content)
     fluff = {"here","is","are","the","list","keywords","output","of",
-             "sure","certainly","based","on","and","or"}
+             "sure","certainly","based","on","and","or",
+             "voici","la","les","des","une","liste","mots","cles","bien",
+             "sur","certainement","base","et","ou","de","pour","ces"}
     brute = [w for w in extracted if w not in fluff]
 
     enriched = default_keywords.copy()
