@@ -174,11 +174,16 @@ class RobustLakeGenWorkflow(Workflow):
             self.solr_metadata_map = {}
             for doc in docs:
                 dataset_id = doc.get("dataset_id")
-                if dataset_id:
-                    file_name = f"{dataset_id}.csv"
-                    # Append if it exists in our available files
-                    if file_name in self.all_available_files and file_name not in top_10:
-                        top_10.append(file_name)
+                resource_id = doc.get("resource_id")
+                if dataset_id or resource_id:
+                    matched_file = None
+                    for f in self.all_available_files:
+                        if (dataset_id and dataset_id in f) or (resource_id and resource_id in f):
+                            matched_file = f
+                            break
+                    
+                    if matched_file and matched_file not in top_10:
+                        top_10.append(matched_file)
                         # Extract tags directly from Solr doc
                         tags = doc.get("tags", [])
                         if not isinstance(tags, list):
@@ -199,7 +204,7 @@ class RobustLakeGenWorkflow(Workflow):
             
             # Fallback if Solr returns nothing
             if not top_10:
-                print("    [!] Nessun risultato da Solr o file non trovati. Fallback sulle prime 5 tabelle disponibili.")
+                print("    [!] No result from Solr or files not found. Fallback on the first 5 available tables.")
                 top_10 = self.all_available_files[:5]
                 
         except Exception as e:
@@ -571,7 +576,7 @@ async def main():
 
     # Define the solr client
     # Available cores: bologna, valencia, paris
-    solr_client = LocalSolrClient(core="bologna")
+    solr_client = LocalSolrClient(core="valencia")
 
     wf = RobustLakeGenWorkflow(
         timeout=900.0,
