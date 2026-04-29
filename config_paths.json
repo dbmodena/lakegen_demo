@@ -1,10 +1,10 @@
 {
   "paths": {
-    "data_dir": "Data",
-    "csv_dir": "Data/valencia/datasets/csv",
-    "json_metadata_dir": "Data/valencia/metadata",
-    "blend_db_path": "Data/blend_index.db",
-    "indexes_dir": "Data/indexes",
+    "data_dir": "data",
+    "csv_dir": "data/valencia/datasets/csv",
+    "json_metadata_dir": "data/valencia/metadata",
+    "blend_db_path": "data/blend_index.db",
+    "indexes_dir": "data/indexes",
     "logs_dir": "logs"
   }
 }

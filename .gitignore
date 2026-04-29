@@ -27,17 +27,10 @@ htmlcov/
 # 4. Specific Project Files (LakeGen)
 # ========================
 # Ignore heavy CSVs and databases
-Data/bologna/datasets/*.csv
-Data/bologna/metadata/*.json
-Data/bologna
-Data/valencia/datasets/*.csv
-Data/valencia/metadata/*.json
-Data/valencia
-Data/paris/datasets/*.csv
-Data/paris/metadata/*.json
-Data/paris
+data/
+old_data/
 *.zip
-
+data
 
 # Ignore auto-generated JSON indices (e.g., inverted_index.json if generated locally)
 #indici/

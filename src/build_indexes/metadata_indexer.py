@@ -6,6 +6,8 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 
+from src.utils import DATA_DIR, JSON_DIR, INDEXES_DIR
+
 class MetadataIndexer:
     def __init__(self, json_dir: Path, indexes_dir: Path):
         self.json_dir = json_dir
@@ -98,8 +100,6 @@ if __name__ == "__main__":
 
     if str(BASE_DIR) not in sys.path:
         sys.path.insert(0, str(BASE_DIR))
-        
-    from src.utils import DATA_DIR, JSON_DIR, INDEXES_DIR
 
     if not DATA_DIR.exists():
         print(f"❌ ERROR: The data folder does not exist in the expected path:\n{DATA_DIR}")
