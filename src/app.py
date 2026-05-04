@@ -266,7 +266,9 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
     # --- Solr retrieval ---
     top_10, solr_meta = [], {}
     try:
-        response = solr_client.select(tokens=keywords, q_op="OR", rows=10)
+        # We fetch more rows (e.g., 30) because some Solr docs might not have a matching physical file,
+        # or multiple docs might point to the same file.
+        response = solr_client.select(tokens=keywords, q_op="OR", rows=30)
         docs = response.get("response", {}).get("docs", [])
         for doc in docs:
             did = doc.get("dataset_id")
@@ -291,6 +293,8 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
                     "columns.name": cols_name,
                     "columns.type": cols_type,
                 }
+            if len(top_10) >= 10:
+                break
         if not top_10:
             top_10 = all_files[:5]
     except Exception:
@@ -650,6 +654,10 @@ elif st.session_state.phase == "execution":
                     llm_v, pm, st.session_state.csv_dir, 
                     retries=retries, error_msg=error_msg)
                 st.session_state.tokens["p3"] += tok3
+                
+            if "INSUFFICIENT_DATA" in code_raw and not st.session_state.get("force_execution", False):
+                st.session_state.phase = "insufficient_data"
+                st.rerun()
 
             with st.spinner("⚡ Executing script…"):
                 raw_result, err, clean_code = phase4_execute(code_raw)
@@ -677,4 +685,31 @@ elif st.session_state.phase == "execution":
             "code": final_code,
         })
         st.session_state.phase = "idle"
+        st.session_state.force_execution = False # Reset flag
         st.rerun()
+
+# --- INSUFFICIENT DATA PROMPT ---
+elif st.session_state.phase == "insufficient_data":
+    with st.chat_message("assistant"):
+        st.warning("⚠️ **Insufficient Data Detected!**\n\nThe Coder has analyzed the selected tables and determined that they do not contain the necessary data to answer your question.")
+        st.markdown("Do you want to return to **Phase 1** to generate different keywords (and find new tables), or do you want to force execution ignoring the warning?")
+        
+        container = st.empty()
+        with container.container():
+            c1, c2 = st.columns(2)
+            if c1.button("🔄 Back to Phase 1 (New Keywords)", use_container_width=True):
+                st.session_state.force_execution = False
+                with st.spinner("Recalculating alternative keywords…"):
+                    hint = "The previous tables did not contain sufficient data. Generate completely different keywords or synonyms to find better tables."
+                    kws, _, tok = phase1_generate_keywords(
+                        st.session_state.query, llm_i, pm, hint=hint)
+                    st.session_state.keywords = kws
+                    st.session_state.tokens["p1"] += tok
+                st.session_state.phase = "keyword_approval"
+                st.rerun()
+                
+            if c2.button("⚠️ Force Execution (Ignore warning)", use_container_width=True):
+                st.session_state.force_execution = True
+                st.session_state.phase = "execution"
+                st.rerun()
+

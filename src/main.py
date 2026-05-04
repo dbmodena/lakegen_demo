@@ -59,6 +59,8 @@ from client_solr import LocalSolrClient
 class KeywordEvent(Event):
     enriched_keywords: list
     raw_content: str
+class RestartEvent(Event):
+    reason: str
 class TableSelectionEvent(Event): 
     selected_files: list
     reasoning: str
@@ -86,9 +88,10 @@ class RobustLakeGenWorkflow(Workflow):
         self.prompt_manager = PromptManager()
 
     @step
-    async def generate_keywords(self, ev: StartEvent) -> KeywordEvent:
+    async def generate_keywords(self, ev: StartEvent | RestartEvent) -> KeywordEvent:
         """PHASE 1: Generate keywords from the user question."""
-        self.question = ev.question
+        if hasattr(ev, 'question'):
+            self.question = ev.question
 
         raw_keywords_str = extract_query_keywords(self.question)
         default_keywords = [k.strip() for k in raw_keywords_str.split(',') if k.strip()]
@@ -98,7 +101,11 @@ class RobustLakeGenWorkflow(Workflow):
         print(f"    Base keywords: {default_keywords}")
 
         self.tokens_phase1 = 0
-        keyword_hint = ""
+        keyword_hint = getattr(ev, 'reason', '')
+        if keyword_hint:
+            print(f"    [!] RESTART: {keyword_hint}")
+            keyword_hint = "The previous tables did not contain sufficient data. Generate completely different keywords or synonyms to find better tables."
+
         while True:
             system_prompt = self.prompt_manager.render("keyword_generator", "system_prompt")
             user_prompt = self.prompt_manager.render(
@@ -167,10 +174,12 @@ class RobustLakeGenWorkflow(Workflow):
 
         try:
             # Query Solr using the enriched keywords.
+            # We fetch more rows (e.g., 30) because some Solr docs might not have a matching physical file,
+            # or multiple docs might point to the same file.
             response = self.solr_client.select(
                 tokens=enriched_keywords,
                 q_op = "OR",
-                rows=10
+                rows=30
             )
             
             docs = response.get("response", {}).get("docs", [])
@@ -211,6 +220,8 @@ class RobustLakeGenWorkflow(Workflow):
                             "columns.name": cols_name,
                             "columns.type": cols_type
                         }
+                if len(top_10) >= 10:
+                    break
             
             # Fallback if Solr returns nothing
             if not top_10:
@@ -358,7 +369,7 @@ class RobustLakeGenWorkflow(Workflow):
                     print(f"    [!] Could not remove temp BLEND index: {e}")
 
     @step
-    async def generate_or_correct_code(self, ev: TableSelectionEvent | CodeErrorEvent) -> ExecutionEvent | FinalResultEvent:
+    async def generate_or_correct_code(self, ev: TableSelectionEvent | CodeErrorEvent) -> ExecutionEvent | FinalResultEvent | RestartEvent:
         """PHASE 3: Generate or correct code based on the chosen tables."""
 
         # Saving state at the first pass
@@ -425,13 +436,29 @@ class RobustLakeGenWorkflow(Workflow):
             ChatMessage(role="user", content=user_prompt)
         ])
 
+        content = str(res.message.content)
+
+        if "INSUFFICIENT_DATA" in content:
+            print("\n    [!] The Coder detected that the provided tables do NOT contain the necessary data.")
+            ans = input("    Do you want to return to Phase 1 and search for new keywords? (y/n) [Press 'n' to force execution]: ").strip()
+            if ans.lower() in ['y', 'yes', 'si']:
+                return RestartEvent(reason="Tables lacked necessary data.")
+            else:
+                print("    [!] Forcing execution. Asking the Coder to try anyway...")
+                force_prompt = user_prompt + "\n\nUSER OVERRIDE: Try your best to write the code anyway using the available tables. DO NOT return INSUFFICIENT_DATA."
+                res = await self.llm_versatile.achat([
+                    ChatMessage(role="system", content=system_prompt),
+                    ChatMessage(role="user", content=force_prompt)
+                ])
+                content = str(res.message.content)
+
         if res.raw:
             in_t = res.raw.get('prompt_eval_count') or 0
             out_t = res.raw.get('eval_count') or 0
             self.tokens_phase3 += in_t + out_t
             print(f"    📊 [TOKEN PHASE 3 (Attempt {retries+1})] Prompt: {in_t} | Generate: {out_t} | Tot: {in_t + out_t}")
 
-        return ExecutionEvent(code=str(res.message.content), retries=retries)
+        return ExecutionEvent(code=content, retries=retries)
 
     @step
     async def execute_code(self, ev: ExecutionEvent) -> CodeErrorEvent | FinalResultEvent:
@@ -597,7 +624,7 @@ async def main():
 
     # Define the solr client
     # Available cores: bologna, valencia, paris
-    solr_client = LocalSolrClient(core="paris")
+    solr_client = LocalSolrClient(core="bologna")
 
     wf = RobustLakeGenWorkflow(
         timeout=900.0,
