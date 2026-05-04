@@ -439,38 +439,16 @@ def phase3_generate_code(query, tables, candidates, solr_meta, reasoning,
         info_lines.append(f"   Columns: [" + ", ".join(cols) + "]")
     tables_info = "\n".join(info_lines)
 
-    unselected_files = [f for f in candidates if f not in tables]
-    unselected_info = "No other candidates available."
-    if unselected_files:
-        unselected_lines = []
-        for fn in unselected_files:
-            meta = solr_meta.get(fn, {})
-            cn = meta.get("columns.name", [])
-            ct = meta.get("columns.type", [])
-            if cn and len(cn) == len(ct):
-                cols = [f"'{n}' ({t})" for n, t in zip(cn, ct)]
-            elif cn:
-                cols = [f"'{n}'" for n in cn]
-            else:
-                cols = []
-            if cols:
-                unselected_lines.append(f"- '{fn}' (Columns: {', '.join(cols)})")
-            else:
-                unselected_lines.append(f"- '{fn}'")
-        unselected_info = "\n".join(unselected_lines)
-
     system_prompt = pm.render("code_generator", "system_prompt")
     if retries == 0:
         user_prompt = pm.render("code_generator", "initial_prompt",
                                 question=query, arch_reasoning=reasoning,
-                                tables_info=tables_info,
-                                unselected_tables=unselected_info)
+                                tables_info=tables_info)
     else:
         user_prompt = pm.render("code_generator", "correction_prompt",
                                 question=query, error_message=error_msg,
                                 arch_reasoning=reasoning,
-                                tables_info=tables_info,
-                                unselected_tables=unselected_info)
+                                tables_info=tables_info)
 
     res = llm_versatile.chat([
         ChatMessage(role="system", content=system_prompt),

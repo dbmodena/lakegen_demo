@@ -441,28 +441,14 @@ class RobustLakeGenWorkflow(Workflow):
 
         system_prompt = self.prompt_manager.render("code_generator", "system_prompt")
 
-        unselected_files = [f for f in getattr(self, 'all_candidates_list', []) if f not in getattr(self, 'selected_files_list', [])]
-        unselected_info = "No other candidates available."
-        if unselected_files:
-            unselected_lines = []
-            for fn in unselected_files:
-                meta = getattr(self, "solr_metadata_map", {}).get(fn, {})
-                cn = meta.get("columns.name", [])
-                ct = meta.get("columns.type", [])
-                if cn:
-                    cols = [f"'{n}' ({t})" for n, t in zip(cn, ct)] if len(cn)==len(ct) else [f"'{n}'" for n in cn]
-                    unselected_lines.append(f"- '{fn}' (Columns: {', '.join(cols)})")
-                else:
-                    unselected_lines.append(f"- '{fn}'")
-            unselected_info = "\n".join(unselected_lines)
+        #print(f"\n    [🔍] DEBUG: Coder Selected Tables Info:\n{self.tables_info}")
 
         if retries == 0:
             user_prompt = self.prompt_manager.render(
                 "code_generator", "initial_prompt",
                 question=self.question,
                 arch_reasoning=self.arch_reasoning,
-                tables_info=self.tables_info,
-                unselected_tables=unselected_info
+                tables_info=self.tables_info
             )
         else:
             user_prompt = self.prompt_manager.render(
@@ -470,8 +456,7 @@ class RobustLakeGenWorkflow(Workflow):
                 question=self.question,
                 error_message=ev.error_message,
                 arch_reasoning=self.arch_reasoning,
-                tables_info=self.tables_info,
-                unselected_tables=unselected_info
+                tables_info=self.tables_info
             )
 
         res = await self.llm_versatile.achat([
