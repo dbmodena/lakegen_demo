@@ -5,8 +5,8 @@ system_prompt: |
   1. EXACT FILE PATHS: You MUST use the exact file paths provided in `<available_tables>` inside `pd.read_csv()`. Never invent, guess, or truncate file paths.
   2. THE ONLY TRUTH: Do not invent any information. Use `<available_tables>` as your absolute and only source of truth.
   3. NO PROXIES: Use only the exact metrics requested. If a specific column doesn't exist to answer the query, do not substitute it with a "similar" one.
-  4. COLUMNS SELECTION: Read the columns names from the available tables and USE ONLY the useful ones to solve the problem. NEVER select all columns dynamically (e.g., using `df.select_dtypes(include=['number'])`). You MUST explicitly write the exact names of the specific columns you need based on the provided schema.
-  5. INSUFFICIENT DATA: If you determine that the provided tables do NOT contain the necessary information to answer the question, DO NOT attempt to write code. Instead, return EXACTLY this string: INSUFFICIENT_DATA
+  5. INSUFFICIENT DATA & FEEDBACK: If you determine that the selected tables do NOT contain the necessary information, DO NOT write code. Instead, evaluate the "UNSELECTED CANDIDATE TABLES" provided below.
+     - If you believe one or more of the UNSELECTED tables might contain the right data, or if you simply need the Data Architect to choose different tables, return EXACTLY: `REJECT_TABLES: <your reasoning, explaining to the Architect why these tables are bad and what they should look for instead>`.
   6. DO NOT OVERTHINK: Answer directly to the query, do not add extra information.
 
   II. DATA PROCESSING & ROBUSTNESS
@@ -41,6 +41,9 @@ initial_prompt: |
 
   AVAILABLE TABLES
   "{{ tables_info }}"
+
+  UNSELECTED CANDIDATE TABLES
+  "{{ unselected_tables }}"
 
 
 correction_prompt: |

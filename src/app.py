@@ -262,10 +262,12 @@ def phase1_generate_keywords(query, llm_instant, pm, hint=""):
 # PHASE 2 – TABLE SELECTION (Solr + Agent)
 # ==========================================
 def phase2_select_tables(query, keywords, llm_versatile, solr_client,
-                         pm, all_files, csv_dir, db_path, hint=""):
+                         pm, all_files, csv_dir, db_path, hint="",
+                         skip_solr=False, top_10=None, solr_meta=None):
     # --- Solr retrieval ---
-    top_10, solr_meta = [], {}
-    try:
+    if not skip_solr:
+        top_10, solr_meta = [], {}
+        try:
         # We fetch more rows (e.g., 30) because some Solr docs might not have a matching physical file,
         # or multiple docs might point to the same file.
         response = solr_client.select(tokens=keywords, q_op="OR", rows=30)
@@ -297,8 +299,11 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
                 break
         if not top_10:
             top_10 = all_files[:5]
-    except Exception:
-        top_10 = all_files[:5]
+        except Exception:
+            top_10 = all_files[:5]
+    else:
+        top_10 = top_10 or []
+        solr_meta = solr_meta or {}
 
     # --- BLEND index + ReAct Agent ---
     blend_db = db_path.parent / f"temp_blend_{uuid.uuid4().hex}.db"
@@ -369,6 +374,11 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
         # Parse agent response
         reasoning = "No reasoning provided."
         selected_str = ""
+
+        if "REJECT_KEYWORDS" in agent_resp:
+            reason = agent_resp.replace("REJECT_KEYWORDS:", "").replace("REJECT_KEYWORDS", "").strip()
+            return [], top_10, solr_meta, f"REJECT_KEYWORDS: {reason}", full_trace, tokens_p2
+
         if "FINAL_PAYLOAD:" in agent_resp:
             m = re.search(r'FINAL_PAYLOAD:\s*(\{.*?\})', agent_resp, re.DOTALL)
             if m:
@@ -406,7 +416,7 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
 # ==========================================
 # PHASE 3 – CODE GENERATION
 # ==========================================
-def phase3_generate_code(query, tables, solr_meta, reasoning,
+def phase3_generate_code(query, tables, candidates, solr_meta, reasoning,
                          llm_versatile, pm, csv_dir, retries=0, error_msg=""):
     info_lines = [f"AVAILABLE SELECTED TABLES IN '{csv_dir}/':"]
     for idx, fn in enumerate(tables, 1):
@@ -429,16 +439,38 @@ def phase3_generate_code(query, tables, solr_meta, reasoning,
         info_lines.append(f"   Columns: [" + ", ".join(cols) + "]")
     tables_info = "\n".join(info_lines)
 
+    unselected_files = [f for f in candidates if f not in tables]
+    unselected_info = "No other candidates available."
+    if unselected_files:
+        unselected_lines = []
+        for fn in unselected_files:
+            meta = solr_meta.get(fn, {})
+            cn = meta.get("columns.name", [])
+            ct = meta.get("columns.type", [])
+            if cn and len(cn) == len(ct):
+                cols = [f"'{n}' ({t})" for n, t in zip(cn, ct)]
+            elif cn:
+                cols = [f"'{n}'" for n in cn]
+            else:
+                cols = []
+            if cols:
+                unselected_lines.append(f"- '{fn}' (Columns: {', '.join(cols)})")
+            else:
+                unselected_lines.append(f"- '{fn}'")
+        unselected_info = "\n".join(unselected_lines)
+
     system_prompt = pm.render("code_generator", "system_prompt")
     if retries == 0:
         user_prompt = pm.render("code_generator", "initial_prompt",
                                 question=query, arch_reasoning=reasoning,
-                                tables_info=tables_info)
+                                tables_info=tables_info,
+                                unselected_tables=unselected_info)
     else:
         user_prompt = pm.render("code_generator", "correction_prompt",
                                 question=query, error_message=error_msg,
                                 arch_reasoning=reasoning,
-                                tables_info=tables_info)
+                                tables_info=tables_info,
+                                unselected_tables=unselected_info)
 
     res = llm_versatile.chat([
         ChatMessage(role="system", content=system_prompt),
@@ -649,14 +681,17 @@ elif st.session_state.phase == "execution":
             with st.spinner("✍️ Writing code…"):
                 code_raw, tok3 = phase3_generate_code(
                     st.session_state.query, st.session_state.tables,
+                    st.session_state.candidates,
                     st.session_state.solr_metadata_map,
                     st.session_state.architect_reasoning,
                     llm_v, pm, st.session_state.csv_dir, 
                     retries=retries, error_msg=error_msg)
                 st.session_state.tokens["p3"] += tok3
                 
-            if "INSUFFICIENT_DATA" in code_raw and not st.session_state.get("force_execution", False):
-                st.session_state.phase = "insufficient_data"
+            if "REJECT_TABLES" in code_raw:
+                reason = code_raw.replace("REJECT_TABLES:", "").replace("REJECT_TABLES", "").strip()
+                st.session_state.fallback_reason = reason
+                st.session_state.phase = "fallback_approval_tables"
                 st.rerun()
 
             with st.spinner("⚡ Executing script…"):
@@ -685,31 +720,76 @@ elif st.session_state.phase == "execution":
             "code": final_code,
         })
         st.session_state.phase = "idle"
-        st.session_state.force_execution = False # Reset flag
         st.rerun()
 
-# --- INSUFFICIENT DATA PROMPT ---
-elif st.session_state.phase == "insufficient_data":
+# --- FALLBACK APPROVAL (TABLES) ---
+elif st.session_state.phase == "fallback_approval_tables":
     with st.chat_message("assistant"):
-        st.warning("⚠️ **Insufficient Data Detected!**\n\nThe Coder has analyzed the selected tables and determined that they do not contain the necessary data to answer your question.")
-        st.markdown("Do you want to return to **Phase 1** to generate different keywords (and find new tables), or do you want to force execution ignoring the warning?")
+        st.warning("⚠️ **Tables Rejected by Coder!**\n\nThe Coder has analyzed the selected tables and determined they do not contain the necessary data.")
+        st.info(f"**Coder Feedback:**\n{st.session_state.fallback_reason}")
+        st.markdown("Do you want to allow the Data Architect to re-evaluate the candidate tables based on this feedback, or do you want to force execution ignoring the warning?")
         
         container = st.empty()
         with container.container():
             c1, c2 = st.columns(2)
-            if c1.button("🔄 Back to Phase 1 (New Keywords)", use_container_width=True):
+            if c1.button("🔄 Allow Re-evaluation (Back to Phase 2)", use_container_width=True):
                 st.session_state.force_execution = False
-                with st.spinner("Recalculating alternative keywords…"):
-                    hint = "The previous tables did not contain sufficient data. Generate completely different keywords or synonyms to find better tables."
-                    kws, _, tok = phase1_generate_keywords(
-                        st.session_state.query, llm_i, pm, hint=hint)
-                    st.session_state.keywords = kws
-                    st.session_state.tokens["p1"] += tok
-                st.session_state.phase = "keyword_approval"
+                st.session_state.chat_history.append({
+                    "role": "assistant",
+                    "content": f"⚠️ **Tables rejected by Coder.**\nFeedback: *{st.session_state.fallback_reason}*\n\n🔄 Re-evaluating candidate tables..."
+                })
+                with st.spinner("Re-selecting tables…"):
+                    sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
+                        st.session_state.query, st.session_state.keywords,
+                        llm_v, solr, pm, all_csv, 
+                        st.session_state.csv_dir, st.session_state.db_path, 
+                        hint=f"PREVIOUS SELECTION REJECTED. CODER FEEDBACK: {st.session_state.fallback_reason}",
+                        skip_solr=True,
+                        top_10=st.session_state.candidates,
+                        solr_meta=st.session_state.solr_metadata_map)
+                    
+                    if reasoning.startswith("REJECT_KEYWORDS:"):
+                        reason_kw = reasoning.replace("REJECT_KEYWORDS:", "").strip()
+                        st.session_state.fallback_reason = reason_kw
+                        st.session_state.phase = "fallback_approval_keywords"
+                        st.rerun()
+
+                    st.session_state.tables = sel
+                    st.session_state.candidates = cands
+                    st.session_state.solr_metadata_map = smeta
+                    st.session_state.architect_reasoning = reasoning
+                    st.session_state.full_trace = trace
+                    st.session_state.tokens["p2"] += tok2
+                st.session_state.phase = "table_approval"
                 st.rerun()
                 
             if c2.button("⚠️ Force Execution (Ignore warning)", use_container_width=True):
                 st.session_state.force_execution = True
                 st.session_state.phase = "execution"
                 st.rerun()
+
+# --- FALLBACK APPROVAL (KEYWORDS) ---
+elif st.session_state.phase == "fallback_approval_keywords":
+    with st.chat_message("assistant"):
+        st.warning("⚠️ **Keywords Rejected by Data Architect!**\n\nThe Data Architect has analyzed the candidate tables and found none that match the Coder's needs.")
+        st.info(f"**Architect Feedback:**\n{st.session_state.fallback_reason}")
+        st.markdown("Do you want to allow the Keyword Generator to generate completely new keywords based on this feedback?")
+        
+        container = st.empty()
+        with container.container():
+            if st.button("🔄 Generate New Keywords (Back to Phase 1)", use_container_width=True):
+                st.session_state.chat_history.append({
+                    "role": "assistant",
+                    "content": f"⚠️ **Candidates rejected by Architect.**\nFeedback: *{st.session_state.fallback_reason}*\n\n🔄 Re-generating keywords..."
+                })
+                with st.spinner("Recalculating keywords…"):
+                    kws, _, tok = phase1_generate_keywords(
+                        st.session_state.query, llm_i, pm, 
+                        hint=f"The previous keywords led to bad tables. Architect feedback: {st.session_state.fallback_reason}. Generate COMPLETELY DIFFERENT keywords.")
+                    st.session_state.keywords = kws
+                    st.session_state.tokens["p1"] += tok
+                st.session_state.phase = "keyword_approval"
+                st.rerun()
+
+
 

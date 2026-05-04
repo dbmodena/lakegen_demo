@@ -59,10 +59,13 @@ from client_solr import LocalSolrClient
 class KeywordEvent(Event):
     enriched_keywords: list
     raw_content: str
-class RestartEvent(Event):
+class RestartPhase1Event(Event):
+    reason: str
+class RestartPhase2Event(Event):
     reason: str
 class TableSelectionEvent(Event): 
     selected_files: list
+    all_candidates: list
     reasoning: str
     full_trace: str
 class ExecutionEvent(Event): 
@@ -88,7 +91,7 @@ class RobustLakeGenWorkflow(Workflow):
         self.prompt_manager = PromptManager()
 
     @step
-    async def generate_keywords(self, ev: StartEvent | RestartEvent) -> KeywordEvent:
+    async def generate_keywords(self, ev: StartEvent | RestartPhase1Event) -> KeywordEvent:
         """PHASE 1: Generate keywords from the user question."""
         if hasattr(ev, 'question'):
             self.question = ev.question
@@ -103,8 +106,8 @@ class RobustLakeGenWorkflow(Workflow):
         self.tokens_phase1 = 0
         keyword_hint = getattr(ev, 'reason', '')
         if keyword_hint:
-            print(f"    [!] RESTART: {keyword_hint}")
-            keyword_hint = "The previous tables did not contain sufficient data. Generate completely different keywords or synonyms to find better tables."
+            print(f"    [!] RESTART PHASE 1: {keyword_hint}")
+            keyword_hint = f"The previous keywords led to bad tables. Coder feedback: {keyword_hint}. Generate COMPLETELY DIFFERENT keywords."
 
         while True:
             system_prompt = self.prompt_manager.render("keyword_generator", "system_prompt")
@@ -164,73 +167,81 @@ class RobustLakeGenWorkflow(Workflow):
         return KeywordEvent(enriched_keywords=enriched_keywords, raw_content=raw_content)
 
     @step
-    async def select_tables(self, ev: KeywordEvent) -> TableSelectionEvent:
+    async def select_tables(self, ev: KeywordEvent | RestartPhase2Event) -> TableSelectionEvent | RestartPhase1Event:
         """PHASE 2: Select the most relevant tables using the generated keywords."""
-        enriched_keywords = ev.enriched_keywords
-
-        print(f"\nPHASE 2: TABLE SELECTION (Agent is inspecting files...)")
-
+        
         self.tokens_phase2 = 0
-
-        try:
-            # Query Solr using the enriched keywords.
-            # We fetch more rows (e.g., 30) because some Solr docs might not have a matching physical file,
-            # or multiple docs might point to the same file.
-            response = self.solr_client.select(
-                tokens=enriched_keywords,
-                q_op = "OR",
-                rows=30
-            )
+        
+        if isinstance(ev, KeywordEvent):
+            enriched_keywords = ev.enriched_keywords
+            print(f"\nPHASE 2: TABLE SELECTION (Agent is inspecting files...)")
+            try:
+                # Query Solr using the enriched keywords.
+                # We fetch more rows (e.g., 30) because some Solr docs might not have a matching physical file,
+                # or multiple docs might point to the same file.
+                response = self.solr_client.select(
+                    tokens=enriched_keywords,
+                    q_op = "OR",
+                    rows=30
+                )
             
-            docs = response.get("response", {}).get("docs", [])
-            
-            top_10 = []
-            self.solr_metadata_map = {}
-            for doc in docs:
-                dataset_id = doc.get("dataset_id")
-                resource_id = doc.get("resource_id")
-                if dataset_id or resource_id:
-                    matched_file = None
-                    for f in self.all_available_files:
-                        if (dataset_id and dataset_id in f) or (resource_id and resource_id in f):
-                            matched_file = f
-                            break
-                    
-                    if matched_file and matched_file not in top_10:
-                        top_10.append(matched_file)
-                        # Extract tags directly from Solr doc
-                        tags = doc.get("tags", [])
-                        if not isinstance(tags, list):
-                            tags = [str(tags)]
-                        else:
-                            tags = [str(t) for t in tags]
-                            
-                        # Solr client parses columns into a list of dicts
-                        columns = doc.get("columns", [])
-                        cols_name = [c.get("name") for c in columns if c.get("name")]
-                        cols_type = [c.get("type") for c in columns if c.get("type")]
-                        
-                        title = doc.get("title", "")
-                        desc = doc.get("description", "")
-
-                        self.solr_metadata_map[matched_file] = {
-                            "title": title,
-                            "description": desc,
-                            "tags": tags,
-                            "columns.name": cols_name,
-                            "columns.type": cols_type
-                        }
-                if len(top_10) >= 10:
-                    break
-            
-            # Fallback if Solr returns nothing
-            if not top_10:
-                print("    [!] No result from Solr or files not found. Fallback on the first 5 available tables.")
-                top_10 = self.all_available_files[:5]
+                docs = response.get("response", {}).get("docs", [])
                 
-        except Exception as e:
-            print(f"    [!] Error querying Solr: {e}")
-            top_10 = self.all_available_files[:5]
+                top_10 = []
+                self.solr_metadata_map = {}
+                for doc in docs:
+                    dataset_id = doc.get("dataset_id")
+                    resource_id = doc.get("resource_id")
+                    if dataset_id or resource_id:
+                        matched_file = None
+                        for f in self.all_available_files:
+                            if (dataset_id and dataset_id in f) or (resource_id and resource_id in f):
+                                matched_file = f
+                                break
+                        
+                        if matched_file and matched_file not in top_10:
+                            top_10.append(matched_file)
+                            # Extract tags directly from Solr doc
+                            tags = doc.get("tags", [])
+                            if not isinstance(tags, list):
+                                tags = [str(tags)]
+                            else:
+                                tags = [str(t) for t in tags]
+                                
+                            # Solr client parses columns into a list of dicts
+                            columns = doc.get("columns", [])
+                            cols_name = [c.get("name") for c in columns if c.get("name")]
+                            cols_type = [c.get("type") for c in columns if c.get("type")]
+                            
+                            title = doc.get("title", "")
+                            desc = doc.get("description", "")
+
+                            self.solr_metadata_map[matched_file] = {
+                                "title": title,
+                                "description": desc,
+                                "tags": tags,
+                                "columns.name": cols_name,
+                                "columns.type": cols_type
+                            }
+                    if len(top_10) >= 10:
+                        break
+                
+                # Fallback if Solr returns nothing
+                if not top_10:
+                    print("    [!] No result from Solr or files not found. Fallback on the first 5 available tables.")
+                    top_10 = self.all_available_files[:5]
+                
+            except Exception as e:
+                print(f"    [!] Error querying Solr: {e}")
+                top_10 = self.all_available_files[:5]
+
+        if isinstance(ev, KeywordEvent):
+            self.current_top_10 = top_10
+            self.current_solr_metadata_map = getattr(self, 'solr_metadata_map', {})
+        else:
+            print(f"\nPHASE 2 RESTART: Coder rejected tables. Re-evaluating candidates...")
+            top_10 = getattr(self, 'current_top_10', self.all_available_files[:10])
+            self.solr_metadata_map = getattr(self, 'current_solr_metadata_map', {})
 
         print("    🎯 Top candidate tables selected by Solr indexing:")
         for idx, tbl in enumerate(top_10, 1):
@@ -264,7 +275,10 @@ class RobustLakeGenWorkflow(Workflow):
             if token_counter:
                 token_counter.reset_counts()
     
-            table_hint = ""
+            table_hint = getattr(ev, 'reason', '')
+            if table_hint:
+                print(f"    [!] CODER FEEDBACK: {table_hint}")
+                table_hint = f"PREVIOUS SELECTION REJECTED. CODER FEEDBACK: {table_hint}"
             while True:
                 enriched_candidates_info = ""
                 for file_name in top_10:
@@ -317,7 +331,18 @@ class RobustLakeGenWorkflow(Workflow):
     
                 selected_tables = ""
                 architect_reasoning = "No reasoning provided."
-    
+
+                if "REJECT_KEYWORDS" in agent_resp:
+                    reason = agent_resp.replace("REJECT_KEYWORDS:", "").replace("REJECT_KEYWORDS", "").strip()
+                    print(f"\n    [!] The Data Architect rejected the candidate tables and is delegating back to Keyword Generator.")
+                    print(f"    [!] Architect Feedback: {reason}")
+                    ans = input("    Do you want to allow the Keyword Generator to generate new keywords? (y/n) [Default 'y']: ").strip()
+                    if not ans or ans.lower() in ['y', 'yes', 'si']:
+                        return RestartPhase1Event(reason=reason)
+                    else:
+                        print("    [!] Aborting rejection. Proceeding with top 2 tables.")
+                        agent_resp = f'FINAL_PAYLOAD: {{"tables": "{", ".join(top_10[:2])}", "reasoning": "User aborted rejection."}}'
+
                 if "FINAL_PAYLOAD:" in agent_resp:
                     match_json = re.search(r'FINAL_PAYLOAD:\s*(\{.*?\})', agent_resp, re.DOTALL)
                     
@@ -343,7 +368,7 @@ class RobustLakeGenWorkflow(Workflow):
                     selected = top_10[:2]
     
                 print(f"\n    [💡] Architect Reasoning: {architect_reasoning}")
-    
+
                 user_input_tables = input(f"    Tables ({selected}) - Press ENTER to confirm, or write a suggestion: ").strip()
                 
                 if not user_input_tables or user_input_tables.lower() in ['ok', 'y', 'si', 'yes']:
@@ -357,7 +382,7 @@ class RobustLakeGenWorkflow(Workflow):
             Settings.callback_manager = CallbackManager([])
     
             self.agent_thinking = agent_thinking
-            return TableSelectionEvent(selected_files=selected, reasoning=architect_reasoning, full_trace=full_trace)
+            return TableSelectionEvent(selected_files=selected, all_candidates=top_10, reasoning=architect_reasoning, full_trace=full_trace)
     
         finally:
             # Clean up the temporary BLEND index
@@ -369,7 +394,7 @@ class RobustLakeGenWorkflow(Workflow):
                     print(f"    [!] Could not remove temp BLEND index: {e}")
 
     @step
-    async def generate_or_correct_code(self, ev: TableSelectionEvent | CodeErrorEvent) -> ExecutionEvent | FinalResultEvent | RestartEvent:
+    async def generate_or_correct_code(self, ev: TableSelectionEvent | CodeErrorEvent) -> ExecutionEvent | FinalResultEvent | RestartPhase2Event:
         """PHASE 3: Generate or correct code based on the chosen tables."""
 
         # Saving state at the first pass
@@ -402,6 +427,7 @@ class RobustLakeGenWorkflow(Workflow):
                 
             self.tables_info = "\n".join(info_lines)
             self.selected_files_list = ev.selected_files
+            self.all_candidates_list = getattr(ev, 'all_candidates', [])
             self.tokens_phase3 = 0
             retries = 0
             print(f"\nPHASE 3: Generating initial code...")
@@ -415,12 +441,28 @@ class RobustLakeGenWorkflow(Workflow):
 
         system_prompt = self.prompt_manager.render("code_generator", "system_prompt")
 
+        unselected_files = [f for f in getattr(self, 'all_candidates_list', []) if f not in getattr(self, 'selected_files_list', [])]
+        unselected_info = "No other candidates available."
+        if unselected_files:
+            unselected_lines = []
+            for fn in unselected_files:
+                meta = getattr(self, "solr_metadata_map", {}).get(fn, {})
+                cn = meta.get("columns.name", [])
+                ct = meta.get("columns.type", [])
+                if cn:
+                    cols = [f"'{n}' ({t})" for n, t in zip(cn, ct)] if len(cn)==len(ct) else [f"'{n}'" for n in cn]
+                    unselected_lines.append(f"- '{fn}' (Columns: {', '.join(cols)})")
+                else:
+                    unselected_lines.append(f"- '{fn}'")
+            unselected_info = "\n".join(unselected_lines)
+
         if retries == 0:
             user_prompt = self.prompt_manager.render(
                 "code_generator", "initial_prompt",
                 question=self.question,
                 arch_reasoning=self.arch_reasoning,
-                tables_info=self.tables_info
+                tables_info=self.tables_info,
+                unselected_tables=unselected_info
             )
         else:
             user_prompt = self.prompt_manager.render(
@@ -428,7 +470,8 @@ class RobustLakeGenWorkflow(Workflow):
                 question=self.question,
                 error_message=ev.error_message,
                 arch_reasoning=self.arch_reasoning,
-                tables_info=self.tables_info
+                tables_info=self.tables_info,
+                unselected_tables=unselected_info
             )
 
         res = await self.llm_versatile.achat([
@@ -438,14 +481,16 @@ class RobustLakeGenWorkflow(Workflow):
 
         content = str(res.message.content)
 
-        if "INSUFFICIENT_DATA" in content:
-            print("\n    [!] The Coder detected that the provided tables do NOT contain the necessary data.")
-            ans = input("    Do you want to return to Phase 1 and search for new keywords? (y/n) [Press 'n' to force execution]: ").strip()
-            if ans.lower() in ['y', 'yes', 'si']:
-                return RestartEvent(reason="Tables lacked necessary data.")
+        if "REJECT_TABLES" in content:
+            print("\n    [!] The Coder detected missing data and is delegating back to the Data Architect.")
+            reason = content.replace("REJECT_TABLES:", "").replace("REJECT_TABLES", "").strip()
+            print(f"    [!] Coder Feedback: {reason}")
+            ans = input("    Do you want to allow the Data Architect to re-evaluate tables? (y/n) [Press 'n' to force execution]: ").strip()
+            if not ans or ans.lower() in ['y', 'yes', 'si']:
+                return RestartPhase2Event(reason=reason)
             else:
                 print("    [!] Forcing execution. Asking the Coder to try anyway...")
-                force_prompt = user_prompt + "\n\nUSER OVERRIDE: Try your best to write the code anyway using the available tables. DO NOT return INSUFFICIENT_DATA."
+                force_prompt = user_prompt + "\n\nUSER OVERRIDE: Try your best to write the code anyway using the available tables. DO NOT return REJECT_TABLES."
                 res = await self.llm_versatile.achat([
                     ChatMessage(role="system", content=system_prompt),
                     ChatMessage(role="user", content=force_prompt)
@@ -623,7 +668,7 @@ async def main():
     )
 
     # Define the solr client
-    # Available cores: bologna, valencia, paris
+    # Available cores: bologna, valencia, paris, nyc
     solr_client = LocalSolrClient(core="bologna")
 
     wf = RobustLakeGenWorkflow(
