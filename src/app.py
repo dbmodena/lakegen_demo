@@ -1,6 +1,6 @@
 """
 LakeGen Interactive – Streamlit Web Application
-Run with:  uv run streamlit run app.py
+Run with:  uv run streamlit run src/app.py
 """
 
 import os
@@ -21,9 +21,9 @@ import streamlit as st
 import pandas as pd
 import polars as pl
 
-# ---------------------------------------------------------------------------
-# Path bootstrap (same logic as utils.py so imports work from project root)
-# ---------------------------------------------------------------------------
+# --------------------------------------
+# Path bootstrap
+# --------------------------------------
 _SRC_DIR = Path(__file__).resolve().parent
 _ROOT_DIR = _SRC_DIR.parent
 sys.path.insert(0, str(_SRC_DIR))
@@ -244,11 +244,17 @@ def phase1_generate_keywords(query, llm_instant, pm, hint=""):
              "sur","certainement","base","et","ou","de","pour","ces"}
     brute = [w for w in extracted if w not in fluff]
 
-    enriched = default_keywords.copy()
+    enriched = []
     for w in brute:
         if w not in enriched:
             enriched.append(w)
-    enriched = enriched[:len(default_keywords) + 5]
+
+    # Fallback if the LLM returns nothing useful
+    if not enriched:
+        enriched = default_keywords.copy()
+
+    # Truncate excess words to avoid massive queries
+    enriched = enriched[:15]
 
     return enriched, raw_content, tokens
 

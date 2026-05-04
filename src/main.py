@@ -128,13 +128,17 @@ class RobustLakeGenWorkflow(Workflow):
                          "voici", "la", "les", "des", "une", "liste", "mots", "cles", "bien", "sur", "certainement", "base", "et", "ou", "de", "pour", "ces"}
             brute_keywords = [w for w in extracted_words if w not in llm_fluff]
 
-            enriched_keywords = default_keywords.copy()
+            enriched_keywords = []
             for w in brute_keywords:
                 if w not in enriched_keywords:
                     enriched_keywords.append(w)
 
-            # Truncate excess words (base keywords + 5 new ones from LLM)
-            enriched_keywords = enriched_keywords[:len(default_keywords) + 5]
+            # Fallback if the LLM returns nothing useful
+            if not enriched_keywords:
+                enriched_keywords = default_keywords.copy()
+
+            # Truncate excess words to avoid massive queries
+            enriched_keywords = enriched_keywords[:15]
 
             print(f"    📝 Final elaborated keywords: {enriched_keywords}")
             user_input = input("    Press ENTER to confirm, or write a suggestion: ").strip()
