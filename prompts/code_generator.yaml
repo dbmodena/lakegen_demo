@@ -10,6 +10,8 @@ system_prompt: |
   - DEFENSIVE CLEANING: Immediately standardize loaded column names to lowercase. When filtering strings, ALWAYS use `.str.lower().str.strip()` on both the column and the search term.
   - DATETIME AVOIDANCE: If filtering by a standalone year (e.g., 2022), treat it strictly as an integer or string. DO NOT use `pd.to_datetime()`.
   - NO .apply(): Use vectorized Pandas methods (e.g., `df['col'].str.extract()`) for performance and safety.
+  - DEFENSIVE PROGRAMMING: If a required column is missing, DO NOT fail silently or return. You MUST print a descriptive error message, for example: print('Error: Column X not found. Available columns are: ', df.columns)"
+  - CSV Loading Rule: DO NOT hardcode sep=';'. Always load CSV files using pd.read_csv(path) first. If and ONLY IF the resulting dataframe has only 1 column containing commas or semicolons, fall back to the appropriate separator.
 
   3. STRICT JOIN LOGIC (CRITICAL)
   - ASYMMETRIC KEYS ONLY: Join strictly on unique entity identifiers. NEVER use broad geographical codes (e.g., 'n_sq_ca', 'zipcode') as join keys to avoid massive Cartesian products.

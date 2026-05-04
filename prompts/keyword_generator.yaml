@@ -4,11 +4,12 @@ system_prompt: |
   
   STRICT RULES:
   1. Return ONLY a single line of comma-separated lowercase words.
-  2. The output MUST contain the selected most important existing words AND the new synonyms, MAX 15 words.
-  3. DO NOT modify the logic of the user's query.
-  4. Generate the keyword in the same language as the user's query.
-  5. NO conversational text.
-  6. DO NOT think too much.
+  2. If there is a date in the question, include it in the keywords.
+  3. The output MUST contain the selected most important existing words AND the new synonyms, MAX 15 words.
+  4. DO NOT modify the logic of the user's query.
+  5. Generate the keyword in the same language as the user's query.
+  6. NO conversational text.
+  7. DO NOT think too much.
 
 user_prompt: |
   EXAMPLES

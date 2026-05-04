@@ -107,7 +107,7 @@ class RobustLakeGenWorkflow(Workflow):
         keyword_hint = getattr(ev, 'reason', '')
         if keyword_hint:
             print(f"    [!] RESTART PHASE 1: {keyword_hint}")
-            keyword_hint = f"The previous keywords led to bad tables. Coder feedback: {keyword_hint}. Generate COMPLETELY DIFFERENT keywords."
+            keyword_hint = f"The previous keywords led to bad tables. Coder feedback: {keyword_hint}. Generate DIFFERENT keywords."
 
         while True:
             system_prompt = self.prompt_manager.render("keyword_generator", "system_prompt")
@@ -308,7 +308,7 @@ class RobustLakeGenWorkflow(Workflow):
                 dispatcher.add_event_handler(thinking_capture)
     
                 try:
-                    res = await asyncio.wait_for(explorer_agent.run(agent_prompt), timeout=240.0)
+                    res = await asyncio.wait_for(explorer_agent.run(agent_prompt), timeout=300.0)
                     agent_resp = str(getattr(res, 'response', res)).strip()
                 except asyncio.TimeoutError:
                     sys.stdout.write("\n    [!] Attention: The agent was reasoning for too long. Forced interruption.\n")
@@ -530,6 +530,13 @@ class RobustLakeGenWorkflow(Workflow):
             final_kw = getattr(self, 'final_keywords', None)
 
             if result.returncode == 0:
+                stdout_lower = result.stdout.lower()
+                if "error:" in stdout_lower or "exception:" in stdout_lower:
+                    error_msg = result.stdout.strip()
+                    print(f"    [!] Detected error in output despite success exit code.")
+                    save_experiment_log(self.question, code, f"[EXECUTION ERROR IN STDOUT]:\n{error_msg}", ev.retries, reasoning=reasoning_to_log, tables=tabelle_log, raw_keywords=raw_kw, final_keywords=final_kw, debug_raw=trace_to_log, full_trace=full_trace_to_log, tokens_phase3=getattr(self, 'tokens_phase3', 0), llm_thinking=llm_thinking, agent_thinking=agent_thinking_to_log)
+                    return CodeErrorEvent(error_message=error_msg, retries=ev.retries + 1)
+
                 print("    [✓] Execution completed successfully!")
                 # Store state for phase 5 logging
                 self.log_payload = dict(code=code, raw_result=result.stdout.strip(), retries=ev.retries,

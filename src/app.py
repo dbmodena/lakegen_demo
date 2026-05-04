@@ -482,6 +482,9 @@ def phase4_execute(code_raw):
         result = subprocess.run([sys.executable, str(fp)],
                                 capture_output=True, text=True, timeout=15)
         if result.returncode == 0:
+            stdout_lower = result.stdout.lower()
+            if "error:" in stdout_lower or "exception:" in stdout_lower:
+                return None, result.stdout.strip(), code
             return result.stdout.strip(), None, code
         return None, (result.stderr.strip() or result.stdout.strip()), code
     except Exception as e:
