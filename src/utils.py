@@ -4,8 +4,8 @@ import io
 import re
 import csv
 import json
-import uuid
 import datetime
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -13,12 +13,12 @@ from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 import nltk
-from typing import List, Any
+from typing import List
 from pydantic import Field
+from thefuzz import fuzz
 
 # LlamaIndex Instrumentation for Thinking Capture
 from llama_index.core.instrumentation.event_handlers import BaseEventHandler
-from llama_index.core.instrumentation.events.agent import AgentRunStepEndEvent
 
 CURRENT_DIR = Path(__file__).parent.resolve()
 

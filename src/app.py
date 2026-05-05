@@ -346,7 +346,7 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
             async def _run_agent():
                 explorer = ReActAgent(
                     name="data_explorer", tools=agent_tools, llm=llm_versatile,
-                    verbose=False, max_iterations=20,
+                    verbose=False, max_iterations=15,
                     system_prompt=architect_system_prompt,
                     early_stopping_method="generate",
                 )

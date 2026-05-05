@@ -5,6 +5,8 @@ import pandas as pd
 import polars as pl
 from pathlib import Path
 from llama_index.core.tools import FunctionTool
+from valentine import valentine_match
+from valentine.algorithms import JaccardDistanceMatcher
 
 from utils import CSV_DIR
 
@@ -78,6 +80,37 @@ def find_exact_overlaps(file_name_1: str, file_name_2: str) -> str:
     except Exception as e:
         return f"Error SLOTH: {e}"
 
+def find_schema_matches(file_name_1: str, file_name_2: str) -> str:
+    """
+    Use Valentine with JaccardDistanceMatcher to find matching columns between two files based on data content and schema.
+    This tool helps identify overlapping columns that can be used for JOIN operations.
+    """
+    path_1 = str(CSV_DIR / file_name_1.strip())
+    path_2 = str(CSV_DIR / file_name_2.strip())
+    try:
+        df1 = pd.read_csv(path_1, nrows=5000).astype(str)
+        df2 = pd.read_csv(path_2, nrows=5000).astype(str)
+        
+        matcher = JaccardDistanceMatcher()
+        matches = valentine_match(df1, df2, matcher)
+        
+        if not matches:
+            return "No schema matches found."
+            
+        output = f"Valentine matches between '{file_name_1}' and '{file_name_2}':\n"
+        found_match = False
+        for ((_, col1), (_, col2)), score in matches.items():
+            if score > 0.0:
+                output += f"-> Column '{col1}' matches Column '{col2}' (Score: {score:.3f})\n"
+                found_match = True
+                
+        if not found_match:
+            return "No schema matches found."
+            
+        return output
+    except Exception as e:
+        return f"Error Valentine: {e}"
+
 def confirm_table_selection(selected_files: str, reasoning: str) -> str:
     """
     CRITICAL: Use this tool ONLY when you have identified the required files.
@@ -149,6 +182,7 @@ def make_agent_tools(blend_db_path: Path) -> list:
         FunctionTool.from_defaults(fn=preview_data),
         FunctionTool.from_defaults(fn=find_joinable_tables),
         FunctionTool.from_defaults(fn=find_exact_overlaps),
+        FunctionTool.from_defaults(fn=find_schema_matches),
         FunctionTool.from_defaults(fn=confirm_table_selection, return_direct=True),
     ]
 

@@ -2,25 +2,14 @@
 # uv run python3 -c "import nltk; nltk.download('wordnet'); nltk.download('omw-1.4')"
 import os
 import sys
-import io
 import re
 import uuid
 import json
-import math
 import asyncio
-import datetime
 import subprocess
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import polars as pl
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-from nltk.stem import WordNetLemmatizer
-from nltk.corpus import stopwords
-from thefuzz import fuzz
-from valentine import valentine_match
-from valentine.algorithms import JaccardDistanceMatcher
 
 # from llama_index.llms.openai_like import OpenAILike
 import tiktoken
@@ -29,18 +18,13 @@ from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 from llama_index.llms.ollama import Ollama
 from llama_index.core.workflow import Workflow, step, StartEvent, StopEvent, Event
 from llama_index.core.llms import ChatMessage
-from llama_index.core.tools import FunctionTool
 from llama_index.core.agent import ReActAgent
 from llama_index.core.instrumentation import get_dispatcher
-from llama_index.core.workflow import Context
 
 from utils import (
     BASE_DIR,
-    DATA_DIR,
     CSV_DIR,
-    INDEXES_DIR,
     DB_PATH,
-    LOG_DIR,
     extract_query_keywords,
     save_experiment_log,
     DualLogger,
@@ -266,7 +250,7 @@ class RobustLakeGenWorkflow(Workflow):
                 tools=agent_tools,
                 llm=self.llm_versatile,
                 verbose=True,
-                max_iterations=20,
+                max_iterations=15,
                 system_prompt=system_prompt,
                 early_stopping_method='generate'
             )
