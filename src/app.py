@@ -15,8 +15,6 @@ import subprocess
 import concurrent.futures
 from pathlib import Path
 
-import nest_asyncio
-
 import streamlit as st
 import pandas as pd
 import polars as pl
@@ -170,7 +168,7 @@ with st.sidebar:
     model_name = st.selectbox("Model", [
         "gemma4:26b", "qwen3.5:latest", "llama3.1:8b", "gpt-oss:20b"
     ])
-    solr_core = st.selectbox("Solr Core (dataset)", ["valencia", "bologna", "paris"])
+    solr_core = st.selectbox("Solr Core (dataset)", ["valencia", "bologna", "paris", "nyc"])
     num_ctx = st.slider("Context window (num_ctx)", 4096, 32768, 12288, step=1024)
 
     # dynamically adjust paths based on solr_core
@@ -186,7 +184,6 @@ with st.sidebar:
 # ==========================================
 # LLM + SOLR HELPERS
 # ==========================================
-@st.cache_resource
 def get_llms(model, url, ctx):
     token_counter = TokenCountingHandler(
         tokenizer=tiktoken.encoding_for_model("gpt-3.5-turbo").encode
@@ -269,37 +266,37 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
     if not skip_solr:
         top_10, solr_meta = [], {}
         try:
-        # We fetch more rows (e.g., 30) because some Solr docs might not have a matching physical file,
-        # or multiple docs might point to the same file.
-        response = solr_client.select(tokens=keywords, q_op="OR", rows=30)
-        docs = response.get("response", {}).get("docs", [])
-        for doc in docs:
-            did = doc.get("dataset_id")
-            rid = doc.get("resource_id")
-            matched = None
-            for f in all_files:
-                if (did and did in f) or (rid and rid in f):
-                    matched = f
+            # We fetch more rows (e.g., 30) because some Solr docs might not have a matching physical file,
+            # or multiple docs might point to the same file.
+            response = solr_client.select(tokens=keywords, q_op="OR", rows=30)
+            docs = response.get("response", {}).get("docs", [])
+            for doc in docs:
+                did = doc.get("dataset_id")
+                rid = doc.get("resource_id")
+                matched = None
+                for f in all_files:
+                    if (did and did in f) or (rid and rid in f):
+                        matched = f
+                        break
+                if matched and matched not in top_10:
+                    top_10.append(matched)
+                    tags = doc.get("tags", [])
+                    if not isinstance(tags, list):
+                        tags = [str(tags)]
+                    columns = doc.get("columns", [])
+                    cols_name = [c.get("name") for c in columns if c.get("name")]
+                    cols_type = [c.get("type") for c in columns if c.get("type")]
+                    solr_meta[matched] = {
+                        "title": doc.get("title", ""),
+                        "description": doc.get("description", ""),
+                        "tags": [str(t) for t in tags],
+                        "columns.name": cols_name,
+                        "columns.type": cols_type,
+                    }
+                if len(top_10) >= 10:
                     break
-            if matched and matched not in top_10:
-                top_10.append(matched)
-                tags = doc.get("tags", [])
-                if not isinstance(tags, list):
-                    tags = [str(tags)]
-                columns = doc.get("columns", [])
-                cols_name = [c.get("name") for c in columns if c.get("name")]
-                cols_type = [c.get("type") for c in columns if c.get("type")]
-                solr_meta[matched] = {
-                    "title": doc.get("title", ""),
-                    "description": doc.get("description", ""),
-                    "tags": [str(t) for t in tags],
-                    "columns.name": cols_name,
-                    "columns.type": cols_type,
-                }
-            if len(top_10) >= 10:
-                break
-        if not top_10:
-            top_10 = all_files[:5]
+            if not top_10:
+                top_10 = all_files[:5]
         except Exception:
             top_10 = all_files[:5]
     else:
