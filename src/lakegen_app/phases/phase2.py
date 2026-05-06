@@ -36,7 +36,7 @@ from .utils import (
 
 def phase2_table_selector_agent(
     query: str,
-    llm_versatile: LLM,
+    llm: LLM,
     pm: PromptManager,
     all_files: list[str],
     candidates: list[str],
@@ -92,7 +92,7 @@ def phase2_table_selector_agent(
                 explorer = FunctionAgent(
                     name="data_explorer", 
                     tools=agent_tools, 
-                    llm=llm_versatile,
+                    llm=llm,
                     system_prompt=architect_system_prompt,
                     # verbose=False, 
                     # streaming=True,
@@ -196,7 +196,7 @@ def phase2_table_selector_agent(
 
 def phase2_select_tables(
     query: str,
-    llm_versatile: LLM,
+    llm: LLM,
     pm: PromptManager,
     all_files: list[str],
     candidates: list[str],
@@ -217,7 +217,7 @@ def phase2_select_tables(
     )
     selected, reasoning, full_trace, tokens_p2 = phase2_table_selector_agent(
         query=query,
-        llm_versatile=llm_versatile,
+        llm=llm,
         pm=pm,
         all_files=all_files,
         candidates=candidates,

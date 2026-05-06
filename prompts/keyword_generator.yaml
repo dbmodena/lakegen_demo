@@ -1,15 +1,17 @@
 system_prompt: |
   You are a Data Processing API.
-  TASK: Extract the MOST important keywords from the provided existing words, and generate a few domain-specific synonyms or related semantic terms.
+  TASK: 
+  Extract the MOST important keywords from the provided existing words, and generate a few domain-specific synonyms or related semantic terms.
+  If there are irrelevant words, like articles or pronouns, remove them from the input list.
   
   STRICT RULES:
   1. Return ONLY a single line of comma-separated lowercase words.
   2. If there is a date in the question, include it in the keywords.
-  3. The output MUST contain the selected most important existing words AND the new synonyms, MAX 15 words.
+  3. The output MUST contain the selected most important existing words AND the new synonyms, MAX 10 words.
   4. DO NOT modify the logic of the user's query.
-  5. Generate the keyword in the same language as the user's query.
+  5. Generate the keywords in the same language as the user's query.
   6. NO conversational text.
-  7. DO NOT think too much.
+  7. BE BRIEF AND CONCISE.
 
 user_prompt: |
   EXAMPLES

@@ -40,12 +40,39 @@ def extract_wordnet_query_keywords(query: str) -> str:
     return ", ".join(list(dict.fromkeys(extracted_keywords)))
 
 
+def split_thinking_blocks(text: str) -> tuple[str, str]:
+    """Separate content emitted in <think> blocks from the visible answer."""
+    thinking_parts: list[str] = []
+
+    def collect_closed(match: re.Match[str]) -> str:
+        thinking_parts.append(match.group(1))
+        return ""
+
+    visible_text = re.sub(
+        r"<think>(.*?)</think>",
+        collect_closed,
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    open_match = re.search(r"<think>(.*)$", visible_text, flags=re.IGNORECASE | re.DOTALL)
+    if open_match:
+        thinking_parts.append(open_match.group(1))
+        visible_text = visible_text[:open_match.start()]
+
+    visible_text = re.sub(r"</think>", "", visible_text, flags=re.IGNORECASE)
+    thinking_text = "\n".join(part.strip() for part in thinking_parts if part.strip())
+    return visible_text.strip(), thinking_text.strip()
+
+
 def phase1_generate_keywords(
     query: str,
-    llm_instant: LLM,
+    llm: LLM,
     pm: PromptManager,
     hint="",
     stream_placeholder=None,
+    reasoning_placeholder=None,
+    stream_reasoning: bool = True,
 ):
     wordnet_keywords_str = extract_wordnet_query_keywords(query)
     wordnet_keywords = [k.strip() for k in wordnet_keywords_str.split(",") if k.strip()]
@@ -69,28 +96,75 @@ def phase1_generate_keywords(
     ]
 
     raw_stream = ""
+    structured_reasoning = ""
     tokens = 0
-    print("[phase1 keyword stream] ", end="", flush=True)
-    for chunk in llm_instant.stream_chat(messages):
-        delta = chunk.delta or ""
-        if delta:
-            raw_stream += delta
-            print(delta, end="", flush=True)
-            if stream_placeholder is not None:
-                stream_placeholder.markdown(raw_stream)
 
-        if chunk.raw:
-            prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
-            completion_tokens = chunk.raw.get("eval_count") or 0
-            if prompt_tokens or completion_tokens:
-                tokens = prompt_tokens + completion_tokens
+    def update_placeholders() -> None:
+        visible_stream, tagged_reasoning = split_thinking_blocks(raw_stream)
+        reasoning_parts = [
+            part.strip()
+            for part in (structured_reasoning, tagged_reasoning)
+            if part.strip()
+        ]
+        reasoning_stream = "\n\n".join(reasoning_parts)
+
+        if stream_placeholder is not None:
+            stream_placeholder.markdown(visible_stream or raw_stream)
+        if reasoning_placeholder is not None and reasoning_stream:
+            reasoning_placeholder.markdown(reasoning_stream)
+
+    print("[phase1 keyword stream] ", end="", flush=True)
+
+    stream_kwargs = {"think": True} if stream_reasoning else {}
+    try:
+        chunk_stream = llm.stream_chat(messages, **stream_kwargs)
+        for chunk in chunk_stream:
+            thinking_delta = chunk.additional_kwargs.get("thinking_delta")
+            if thinking_delta:
+                structured_reasoning += thinking_delta
+                print(thinking_delta, end="", flush=True)
+                update_placeholders()
+
+            delta = chunk.delta or ""
+            if delta:
+                raw_stream += delta
+                print(delta, end="", flush=True)
+                update_placeholders()
+
+            if chunk.raw:
+                prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
+                completion_tokens = chunk.raw.get("eval_count") or 0
+                if prompt_tokens or completion_tokens:
+                    tokens = prompt_tokens + completion_tokens
+    except Exception:
+        if raw_stream or structured_reasoning or not stream_reasoning:
+            raise
+        chunk_stream = llm.stream_chat(messages)
+        for chunk in chunk_stream:
+            delta = chunk.delta or ""
+            if delta:
+                raw_stream += delta
+                print(delta, end="", flush=True)
+                update_placeholders()
+
+            if chunk.raw:
+                prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
+                completion_tokens = chunk.raw.get("eval_count") or 0
+                if prompt_tokens or completion_tokens:
+                    tokens = prompt_tokens + completion_tokens
     print("", flush=True)
 
-    raw_content = raw_stream.strip().lower()
+    visible_content, tagged_reasoning = split_thinking_blocks(raw_stream)
+    reasoning_content = "\n\n".join(
+        part.strip()
+        for part in (structured_reasoning, tagged_reasoning)
+        if part.strip()
+    )
+    raw_content = visible_content.strip().lower()
     extracted = list(set(
         wordnet_keywords + re.findall(r"\b[a-z0-9_]+\b", raw_content)
     ))[:15]
-    return extracted, raw_content, tokens
+    return extracted, raw_content, tokens, reasoning_content
 
 
 def phase1_retrieve_candidates(

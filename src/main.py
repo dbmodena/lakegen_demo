@@ -62,10 +62,9 @@ class FinalResultEvent(Event):
     raw_result: Any
 
 class RobustLakeGenWorkflow(Workflow):
-    def __init__(self, llm_instant, llm_versatile, solr_client, *args, **kwargs):
+    def __init__(self, llm, solr_client, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.llm_instant = llm_instant
-        self.llm_versatile = llm_versatile
+        self.llm = llm
         self.solr_client = solr_client
         self.max_retries = 3
         try:
@@ -102,7 +101,7 @@ class RobustLakeGenWorkflow(Workflow):
                 keyword_hint=keyword_hint
             )
 
-            res = await self.llm_instant.achat([
+            res = await self.llm.achat([
                 ChatMessage(role="system", content=system_prompt),
                 ChatMessage(role="user", content=user_prompt)
             ])
@@ -248,7 +247,7 @@ class RobustLakeGenWorkflow(Workflow):
             explorer_agent = ReActAgent(
                 name="data_explorer",
                 tools=agent_tools,
-                llm=self.llm_versatile,
+                llm=self.llm,
                 verbose=True,
                 max_iterations=15,
                 system_prompt=system_prompt,
@@ -443,7 +442,7 @@ class RobustLakeGenWorkflow(Workflow):
                 tables_info=self.tables_info
             )
 
-        res = await self.llm_versatile.achat([
+        res = await self.llm.achat([
             ChatMessage(role="system", content=system_prompt),
             ChatMessage(role="user", content=user_prompt)
         ])
@@ -460,7 +459,7 @@ class RobustLakeGenWorkflow(Workflow):
             else:
                 print("    [!] Forcing execution. Asking the Coder to try anyway...")
                 force_prompt = user_prompt + "\n\nUSER OVERRIDE: Try your best to write the code anyway using the available tables. DO NOT return REJECT_TABLES."
-                res = await self.llm_versatile.achat([
+                res = await self.llm.achat([
                     ChatMessage(role="system", content=system_prompt),
                     ChatMessage(role="user", content=force_prompt)
                 ])
@@ -554,7 +553,7 @@ class RobustLakeGenWorkflow(Workflow):
         )
 
         try:
-            res = await self.llm_instant.achat([
+            res = await self.llm.achat([
                 ChatMessage(role="user", content=prompt)
             ])
 
@@ -620,27 +619,11 @@ async def main():
 
     print(f"🔄 Initializing local Ollama model: '{MODEL_NAME}'...")
     
-    llm_versatile = Ollama(
+    llm = Ollama(
         model=MODEL_NAME,
         base_url=URL_SERVER,
         request_timeout=300.0, 
         temperature=0.1,
-        additional_kwargs={
-            "num_ctx": 12288
-        }
-    )
-
-    llm_instant = Ollama(
-        model=MODEL_NAME,
-        base_url=URL_SERVER,
-        request_timeout=300.0, 
-        temperature=0.6,
-        additional_kwargs={
-            "num_ctx": 8192,
-            "presence_penalty": 0.1,
-            "top_p": 0.7,                # Limits the choice to the best words, avoiding total delirium
-            "top_k": 30
-        }
     )
 
     # Define the solr client
@@ -649,8 +632,7 @@ async def main():
 
     wf = RobustLakeGenWorkflow(
         timeout=900.0,
-        llm_instant=llm_instant,
-        llm_versatile=llm_versatile,
+        llm=llm,
         solr_client=solr_client
     )
     

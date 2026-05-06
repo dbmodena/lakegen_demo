@@ -12,19 +12,23 @@ from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 
 
-def get_llms(model, url, ctx) -> tuple[Ollama, Ollama, TokenCountingHandler]:
+NUM_CTX = 32768
+
+def get_llm(model, url) -> tuple[Ollama, TokenCountingHandler]:
     token_counter = TokenCountingHandler(
         tokenizer=tiktoken.encoding_for_model("gpt-3.5-turbo").encode
     )
     Settings.callback_manager = CallbackManager([token_counter])
-    llm_versatile = Ollama(model=model, base_url=url, request_timeout=300.0,
-                           temperature=0.1, additional_kwargs={"num_ctx": ctx})
-    llm_instant = Ollama(model=model, base_url=url, request_timeout=300.0,
-                         temperature=0.6,
-                         additional_kwargs={"num_ctx": min(ctx, 8192),
-                                            "presence_penalty": 0.1,
-                                            "top_p": 0.7, "top_k": 30})
-    return llm_versatile, llm_instant, token_counter
+    
+    llm = Ollama(
+        model=model, 
+        base_url=url, 
+        request_timeout=300.0,
+        temperature=0.1,
+        context_window=NUM_CTX
+    )
+
+    return llm, token_counter
 
 
 @st.cache_resource

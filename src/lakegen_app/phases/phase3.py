@@ -8,7 +8,7 @@ from prompts.prompt_manager import PromptManager
 
 
 def phase3_generate_code(query, tables, candidates, solr_meta: SolrMetadata, reasoning,
-                         llm_versatile: LLM, pm: PromptManager, csv_dir, retries=0, error_msg=""):
+                         llm: LLM, pm: PromptManager, csv_dir, retries=0, error_msg=""):
     info_lines = [f"AVAILABLE SELECTED TABLES IN '{csv_dir}/':"]
     for idx, fn in enumerate(tables, 1):
         filepath = os.path.join(csv_dir, fn.strip())
@@ -41,7 +41,7 @@ def phase3_generate_code(query, tables, candidates, solr_meta: SolrMetadata, rea
                                 arch_reasoning=reasoning,
                                 tables_info=tables_info)
 
-    res = llm_versatile.chat([
+    res = llm.chat([
         ChatMessage(role="system", content=system_prompt),
         ChatMessage(role="user", content=user_prompt),
     ])

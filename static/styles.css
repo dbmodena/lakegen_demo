@@ -28,6 +28,44 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 }
 .header-bar p { color: #94a3b8; margin: .4rem 0 0; font-size: .95rem; }
 
+/* Chat layout */
+[data-testid="stChatMessage"] {
+    align-items: flex-start;
+    gap: .75rem;
+}
+
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+    justify-content: flex-end;
+    margin-left: auto;
+    width: min(72%, 720px);
+}
+
+[data-testid="stChatMessageAvatarUser"] {
+    display: none !important;
+}
+
+@media (max-width: 640px) {
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+        width: 100%;
+    }
+}
+
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+    justify-content: flex-start;
+}
+
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) [data-testid="stChatMessageContent"] {
+    max-width: min(92%, 980px);
+}
+
+[data-testid="stChatMessageAvatarAssistant"] {
+    background: transparent !important;
+}
+
+[data-testid="stChatMessageAvatarAssistant"] img {
+    object-fit: contain;
+}
+
 /* Phase badges */
 .phase-badge {
     display: inline-block;

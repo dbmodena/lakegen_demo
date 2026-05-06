@@ -114,8 +114,15 @@ def format_phase2_tool_result(event: Any, call_number: int) -> str:
 def extract_phase2_activity_log(full_trace: str) -> str:
     marker = "--- Phase 2 Activity Log ---"
     if marker in full_trace:
-        return full_trace.split(marker, 1)[1].strip()
-    return full_trace.strip()
+        activity_log = full_trace.split(marker, 1)[1].strip()
+    else:
+        activity_log = full_trace.strip()
+
+    candidate_summary_end = "\n\n---\n\n**Agent activity log**\n"
+    if activity_log.startswith("**Candidate tables**") and candidate_summary_end in activity_log:
+        return activity_log.split(candidate_summary_end, 1)[1].strip()
+
+    return activity_log
 
 
 class Phase2AgentStall(RuntimeError):

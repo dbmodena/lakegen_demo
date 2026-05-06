@@ -39,7 +39,7 @@ if _NLTK_BOOTSTRAP_ERROR:
 
 from lakegen_app.resources import (  # noqa: E402
     get_all_csv_files,
-    get_llms,
+    get_llm,
     get_prompt_manager,
     get_solr,
 )
@@ -57,14 +57,14 @@ def main() -> None:
     render_header()
     init_session_state()
 
-    ollama_url, model_name, solr_core, num_ctx = render_sidebar()
-    llm_v, llm_i, _tc = get_llms(model_name, ollama_url, num_ctx)
+    ollama_url, model_name, solr_core = render_sidebar()
+    llm, _tc = get_llm(model_name, ollama_url)
     solr = get_solr(solr_core)
     pm = get_prompt_manager()
     all_csv = get_all_csv_files(st.session_state.csv_dir)
 
     render_chat_history()
-    render_phase_router(llm_v, llm_i, solr, pm, all_csv)
+    render_phase_router(llm, solr, pm, all_csv)
 
 
 if __name__ == "__main__":
