@@ -195,6 +195,17 @@ wheels = [
 ]
 
 [[package]]
+name = "blend"
+version = "0.3.2"
+source = { git = "https://github.com/nanni00/Blend#10941b8d0bf720fac63b78a8808f97d4c3b8a9b0" }
+dependencies = [
+    { name = "duckdb" },
+    { name = "polars" },
+    { name = "pyarrow" },
+    { name = "tqdm" },
+]
+
+[[package]]
 name = "blinker"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -679,6 +690,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "bitarray" },
+    { name = "blend" },
     { name = "dotenv" },
     { name = "duckdb" },
     { name = "jinja2" },
@@ -701,6 +713,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "bitarray", specifier = ">=3.8.0" },
+    { name = "blend", git = "https://github.com/nanni00/Blend" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "duckdb", specifier = ">=1.5.1" },
     { name = "jinja2", specifier = ">=3.1.6" },

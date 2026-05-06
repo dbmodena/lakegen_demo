@@ -23,4 +23,8 @@ dependencies = [
     "streamlit>=1.45.0",
     "valentine>=0.4.1",
     "nest-asyncio>=1.6.0",
+    "blend",
 ]
+
+[tool.uv.sources]
+blend = { git = "https://github.com/nanni00/Blend" }

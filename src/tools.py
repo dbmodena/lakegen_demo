@@ -10,19 +10,20 @@ from valentine.algorithms import JaccardDistanceMatcher
 from utils import CSV_DIR
 
 try:
-    from blend.blend import BLEND
+    from blend import BLEND
 except ImportError as e:
-    print(f"❌ Critical error: impossible to import BLEND.\nDettaglio: {e}")
+    print(f"❌ Critical error: impossible to import BLEND: {e}")
     sys.exit(1)
 
 try:
     try:
-        from Sloth.sloth import sloth
+        sys.path.append("src")
+        from data_integration_tools.sloth.sloth import sloth
     except ImportError:
         from sloth import sloth
 except ImportError as e:
-    print(f"❌ Critical error: impossible to import sloth.\nDettaglio: {e}")
-    sys.exit(1)
+    print(f"❌ Critical error: impossible to import sloth: {e}")
+    # sys.exit(1)
 
 # ==========================================
 # TOOLS

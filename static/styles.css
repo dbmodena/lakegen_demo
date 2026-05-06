@@ -11,9 +11,20 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     margin-bottom: 1.5rem;
     box-shadow: 0 8px 32px rgba(14,165,233,.25);
 }
+.header-title-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+}
+.header-logo {
+    width: 2.5rem;
+    height: 2.5rem;
+    object-fit: contain;
+    flex: 0 0 auto;
+}
 .header-bar h1 {
     color: #fff; margin: 0; font-size: 2rem; font-weight: 700;
-    letter-spacing: -0.5px;
+    letter-spacing: 0;
 }
 .header-bar p { color: #94a3b8; margin: .4rem 0 0; font-size: .95rem; }
 

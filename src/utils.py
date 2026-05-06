@@ -9,10 +9,6 @@ import math
 from pathlib import Path
 
 import pandas as pd
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-from nltk.stem import WordNetLemmatizer
-from nltk.corpus import stopwords
-import nltk
 from typing import List
 from pydantic import Field
 from thefuzz import fuzz
@@ -27,18 +23,18 @@ if CURRENT_DIR.name == "src":
 else:
     BASE_DIR = CURRENT_DIR
 
-percorso_src = str(BASE_DIR / "src")
-percorso_blend = str(BASE_DIR / "src" / "blend")
-percorso_sloth = str(BASE_DIR / "src" / "Sloth")
+src_path = str(BASE_DIR / "src")
+blend_path = str(BASE_DIR / "src" / "blend")
+sloth_path = str(BASE_DIR / "src" / "Sloth")
 
 # Inserting at index 0, Python will search HERE FIRST
-if percorso_sloth not in sys.path:
-    sys.path.insert(0, percorso_sloth)
-if percorso_blend not in sys.path:
-    sys.path.insert(0, percorso_blend)
-if percorso_src in sys.path:
-    sys.path.remove(percorso_src)
-sys.path.insert(0, percorso_src)
+if sloth_path not in sys.path:
+    sys.path.insert(0, sloth_path)
+if blend_path not in sys.path:
+    sys.path.insert(0, blend_path)
+if src_path in sys.path:
+    sys.path.remove(src_path)
+sys.path.insert(0, src_path)
 
 # Add project root so top-level packages (e.g. prompts/) are importable
 percorso_root = str(BASE_DIR)
@@ -85,26 +81,9 @@ def fuzzy_matching_strategy(enriched_keywords: list[str], inverted_index: dict, 
                     # Keep the maximum score obtained by this specific user keyword for the file
                     kw_scores_per_file[f] = max(kw_scores_per_file.get(f, 0.0), weighted_score)
 
-def extract_query_keywords(query: str) -> str:
-    lemmatizer = WordNetLemmatizer()
-    words = re.findall(r'\b\w+\b', query.lower())
-    
-    try:
-        ita_stops = set(stopwords.words('italian'))
-        spa_stops = set(stopwords.words('spanish'))
-        fra_stops = set(stopwords.words('french'))
-    except LookupError:
-        nltk.download('stopwords', quiet=True)
-        ita_stops = set(stopwords.words('italian'))
-        spa_stops = set(stopwords.words('spanish'))
-        fra_stops = set(stopwords.words('french'))
-        
-    combined_stops = ita_stops.union(spa_stops).union(fra_stops).union(ENGLISH_STOP_WORDS)
-    
-    extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in combined_stops]
-    return ", ".join(list(dict.fromkeys(extracted_keywords)))
 
 CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3", "TOKENS_PHASE5", "ERROR"]
+
 
 def save_experiment_log(question: str, code: str, result: str, retries: int, reasoning: str = "", tables: list = None, raw_keywords: str = "", final_keywords: list = None, debug_raw: str = "", final_result: str = "", full_trace: str = "", tokens_phase1: int = 0, tokens_phase2: int = 0, tokens_phase3: int = 0, tokens_phase5: int = 0, llm_thinking: str = "", agent_thinking: str = "", error: str = ""):
     os.makedirs(LOG_DIR, exist_ok=True)

@@ -8,6 +8,7 @@ from lakegen_app.phase2_logging import (
 )
 from lakegen_app.phases import (
     phase1_generate_keywords,
+    phase1_retrieve_candidates,
     phase2_select_tables,
     phase3_generate_code,
     phase4_execute,
@@ -56,6 +57,93 @@ def _code_block(
     return {"label": label, "code": code, "language": language}
 
 
+def _format_hint(hint: str) -> str:
+    return f"`{hint}`" if hint else "_none_"
+
+
+def render_header() -> None:
+    st.markdown("""
+<div class="header-bar">
+    <div class="header-title-row">
+        <img class="header-logo" src="app/static/favicon.png" alt="LakeGen logo">
+        <h1>LakeGen — Data Assistant</h1>
+    </div>
+    <p>Ask natural-language questions over your Data Lake</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+def render_sidebar() -> tuple[str, str, str, int]:
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+
+        ollama_url = st.text_input("Ollama Server URL", value="http://127.0.0.1:11434")
+        model_name = st.selectbox("Model", [
+            "gemma4:26b", "qwen3.5:latest", "llama3.1:8b", "gpt-oss:20b"
+        ])
+        solr_core = st.selectbox("Open Data Lake", ["nyc", "valencia", "bologna", "paris"])
+        num_ctx = st.slider("Context window", 4096, 32768, 12288, step=1024)
+
+        st.session_state.csv_dir = BASE_DIR / f"data/{solr_core}/datasets/csv"
+        st.session_state.db_path = BASE_DIR / f"data/blend_{solr_core}.db"
+
+        st.divider()
+        if st.button("🔄 Reset Conversation", use_container_width=True):
+            reset_conversation_state()
+            st.rerun()
+
+    return ollama_url, model_name, solr_core, num_ctx
+
+
+def render_chat_history() -> None:
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            for section in msg.get("phase_sections", []):
+                _render_phase_section(section)
+            if "code" in msg:
+                with st.expander("View generated Python code"):
+                    st.code(msg["code"], language="python")
+
+
+def render_phase_router(llm_v, llm_i, solr, pm, all_csv: list[str]) -> None:
+    if st.session_state.phase == "idle":
+        query = st.chat_input("Ask a question about your data...")
+        if query:
+            st.session_state.query = query
+            st.session_state.chat_history.append({"role": "user", "content": query})
+            st.session_state.phase1_runs = []
+            st.session_state.tokens = {"p1": 0, "p2": 0, "p3": 0, "p5": 0}
+            with st.chat_message("user"):
+                st.markdown(query)
+            with st.chat_message("assistant"):
+                stream_box = st.empty()
+                with st.spinner("🔍 Extracting keywords…"):
+                    kws, raw, tok = phase1_generate_keywords(
+                        query, llm_i, pm, stream_placeholder=stream_box)
+                    st.session_state.keywords = kws
+                    st.session_state.raw_keywords = raw
+                    st.session_state.tokens["p1"] = tok
+                    _record_phase1_run("Initial generation", "", kws, raw, tok)
+            st.session_state.phase = "keyword_approval"
+            st.rerun()
+
+    elif st.session_state.phase == "keyword_approval":
+        _render_keyword_approval(llm_i, llm_v, solr, pm, all_csv)
+
+    elif st.session_state.phase == "table_approval":
+        _render_table_approval(llm_v, pm, all_csv)
+
+    elif st.session_state.phase == "execution":
+        _render_execution(llm_v, llm_i, pm)
+
+    elif st.session_state.phase == "fallback_approval_tables":
+        _render_table_fallback(llm_v, pm, all_csv)
+
+    elif st.session_state.phase == "fallback_approval_keywords":
+        _render_keyword_fallback(llm_i, pm)
+
+
 def _record_phase1_run(
     label: str,
     hint: str,
@@ -70,10 +158,6 @@ def _record_phase1_run(
         "raw_output": raw_output,
         "tokens": tokens,
     })
-
-
-def _format_hint(hint: str) -> str:
-    return f"`{hint}`" if hint else "_none_"
 
 
 def _build_phase1_section(approval_hint: str) -> PhaseSection:
@@ -108,32 +192,207 @@ def _build_phase1_section(approval_hint: str) -> PhaseSection:
     return _phase_section("Phase 1 - Keyword Generation", "\n".join(lines), code_blocks)
 
 
+def _render_keyword_approval(llm_i, llm_v, solr, pm, all_csv: list[str]) -> None:
+    with st.chat_message("assistant"):
+        with st.expander("Phase 1 - Keyword Generation", expanded=True):
+            st.markdown('<span class="phase-badge phase-1">PHASE 1</span> **Keyword Generation**',
+                        unsafe_allow_html=True)
+            chips = " ".join(f'<span class="kw-chip">{k}</span>'
+                             for k in st.session_state.keywords)
+            st.markdown(f"Extracted keywords: {chips}", unsafe_allow_html=True)
+
+            container = st.empty()
+            with container.container():
+                hint = st.text_input("Modify keywords? (e.g. 'add inflation')",
+                                     key="hint_kw")
+                c1, c2 = st.columns(2)
+                approve = c1.button("✅ Approve & Proceed", use_container_width=True)
+                recalc = c2.button("🔄 Recalculate", use_container_width=True)
+
+        if approve:
+            container.empty()
+            kw_list = ", ".join(st.session_state.keywords)
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": f"✅ **Keywords confirmed:** `{kw_list}`"
+                           + (f"\n*(hint: {hint})*" if hint else ""),
+                "phase_sections": [_build_phase1_section(approval_hint=hint)],
+            })
+            stream_box = st.empty()
+            with st.spinner("🗂️ Searching & selecting tables…"):
+                stream_callback = make_streamlit_stream_callback(stream_box)
+                cands, smeta, activity_log_parts = phase1_retrieve_candidates(
+                    st.session_state.keywords,
+                    solr,
+                    all_csv,
+                    stream_callback=stream_callback,
+                )
+                sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
+                    st.session_state.query,
+                    llm_v,
+                    pm,
+                    all_csv,
+                    cands,
+                    smeta,
+                    st.session_state.csv_dir,
+                    st.session_state.db_path,
+                    activity_log_parts=activity_log_parts,
+                    hint=hint,
+                    stream_callback=stream_callback,
+                )
+                if _append_phase2_rejection_message(
+                    cands, smeta, reasoning, trace, tok2,
+                    accumulate_tokens=False,
+                    hint=hint,
+                ):
+                    st.rerun()
+
+                st.session_state.tables = sel
+                st.session_state.candidates = cands
+                st.session_state.solr_metadata_map = smeta
+                st.session_state.architect_reasoning = reasoning
+                st.session_state.full_trace = trace
+                st.session_state.tokens["p2"] = tok2
+            st.session_state.phase = "table_approval"
+            st.rerun()
+
+        elif recalc:
+            container.empty()
+            stream_box = st.empty()
+            with st.spinner("Recalculating keywords…"):
+                kws, raw, tok = phase1_generate_keywords(
+                    st.session_state.query, llm_i, pm, hint=hint,
+                    stream_placeholder=stream_box)
+                st.session_state.keywords = kws
+                st.session_state.raw_keywords = raw
+                st.session_state.tokens["p1"] += tok
+                _record_phase1_run("Recalculation", hint, kws, raw, tok)
+            st.rerun()
+
+
 def _build_phase2_section(approval_hint: str = "") -> PhaseSection:
     selected = "\n".join(f"- `{table}`" for table in st.session_state.tables)
     activity_log = extract_phase2_activity_log(st.session_state.full_trace)
     candidate_log = format_phase2_solr_results(
         st.session_state.candidates,
         st.session_state.solr_metadata_map,
+        heading="Candidate tables",
     )
 
     body = f"""
-### Phase 2A - Candidate Retrieval
 {candidate_log}
 
-### Phase 2B - Table Selection
+**Selected tables**
+
 {selected or "_No tables selected._"}
 
-### Phase 2C - Architect Reasoning
+**Architect reasoning**
+
 {st.session_state.architect_reasoning or "_No architect reasoning captured._"}
 
-### Phase 2D - Activity Log
+**Activity log**
+
 {activity_log or "_No activity log captured._"}
 
-### Metadata
+**Metadata**
+
 - Approval hint: {_format_hint(approval_hint)}
 - Total tokens: `{st.session_state.tokens['p2']}`
 """
-    return _phase_section("Phase 2 - Candidate Retrieval & Table Selection", body)
+    return _phase_section("Phase 2 - Table Selection", body)
+
+
+def _append_phase2_rejection_message(
+    candidates: list[str],
+    solr_metadata: dict[str, dict[str, Any]],
+    reasoning: str,
+    trace: str,
+    tokens: int,
+    accumulate_tokens: bool,
+    hint: str,
+) -> bool:
+    rejected = handle_phase2_keyword_rejection(
+        candidates,
+        solr_metadata,
+        reasoning,
+        trace,
+        tokens,
+        accumulate_tokens=accumulate_tokens,
+    )
+    if not rejected:
+        return False
+
+    st.session_state.chat_history.append({
+        "role": "assistant",
+        "content": (
+            "⚠️ **Keywords rejected by Data Architect.**\n"
+            f"Feedback: *{st.session_state.fallback_reason}*"
+        ),
+        "phase_sections": [_build_phase2_section(approval_hint=hint)],
+    })
+    return True
+
+
+def _render_table_approval(llm_v, pm, all_csv: list[str]) -> None:
+    with st.chat_message("assistant"):
+        section = _build_phase2_section()
+        with st.expander(str(section["title"]), expanded=True):
+            st.markdown('<span class="phase-badge phase-2">PHASE 2</span> **Table Selection**',
+                        unsafe_allow_html=True)
+            st.markdown(str(section.get("body") or ""))
+
+        container = st.empty()
+        with container.container():
+            hint_tb = st.text_input("Suggestions? (e.g. 'Add 2019.csv')",
+                                    key="hint_tb")
+            c1, c2 = st.columns(2)
+            approve = c1.button("🚀 Approve & Run Code",
+                                use_container_width=True)
+            recalc = c2.button("🔄 Recalculate Tables",
+                               use_container_width=True)
+
+        if approve:
+            container.empty()
+            tbl_md = "\n".join(f"- `{t}`" for t in st.session_state.tables)
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": f"✅ **Tables confirmed:**\n{tbl_md}"
+                           + (f"\n*(hint: {hint_tb})*" if hint_tb else ""),
+                "phase_sections": [_build_phase2_section(approval_hint=hint_tb)],
+            })
+            st.session_state.phase = "execution"
+            st.rerun()
+
+        elif recalc:
+            container.empty()
+            stream_box = st.empty()
+            with st.spinner("Re-selecting tables…"):
+                sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
+                    st.session_state.query,
+                    llm_v,
+                    pm,
+                    all_csv,
+                    st.session_state.candidates,
+                    st.session_state.solr_metadata_map,
+                    st.session_state.csv_dir,
+                    st.session_state.db_path,
+                    hint=hint_tb,
+                    stream_callback=make_streamlit_stream_callback(stream_box),
+                )
+                if _append_phase2_rejection_message(
+                    cands, smeta, reasoning, trace, tok2,
+                    accumulate_tokens=True,
+                    hint=hint_tb,
+                ):
+                    st.rerun()
+
+                st.session_state.tables = sel
+                st.session_state.candidates = cands
+                st.session_state.solr_metadata_map = smeta
+                st.session_state.architect_reasoning = reasoning
+                st.session_state.full_trace = trace
+                st.session_state.tokens["p2"] += tok2
+            st.rerun()
 
 
 def _build_phase3_section(code_attempts: list[dict[str, Any]]) -> PhaseSection:
@@ -203,259 +462,6 @@ def _build_phase5_section(raw_result: str, answer: str) -> PhaseSection:
         body,
         [_code_block("Raw execution result", raw_result or "_No raw result captured._")],
     )
-
-
-def _append_phase2_rejection_message(
-    candidates: list[str],
-    solr_metadata: dict[str, dict[str, Any]],
-    reasoning: str,
-    trace: str,
-    tokens: int,
-    accumulate_tokens: bool,
-    hint: str,
-) -> bool:
-    rejected = handle_phase2_keyword_rejection(
-        candidates,
-        solr_metadata,
-        reasoning,
-        trace,
-        tokens,
-        accumulate_tokens=accumulate_tokens,
-    )
-    if not rejected:
-        return False
-
-    st.session_state.chat_history.append({
-        "role": "assistant",
-        "content": (
-            "⚠️ **Keywords rejected by Data Architect.**\n"
-            f"Feedback: *{st.session_state.fallback_reason}*"
-        ),
-        "phase_sections": [_build_phase2_section(approval_hint=hint)],
-    })
-    return True
-
-
-def render_header() -> None:
-    st.markdown("""
-<div class="header-bar">
-    <h1>🌊 LakeGen — Data Assistant</h1>
-    <p>Ask natural-language questions over your Data Lake</p>
-</div>
-""", unsafe_allow_html=True)
-
-
-def render_sidebar() -> tuple[str, str, str, int]:
-    with st.sidebar:
-        st.header("⚙️ Configuration")
-
-        ollama_url = st.text_input("Ollama Server URL", value="http://127.0.0.1:11434")
-        model_name = st.selectbox("Model", [
-            "gemma4:26b", "qwen3.5:latest", "llama3.1:8b", "gpt-oss:20b"
-        ])
-        solr_core = st.selectbox("Solr Core (dataset)", ["nyc", "valencia", "bologna", "paris"])
-        num_ctx = st.slider("Context window (num_ctx)", 4096, 32768, 12288, step=1024)
-
-        st.session_state.csv_dir = BASE_DIR / f"data/{solr_core}/datasets/csv"
-        st.session_state.db_path = BASE_DIR / f"data/blend_{solr_core}.db"
-
-        st.divider()
-        if st.button("🔄 Reset Conversation", use_container_width=True):
-            reset_conversation_state()
-            st.rerun()
-
-    return ollama_url, model_name, solr_core, num_ctx
-
-
-def render_chat_history() -> None:
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            for section in msg.get("phase_sections", []):
-                _render_phase_section(section)
-            if "code" in msg:
-                with st.expander("👀 View generated Python code"):
-                    st.code(msg["code"], language="python")
-
-
-def render_phase_router(llm_v, llm_i, solr, pm, all_csv: list[str]) -> None:
-    if st.session_state.phase == "idle":
-        query = st.chat_input("Ask a question about your data...")
-        if query:
-            st.session_state.query = query
-            st.session_state.chat_history.append({"role": "user", "content": query})
-            st.session_state.phase1_runs = []
-            st.session_state.tokens = {"p1": 0, "p2": 0, "p3": 0, "p5": 0}
-            with st.chat_message("user"):
-                st.markdown(query)
-            with st.chat_message("assistant"):
-                stream_box = st.empty()
-                with st.spinner("🔍 Extracting keywords…"):
-                    kws, raw, tok = phase1_generate_keywords(
-                        query, llm_i, pm, stream_placeholder=stream_box)
-                    st.session_state.keywords = kws
-                    st.session_state.raw_keywords = raw
-                    st.session_state.tokens["p1"] = tok
-                    _record_phase1_run("Initial generation", "", kws, raw, tok)
-            st.session_state.phase = "keyword_approval"
-            st.rerun()
-
-    elif st.session_state.phase == "keyword_approval":
-        _render_keyword_approval(llm_i, llm_v, solr, pm, all_csv)
-
-    elif st.session_state.phase == "table_approval":
-        _render_table_approval(llm_v, solr, pm, all_csv)
-
-    elif st.session_state.phase == "execution":
-        _render_execution(llm_v, llm_i, pm)
-
-    elif st.session_state.phase == "fallback_approval_tables":
-        _render_table_fallback(llm_v, solr, pm, all_csv)
-
-    elif st.session_state.phase == "fallback_approval_keywords":
-        _render_keyword_fallback(llm_i, pm)
-
-
-def _render_keyword_approval(llm_i, llm_v, solr, pm, all_csv: list[str]) -> None:
-    with st.chat_message("assistant"):
-        with st.expander("Phase 1 - Keyword Generation", expanded=True):
-            st.markdown('<span class="phase-badge phase-1">PHASE 1</span> **Keyword Generation**',
-                        unsafe_allow_html=True)
-            chips = " ".join(f'<span class="kw-chip">{k}</span>'
-                             for k in st.session_state.keywords)
-            st.markdown(f"Extracted keywords: {chips}", unsafe_allow_html=True)
-
-            container = st.empty()
-            with container.container():
-                hint = st.text_input("Modify keywords? (e.g. 'add inflation')",
-                                     key="hint_kw")
-                c1, c2 = st.columns(2)
-                approve = c1.button("✅ Approve & Proceed", use_container_width=True)
-                recalc = c2.button("🔄 Recalculate", use_container_width=True)
-
-        if approve:
-            container.empty()
-            kw_list = ", ".join(st.session_state.keywords)
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": f"✅ **Keywords confirmed:** `{kw_list}`"
-                           + (f"\n*(hint: {hint})*" if hint else ""),
-                "phase_sections": [_build_phase1_section(approval_hint=hint)],
-            })
-            stream_box = st.empty()
-            with st.spinner("🗂️ Searching & selecting tables…"):
-                sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
-                    st.session_state.query, st.session_state.keywords,
-                    llm_v, solr, pm, all_csv,
-                    st.session_state.csv_dir, st.session_state.db_path, hint=hint,
-                    stream_callback=make_streamlit_stream_callback(stream_box))
-                if _append_phase2_rejection_message(
-                    cands, smeta, reasoning, trace, tok2,
-                    accumulate_tokens=False,
-                    hint=hint,
-                ):
-                    st.rerun()
-
-                st.session_state.tables = sel
-                st.session_state.candidates = cands
-                st.session_state.solr_metadata_map = smeta
-                st.session_state.architect_reasoning = reasoning
-                st.session_state.full_trace = trace
-                st.session_state.tokens["p2"] = tok2
-            st.session_state.phase = "table_approval"
-            st.rerun()
-
-        elif recalc:
-            container.empty()
-            stream_box = st.empty()
-            with st.spinner("Recalculating keywords…"):
-                kws, raw, tok = phase1_generate_keywords(
-                    st.session_state.query, llm_i, pm, hint=hint,
-                    stream_placeholder=stream_box)
-                st.session_state.keywords = kws
-                st.session_state.raw_keywords = raw
-                st.session_state.tokens["p1"] += tok
-                _record_phase1_run("Recalculation", hint, kws, raw, tok)
-            st.rerun()
-
-
-def _render_table_approval(llm_v, solr, pm, all_csv: list[str]) -> None:
-    with st.chat_message("assistant"):
-        with st.expander("Phase 2A - Candidate Retrieval", expanded=True):
-            st.markdown('<span class="phase-badge phase-2">PHASE 2</span> **Candidate Retrieval**',
-                        unsafe_allow_html=True)
-            if st.session_state.candidates:
-                st.markdown(
-                    format_phase2_solr_results(
-                        st.session_state.candidates,
-                        st.session_state.solr_metadata_map,
-                    )
-                )
-            else:
-                st.info("No candidates found.")
-
-        with st.expander("Phase 2B - Table Selection", expanded=True):
-            st.markdown('<span class="phase-badge phase-2">PHASE 2</span> **Table Selection**',
-                        unsafe_allow_html=True)
-            st.markdown("The AI selected these tables for analysis:")
-            for t in st.session_state.tables:
-                st.markdown(f'<div class="table-card">📄 <code>{t}</code></div>',
-                            unsafe_allow_html=True)
-
-        if st.session_state.architect_reasoning:
-            with st.expander("Phase 2C - Architect Reasoning"):
-                st.markdown(st.session_state.architect_reasoning)
-
-        activity_log = extract_phase2_activity_log(st.session_state.full_trace)
-        if activity_log:
-            with st.expander("Phase 2D - Activity Log"):
-                st.markdown(activity_log)
-
-        container = st.empty()
-        with container.container():
-            hint_tb = st.text_input("Suggestions? (e.g. 'Add 2019.csv')",
-                                    key="hint_tb")
-            c1, c2 = st.columns(2)
-            approve = c1.button("🚀 Approve & Run Code",
-                                use_container_width=True)
-            recalc = c2.button("🔄 Recalculate Tables",
-                               use_container_width=True)
-
-        if approve:
-            container.empty()
-            tbl_md = "\n".join(f"- `{t}`" for t in st.session_state.tables)
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": f"✅ **Tables confirmed:**\n{tbl_md}"
-                           + (f"\n*(hint: {hint_tb})*" if hint_tb else ""),
-                "phase_sections": [_build_phase2_section(approval_hint=hint_tb)],
-            })
-            st.session_state.phase = "execution"
-            st.rerun()
-
-        elif recalc:
-            container.empty()
-            stream_box = st.empty()
-            with st.spinner("Re-selecting tables…"):
-                sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
-                    st.session_state.query, st.session_state.keywords,
-                    llm_v, solr, pm, all_csv,
-                    st.session_state.csv_dir, st.session_state.db_path, hint=hint_tb,
-                    stream_callback=make_streamlit_stream_callback(stream_box))
-                if _append_phase2_rejection_message(
-                    cands, smeta, reasoning, trace, tok2,
-                    accumulate_tokens=True,
-                    hint=hint_tb,
-                ):
-                    st.rerun()
-
-                st.session_state.tables = sel
-                st.session_state.candidates = cands
-                st.session_state.solr_metadata_map = smeta
-                st.session_state.architect_reasoning = reasoning
-                st.session_state.full_trace = trace
-                st.session_state.tokens["p2"] += tok2
-            st.rerun()
 
 
 def _render_execution(llm_v, llm_i, pm) -> None:
@@ -590,7 +596,7 @@ def _render_execution(llm_v, llm_i, pm) -> None:
         st.rerun()
 
 
-def _render_table_fallback(llm_v, solr, pm, all_csv: list[str]) -> None:
+def _render_table_fallback(llm_v, pm, all_csv: list[str]) -> None:
     with st.chat_message("assistant"):
         with st.expander("Phase 3 - Table Validation Feedback", expanded=True):
             st.warning("⚠️ **Tables Rejected by Coder!**\n\nThe Coder has analyzed the selected tables and determined they do not contain the necessary data.")
@@ -612,14 +618,16 @@ def _render_table_fallback(llm_v, solr, pm, all_csv: list[str]) -> None:
                 stream_box = st.empty()
                 with st.spinner("Re-selecting tables…"):
                     sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
-                        st.session_state.query, st.session_state.keywords,
-                        llm_v, solr, pm, all_csv,
+                        st.session_state.query,
+                        llm_v,
+                        pm,
+                        all_csv,
+                        st.session_state.candidates,
+                        st.session_state.solr_metadata_map,
                         st.session_state.csv_dir, st.session_state.db_path,
                         hint=f"PREVIOUS SELECTION REJECTED. CODER FEEDBACK: {st.session_state.fallback_reason}",
-                        skip_solr=True,
-                        top_10=st.session_state.candidates,
-                        solr_meta=st.session_state.solr_metadata_map,
-                        stream_callback=make_streamlit_stream_callback(stream_box))
+                        stream_callback=make_streamlit_stream_callback(stream_box),
+                    )
 
                     if _append_phase2_rejection_message(
                         cands, smeta, reasoning, trace, tok2,
