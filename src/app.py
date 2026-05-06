@@ -147,6 +147,7 @@ _defaults = {
     "phase": "idle",
     "query": "",
     "keywords": [],
+    "raw_keywords": "",
     "tables": [],
     "candidates": [],
     "chat_history": [],
@@ -533,6 +534,7 @@ if st.session_state.phase == "idle":
             with st.spinner("🔍 Extracting keywords…"):
                 kws, raw, tok = phase1_generate_keywords(query, llm_i, pm)
                 st.session_state.keywords = kws
+                st.session_state.raw_keywords = raw
                 st.session_state.tokens["p1"] = tok
         st.session_state.phase = "keyword_approval"
         st.rerun()
@@ -579,9 +581,10 @@ elif st.session_state.phase == "keyword_approval":
         elif recalc:
             container.empty()
             with st.spinner("Recalculating keywords…"):
-                kws, _, tok = phase1_generate_keywords(
+                kws, raw, tok = phase1_generate_keywords(
                     st.session_state.query, llm_i, pm, hint=hint)
                 st.session_state.keywords = kws
+                st.session_state.raw_keywords = raw
                 st.session_state.tokens["p1"] += tok
             st.rerun()
 
@@ -700,6 +703,26 @@ elif st.session_state.phase == "execution":
             "content": f"### 📊 Final Result\n{answer}",
             "code": final_code,
         })
+        
+        save_experiment_log(
+            question=st.session_state.query,
+            code=final_code,
+            result=raw_result if raw_result else "",
+            retries=retries,
+            reasoning=st.session_state.architect_reasoning,
+            tables=st.session_state.tables,
+            raw_keywords=st.session_state.raw_keywords,
+            final_keywords=st.session_state.keywords,
+            debug_raw="", 
+            final_result=answer,
+            full_trace=st.session_state.full_trace,
+            tokens_phase1=st.session_state.tokens["p1"],
+            tokens_phase2=st.session_state.tokens["p2"],
+            tokens_phase3=st.session_state.tokens["p3"],
+            tokens_phase5=st.session_state.tokens["p5"],
+            error=err if err is not None else ""
+        )
+
         st.session_state.phase = "idle"
         st.rerun()
 
@@ -764,10 +787,11 @@ elif st.session_state.phase == "fallback_approval_keywords":
                     "content": f"⚠️ **Candidates rejected by Architect.**\nFeedback: *{st.session_state.fallback_reason}*\n\n🔄 Re-generating keywords..."
                 })
                 with st.spinner("Recalculating keywords…"):
-                    kws, _, tok = phase1_generate_keywords(
+                    kws, raw, tok = phase1_generate_keywords(
                         st.session_state.query, llm_i, pm, 
                         hint=f"The previous keywords led to bad tables. Architect feedback: {st.session_state.fallback_reason}. Generate COMPLETELY DIFFERENT keywords.")
                     st.session_state.keywords = kws
+                    st.session_state.raw_keywords = raw
                     st.session_state.tokens["p1"] += tok
                 st.session_state.phase = "keyword_approval"
                 st.rerun()
