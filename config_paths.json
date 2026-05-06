@@ -1,8 +1,8 @@
 {
   "paths": {
     "data_dir": "data",
-    "csv_dir": "data/bologna/datasets/csv",
-    "json_metadata_dir": "data/bologna/metadata",
+    "csv_dir": "data/nyc/datasets/csv",
+    "json_metadata_dir": "data/nyc/metadata",
     "blend_db_path": "data/blend_index.db",
     "indexes_dir": "data/indexes",
     "logs_dir": "logs"

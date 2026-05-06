@@ -645,7 +645,7 @@ async def main():
 
     # Define the solr client
     # Available cores: bologna, valencia, paris, nyc
-    solr_client = LocalSolrClient(core="bologna")
+    solr_client = LocalSolrClient(core="nyc")
 
     wf = RobustLakeGenWorkflow(
         timeout=900.0,
