@@ -14,6 +14,7 @@ import asyncio
 import subprocess
 import concurrent.futures
 from pathlib import Path
+from typing import Any, Callable
 
 import streamlit as st
 import pandas as pd
@@ -41,9 +42,15 @@ import tiktoken
 from llama_index.core import Settings
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 from llama_index.llms.ollama import Ollama
+from llama_index.core.llms import LLM
 from llama_index.core.llms import ChatMessage
 from llama_index.core.agent import ReActAgent
+from llama_index.core.agent.workflow import AgentStream, ToolCall, ToolCallResult
 from llama_index.core.instrumentation import get_dispatcher
+
+SolrMetadata = dict[str, dict[str, Any]]
+Phase2SelectionResult = tuple[list[str], list[str], SolrMetadata, str, str, int]
+StreamCallback = Callable[[str], None]
 
 # ==========================================
 # PAGE CONFIG
@@ -124,6 +131,49 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 /* Sidebar tweaks */
 section[data-testid="stSidebar"] > div {
     background: linear-gradient(180deg, #0f172a, #1e293b);
+    color: #f8fafc;
+}
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3,
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+    color: #f8fafc !important;
+}
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
+    color: #f8fafc !important;
+    font-weight: 600;
+}
+section[data-testid="stSidebar"] small,
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+section[data-testid="stSidebar"] [data-testid="stSliderTickBarMin"],
+section[data-testid="stSidebar"] [data-testid="stSliderTickBarMax"] {
+    color: #dbeafe !important;
+}
+section[data-testid="stSidebar"] input,
+section[data-testid="stSidebar"] textarea,
+section[data-testid="stSidebar"] [data-baseweb="select"] > div {
+    background: rgba(15,23,42,.88) !important;
+    border-color: rgba(125,211,252,.45) !important;
+    color: #f8fafc !important;
+}
+section[data-testid="stSidebar"] input::placeholder,
+section[data-testid="stSidebar"] textarea::placeholder {
+    color: #bfdbfe !important;
+}
+section[data-testid="stSidebar"] button {
+    background: rgba(14,165,233,.16) !important;
+    border-color: rgba(125,211,252,.45) !important;
+    color: #f8fafc !important;
+}
+section[data-testid="stSidebar"] button:hover {
+    background: rgba(14,165,233,.28) !important;
+    border-color: rgba(186,230,253,.8) !important;
+}
+section[data-testid="stSidebar"] svg {
+    color: #dbeafe !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -152,6 +202,8 @@ _defaults = {
     "architect_reasoning": "",
     "full_trace": "",
     "solr_metadata_map": {},
+    "fallback_reason": "",
+    "force_execution": False,
     "tokens": {"p1": 0, "p2": 0, "p3": 0, "p5": 0},
 }
 for k, v in _defaults.items():
@@ -168,7 +220,7 @@ with st.sidebar:
     model_name = st.selectbox("Model", [
         "gemma4:26b", "qwen3.5:latest", "llama3.1:8b", "gpt-oss:20b"
     ])
-    solr_core = st.selectbox("Solr Core (dataset)", ["valencia", "bologna", "paris", "nyc"])
+    solr_core = st.selectbox("Solr Core (dataset)", ["nyc", "valencia", "bologna", "paris"])
     num_ctx = st.slider("Context window (num_ctx)", 4096, 32768, 12288, step=1024)
 
     # dynamically adjust paths based on solr_core
@@ -184,7 +236,7 @@ with st.sidebar:
 # ==========================================
 # LLM + SOLR HELPERS
 # ==========================================
-def get_llms(model, url, ctx):
+def get_llms(model, url, ctx) -> tuple[Ollama, Ollama, TokenCountingHandler]:
     token_counter = TokenCountingHandler(
         tokenizer=tiktoken.encoding_for_model("gpt-3.5-turbo").encode
     )
@@ -203,7 +255,7 @@ def get_solr(core):
     return LocalSolrClient(core=core)
 
 @st.cache_resource
-def get_prompt_manager():
+def get_prompt_manager() -> PromptManager:
     return PromptManager()
 
 def get_all_csv_files(csv_dir):
@@ -212,29 +264,98 @@ def get_all_csv_files(csv_dir):
     except FileNotFoundError:
         return []
 
+def make_streamlit_stream_callback(stream_placeholder: Any) -> StreamCallback:
+    stream_text = ""
+
+    def stream_to_placeholder(delta: str) -> None:
+        nonlocal stream_text
+        stream_text += delta
+        stream_placeholder.text(stream_text)
+
+    return stream_to_placeholder
+
+def get_keyword_rejection_reason(reasoning: str) -> str | None:
+    if not reasoning.startswith("REJECT_KEYWORDS"):
+        return None
+    reason = reasoning.replace("REJECT_KEYWORDS:", "", 1)
+    reason = reason.replace("REJECT_KEYWORDS", "", 1).strip()
+    return reason or "The candidate tables did not match the generated keywords."
+
+def handle_phase2_keyword_rejection(
+    candidates: list[str],
+    solr_metadata: SolrMetadata,
+    reasoning: str,
+    trace: str,
+    tokens: int,
+    accumulate_tokens: bool,
+) -> bool:
+    rejection_reason = get_keyword_rejection_reason(reasoning)
+    if rejection_reason is None:
+        return False
+
+    st.session_state.tables = []
+    st.session_state.candidates = candidates
+    st.session_state.solr_metadata_map = solr_metadata
+    st.session_state.architect_reasoning = reasoning
+    st.session_state.full_trace = trace
+    st.session_state.fallback_reason = rejection_reason
+    if accumulate_tokens:
+        st.session_state.tokens["p2"] += tokens
+    else:
+        st.session_state.tokens["p2"] = tokens
+    st.session_state.phase = "fallback_approval_keywords"
+    return True
+
 # ==========================================
 # PHASE 1 – KEYWORD GENERATION
 # ==========================================
-def phase1_generate_keywords(query, llm_instant, pm, hint=""):
+def phase1_generate_keywords(
+    query: str,
+    llm_instant: LLM,
+    pm: PromptManager,
+    hint="",
+    stream_placeholder=None,
+):
     raw_keywords_str = extract_query_keywords(query)
     default_keywords = [k.strip() for k in raw_keywords_str.split(",") if k.strip()]
 
-    system_prompt = pm.render("keyword_generator", "system_prompt")
-    user_prompt = pm.render("keyword_generator", "user_prompt",
-                            question=query, raw_keywords_str=raw_keywords_str,
-                            keyword_hint=hint)
+    system_prompt = pm.render(
+        "keyword_generator",
+        "system_prompt"
+    )
 
-    res = llm_instant.chat([
+    user_prompt = pm.render(
+        "keyword_generator",
+        "user_prompt",
+        question=query,
+        raw_keywords_str=raw_keywords_str,
+        keyword_hint=hint
+    )
+
+    messages = [
         ChatMessage(role="system", content=system_prompt),
         ChatMessage(role="user", content=user_prompt),
-    ])
+    ]
 
+    raw_stream = ""
     tokens = 0
-    if res.raw:
-        tokens = (res.raw.get("prompt_eval_count", 0) +
-                  res.raw.get("eval_count", 0))
+    print("[phase1 keyword stream] ", end="", flush=True)
+    for chunk in llm_instant.stream_chat(messages):
+        delta = chunk.delta or ""
+        if delta:
+            raw_stream += delta
+            print(delta, end="", flush=True)
+            if stream_placeholder is not None:
+                stream_placeholder.markdown(raw_stream)
 
-    raw_content = str(res.message.content).strip().lower()
+        if chunk.raw:
+            prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
+            completion_tokens = chunk.raw.get("eval_count") or 0
+            if prompt_tokens or completion_tokens:
+                tokens = prompt_tokens + completion_tokens
+    print("", flush=True)
+
+    raw_content = raw_stream.strip().lower()
     extracted = re.findall(r"\b[a-z0-9_]+\b", raw_content)
     fluff = {"here","is","are","the","list","keywords","output","of",
              "sure","certainly","based","on","and","or",
@@ -259,9 +380,21 @@ def phase1_generate_keywords(query, llm_instant, pm, hint=""):
 # ==========================================
 # PHASE 2 – TABLE SELECTION (Solr + Agent)
 # ==========================================
-def phase2_select_tables(query, keywords, llm_versatile, solr_client,
-                         pm, all_files, csv_dir, db_path, hint="",
-                         skip_solr=False, top_10=None, solr_meta=None):
+def phase2_select_tables(
+    query: str,
+    keywords: list[str],
+    llm_versatile: LLM,
+    solr_client: LocalSolrClient,
+    pm: PromptManager,
+    all_files: list[str],
+    csv_dir: Path,
+    db_path: Path,
+    hint: str = "",
+    skip_solr: bool = False,
+    top_10: list[str] | None = None,
+    solr_meta: SolrMetadata | None = None,
+    stream_callback: StreamCallback | None = None,
+) -> Phase2SelectionResult:
     # --- Solr retrieval ---
     if not skip_solr:
         top_10, solr_meta = [], {}
@@ -334,7 +467,16 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
         # Capture stdout
         old_stdout = sys.stdout
         capture = io.StringIO()
+        stream_trace = io.StringIO()
         sys.stdout = capture
+
+        def emit_stream(delta: str) -> None:
+            if not delta:
+                return
+            stream_trace.write(delta)
+            print(delta, end="", flush=True, file=old_stdout)
+            if stream_callback is not None:
+                stream_callback(delta)
 
         thinking_capture = ThinkingCapture()
         dispatcher = get_dispatcher()
@@ -344,23 +486,46 @@ def phase2_select_tables(query, keywords, llm_versatile, solr_client,
             async def _run_agent():
                 explorer = ReActAgent(
                     name="data_explorer", tools=agent_tools, llm=llm_versatile,
-                    verbose=False, max_iterations=15,
+                    verbose=False, streaming=True,
                     system_prompt=architect_system_prompt,
                     early_stopping_method="generate",
                 )
-                return await explorer.run(agent_prompt)
+                handler = explorer.run(
+                    user_msg=agent_prompt,
+                    max_iterations=15,
+                    early_stopping_method="generate",
+                )
+
+                async for event in handler.stream_events():
+                    if isinstance(event, AgentStream):
+                        emit_stream(event.delta or "")
+                    elif isinstance(event, ToolCall):
+                        emit_stream(f"\n[phase2 tool call] {event.tool_name}\n")
+                    elif isinstance(event, ToolCallResult):
+                        status = "error" if event.tool_output.is_error else "done"
+                        emit_stream(
+                            f"\n[phase2 tool result] {event.tool_name}: {status}\n"
+                        )
+
+                return await handler
 
             res = anyio.run(_run_agent)
             agent_resp = str(getattr(res, "response", res)).strip()
         except Exception as agent_err:
+            emit_stream(f"\n[phase2 agent error] {str(agent_err)[:160]}\n")
             agent_resp = (
                 f'FINAL_PAYLOAD: {{"tables": "{", ".join(top_10[:2])}",'
                 f' "reasoning": "Agent error: {str(agent_err)[:80]}. Fallback to top 2."}}'
             )
         finally:
             sys.stdout = old_stdout
-            full_trace = capture.getvalue()
+            stdout_trace = capture.getvalue()
+            agent_stream_trace = stream_trace.getvalue()
+            full_trace = stdout_trace
+            if agent_stream_trace:
+                full_trace += f"\n\n--- Agent Event Stream ---\n{agent_stream_trace}"
             capture.close()
+            stream_trace.close()
             dispatcher.event_handlers.remove(thinking_capture)
 
         tokens_p2 = 0
@@ -528,8 +693,10 @@ if st.session_state.phase == "idle":
         with st.chat_message("user"):
             st.markdown(query)
         with st.chat_message("assistant"):
+            stream_box = st.empty()
             with st.spinner("🔍 Extracting keywords…"):
-                kws, raw, tok = phase1_generate_keywords(query, llm_i, pm)
+                kws, raw, tok = phase1_generate_keywords(
+                    query, llm_i, pm, stream_placeholder=stream_box)
                 st.session_state.keywords = kws
                 st.session_state.raw_keywords = raw
                 st.session_state.tokens["p1"] = tok
@@ -561,11 +728,18 @@ elif st.session_state.phase == "keyword_approval":
                 "content": f"✅ **Keywords confirmed:** `{kw_list}`"
                            + (f"\n*(hint: {hint})*" if hint else "")
             })
+            stream_box = st.empty()
             with st.spinner("🗂️ Searching & selecting tables…"):
                 sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
                     st.session_state.query, st.session_state.keywords,
-                    llm_v, solr, pm, all_csv, 
-                    st.session_state.csv_dir, st.session_state.db_path, hint=hint)
+                    llm_v, solr, pm, all_csv,
+                    st.session_state.csv_dir, st.session_state.db_path, hint=hint,
+                    stream_callback=make_streamlit_stream_callback(stream_box))
+                if handle_phase2_keyword_rejection(
+                    cands, smeta, reasoning, trace, tok2, accumulate_tokens=False
+                ):
+                    st.rerun()
+
                 st.session_state.tables = sel
                 st.session_state.candidates = cands
                 st.session_state.solr_metadata_map = smeta
@@ -577,9 +751,11 @@ elif st.session_state.phase == "keyword_approval":
 
         elif recalc:
             container.empty()
+            stream_box = st.empty()
             with st.spinner("Recalculating keywords…"):
                 kws, raw, tok = phase1_generate_keywords(
-                    st.session_state.query, llm_i, pm, hint=hint)
+                    st.session_state.query, llm_i, pm, hint=hint,
+                    stream_placeholder=stream_box)
                 st.session_state.keywords = kws
                 st.session_state.raw_keywords = raw
                 st.session_state.tokens["p1"] += tok
@@ -629,11 +805,18 @@ elif st.session_state.phase == "table_approval":
 
         elif recalc:
             container.empty()
+            stream_box = st.empty()
             with st.spinner("Re-selecting tables…"):
                 sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
                     st.session_state.query, st.session_state.keywords,
-                    llm_v, solr, pm, all_csv, 
-                    st.session_state.csv_dir, st.session_state.db_path, hint=hint_tb)
+                    llm_v, solr, pm, all_csv,
+                    st.session_state.csv_dir, st.session_state.db_path, hint=hint_tb,
+                    stream_callback=make_streamlit_stream_callback(stream_box))
+                if handle_phase2_keyword_rejection(
+                    cands, smeta, reasoning, trace, tok2, accumulate_tokens=True
+                ):
+                    st.rerun()
+
                 st.session_state.tables = sel
                 st.session_state.candidates = cands
                 st.session_state.solr_metadata_map = smeta
@@ -739,20 +922,21 @@ elif st.session_state.phase == "fallback_approval_tables":
                     "role": "assistant",
                     "content": f"⚠️ **Tables rejected by Coder.**\nFeedback: *{st.session_state.fallback_reason}*\n\n🔄 Re-evaluating candidate tables..."
                 })
+                stream_box = st.empty()
                 with st.spinner("Re-selecting tables…"):
                     sel, cands, smeta, reasoning, trace, tok2 = phase2_select_tables(
                         st.session_state.query, st.session_state.keywords,
-                        llm_v, solr, pm, all_csv, 
-                        st.session_state.csv_dir, st.session_state.db_path, 
+                        llm_v, solr, pm, all_csv,
+                        st.session_state.csv_dir, st.session_state.db_path,
                         hint=f"PREVIOUS SELECTION REJECTED. CODER FEEDBACK: {st.session_state.fallback_reason}",
                         skip_solr=True,
                         top_10=st.session_state.candidates,
-                        solr_meta=st.session_state.solr_metadata_map)
-                    
-                    if reasoning.startswith("REJECT_KEYWORDS:"):
-                        reason_kw = reasoning.replace("REJECT_KEYWORDS:", "").strip()
-                        st.session_state.fallback_reason = reason_kw
-                        st.session_state.phase = "fallback_approval_keywords"
+                        solr_meta=st.session_state.solr_metadata_map,
+                        stream_callback=make_streamlit_stream_callback(stream_box))
+
+                    if handle_phase2_keyword_rejection(
+                        cands, smeta, reasoning, trace, tok2, accumulate_tokens=True
+                    ):
                         st.rerun()
 
                     st.session_state.tables = sel
@@ -783,15 +967,14 @@ elif st.session_state.phase == "fallback_approval_keywords":
                     "role": "assistant",
                     "content": f"⚠️ **Candidates rejected by Architect.**\nFeedback: *{st.session_state.fallback_reason}*\n\n🔄 Re-generating keywords..."
                 })
+                stream_box = st.empty()
                 with st.spinner("Recalculating keywords…"):
                     kws, raw, tok = phase1_generate_keywords(
                         st.session_state.query, llm_i, pm, 
-                        hint=f"The previous keywords led to bad tables. Architect feedback: {st.session_state.fallback_reason}. Generate COMPLETELY DIFFERENT keywords.")
+                        hint=f"The previous keywords led to bad tables. Architect feedback: {st.session_state.fallback_reason}. Generate COMPLETELY DIFFERENT keywords.",
+                        stream_placeholder=stream_box)
                     st.session_state.keywords = kws
                     st.session_state.raw_keywords = raw
                     st.session_state.tokens["p1"] += tok
                 st.session_state.phase = "keyword_approval"
                 st.rerun()
-
-
-

@@ -38,7 +38,6 @@ class DBHandler(object):
             freq_dict_path: Path to the frequency dictionary CSV file. Required if use_ml_optimizer is True.
 
         Raises:
-            FileNotFoundError: If the parent directory of db_path does not exist.
             AssertionError: If use_ml_optimizer is True but freq_dict_path is not provided.
         """
         self.connection = None
@@ -46,10 +45,7 @@ class DBHandler(object):
         self.dbms = "duckdb"  # we'll use only duckdb
 
         self.db_path = db_path
-        if not self.db_path.parent.exists():
-            raise FileNotFoundError(
-                f"DB directory doesn't exist: {self.db_path.parent}"
-            )
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.index_table = index_table if index_table is not None else "all_tables"
         self.db_name = self.db_path.stem.replace("-", "_")
