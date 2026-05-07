@@ -1,0 +1,2 @@
+Total unique ESS codes found: 47
+First 5 examples: [100846, 100841, 100838, 100832, 100817]

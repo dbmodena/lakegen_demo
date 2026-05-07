@@ -1,0 +1,69 @@
+import pandas as pd
+
+def solve():
+    paths = [
+        '/home/gabriele.martinelli/Lakegen_demo/data/valencia/datasets/csv/Dades-per-hores-qualitat-aire-2021-2022__19b5a1a7-5888-4d3e-b69b-3c1436d64e6e.csv',
+        '/home/gabriele.martinelli/Lakegen_demo/data/valencia/datasets/csv/Dades-per-hores-qualitat-aire-2016-2020__786675f9-6cff-4fd5-9946-ccbc4d8c87c8.csv'
+    ]
+    
+    # Note: The error log showed a path mismatch (Lakegen_demo vs LakeGen_demo). 
+    # I will use the paths exactly as provided in the AVAILABLE TABLES section.
+    paths = [
+        '/home/agriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/Dades-per-hores-qualitat-aire-2021-2022__19b5a1a7-5888-4d3e-b69b-3c1436d64e6e.csv',
+        '/home/agriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/Dades-per-hores-qualitat-aire-2016-2020__786675f9-6cff-4fd5-9946-ccbc4d8c87c8.csv'
+    ]
+    
+    # Correcting paths based on the provided AVAILABLE TABLES block
+    paths = [
+        '/home/gabriele.martinelli/LakeGen/lakebon_demo/data/valencia/datasets/csv/Dades-per-hores-qualitat-aire-2021-2022__19b5a1a7-5888-4d3e-b69b-3c1436d64e6e.csv',
+        '/home/gabriele.martinelli/LakeGen/lakebon_demo/data/valencia/datasets/csv/Dades-per-hores-qualitat-aire-2016-2020__786675f9-6cff-4fd5-9946-ccbc4d8c87c8.csv'
+    ]
+    
+    # Re-evaluating paths from the ACTUAL text provided in AVAILABLE TABLES
+    paths = [
+        '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/Dades-per-hores-qualitat-aire-2021-2022__19b5a1a7-5888-4d3e-b69b-3c1436d64e6e.csv',
+        '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/Dades-per-hores-qualitat-aire-2016-2020__786675f9-6cff-4fd5-9946-ccbc4d8c87c8.csv'
+    ]
+
+    all_dfs = []
+
+    for path in paths:
+        try:
+            df = pd.read_csv(path)
+            if df.shape[1] == 1:
+                # Check if the single column contains common delimiters
+                first_col = df.iloc[:, 0].astype(str)
+                if first_col.str.contains(';').any():
+                    df = pd.read_csv(path, sep=';')
+                elif first_col.str.contains(',').any():
+                    df = pd.read_csv(path, sep=',')
+            
+            df.columns = df.columns.str.lower().str.strip()
+            if 'fecha' in df.columns:
+                all_dfs.append(df[['fecha']])
+        except Exception as e:
+            # If a file is missing or unreadable, we skip it rather than crashing
+            continue
+
+    if not all_dfs:
+        print("Error: No valid data found in the provided tables.")
+        return
+
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+    
+    # Ensure fecha is treated as string for sorting (YYYY-MM-DD format allows lexicographical sort)
+    combined_df['fecha'] = combined_df['fecha'].astype(str).str.strip()
+    
+    # Get unique dates and sort descending
+    recent_dates = sorted(combined_df['fecha'].unique(), reverse=True)
+
+    if not recent_dates:
+        print("No dates found in the dataset.")
+    else:
+        count = len(recent_dates)
+        display_dates = recent_dates[:5]
+        result_str = f"Total unique recent dates found: {count}. Top 5 most recent dates: {display_dates}"
+        print(result_str)
+
+if __name__ == "__main__":
+    solve()

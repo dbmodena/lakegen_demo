@@ -1,0 +1,61 @@
+import pandas as pd
+
+def solve():
+    # File paths
+    ess_path = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/paris/datasets/csv/plub_ess.csv'
+    evp_path = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/paris/datasets/csv/plub_evp.csv'
+
+    # Load datasets
+    try:
+        df_ess = pd.read_csv(ess_path)
+        df_evp = pd.read_csv(evp_path)
+    except Exception as e:
+        print(f"Error loading files: {e}")
+        return
+
+    # Standardize column names to lowercase
+    df_ess.columns = df_ess.columns.str.lower()
+    df_evp.columns = df_evp.columns.str.lower()
+
+    # Check for required columns
+    required_ess = ['n_sq_ess', 'n_sq_ca']
+    required_evp = ['n_sq_ca']
+    
+    missing_ess = [col for col in required_ess if col not in df_ess.columns]
+    missing_evp = [col for col in required_evp if col not in df_evp.columns]
+
+    if missing_ess or missing_evp:
+        print(f"Error: Missing columns. ESS: {missing_ess}, EVP: {missing_evp}")
+        return
+
+    # Cast join key to string to prevent mismatch
+    df_ess['n_sq_ca'] = df_ess['n_sq_ca'].astype(str)
+    df_evp['n_sq_ca'] = df_evp['n_sq_ca'].astype(str)
+
+    # Perform inner join on the common identifier n_sq_ca
+    # This finds the intersection where both ESS and EVP exist for the same area code
+    merged_df = pd.merge(
+        df_ess, 
+        df_evp, 
+        on='n_sq_ca', 
+        how='inner'
+    )
+
+    # Extract unique economic activity codes (n_sq_ess)
+    unique_ess_codes = merged_df['n_sq_ess'].unique().tolist()
+
+    # Output result
+    if not unique_ess_codes:
+        print("No economic activity codes found that overlap with protected green spaces.")
+    else:
+        # Sort for cleaner output
+        unique_ess_codes.sort()
+        
+        # Truncation logic for large lists
+        if len(unique_ess_codes) > 10:
+            print(f"Found {len(unique_ess_codes)} unique codes. First 5 examples: {unique_ess_codes[:5]}")
+        else:
+            print(f"Unique economic activity codes: {unique_ess_codes}")
+
+if __name__ == "__main__":
+    solve()

@@ -1,0 +1,69 @@
+import pandas as pd
+
+def solve():
+    # File paths
+    ess_path = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/paris/datasets/csv/plub_ess.csv'
+    evp_path = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/paris/datasets/csv/plub_evp.csv'
+
+    # Load ESS data
+    try:
+        df_ess = pd.read_csv(ess_path)
+    except Exception as e:
+        print(f"Error loading ESS table: {e}")
+        return
+
+    # Load EVP data
+    try:
+        df_evp = pd.read_csv(evp_path)
+    except Exception as e:
+        print(f"Error loading EVP table: {e}")
+        return
+
+    # Standardize column names to lowercase
+    df_ess.columns = df_ess.columns.str.lower()
+    df_evp.columns = df_evp.columns.str.lower()
+
+    # Check for required columns
+    required_ess = ['n_sq_ess', 'n_sq_ca']
+    required_evp = ['n_sq_ca']
+    
+    for col in required_ess:
+        if col not in df_ess.columns:
+            print(f"Error: Column {col} not found in ESS table. Available: {df_ess.columns.tolist()}")
+            return
+            
+    for col in required_evp:
+        if col not in df_evp.columns:
+            print(f"Error: Column {col} not found in EVP table. Available: {df_evp.columns.tolist()}")
+            return
+
+    # Cast join key to string to prevent mismatch
+    df_ess['n_sq_ca'] = df_ess['n_sq_ca'].astype(str)
+    df_evp['n_sq_ca'] = df_evp['n_sq_ca'].astype(str)
+
+    # Perform inner join on n_sq_ca to find overlaps
+    merged_df = pd.merge(
+        df_ess, 
+        df_evp[['n_sq_ca']], 
+        on='n_sq_ca', 
+        how='inner'
+    )
+
+    # Get unique economic activity codes (n_sq_ess)
+    unique_codes = merged_df['n_sq_ess'].unique().tolist()
+    
+    # Sort for clean output
+    unique_codes.sort()
+
+    # Final Output
+    if not unique_codes:
+        print("No economic activity codes found that overlap with protected green spaces.")
+    else:
+        if len(unique_codes) > 10:
+            print(f"Total unique codes found: {len(unique_codes)}")
+            print(f"First 5 examples: {unique_codes[:5]}")
+        else:
+            print(f"Unique economic activity codes: {unique_codes}")
+
+if __name__ == "__main__":
+    solve()
