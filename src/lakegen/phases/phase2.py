@@ -2,9 +2,10 @@ import io
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
-import anyio
+import asyncio
 from llama_index.core import Settings
 from llama_index.core.agent.workflow import (
     AgentStream,
@@ -25,6 +26,7 @@ from lakegen.phase2_logging import (
     format_phase2_tool_result,
 )
 from lakegen.types import Phase2SelectionResult, SolrMetadata, StreamCallback
+from lakegen.ui.state import WorkflowCancelled
 from prompts.prompt_manager import PromptManager
 from src.tools import make_agent_tools
 from src.utils import ThinkingCapture
@@ -48,6 +50,7 @@ def phase2_table_selector_agent(
     activity_log_parts: list[str],
     hint: str = "",
     stream_callback: StreamCallback | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> tuple[list[str], str, str, int]:
     """Inspect retrieved candidates and choose or reject tables."""
     try:
@@ -111,13 +114,19 @@ def phase2_table_selector_agent(
                 tool_result_count = 0
                 tool_call_signatures: dict[str, int] = {}
                 async for event in handler.stream_events():
+                    if cancel_check is not None:
+                        cancel_check()
                     if isinstance(event, AgentStream):
                         emit_stream(event.delta or "")
-                        stall_reason = detect_phase2_agent_stall(
-                            stream_trace.getvalue()
-                        )
-                        if stall_reason:
-                            raise Phase2AgentStall(stall_reason)
+                        # Only check for stream-based stalls after the
+                        # agent has made at least one tool call, so retries
+                        # aren't killed before the agent even gets to act.
+                        if tool_call_count > 0:
+                            stall_reason = detect_phase2_agent_stall(
+                                stream_trace.getvalue()
+                            )
+                            if stall_reason:
+                                raise Phase2AgentStall(stall_reason)
                     elif isinstance(event, ToolCall):
                         tool_call_count += 1
                         tool_signature = (
@@ -139,13 +148,27 @@ def phase2_table_selector_agent(
                         tool_output = getattr(event, "tool_output", None)
                         output = format_phase2_tool_output(tool_output).lower()
                         if "missing in active dataset" in output:
-                            raise Phase2AgentStall(
-                                "tool selected a file outside the active dataset"
+                            emit_stream(
+                                "\n⚠️ **File not found** – the requested table "
+                                "is not in the active dataset. "
+                                "The agent will try an alternative.\n"
                             )
 
                 return await handler
 
-            res = anyio.run(_run_agent)
+            # The Ollama LLM lazily creates an AsyncClient (httpx) and
+            # caches it.  That client is bound to the event loop it was
+            # created on.  We must discard the stale client so a fresh one
+            # is created on the new loop.
+            if hasattr(llm, "_async_client"):
+                llm._async_client = None
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                res = loop.run_until_complete(_run_agent())
+            finally:
+                loop.close()
             agent_resp = str(getattr(res, "response", res)).strip()
         except Phase2AgentStall as stall_err:
             fallback_payload = {
@@ -161,6 +184,8 @@ def phase2_table_selector_agent(
                 "- Action: using the top Solr candidates as a fallback.\n"
             )
             agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
+        except WorkflowCancelled:
+            raise
         except Exception as agent_err:
             fallback_payload = {
                 "tables": ", ".join(candidates[:2]),
@@ -219,6 +244,7 @@ def phase2_select_tables(
     activity_log_parts: list[str] | None = None,
     hint: str = "",
     stream_callback: StreamCallback | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> Phase2SelectionResult:
     activity_log = activity_log_parts or []
     blend_db = prepare_candidate_index(
@@ -240,5 +266,6 @@ def phase2_select_tables(
         activity_log_parts=activity_log,
         hint=hint,
         stream_callback=stream_callback,
+        cancel_check=cancel_check,
     )
     return selected, candidates, solr_meta, reasoning, full_trace, tokens_p2

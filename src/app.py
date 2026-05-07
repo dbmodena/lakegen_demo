@@ -4,6 +4,7 @@ Run with: uv run chainlit run src/app.py -w
 """
 
 import sys
+import asyncio
 import logging
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from lakegen.ui.state import (  # noqa: E402
     MODEL_OPTIONS,
     SOLR_CORE_OPTIONS,
     RuntimeSettings,
+    WorkflowCancelled,
     get_session,
     set_runtime_settings,
 )
@@ -141,10 +143,24 @@ async def on_settings_update(settings: dict) -> None:
         raise
 
 
+@cl.on_stop
+async def on_stop() -> None:
+    """Called when the user clicks the Stop button in the UI."""
+    try:
+        session = get_session()
+        session.request_cancel()
+        logger.info("User requested workflow cancellation.")
+    except Exception:
+        pass
+
+
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     try:
         await run_lakegen_workflow(message.content)
+    except (asyncio.CancelledError, WorkflowCancelled):
+        logger.info("Workflow cancelled by user.")
+        await cl.Message(content="⏹ Workflow stopped.").send()
     except Exception as exc:
         logger.exception("LakeGen failed during on_message")
         await cl.Message(

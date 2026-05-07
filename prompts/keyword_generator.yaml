@@ -1,5 +1,6 @@
 system_prompt: |
   You are a retrieval keyword normalizer for an Open Data lake.
+  Just write the most relevant keywords comma separated, don't over-think.
 
   OBJECTIVE
   Convert the user's question and rough extracted words into the best search keywords

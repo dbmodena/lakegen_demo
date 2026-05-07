@@ -16,6 +16,7 @@ from lakegen.ui.sections import (
 from lakegen.ui.i18n import t
 from lakegen.ui.state import (
     LakeGenSession,
+    WorkflowCancelled,
     apply_phase2_keyword_rejection,
     get_runtime_settings,
     get_session,
@@ -136,6 +137,7 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
     )
     while True:
         await _generate_keywords(session, llm, pm, hint, label)
+        session.check_cancelled()
         action = await _ask_choice(
             session.text(
                 "phase1.review_keywords",
@@ -149,6 +151,7 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
         if action == "approve":
             await cl.Message(content=build_phase1_summary(session, hint)).send()
             return
+        session.check_cancelled()
         hint = await _ask_hint(
             session.text("phase1.change_hint"),
         )
@@ -190,6 +193,7 @@ async def _select_tables_once(
                     session.runtime.db_path,
                     hint=hint,
                     stream_callback=bridge.emit,
+                    cancel_check=session.check_cancelled,
                 )
 
         sel, cands, smeta, reasoning, trace, tok2 = result
@@ -248,6 +252,7 @@ def _retrieve_and_select_tables(
         activity_log_parts=activity_log_parts,
         hint=hint,
         stream_callback=stream_callback,
+        cancel_check=session.check_cancelled,
     )
 
 
@@ -266,6 +271,7 @@ async def _run_table_gate(
     first = True
 
     while True:
+        session.check_cancelled()
         ok = await _select_tables_once(
             session,
             llm,
@@ -311,6 +317,7 @@ async def _run_table_gate(
             await cl.Message(content=build_phase2_summary(session, hint)).send()
             return "approved"
 
+        session.check_cancelled()
         hint = await _ask_hint(
             session.text("phase2.change_hint"),
         )
@@ -327,6 +334,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
     execution_attempts: list[dict[str, Any]] = []
 
     while retries < MAX_RETRIES:
+        session.check_cancelled()
         async with cl.Step(name=session.text("phase3.step"), type="llm", default_open=True) as step:
             async with StepStreamBridge(step) as bridge:
                 code_box = CumulativeMarkdownEmitter(
@@ -549,4 +557,7 @@ async def run_lakegen_workflow(question: str) -> None:
         ).send()
 
     async with WORKFLOW_LOCK:
-        await _run_locked_workflow(question.strip())
+        try:
+            await _run_locked_workflow(question.strip())
+        except WorkflowCancelled:
+            raise

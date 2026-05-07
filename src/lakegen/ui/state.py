@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +61,10 @@ class RuntimeSettings:
         )
 
 
+class WorkflowCancelled(Exception):
+    """Raised when the user clicks Stop in the UI."""
+
+
 @dataclass
 class LakeGenSession:
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings.default)
@@ -79,6 +84,7 @@ class LakeGenSession:
         default_factory=lambda: {"p1": 0, "p2": 0, "p3": 0, "p5": 0}
     )
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    _cancelled: threading.Event = field(default_factory=threading.Event)
 
     @property
     def run_dir(self) -> Path:
@@ -86,6 +92,19 @@ class LakeGenSession:
 
     def text(self, key: str, **kwargs: Any) -> str:
         return t(key, **kwargs)
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
+    def request_cancel(self) -> None:
+        """Signal all running phases to stop."""
+        self._cancelled.set()
+
+    def check_cancelled(self) -> None:
+        """Raise WorkflowCancelled if the stop button was pressed."""
+        if self._cancelled.is_set():
+            raise WorkflowCancelled("Workflow stopped by user.")
 
     def reset_for_query(self, query: str) -> None:
         runtime = self.runtime

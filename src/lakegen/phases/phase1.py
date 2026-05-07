@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from nltk.stem import WordNetLemmatizer
@@ -74,6 +75,7 @@ def phase1_generate_keywords(
     stream_placeholder=None,
     reasoning_placeholder=None,
     stream_reasoning: bool = True,
+    cancel_check: Callable[[], None] | None = None,
 ):
     wordnet_keywords_str = extract_wordnet_query_keywords(query)
     wordnet_keywords = [k.strip() for k in wordnet_keywords_str.split(",") if k.strip()]
@@ -121,6 +123,8 @@ def phase1_generate_keywords(
     try:
         chunk_stream = llm.stream_chat(messages, **stream_kwargs)
         for chunk in chunk_stream:
+            if cancel_check is not None:
+                cancel_check()
             thinking_delta = chunk.additional_kwargs.get("thinking_delta")
             if thinking_delta:
                 structured_reasoning += thinking_delta
@@ -143,6 +147,8 @@ def phase1_generate_keywords(
             raise
         chunk_stream = llm.stream_chat(messages)
         for chunk in chunk_stream:
+            if cancel_check is not None:
+                cancel_check()
             delta = chunk.delta or ""
             if delta:
                 raw_stream += delta

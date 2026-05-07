@@ -20,14 +20,39 @@ def phase4_execute(code_raw, run_dir: Path | None = None):
     fp = coding_dir / "script.py"
     fp.write_text(code, encoding="utf-8")
 
+    _ERROR_PATTERNS = [
+        "error:",
+        "error ",
+        "exception:",
+        "exception ",
+        "traceback",
+        "errno",
+        "no such file",
+        "filenotfounderror",
+        "permissionerror",
+        "modulenotfounderror",
+        "importerror",
+        "keyerror",
+        "valueerror",
+        "typeerror",
+        "indexerror",
+        "zerodivisionerror",
+    ]
+
     try:
         result = subprocess.run([sys.executable, str(fp)],
                                 capture_output=True, text=True, timeout=15)
         if result.returncode == 0:
             stdout_lower = result.stdout.lower()
-            if "error:" in stdout_lower or "exception:" in stdout_lower:
+            if any(pat in stdout_lower for pat in _ERROR_PATTERNS):
                 return None, result.stdout.strip(), code
             return result.stdout.strip(), None, code
-        return None, (result.stderr.strip() or result.stdout.strip()), code
+
+        # Non-zero return code — build a detailed error message
+        detail = result.stderr.strip() or result.stdout.strip()
+        error_msg = f"[Exit code {result.returncode}] {detail}"
+        return None, error_msg, code
+    except subprocess.TimeoutExpired:
+        return None, "Execution timed out (15s limit).", code
     except Exception as e:
-        return None, str(e), code
+        return None, f"[{type(e).__name__}] {e}", code

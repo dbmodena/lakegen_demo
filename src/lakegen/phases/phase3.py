@@ -1,4 +1,5 @@
 import os
+from collections.abc import Callable
 
 import pandas as pd
 from llama_index.core.llms import ChatMessage, LLM
@@ -24,6 +25,7 @@ def phase3_generate_code(
     stream_placeholder=None,
     reasoning_placeholder=None,
     stream_reasoning: bool = True,
+    cancel_check: Callable[[], None] | None = None,
 ):
     info_lines = [f"AVAILABLE SELECTED TABLES IN '{csv_dir}/':"]
     for idx, fn in enumerate(tables, 1):
@@ -102,6 +104,8 @@ def phase3_generate_code(
     try:
         chunk_stream = llm.stream_chat(messages, **stream_kwargs)
         for chunk in chunk_stream:
+            if cancel_check is not None:
+                cancel_check()
             thinking_delta = chunk.additional_kwargs.get("thinking_delta")
             if thinking_delta:
                 structured_reasoning += thinking_delta
@@ -124,6 +128,8 @@ def phase3_generate_code(
             raise
         chunk_stream = llm.stream_chat(messages)
         for chunk in chunk_stream:
+            if cancel_check is not None:
+                cancel_check()
             delta = chunk.delta or ""
             if delta:
                 raw_stream += delta
