@@ -7,8 +7,8 @@ import nltk
 
 from llama_index.core.llms import ChatMessage, LLM
 
-from lakegen_app.phase2_logging import format_cli_log_value
-from lakegen_app.types import SolrMetadata, StreamCallback
+from lakegen.phase2_logging import format_cli_log_value
+from lakegen.types import SolrMetadata, StreamCallback
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 
@@ -70,6 +70,7 @@ def phase1_generate_keywords(
     llm: LLM,
     pm: PromptManager,
     hint="",
+    portal_name: str = "",
     stream_placeholder=None,
     reasoning_placeholder=None,
     stream_reasoning: bool = True,
@@ -86,6 +87,7 @@ def phase1_generate_keywords(
         "keyword_generator",
         "user_prompt",
         question=query,
+        portal_name=portal_name,
         raw_keywords_str=wordnet_keywords_str,
         keyword_hint=hint
     )
@@ -161,9 +163,11 @@ def phase1_generate_keywords(
         if part.strip()
     )
     raw_content = visible_content.strip().lower()
-    extracted = list(set(
-        wordnet_keywords + re.findall(r"\b[a-z0-9_]+\b", raw_content)
-    ))[:15]
+    model_keywords = re.findall(r"(?u)\b[\w-]+\b", raw_content)
+    query_numbers = re.findall(r"\b\d+\b", query)
+    extracted = list(dict.fromkeys(model_keywords + query_numbers))[:15]
+    if not extracted:
+        extracted = wordnet_keywords[:15]
     return extracted, raw_content, tokens, reasoning_content
 
 

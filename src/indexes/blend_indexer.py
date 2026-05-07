@@ -11,7 +11,7 @@ class BlendIndexer:
 
         # Setup blend import
         CURRENT_DIR = Path(__file__).parent.resolve()
-        if CURRENT_DIR.name == "build_indexes":
+        if CURRENT_DIR.name == "indexes":
             BASE_DIR = CURRENT_DIR.parent.parent
         else:
             BASE_DIR = CURRENT_DIR.parent
@@ -88,7 +88,7 @@ class BlendIndexer:
 if __name__ == "__main__":
     CURRENT_DIR = Path(__file__).parent.resolve()
 
-    if CURRENT_DIR.name == "build_indexes":
+    if CURRENT_DIR.name == "indexes":
         BASE_DIR = CURRENT_DIR.parent.parent
     elif CURRENT_DIR.name == "src":
         BASE_DIR = CURRENT_DIR.parent

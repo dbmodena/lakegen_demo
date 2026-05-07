@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 
 import nltk
-import streamlit as st
 
 
 def ensure_project_paths(src_dir: Path, root_dir: Path) -> None:
@@ -75,6 +74,5 @@ def bootstrap_nltk_data() -> str | None:
     return None
 
 
-def load_css(path: Path) -> None:
-    css = path.read_text(encoding="utf-8")
-    st.markdown(f"<style>\n{css}\n</style>", unsafe_allow_html=True)
+def load_css(path: Path) -> str:
+    return path.read_text(encoding="utf-8")

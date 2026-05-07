@@ -1,0 +1,18 @@
+[project]
+cache = false
+
+[features]
+unsafe_allow_html = false
+
+[UI]
+name = "LakeGen"
+cot = "full"
+language = "en-US"
+default_sidebar_state = "open"
+chat_settings_location = "message_composer"
+default_chat_settings_open = true
+logo_file_url = "/favicon"
+default_avatar_file_url = "/favicon"
+
+[meta]
+generated_by = "2.11.1"

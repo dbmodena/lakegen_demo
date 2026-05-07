@@ -3,7 +3,7 @@ name = "lakegen"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "bitarray>=3.8.0",
     "dotenv>=0.9.9",
@@ -20,7 +20,7 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "thefuzz>=0.22.1",
     "timeout-decorator>=0.5.0",
-    "streamlit>=1.45.0",
+    "chainlit>=2.11,<3",
     "valentine>=0.4.1",
     "nest-asyncio>=1.6.0",
     "blend",

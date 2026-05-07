@@ -5,7 +5,7 @@ import polars as pl
 from pathlib import Path
 from llama_index.core.tools import FunctionTool
 from valentine import valentine_match
-from valentine.algorithms import JaccardDistanceMatcher
+from valentine.algorithms import JaccardDistanceMatcher, ComaPy
 
 from utils import CSV_DIR
 
@@ -17,8 +17,10 @@ except ImportError as e:
 
 try:
     try:
-        sys.path.append("src")
-        from data_integration_tools.sloth.sloth import sloth
+        sloth_dir = Path(__file__).resolve().parent / "lakegen" / "data_integration_tools" / "sloth"
+        if str(sloth_dir) not in sys.path:
+            sys.path.append(str(sloth_dir))
+        from lakegen.data_integration_tools.sloth.sloth import sloth
     except ImportError:
         from sloth import sloth
 except ImportError as e:
@@ -138,41 +140,61 @@ def _find_exact_overlaps(csv_dir: Path, file_name_1: str, file_name_2: str) -> s
 
 
 def _find_schema_matches(csv_dir: Path, file_name_1: str, file_name_2: str) -> str:
+    def format_matches_table(res, max_matches=MAX_SCHEMA_MATCHES):
+        rows = [
+            (col1, col2, score)
+            for ((_, col1), (_, col2)), score in sorted(
+                res.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            if score > 0.0
+        ]
+
+        if not rows:
+            return ""
+
+        rows = rows[:max_matches]
+
+        lines = []
+        header = f"{'table_1_column':30} | {'table_2_column':30} | score"
+        lines.append(header)
+        lines.append("-" * len(header))
+
+        for col1, col2, score in rows:
+            lines.append(f"{col1:30} | {col2:30} | {score:.4f}")
+
+        omitted = len([score for score in res.values() if score > 0.0]) - len(rows)
+        if omitted > 0:
+            lines.append(f"... {omitted} lower-scoring matches omitted")
+
+        return "\n".join(lines)
+
     path_1 = str(_csv_path(csv_dir, file_name_1))
     path_2 = str(_csv_path(csv_dir, file_name_2))
+
     try:
         df1 = pd.read_csv(path_1, nrows=5000).astype(str)
         df2 = pd.read_csv(path_2, nrows=5000).astype(str)
 
-        matcher = JaccardDistanceMatcher()
+        matcher = ComaPy(use_instances=True)
         matches = valentine_match(df1, df2, matcher)
 
         if not matches:
             return "No schema matches found."
 
-        output = f"Valentine matches between '{file_name_1}' and '{file_name_2}':\n"
-        found_match = False
-        shown = 0
-        sorted_matches = sorted(
-            matches.items(),
-            key=lambda item: item[1],
-            reverse=True,
-        )
-        for ((_, col1), (_, col2)), score in sorted_matches:
-            if score <= 0.0:
-                continue
-            output += f"-> Column '{col1}' matches Column '{col2}' (Score: {score:.3f})\n"
-            found_match = True
-            shown += 1
-            if shown >= MAX_SCHEMA_MATCHES:
-                break
+        table = format_matches_table(matches)
 
-        if not found_match:
+        if not table:
             return "No schema matches found."
-        if len(matches) > shown:
-            output += f"... {len(matches) - shown} lower-scoring matches omitted\n"
+
+        output = (
+            f"Valentine matches between '{file_name_1}' and '{file_name_2}':\n\n"
+            f"{table}"
+        )
 
         return _compact_tool_output(output)
+
     except Exception as e:
         return f"Error Valentine: {e}"
 

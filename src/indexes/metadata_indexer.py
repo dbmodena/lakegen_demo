@@ -91,7 +91,7 @@ if __name__ == "__main__":
     import sys
     CURRENT_DIR = Path(__file__).parent.resolve()
 
-    if CURRENT_DIR.name == "build_indexes":
+    if CURRENT_DIR.name == "indexes":
         BASE_DIR = CURRENT_DIR.parent.parent
     elif CURRENT_DIR.name == "src":
         BASE_DIR = CURRENT_DIR.parent

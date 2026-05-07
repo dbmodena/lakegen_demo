@@ -36,6 +36,11 @@ data
 coding/
 script.py
 
+# Ignore Chainlit-generated runtime assets
+.chainlit/translations/
+src/.chainlit/
+src/.files/
+
 # ========================
 # 5. IDE and Operating System
 # ========================

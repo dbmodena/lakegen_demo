@@ -1,13 +1,11 @@
 import os
-from typing import Any
+from functools import lru_cache
 
-import streamlit as st
 import tiktoken
 from llama_index.core import Settings
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 from llama_index.llms.ollama import Ollama
 
-from lakegen_app.types import StreamCallback
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 
@@ -31,12 +29,12 @@ def get_llm(model, url) -> tuple[Ollama, TokenCountingHandler]:
     return llm, token_counter
 
 
-@st.cache_resource
+@lru_cache(maxsize=8)
 def get_solr(core):
     return LocalSolrClient(core=core)
 
 
-@st.cache_resource
+@lru_cache(maxsize=1)
 def get_prompt_manager() -> PromptManager:
     return PromptManager()
 
@@ -47,13 +45,3 @@ def get_all_csv_files(csv_dir):
     except FileNotFoundError:
         return []
 
-
-def make_streamlit_stream_callback(stream_placeholder: Any) -> StreamCallback:
-    stream_text = ""
-
-    def stream_to_placeholder(delta: str) -> None:
-        nonlocal stream_text
-        stream_text += delta
-        stream_placeholder.markdown(stream_text)
-
-    return stream_to_placeholder

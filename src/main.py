@@ -32,7 +32,7 @@ from utils import (
 )
 
 from tools import make_agent_tools
-from build_indexes.blend_indexer import BlendIndexer
+from indexes.blend_indexer import BlendIndexer
 from prompts.prompt_manager import PromptManager
 
 from client_solr import LocalSolrClient

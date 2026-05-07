@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import sys
 from pathlib import Path
@@ -15,14 +16,15 @@ from llama_index.core.callbacks import CallbackManager
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 
-from lakegen_app.phase2_logging import (
+from lakegen.phase2_logging import (
     Phase2AgentStall,
     detect_phase2_agent_stall,
     format_phase2_tool_args,
     format_phase2_tool_call,
+    format_phase2_tool_output,
     format_phase2_tool_result,
 )
-from lakegen_app.types import Phase2SelectionResult, SolrMetadata, StreamCallback
+from lakegen.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from prompts.prompt_manager import PromptManager
 from src.tools import make_agent_tools
 from src.utils import ThinkingCapture
@@ -126,7 +128,6 @@ def phase2_table_selector_agent(
                             tool_call_signatures.get(tool_signature, 0) + 1
                         )
                         if tool_call_signatures[tool_signature] >= 2:
-                            continue
                             raise Phase2AgentStall(
                                 "repeated identical tool call: "
                                 f"{getattr(event, 'tool_name', 'unknown_tool')}"
@@ -135,28 +136,40 @@ def phase2_table_selector_agent(
                     elif isinstance(event, ToolCallResult):
                         tool_result_count += 1
                         emit_stream(format_phase2_tool_result(event, tool_result_count))
+                        tool_output = getattr(event, "tool_output", None)
+                        output = format_phase2_tool_output(tool_output).lower()
+                        if "missing in active dataset" in output:
+                            raise Phase2AgentStall(
+                                "tool selected a file outside the active dataset"
+                            )
 
                 return await handler
 
             res = anyio.run(_run_agent)
             agent_resp = str(getattr(res, "response", res)).strip()
         except Phase2AgentStall as stall_err:
+            fallback_payload = {
+                "tables": ", ".join(candidates[:2]),
+                "reasoning": (
+                    f"Phase 2 loop guard triggered: {stall_err}. "
+                    "Fallback to top Solr candidates."
+                ),
+            }
             emit_stream(
                 "\n\n**Phase 2 loop guard triggered**\n"
                 f"- Reason: `{str(stall_err)}`\n"
                 "- Action: using the top Solr candidates as a fallback.\n"
             )
-            agent_resp = (
-                f'FINAL_PAYLOAD: {{"tables": "{", ".join(candidates[:2])}",'
-                ' "reasoning": "Stopped a repeated Data Architect thought loop. '
-                'Fallback to top Solr candidates."}}'
-            )
+            agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
         except Exception as agent_err:
+            fallback_payload = {
+                "tables": ", ".join(candidates[:2]),
+                "reasoning": (
+                    f"Agent error: {str(agent_err)[:80]}. Fallback to top 2."
+                ),
+            }
             emit_stream(f"\n[phase2 agent error] {str(agent_err)[:160]}\n")
-            agent_resp = (
-                f'FINAL_PAYLOAD: {{"tables": "{", ".join(candidates[:2])}",'
-                f' "reasoning": "Agent error: {str(agent_err)[:80]}. Fallback to top 2."}}'
-            )
+            agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
         finally:
             sys.stdout = old_stdout
             stdout_trace = capture.getvalue()
