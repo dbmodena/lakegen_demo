@@ -297,7 +297,7 @@ wheels = [
 [[package]]
 name = "blend"
 version = "0.3.2"
-source = { git = "https://github.com/nanni00/Blend#c2321879946b66d4e0143a9fdfc10f64713efb18" }
+source = { git = "https://github.com/nanni00/Blend#539423273610ffc764055e42c4778210ff08ed73" }
 dependencies = [
     { name = "duckdb" },
     { name = "polars" },
