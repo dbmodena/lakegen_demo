@@ -5832,3 +5832,490 @@ First 5 most recent dates:
 FINAL RESULT (Phase 5):
 The most recent dates that recorded PM10 levels above the 50 µg/m³ threshold were December 31, 30, 29, 28, and 27, 2022, out of a total of 484 recorded instances.
 ==================================================
+
+==================================================
+DATA: 2026-05-08 11:06:32
+QUESTION: Were there any days where the Cuba 3 sensor was louder than the Cadis 3 sensor during the night?
+TABLES SELECTED: t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv, t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv
+KEYWORDS (model raw output): sensor cuba 3, sensor cadis 3, ruido, niveles de ruido, noche, sonido, monitorización
+KEYWORDS (final elaborated): sensor, cuba, 3, cadis, ruido, niveles, de, noche, sonido, monitorización
+MODEL REASONING (Agent Trace):
+=== WORKFLOW TRACE ===
+--- Phase 2 Activity Log ---
+**Candidate tables**
+1. `t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cuba, 3
+2. `t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cadis, 3
+3. `t248671-daily__75a878a9-2bd9-4619-98ec-3224be867c65.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cadis, 16
+4. `t248677-daily__ff8678b6-748e-4908-ab5b-9c7ff567da61.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Vivons, chaflà amb Cadis
+5. `Nivells-i-servicis-RRCC-2023---2024__50bc28c5-25bf-4b62-8e97-e27aab4241a8.csv` - Nivells i servicis RRCC 2023 - 2024
+6. `Datos-de-la-estación-de-contaminación-atmosférica-de-Pista-de-Silla-(4A)__7b62d3d0-6a48-42e1-af5f-261272e17cf6.csv` - Dades de l’estació de contaminació atmosfèrica de Pista de Silla (4A)
+7. `Transferències-corrents-a-nivell-autonòmic-2022-2025__6acf8e35-38e0-4573-960c-99bfbdeab1b7.csv` - Transferències corrents a nivell autonòmic 2022-2025
+8. `Datos-de-la-estación-de-contaminación-atomosférica-de-Molí-del-Sol-(3A)__888dabe0-ad0f-46df-ac6c-fb21c191e804.csv` - Dades de l'estació de contaminació atmosfèrica de Molí del Sol (3A)
+9. `t248669-daily__784f4732-abc5-41b1-857b-42decb306643.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Doctor Serrano, 21
+10. `t248684-daily__8058f1a5-c605-4baa-afff-2f638efb767f.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Sueca, 61
+
+---
+
+**Agent activity log**
+
+**Preparing BLEND index**
+- Candidate files: `10`
+- Temporary DB: `temp_blend_ef5542dd26704da780bd65a670eb01b8.db`
+- Status: `ready`
+
+**Data Architect agent started**
+- Streaming model output and tool inspections below.
+
+
+**Phase 2 tool #1: Inspect columns**
+- Tool: `inspect_columns`
+- Args:
+```json
+{"file_name": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv"}
+```
+
+**Phase 2 tool #1 result**
+- Tool: `inspect_columns`
+- Status: `done`
+
+```text
+Schema for t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv (sampled first 500 rows):
+- recvtime (str)
+- fiwareservicepath (str)
+- entitytype (str)
+- entityid (str)
+- laeq (float64)
+- laeq_d (float64)
+- laeq_den (float64)
+- laeq_e (float64)
+- laeq_n (float64)
+- dateobserved (str)
+```
+
+
+**Phase 2 tool #2: Inspect columns**
+- Tool: `inspect_columns`
+- Args:
+```json
+{"file_name": "t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv"}
+```
+
+**Phase 2 tool #2 result**
+- Tool: `inspect_columns`
+- Status: `done`
+
+```text
+Schema for t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv (sampled first 500 rows):
+- recvtime (str)
+- fiwareservicepath (str)
+- entitytype (str)
+- entityid (str)
+- laeq (float64)
+- laeq_d (float64)
+- laeq_den (float64)
+- laeq_e (float64)
+- laeq_n (float64)
+- dateobserved (str)
+```
+
+
+**Phase 2 tool #3: Confirm table selection**
+- Tool: `confirm_table_selection`
+- Args:
+```json
+{"reasoning": "The query asks for a comparison of noise levels between the Cuba 3 and Cadis 3 sensors during the night. The file t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv contains daily noise data for the Cuba 3 sensor, including the night noise level (laeq_n). The file t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv contains the same data for the Cadis 3 sensor. By comparing the laeq_n column from both files on the same date, the question can be answered.", "selected_files": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv,t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv"}
+```
+
+**Phase 2 tool #3 result**
+- Tool: `confirm_table_selection`
+- Status: `done`
+
+```text
+FINAL_PAYLOAD: {"tables": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv,t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv", "reasoning": "The query asks for a comparison of noise levels between the Cuba 3 and Cadis 3 sensors during the night. The file t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv contains daily noise data for the Cuba 3 sensor, including the night noise level (laeq_n). The file t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv contains the same data for the Cadis 3 sensor. By comparing the laeq_n column from both files on the same date, the question can be answered."}
+```
+TOKENS: Phase1=1412 | Phase2=10829 | Phase3=3482 | Phase5=864
+RETRIES: 0
+CODE (extracted):
+import pandas as pd
+
+def solve():
+    # File paths
+    path_cuba = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv'
+    path_cadis = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv'
+
+    try:
+        # Load Cuba 3 data
+        df_cuba = pd.read_csv(path_cuba)
+        df_cuba.columns = df_cuba.columns.str.lower()
+        
+        # Load Cadis 3 data
+        df_cadis = pd.read_csv(path_cadis)
+        df_cadis.columns = df_cadis.columns.str.lower()
+
+        # Check for required columns
+        required_cols = ['dateobserved', 'laeq_n']
+        for col in required_cols:
+            if col not in df_cuba.columns:
+                print(f"Error: Column {col} not found in Cuba 3 data. Available: {df_cuba.columns.tolist()}")
+                return
+            if col not in df_cadis.columns:
+                print(f"Error: Column {col} not found in Cadis 3 data. Available: {df_cadis.columns.tolist()}")
+                return
+
+        # Prepare join keys and metrics
+        # Ensure dateobserved is treated as string for joining
+        df_cuba['dateobserved'] = df_cuba['dateobserved'].astype(str).str.strip()
+        df_cadis['dateobserved'] = df_cadis['dateobserved'].astype(str).str.strip()
+
+        # Merge dataframes on dateobserved
+        merged_df = pd.merge(
+            df_cuba[['dateobserved', 'laeq_n']], 
+            df_cadis[['dateobserved', 'laeq_n']], 
+            on='dateobserved', 
+            suffixes=('_cuba', '_cadis')
+        )
+
+        # Filter for days where Cuba 3 was louder than Cadis 3 during the night (laeq_n)
+        louder_days = merged_df[merged_df['laeq_n_cuba'] > merged_df['laeq_n_cadis']].copy()
+
+        if louder_days.empty:
+            print("No days were found where the Cuba 3 sensor was louder than the Cadis 3 sensor during the night.")
+        else:
+            print(f"Yes, there were {len(louder_days)} days where Cuba 3 was louder than Cadis 3 at night.")
+            print("First 5 examples of such days:")
+            # Displaying the relevant columns for clarity
+            output_df = louder_days[['dateobserved', 'laeq_n_cuba', 'laeq_n_cadis']].sort_values(by='dateobserved', ascending=False)
+            print(output_df.head(5).to_string(index=False))
+
+    except FileNotFoundError as e:
+        print(f"Error: File not found. {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    solve()
+
+RAW OUTPUT (Phase 4):
+Yes, there were 97 days where Cuba 3 was louder than Cadis 3 at night.
+First 5 examples of such days:
+dateobserved  laeq_n_cuba  laeq_n_cadis
+  2026-03-17        74.79         72.55
+  2026-03-16        73.72         73.40
+  2026-03-13        77.86         77.68
+  2026-03-07        72.13         71.02
+  2026-02-28        67.97         67.43
+FINAL RESULT (Phase 5):
+Yes, there were 97 days when the Cuba 3 sensor was louder than the Cadis 3 sensor during the night.
+==================================================
+
+==================================================
+DATA: 2026-05-08 11:26:05
+QUESTION: Were there any days where the Cuba 3 sensor was louder than the Cadis 3 sensor during the night?
+TABLES SELECTED: t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv, t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv
+KEYWORDS (model raw output): sensor cuba 3, sensor cadis 3, ruido, nivel sonoro, noche, decibelios, sonido
+KEYWORDS (final elaborated): sensor, cuba, 3, cadis, ruido, nivel, sonoro, noche, decibelios, sonido
+MODEL REASONING (Agent Trace):
+=== WORKFLOW TRACE ===
+--- Phase 2 Activity Log ---
+**Candidate tables**
+1. `t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cuba, 3
+2. `t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cadis, 3
+3. `t248671-daily__75a878a9-2bd9-4619-98ec-3224be867c65.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cadis, 16
+4. `t248677-daily__ff8678b6-748e-4908-ab5b-9c7ff567da61.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Vivons, chaflà amb Cadis
+5. `Nivells-i-servicis-RRCC-2023---2024__50bc28c5-25bf-4b62-8e97-e27aab4241a8.csv` - Nivells i servicis RRCC 2023 - 2024
+6. `Transferències-corrents-a-nivell-autonòmic-2022-2025__6acf8e35-38e0-4573-960c-99bfbdeab1b7.csv` - Transferències corrents a nivell autonòmic 2022-2025
+7. `Datos-de-la-estación-de-contaminación-atmosférica-de-Pista-de-Silla-(4A)__7b62d3d0-6a48-42e1-af5f-261272e17cf6.csv` - Dades de l’estació de contaminació atmosfèrica de Pista de Silla (4A)
+8. `Datos-de-la-estación-de-contaminación-atomosférica-de-Molí-del-Sol-(3A)__888dabe0-ad0f-46df-ac6c-fb21c191e804.csv` - Dades de l'estació de contaminació atmosfèrica de Molí del Sol (3A)
+9. `t248669-daily__784f4732-abc5-41b1-857b-42decb306643.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Doctor Serrano, 21
+10. `t248684-daily__8058f1a5-c605-4baa-afff-2f638efb767f.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Sueca, 61
+
+---
+
+**Agent activity log**
+
+**Preparing BLEND index**
+- Candidate files: `10`
+- Temporary DB: `temp_blend_e38f7134d0f34430951d4dd778db7909.db`
+- Status: `ready`
+
+**Data Architect agent started**
+- Streaming model output and tool inspections below.
+
+
+**Phase 2 tool #1: Confirm table selection**
+- Tool: `confirm_table_selection`
+- Args:
+```json
+{"reasoning": "The query asks for a comparison between the noise levels of the Cuba 3 and Cadis 3 sensors. The files t248682-daily__5a050cef-1107-4b3eb-8e61-5daf5cfb2ca4.csv and t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv contain the daily noise data for the Cuba 3 and Cadis 3 sensors respectively.", "selected_files": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv,t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv"}
+```
+
+**Phase 2 tool #1 result**
+- Tool: `confirm_table_selection`
+- Status: `done`
+
+```text
+FINAL_PAYLOAD: {"tables": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv,t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv", "reasoning": "The query asks for a comparison between the noise levels of the Cuba 3 and Cadis 3 sensors. The files t248682-daily__5a050cef-1107-4b3eb-8e61-5daf5cfb2ca4.csv and t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv contain the daily noise data for the Cuba 3 and Cadis 3 sensors respectively."}
+```
+TOKENS: Phase1=1311 | Phase2=3682 | Phase3=7906 | Phase5=805
+RETRIES: 2
+CODE (extracted):
+import pandas as pd
+
+def solve():
+    # File paths from AVAILABLE TABLES
+    path_cuba_3 = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv'
+    path_cadis_3 = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv'
+
+    def load_and_clean(path):
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            print(f"Error loading {path}: {e}")
+            return None
+        
+        # Standardize column names to lowercase
+        df.columns = df.columns.str.lower()
+        
+        # Check if required columns exist
+        required = ['dateobserved', 'laeq_n']
+        for col in required:
+            if col not in df.columns:
+                print(f"Error: Column '{col}' not found in {path}. Available: {df.columns.tolist()}")
+                return None
+        
+        # Keep only necessary columns and clean strings
+        df = df[['dateobserved', 'laeq_n']].copy()
+        df['dateobserved'] = df['dateobserved'].astype(str).str.strip()
+        df['laeq_n'] = pd.to_numeric(df['laeq_n'], errors='coerce')
+        
+        return df
+
+    # Load datasets
+    df_cuba = load_and_clean(path_cumbia_3 := path_cuba_3)
+    df_cadis = load_and_clean(path_cadis_3 := path_cadis_3)
+
+    if df_cuba is None or df_cadis is None:
+        return
+
+    # Merge on dateobserved
+    # Cuba 3 is the first file, Cadis 3 is the second
+    merged_df = pd.merge(
+        df_cuba, 
+        df_cadis, 
+        on='dateobserved', 
+        suffixes=('_cuba', '_cadis')
+    )
+
+    if merged_df.empty:
+        print("No overlapping dates found between the two sensors.")
+        return
+
+    # Filter for days where Cuba 3 was louder than Cadis 3 during the night (laeq_n)
+    louder_days = merged_df[merged_df['laeq_n_cuba'] > merged_df['laeq_n_cadis']].copy()
+
+    # Prepare output
+    if louder_days.empty:
+        print("No days were found where the Cuba 3 sensor was louder than the Cadis 3 sensor during the night.")
+    else:
+        print(f"Found {len(louder_days)} days where Cuba 3 was louder than Cadis 3 at night.")
+        print("First 5 examples:")
+        # Displaying relevant columns for clarity
+        result_display = louder_days[['dateobserved', 'laeq_n_cuba', 'laeq_n_cadis']].head(5)
+        print(result_display.to_string(index=False))
+
+if __name__ == "__main__":
+    solve()
+
+RAW OUTPUT (Phase 4):
+Found 97 days where Cuba 3 was louder than Cadis 3 at night.
+First 5 examples:
+dateobserved  laeq_n_cuba  laeq_n_cadis
+  2026-03-17        74.79         72.55
+  2026-03-16        73.72         73.40
+  2026-03-13        77.86         77.68
+  2026-03-07        72.13         71.02
+  2026-02-28        67.97         67.43
+FINAL RESULT (Phase 5):
+Yes, there were 97 days where the Cuba 3 sensor was louder than the Cadis 3 sensor during the night.
+==================================================
+
+==================================================
+DATA: 2026-05-08 11:32:02
+QUESTION: Were there any days where the Cuba 3 sensor was louder than the Cadis 3 sensor during the night?
+TABLES SELECTED: t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv, t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv
+KEYWORDS (model raw output): sensor cuba 3, sensor cadis 3, ruido, niveles de ruido, noche, sensores, sonoridad
+KEYWORDS (final elaborated): sensor, cuba, 3, cadis, ruido, niveles, de, noche, sensores, sonoridad
+MODEL REASONING (Agent Trace):
+=== WORKFLOW TRACE ===
+--- Phase 2 Activity Log ---
+**Candidate tables**
+1. `t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cuba, 3
+2. `t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cadis, 3
+3. `t248671-daily__75a878a9-2bd9-4619-98ec-3224be867c65.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Cadis, 16
+4. `t248677-daily__ff8678b6-748e-4908-ab5b-9c7ff567da61.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Vivons, chaflà amb Cadis
+5. `t248684-daily__8058f1a5-c605-4baa-afff-2f638efb767f.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Sueca, 61
+6. `t248669-daily__784f4732-abc5-41b1-857b-42decb306643.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Doctor Serrano, 21
+7. `t248683-daily__e580f492-a2f6-4305-af24-f4c4d05b911c.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Sueca, 2
+8. `t248680-daily__d842601d-35b4-4b88-96f7-42e8f68e1b74.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Sueca, 32
+9. `t248678-daily__b26d42ae-2be9-481a-9b79-71392d9e80bd.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Carles Cervera, 34
+10. `t248672-daily__1b41d86b-3939-488b-9035-92d851245924.csv` - Dades diàries del sensor de soroll ubicat al barri de Russafa, en el carrer Puerto Rico, 21
+
+---
+
+**Agent activity log**
+
+**Preparing BLEND index**
+- Candidate files: `10`
+- Temporary DB: `temp_blend_4706eb24d63e41f283c85956bdfc9c3a.db`
+- Status: `ready`
+
+**Data Architect agent started**
+- Streaming model output and tool inspections below.
+
+
+**Phase 2 tool #1: Inspect columns**
+- Tool: `inspect_columns`
+- Args:
+```json
+{"file_name": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv"}
+```
+
+**Phase 2 tool #1 result**
+- Tool: `inspect_columns`
+- Status: `done`
+
+```text
+Schema for t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv (sampled first 500 rows):
+- recvtime (str)
+- fiwareservicepath (str)
+- entitytype (str)
+- entityid (str)
+- laeq (float64)
+- laeq_d (float64)
+- laeq_den (float64)
+- laeq_e (float64)
+- laeq_n (float64)
+- dateobserved (str)
+```
+
+
+**Phase 2 tool #2: Inspect columns**
+- Tool: `inspect_columns`
+- Args:
+```json
+{"file_name": "t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv"}
+```
+
+**Phase 2 tool #2 result**
+- Tool: `inspect_columns`
+- Status: `done`
+
+```text
+Schema for t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv (sampled first 500 rows):
+- recvtime (str)
+- fiwareservicepath (str)
+- entitytype (str)
+- entityid (str)
+- laeq (float64)
+- laeq_d (float64)
+- laeq_den (float64)
+- laeq_e (float64)
+- laeq_n (float64)
+- dateobserved (str)
+```
+
+
+**Phase 2 tool #3: Confirm table selection**
+- Tool: `confirm_table_selection`
+- Args:
+```json
+{"reasoning": "The query asks for a comparison of noise levels between the Cuba 3 and Cadis 3 sensors during the night. The file t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv contains daily noise data for the Cuba 3 sensor, including the laeq_n column for night levels. The file t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv contains the same for the Cadis 3 sensor.", "selected_files": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv,t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv"}
+```
+
+**Phase 2 tool #3 result**
+- Tool: `confirm_table_selection`
+- Status: `done`
+
+```text
+FINAL_PAYLOAD: {"tables": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv,t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv", "reasoning": "The query asks for a comparison of noise levels between the Cuba 3 and Cadis 3 sensors during the night. The file t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv contains daily noise data for the Cuba 3 sensor, including the laeq_n column for night levels. The file t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv contains the same for the Cadis 3 sensor."}
+```
+TOKENS: Phase1=1521 | Phase2=10693 | Phase3=3772 | Phase5=865
+RETRIES: 0
+CODE (extracted):
+import pandas as pd
+
+def solve():
+    # File paths
+    path_cuba = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cf1ca4.csv'
+    path_cadis = '/home/gabriele.martinelli/Lakegen_demo/data/valencia/datasets/csv/t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv'
+    
+    # Note: The user provided path for Cuba 3 has a slight typo in the prompt's text vs the logic 
+    # (the prompt says t248682... but the path in the list is the same). 
+    # I will use the exact paths provided in the <available_tables> section.
+    path_cuba = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv'
+    path_cadis = '/he/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv'
+    # Re-correcting paths based on the provided list
+    path_cuba = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4.csv'
+    path_cadis = '/home/gabriele.martinelli/LakeGen/lakegen_demo/data/valencia/datasets/csv/t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de.csv'
+
+    try:
+        # Load Cuba 3 data
+        df_cuba = pd.read_csv(path_cuba)
+        df_cuba.columns = df_cuba.columns.str.lower()
+        
+        # Load Cadis 3 data
+        df_cadis = pd.read_csv(path_cadis)
+        df_cadis.columns = df_cadis.columns.str.lower()
+        
+        # Check required columns
+        required_cols = ['dateobserved', 'laeq_n']
+        for df, name in [(df_cuba, 'Cuba 3'), (df_cadis, 'Cadis 3')]:
+            if not all(col in df.columns for col in required_cols):
+                print(f"Error: Missing columns in {name} data. Available: {df.columns.tolist()}")
+                return
+
+        # Prepare dataframes for merging
+        # We only need dateobserved and laeq_n
+        df_cuba_sub = df_cuba[['dateobserved', 'laeq_n']].copy()
+        df_cuba_sub = df_cuba_sub.rename(columns={'laeq_n': 'laeq_n_cuba'})
+        
+        df_cadis_sub = df_cadis[['dateobserved', 'laeq_n']].copy()
+        df_cadis_sub = df_cadis_sub.rename(columns={'laeq_n': 'laeq_n_cadis'})
+        
+        # Merge on dateobserved
+        merged = pd.merge(df_cuba_sub, df_cadis_sub, on='dateobserved', how='inner')
+        
+        if merged.empty:
+            print("No overlapping dates found between the two sensors.")
+            return
+
+        # Filter for days where Cuba 3 was louder than Cadis 3 during the night
+        louder_days = merged[merged['laeq_n_cuba'] > merged['laeq_n_cadis']].copy()
+        
+        if louder_days.empty:
+            print("No days were found where the Cuba 3 sensor was louder than the Cadis 3 sensor during the night.")
+        else:
+            print(f"Found {len(louder_days)} days where Cuba 3 was louder than Cadis 3 at night.")
+            print("First 5 examples:")
+            print(louder_days[['dateobserved', 'laeq_n_cuba', 'laeq_n_cadis']].head(5).to_string(index=False))
+
+    except FileNotFoundError as e:
+        print(f"Error: File not found. {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    solve()
+
+RAW OUTPUT (Phase 4):
+Found 97 days where Cuba 3 was louder than Cadis 3 at night.
+First 5 examples:
+dateobserved  laeq_n_cuba  laeq_n_cadis
+  2026-03-17        74.79         72.55
+  2026-03-16        73.72         73.40
+  2026-03-13        77.86         77.68
+  2026-03-07        72.13         71.02
+  2026-02-28        67.97         67.43
+FINAL RESULT (Phase 5):
+Yes, there were 97 days where the Cuba 3 sensor was louder than the Cadis 3 sensor during the night.
+==================================================
