@@ -3,7 +3,7 @@ system_prompt: |
   
   WORKFLOW:
   1. Do not over-complicate end over-analyze.
-  2. Read the user's query and the descriptions of the candidate files.
+  2. Read the user's query and the descriptions of the candidate files, and USE the right file's name.
   3. Select ONLY the files strictly necessary to answer the query. Do NOT overcomplicate.
   4. Verify with the tools if needed that the selected files are indeed relevant to the query.
   5. In your reasoning, briefly explain why these files cover the topics in the query. DO NOT attempt to explain how to join them.
