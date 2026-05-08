@@ -5,9 +5,9 @@ import polars as pl
 from pathlib import Path
 from llama_index.core.tools import FunctionTool
 from valentine import valentine_match
-from valentine.algorithms import JaccardDistanceMatcher, ComaPy
+from valentine.algorithms import ComaPy
 
-from utils import CSV_DIR
+from lakegen.utils import CSV_DIR
 
 try:
     from blend import BLEND
@@ -22,7 +22,7 @@ try:
             sys.path.append(str(sloth_dir))
         from lakegen.data_integration_tools.sloth.sloth import sloth
     except ImportError:
-        from sloth import sloth
+        from lakegen.data_integration_tools.sloth import sloth
 except ImportError as e:
     print(f"❌ Critical error: impossible to import sloth: {e}")
     # sys.exit(1)

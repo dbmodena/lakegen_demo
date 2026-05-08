@@ -56,6 +56,7 @@ _MESSAGES: dict[str, str] = {
     "summary.approval_hint": "Approval hint",
     "summary.total_tokens": "Total tokens",
     "summary.attempt": "Attempt",
+    "summary.error": "Error",
     "summary.feedback": "Feedback",
     "summary.generation_attempts": "Generation attempts",
     "summary.tokens": "tokens",

@@ -15,6 +15,13 @@ def _status_label(status: str) -> str:
     return t(f"status.{key}", default=status)
 
 
+def _fenced_text(content: str) -> str:
+    fence = "```"
+    while fence in content:
+        fence += "`"
+    return f"{fence}text\n{content}\n{fence}"
+
+
 def format_hint(hint: str) -> str:
     return f"`{hint}`" if hint else t("summary.none")
 
@@ -82,13 +89,13 @@ def build_phase3_summary(
         lines.append(t("summary.no_code_attempts"))
     for attempt in code_attempts:
         status = _status_label(attempt.get("status", "generated"))
-        feedback = attempt.get("feedback") or ""
+        error = attempt.get("error") or ""
         line = (
             f"- {t('summary.attempt')} `{attempt.get('attempt')}`: {status}; "
             f"{t('summary.tokens')}: `{attempt.get('tokens', 0)}`"
         )
-        if feedback:
-            line += f"; {t('summary.feedback')}: `{feedback}`"
+        if error:
+            line += f"\n\n{t('summary.error')}:\n\n{_fenced_text(error)}"
         lines.append(line)
     lines.append(f"\n- {t('summary.total_tokens')}: `{session.tokens['p3']}`")
     return "\n".join(lines)

@@ -10,7 +10,7 @@ import chainlit as cl
 
 from lakegen.ui.i18n import t
 from lakegen.types import SolrMetadata
-from src.utils import BASE_DIR
+from lakegen.utils import BASE_DIR
 
 
 MODEL_OPTIONS = ["gemma4:26b", "qwen3.5:latest", "llama3.1:8b", "gpt-oss:20b"]
@@ -40,12 +40,19 @@ class RuntimeSettings:
         return cls()
 
     @classmethod
-    def from_chainlit_settings(cls, settings: dict[str, Any]) -> "RuntimeSettings":
+    def from_chainlit_settings(
+        cls,
+        settings: dict[str, Any],
+        *,
+        solr_core: str | None = None,
+    ) -> "RuntimeSettings":
         default = cls()
 
-        solr_core = str(settings.get("solr_core") or default.solr_core)
-        if solr_core not in SOLR_CORE_OPTIONS:
-            solr_core = default.solr_core
+        selected_solr_core = str(
+            solr_core or settings.get("solr_core") or default.solr_core
+        )
+        if selected_solr_core not in SOLR_CORE_OPTIONS:
+            selected_solr_core = default.solr_core
 
         model_name = str(settings.get("model_name") or default.model_name)
         if model_name not in MODEL_OPTIONS:
@@ -55,9 +62,9 @@ class RuntimeSettings:
         return cls(
             ollama_url=ollama_url or default.ollama_url,
             model_name=model_name,
-            solr_core=solr_core,
-            csv_dir=BASE_DIR / f"data/{solr_core}/datasets/csv",
-            db_path=BASE_DIR / f"data/blend_{solr_core}.db",
+            solr_core=selected_solr_core,
+            csv_dir=BASE_DIR / f"data/{selected_solr_core}/datasets/csv",
+            db_path=BASE_DIR / f"data/blend_{selected_solr_core}.db",
         )
 
 

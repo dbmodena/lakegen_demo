@@ -1,4 +1,6 @@
 from __future__ import annotations
+import uuid
+import os
 
 import asyncio
 from dataclasses import dataclass
@@ -37,7 +39,7 @@ from lakegen.resources import (
     get_prompt_manager,
     get_solr,
 )
-from src.utils import save_experiment_log
+from lakegen.utils import save_experiment_log, BASE_DIR
 
 
 WORKFLOW_LOCK = asyncio.Lock()
@@ -48,6 +50,28 @@ MAX_RETRIES = 3
 class ExecutionOutcome:
     status: str
     reason: str = ""
+
+
+def _fenced_text(content: str) -> str:
+    fence = "```"
+    while fence in content:
+        fence += "`"
+    return f"{fence}text\n{content}\n{fence}"
+
+
+def _format_phase3_attempt_block(
+    session: LakeGenSession,
+    attempt: dict[str, Any],
+    output: str | None,
+) -> str:
+    status = attempt.get("status", "generated")
+    status_label = t(f"status.{str(status).lower().replace(' ', '_')}", default=str(status))
+    rendered_output = output or session.text("phase3.success")
+    return (
+        f"### {session.text('summary.attempt')} {attempt.get('attempt')} - {status_label}\n\n"
+        f"{_fenced_text(rendered_output)}\n\n"
+        f"- {session.text('summary.tokens')}: `{attempt.get('tokens', 0)}`"
+    )
 
 
 def _action_value(response: Any) -> str:
@@ -258,20 +282,36 @@ def _retrieve_and_select_tables(
         all_csv,
         stream_callback=stream_callback,
     )
-    return phase2_select_tables(
+
+    # make a tmp folder with a link to the actual file
+    tmp_folder = BASE_DIR / f".tmp_link_datasets_{uuid.uuid4()}"
+    os.mkdir(tmp_folder)
+
+    # link each file from the original position into the tmp folder
+    for cand_file in cands:
+        os.symlink(session.runtime.csv_dir / cand_file, tmp_folder / cand_file)
+
+    phase2_res =  phase2_select_tables(
         session.query,
         llm,
         pm,
         all_csv,
         cands,
         smeta,
-        session.runtime.csv_dir,
+        tmp_folder, # session.runtime.csv_dir, # pass the tmp folder instead of the complete one
         session.runtime.db_path,
         activity_log_parts=activity_log_parts,
         hint=hint,
         stream_callback=stream_callback,
         cancel_check=session.check_cancelled,
     )
+
+    # clear the tmp folder 
+    for file in os.listdir(tmp_folder):
+        os.remove(tmp_folder / file)
+    os.rmdir(tmp_folder)
+
+    return phase2_res 
 
 
 async def _run_table_gate(
@@ -302,7 +342,6 @@ async def _run_table_gate(
         )
 
         first = False
-        rerun_retrieval = False
 
         if not ok:
             action = await _ask_choice(
@@ -357,11 +396,14 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
     raw_result = None
     err = None
     code_attempts: list[dict[str, Any]] = []
+    attempt_blocks: list[str] = []
 
-    while retries < MAX_RETRIES:
-        session.check_cancelled()
-        async with cl.Step(name=session.text("phase3.step"), type="run", default_open=True) as step:
+    async with cl.Step(name=session.text("phase3.step"), type="run", default_open=True) as step:
+        while retries < MAX_RETRIES:
+            session.check_cancelled()
+            attempt_no = retries + 1
             async with StepStreamBridge(step) as bridge:
+                bridge.emit(f"\n\n## {session.text('summary.attempt')} {attempt_no}\n")
                 code_box = CumulativeMarkdownEmitter(
                     bridge.emit,
                     session.text("phase3.code_stream"),
@@ -393,8 +435,9 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
             raw_result = phase3_result.raw_result
             err = phase3_result.error
             generation_attempt = {
-                "attempt": retries + 1,
-                "feedback": error_msg,
+                "attempt": attempt_no,
+                "correction_feedback": error_msg,
+                "error": phase3_result.error,
                 "raw_response": phase3_result.code_raw,
                 "clean_code": phase3_result.clean_code,
                 "tokens": phase3_result.tokens,
@@ -406,16 +449,39 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                 session.fallback_reason = reason
                 generation_attempt["status"] = "rejected tables"
                 code_attempts.append(generation_attempt)
-                step.output = phase3_result.code_raw
+                attempt_blocks.append(
+                    _format_phase3_attempt_block(
+                        session,
+                        generation_attempt,
+                        phase3_result.code_raw,
+                    )
+                )
+                step.output = "\n\n".join(attempt_blocks)
+                await step.update()
                 await cl.Message(content=build_phase3_summary(session, code_attempts)).send()
                 return ExecutionOutcome(status="tables_rejected", reason=reason)
 
             code_attempts.append(generation_attempt)
             if err is None:
-                step.output = raw_result or session.text("phase3.success")
+                attempt_blocks.append(
+                    _format_phase3_attempt_block(
+                        session,
+                        generation_attempt,
+                        raw_result or session.text("phase3.success"),
+                    )
+                )
+                step.output = "\n\n".join(attempt_blocks)
                 break
 
-            step.output = err
+            attempt_blocks.append(
+                _format_phase3_attempt_block(
+                    session,
+                    generation_attempt,
+                    err,
+                )
+            )
+            step.output = "\n\n".join(attempt_blocks)
+            await step.update()
             error_msg = err
             retries += 1
 

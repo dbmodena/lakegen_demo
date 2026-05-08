@@ -27,9 +27,9 @@ from lakegen.phase2_logging import (
 )
 from lakegen.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from lakegen.ui.state import WorkflowCancelled
+from lakegen.tools import make_agent_tools
+from lakegen.utils import ThinkingCapture
 from prompts.prompt_manager import PromptManager
-from src.tools import make_agent_tools
-from src.utils import ThinkingCapture
 
 from .utils import (
     format_candidate_context,
@@ -247,6 +247,7 @@ def phase2_select_tables(
     cancel_check: Callable[[], None] | None = None,
 ) -> Phase2SelectionResult:
     activity_log = activity_log_parts or []
+    print("\n\n\n", all_files, "\n\n\n\n")
     blend_db = prepare_candidate_index(
         candidates=candidates,
         csv_dir=csv_dir,

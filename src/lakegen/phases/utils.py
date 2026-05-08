@@ -6,8 +6,8 @@ from pathlib import Path
 
 from lakegen.phase2_logging import format_phase2_solr_results
 from lakegen.types import SolrMetadata, StreamCallback
-from src.indexes.blend_indexer import BlendIndexer
-
+# from src.indexes.blend_indexer import BlendIndexer
+import blend
 
 def emit_agent_activity(
     activity_log_parts: list[str],
@@ -86,8 +86,12 @@ def prepare_candidate_index(
             f"- Temporary DB: `{blend_db.name}`\n",
         )
 
-        indexer = BlendIndexer(csv_dir=csv_dir, db_path=blend_db)
-        indexer.build_index(specific_files=candidates, silent=True)
+        indexer = blend.BLEND(db_path=db_path)
+        _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 10000}
+        blend.index_tables_seq(indexer, csv_dir, load_opts=_blend_load_opts, log_stdout=True)
+
+        # indexer = BlendIndexer(csv_dir=csv_dir, db_path=blend_db)
+        # indexer.build_index(specific_files=candidates, silent=True)
         print(f"[phase2 tables] BLEND ready db={blend_db.name}", flush=True)
         emit_agent_activity(activity_log_parts, stream_callback, "- Status: `ready`\n")
     except Exception:
@@ -141,8 +145,13 @@ def parse_table_selector_response(
             selected_str = tables_match.group(1).strip()
 
     selected_str = selected_str.replace("'", "").replace('"', "")
-    selected = [name.strip() for name in selected_str.split(",")
-                if name.strip() in all_files]
+    
+    selected = [
+        name.strip() 
+        for name in selected_str.split(",")
+        if name.strip() in all_files
+    ]
+
     if not selected:
         selected = candidates[:2]
 

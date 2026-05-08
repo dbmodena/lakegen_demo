@@ -29,12 +29,15 @@ from lakegen.bootstrap import (  # noqa: E402
 from lakegen.ui.state import (  # noqa: E402
     MODEL_OPTIONS,
     SOLR_CORE_OPTIONS,
+    SOLR_CORE_PORTAL_NAMES,
     RuntimeSettings,
     WorkflowCancelled,
+    get_runtime_settings,
     get_session,
     set_runtime_settings,
 )
 from lakegen.ui.i18n import t  # noqa: E402
+from lakegen.ui.starters import starters_for_core  # noqa: E402
 from lakegen.ui.workflow import run_lakegen_workflow  # noqa: E402
 
 ensure_project_paths(_SRC_DIR, _ROOT_DIR)
@@ -73,12 +76,30 @@ def _settings_widgets(runtime: RuntimeSettings | None = None) -> list:
             values=MODEL_OPTIONS,
             initial_value=runtime.model_name,
         ),
-        Select(
-            id="solr_core",
-            label=t("settings.solr_core"),
-            values=SOLR_CORE_OPTIONS,
-            initial_value=runtime.solr_core,
-        ),
+    ]
+
+
+def _selected_solr_core() -> str:
+    chat_profile = str(cl.user_session.get("chat_profile") or "")
+    if chat_profile in SOLR_CORE_OPTIONS:
+        return chat_profile
+    return RuntimeSettings.default().solr_core
+
+
+@cl.set_chat_profiles  # ty: ignore
+async def chat_profiles():
+    default_core = RuntimeSettings.default().solr_core
+    return [
+        cl.ChatProfile(
+            name=core,
+            display_name=SOLR_CORE_PORTAL_NAMES.get(core, core),
+            markdown_description=(
+                f"Ask questions against {SOLR_CORE_PORTAL_NAMES.get(core, core)}."
+            ),
+            default=core == default_core,
+            starters=starters_for_core(core),
+        )
+        for core in SOLR_CORE_OPTIONS
     ]
 
 
@@ -101,19 +122,19 @@ async def on_chat_start() -> None:
 
         session = get_session()
 
-        runtime = RuntimeSettings.default()
+        selected_solr_core = _selected_solr_core()
+        runtime = RuntimeSettings.from_chainlit_settings(
+            {},
+            solr_core=selected_solr_core,
+        )
 
         settings = await cl.ChatSettings(_settings_widgets(runtime)).send()
-        runtime = RuntimeSettings.from_chainlit_settings(settings or {})
+        runtime = RuntimeSettings.from_chainlit_settings(
+            settings or {},
+            solr_core=selected_solr_core,
+        )
         set_runtime_settings(runtime)
         session.runtime = runtime
-
-        await cl.Message(
-            content=(
-                f"{t('app.title')}\n\n"
-                f"{t('app.intro')}"
-            )
-        ).send()
     except Exception as exc:
         logger.exception("LakeGen failed during on_chat_start")
         await cl.Message(
@@ -125,7 +146,11 @@ async def on_chat_start() -> None:
 @cl.on_settings_update
 async def on_settings_update(settings: dict) -> None:
     try:
-        runtime = RuntimeSettings.from_chainlit_settings(settings or {})
+        current_runtime = get_runtime_settings()
+        runtime = RuntimeSettings.from_chainlit_settings(
+            settings or {},
+            solr_core=current_runtime.solr_core,
+        )
         set_runtime_settings(runtime)
         get_session().runtime = runtime
         await cl.Message(

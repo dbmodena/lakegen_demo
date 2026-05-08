@@ -12,7 +12,7 @@ from llama_index.core.llms import ChatMessage, LLM
 
 from lakegen.types import SolrMetadata
 from prompts.prompt_manager import PromptManager
-from src.utils import BASE_DIR
+from src.lakegen.utils import BASE_DIR
 
 from .phase1 import split_thinking_blocks
 

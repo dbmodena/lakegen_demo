@@ -31,6 +31,7 @@ data/
 old_data/
 *.zip
 data
+logs
 
 # Ignore dynamically generated Python code by the agent
 coding/
@@ -47,5 +48,6 @@ src/.files/
 # ========================
 .vscode/
 .idea/
+.codex
 .DS_Store
 Thumbs.db

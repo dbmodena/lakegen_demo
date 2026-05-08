@@ -20,6 +20,8 @@ CURRENT_DIR = Path(__file__).parent.resolve()
 
 if CURRENT_DIR.name == "src":
     BASE_DIR = CURRENT_DIR.parent
+elif CURRENT_DIR.name == "lakegen":
+    BASE_DIR = CURRENT_DIR.parent.parent
 else:
     BASE_DIR = CURRENT_DIR
 
@@ -56,31 +58,6 @@ JSON_DIR = BASE_DIR / paths.get("json_metadata_dir", "Data/bologna_update/metada
 DB_PATH = BASE_DIR / paths.get("blend_db_path", "Data/blend_index.db")
 INDEXES_DIR = BASE_DIR / paths.get("indexes_dir", "Data/indexes")
 LOG_DIR = BASE_DIR / paths.get("logs_dir", "logs")
-
-# ==========================================
-# UTILITIES
-# ==========================================
-# OLD: function for fuzzy matching
-def fuzzy_matching_strategy(enriched_keywords: list[str], inverted_index: dict, all_available_files: list):
-    table_scores = {f: 0.0 for f in all_available_files}
-    # Total number of documents (for IDF calculation)
-    N = len(all_available_files) 
-    for kw in enriched_keywords:
-        # Track the best score for the current keyword per file to avoid "double dipping"
-        # (e.g., if a file has both "residenti" and "residente", we only count the highest match once)
-        kw_scores_per_file = {}
-        for index_kw, files in inverted_index.items():
-            score = fuzz.ratio(kw, index_kw)
-            # A higher threshold (85) prevents weak/false positive matches (like 'santo' matching 'stato')
-            if score >= 85:
-                # Calculate Inverse Document Frequency (IDF) to give higher weight to rare keywords
-                # Common words across many tables will have a lower impact.
-                idf = math.log((N + 1) / (len(files) + 1)) + 1
-                weighted_score = (score / 100.0) * idf
-                for f in files:
-                    # Keep the maximum score obtained by this specific user keyword for the file
-                    kw_scores_per_file[f] = max(kw_scores_per_file.get(f, 0.0), weighted_score)
-
 
 CSV_LOG_COLUMNS = ["ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3", "TOKENS_PHASE4", "ERROR"]
 
@@ -165,15 +142,6 @@ def save_experiment_log(question: str, code: str, result: str, retries: int, rea
             writer.writeheader()
         writer.writerow(row)
 
-class DualLogger:
-    def __init__(self, terminal):
-        self.terminal = terminal
-        self.log_str = io.StringIO()
-    def write(self, message):
-        self.terminal.write(message)
-        self.log_str.write(message)
-    def flush(self):
-        self.terminal.flush()
 
 class ThinkingCapture(BaseEventHandler):
     parts: List[str] = Field(default_factory=list)

@@ -13,6 +13,7 @@ chat_settings_location = "message_composer"
 default_chat_settings_open = true
 logo_file_url = "/favicon"
 default_avatar_file_url = "/favicon"
+avatar_size = 32
 
 [meta]
 generated_by = "2.11.1"
