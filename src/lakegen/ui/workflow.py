@@ -11,7 +11,6 @@ from lakegen.ui.sections import (
     build_phase2_summary,
     build_phase3_summary,
     build_phase4_summary,
-    build_phase5_summary,
 )
 from lakegen.ui.i18n import t
 from lakegen.ui.state import (
@@ -29,9 +28,8 @@ from lakegen.phases import (
     phase1_generate_keywords,
     phase1_retrieve_candidates,
     phase2_select_tables,
-    phase3_generate_code,
-    phase4_execute,
-    phase5_synthesize,
+    phase3_generate_and_execute,
+    phase4_synthesize,
 )
 from lakegen.resources import (
     get_all_csv_files,
@@ -62,8 +60,13 @@ def _action_value(response: Any) -> str:
     return str(payload.get("value") or "")
 
 
-async def _ask_choice(content: str, choices: list[tuple[str, str, str]]) -> str:
-    response = await cl.AskActionMessage(
+async def _ask_choice(
+    content: str,
+    choices: list[tuple[str, str, str]],
+    *,
+    remove_after_answer: bool = False,
+) -> str:
+    message = cl.AskActionMessage(
         content=content,
         actions=[
             cl.Action(name=name, payload={"value": value}, label=label)
@@ -71,16 +74,22 @@ async def _ask_choice(content: str, choices: list[tuple[str, str, str]]) -> str:
         ],
         timeout=24 * 60 * 60,
         raise_on_timeout=False,
-    ).send()
+    )
+    response = await message.send()
+    if remove_after_answer:
+        await message.remove()
     return _action_value(response)
 
 
-async def _ask_hint(content: str) -> str:
-    response = await cl.AskUserMessage(
+async def _ask_hint(content: str, *, remove_after_answer: bool = False) -> str:
+    message = cl.AskUserMessage(
         content=f"{content}\n\n{t('hint.skip_suffix')}",
         timeout=10 * 60,
         raise_on_timeout=False,
-    ).send()
+    )
+    response = await message.send()
+    if remove_after_answer:
+        await message.remove()
     if not response:
         return ""
     hint = str(response.get("output") or "").strip()
@@ -97,7 +106,7 @@ async def _generate_keywords(
     pm,
     hint: str,
     label: str,
-) -> None:
+) -> cl.Step:
     async with cl.Step(name=session.text("phase1.step"), type="llm", default_open=True) as step:
         async with StepStreamBridge(step) as bridge:
             stream_box = CumulativeMarkdownEmitter(
@@ -126,6 +135,7 @@ async def _generate_keywords(
             f"{_keyword_list(kws)}\n\n"
             f"{t('summary.tokens').title()}: `{tok}`"
         )
+    return step
 
 
 async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str) -> None:
@@ -136,7 +146,7 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
         else session.text("phase1.initial_generation")
     )
     while True:
-        await _generate_keywords(session, llm, pm, hint, label)
+        phase1_step = await _generate_keywords(session, llm, pm, hint, label)
         session.check_cancelled()
         action = await _ask_choice(
             session.text(
@@ -147,13 +157,16 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
                 ("approve_keywords", "approve", session.text("phase1.approve")),
                 ("recalculate_keywords", "recalculate", session.text("phase1.recalculate")),
             ],
+            remove_after_answer=True,
         )
         if action == "approve":
-            await cl.Message(content=build_phase1_summary(session, hint)).send()
+            phase1_step.output = build_phase1_summary(session, hint)
+            await phase1_step.update()
             return
         session.check_cancelled()
         hint = await _ask_hint(
             session.text("phase1.change_hint"),
+            remove_after_answer=True,
         )
         label = session.text("phase1.recalculation")
 
@@ -168,8 +181,13 @@ async def _select_tables_once(
     initial_retrieval: bool,
     hint: str,
     accumulate_tokens: bool,
-) -> bool:
-    async with cl.Step(name=session.text("phase2.step"), type="run", default_open=True) as step:
+) -> tuple[bool, cl.Step]:
+    async with cl.Step(
+        name=session.text("phase2.step"),
+        type="run",
+        default_open=True,
+        auto_collapse=True,
+    ) as step:
         async with StepStreamBridge(step) as bridge:
             if initial_retrieval:
                 result = await cl.make_async(_retrieve_and_select_tables)(
@@ -210,7 +228,7 @@ async def _select_tables_once(
                 "phase2.keywords_rejected",
                 reason=session.fallback_reason,
             )
-            return False
+            return False, step
 
         session.tables = sel
         session.candidates = cands
@@ -222,7 +240,7 @@ async def _select_tables_once(
         else:
             session.tokens["p2"] = tok2
         step.output = build_phase2_summary(session, hint)
-        return True
+        return True, step
 
 
 def _retrieve_and_select_tables(
@@ -272,7 +290,7 @@ async def _run_table_gate(
 
     while True:
         session.check_cancelled()
-        ok = await _select_tables_once(
+        ok, phase2_step = await _select_tables_once(
             session,
             llm,
             pm,
@@ -299,7 +317,10 @@ async def _run_table_gate(
                         session.text("phase2.generate_keywords"),
                     )
                 ],
+                remove_after_answer=True,
             )
+            phase2_step.default_open = False
+            await phase2_step.update()
             return "keywords_rejected" if action == "regenerate" else "cancelled"
 
         action = await _ask_choice(
@@ -311,15 +332,20 @@ async def _run_table_gate(
                 ("approve_tables", "approve", session.text("phase2.approve")),
                 ("recalculate_tables", "recalculate", session.text("phase2.recalculate")),
             ],
+            remove_after_answer=True,
         )
 
+        phase2_step.default_open = False
         if action == "approve":
-            await cl.Message(content=build_phase2_summary(session, hint)).send()
+            phase2_step.output = build_phase2_summary(session, hint)
+            await phase2_step.update()
             return "approved"
+        await phase2_step.update()
 
         session.check_cancelled()
         hint = await _ask_hint(
             session.text("phase2.change_hint"),
+            remove_after_answer=True,
         )
         rerun_retrieval = True
 
@@ -331,11 +357,10 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
     raw_result = None
     err = None
     code_attempts: list[dict[str, Any]] = []
-    execution_attempts: list[dict[str, Any]] = []
 
     while retries < MAX_RETRIES:
         session.check_cancelled()
-        async with cl.Step(name=session.text("phase3.step"), type="llm", default_open=True) as step:
+        async with cl.Step(name=session.text("phase3.step"), type="run", default_open=True) as step:
             async with StepStreamBridge(step) as bridge:
                 code_box = CumulativeMarkdownEmitter(
                     bridge.emit,
@@ -345,7 +370,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     bridge.emit,
                     session.text("phase3.model_reasoning"),
                 )
-                code_raw, tok3 = await cl.make_async(phase3_generate_code)(
+                phase3_result = await cl.make_async(phase3_generate_and_execute)(
                     session.query,
                     session.tables,
                     session.candidates,
@@ -360,47 +385,36 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     stream_placeholder=code_box,
                     reasoning_placeholder=reasoning_box,
                     cancel_check=session.check_cancelled,
+                    run_dir=session.run_dir,
                 )
-            session.tokens["p3"] += tok3
+
+            session.tokens["p3"] += phase3_result.tokens
+            final_code = phase3_result.clean_code
+            raw_result = phase3_result.raw_result
+            err = phase3_result.error
             generation_attempt = {
                 "attempt": retries + 1,
                 "feedback": error_msg,
-                "raw_response": code_raw,
-                "tokens": tok3,
-                "status": "generated",
+                "raw_response": phase3_result.code_raw,
+                "clean_code": phase3_result.clean_code,
+                "tokens": phase3_result.tokens,
+                "status": "success" if phase3_result.error is None else "error",
             }
-            step.output = code_raw
 
-        if "REJECT_TABLES" in code_raw and not session.force_execution:
-            reason = code_raw.replace("REJECT_TABLES:", "").replace("REJECT_TABLES", "").strip()
-            session.fallback_reason = reason
-            generation_attempt["status"] = "rejected tables"
-            code_attempts.append(generation_attempt)
-            await cl.Message(content=build_phase3_summary(session, code_attempts)).send()
-            return ExecutionOutcome(status="tables_rejected", reason=reason)
+            if phase3_result.rejected_reason:
+                reason = phase3_result.rejected_reason
+                session.fallback_reason = reason
+                generation_attempt["status"] = "rejected tables"
+                code_attempts.append(generation_attempt)
+                step.output = phase3_result.code_raw
+                await cl.Message(content=build_phase3_summary(session, code_attempts)).send()
+                return ExecutionOutcome(status="tables_rejected", reason=reason)
 
-        async with cl.Step(name=session.text("phase4.step"), type="tool", default_open=True) as step:
-            raw_result, err, clean_code = await cl.make_async(phase4_execute)(
-                code_raw,
-                run_dir=session.run_dir,
-            )
-            final_code = clean_code
-            generation_attempt["clean_code"] = clean_code
             code_attempts.append(generation_attempt)
             if err is None:
-                execution_attempts.append({
-                    "attempt": retries + 1,
-                    "status": "success",
-                    "output": raw_result or "",
-                })
-                step.output = raw_result or session.text("phase4.success")
+                step.output = raw_result or session.text("phase3.success")
                 break
 
-            execution_attempts.append({
-                "attempt": retries + 1,
-                "status": "error",
-                "error": err,
-            })
             step.output = err
             error_msg = err
             retries += 1
@@ -408,14 +422,14 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
     if raw_result is None:
         raw_result = f"Execution failed after {MAX_RETRIES} attempts. Last error: {error_msg}"
 
-    async with cl.Step(name=session.text("phase5.step"), type="llm", default_open=True) as step:
-        answer, tok5 = await cl.make_async(phase5_synthesize)(
+    async with cl.Step(name=session.text("phase4.step"), type="llm", default_open=True) as step:
+        answer, tok4 = await cl.make_async(phase4_synthesize)(
             session.query,
             raw_result,
             llm,
             pm,
         )
-        session.tokens["p5"] = tok5
+        session.tokens["p4"] = tok4
         step.output = answer
 
     elements = [
@@ -436,8 +450,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         content=(
             f"### {session.text('result.final')}\n{answer}\n\n"
             f"{build_phase3_summary(session, code_attempts)}\n\n"
-            f"{build_phase4_summary(execution_attempts)}\n\n"
-            f"{build_phase5_summary(session, answer)}"
+            f"{build_phase4_summary(session, answer)}"
         ),
         elements=elements,
     ).send()
@@ -457,7 +470,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         tokens_phase1=session.tokens["p1"],
         tokens_phase2=session.tokens["p2"],
         tokens_phase3=session.tokens["p3"],
-        tokens_phase5=session.tokens["p5"],
+        tokens_phase4=session.tokens["p4"],
         error=err if err is not None else "",
     )
     return ExecutionOutcome(status="done")

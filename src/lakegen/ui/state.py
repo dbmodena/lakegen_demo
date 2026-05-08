@@ -81,7 +81,7 @@ class LakeGenSession:
     fallback_reason: str = ""
     force_execution: bool = False
     tokens: dict[str, int] = field(
-        default_factory=lambda: {"p1": 0, "p2": 0, "p3": 0, "p5": 0}
+        default_factory=lambda: {"p1": 0, "p2": 0, "p3": 0, "p4": 0}
     )
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     _cancelled: threading.Event = field(default_factory=threading.Event)

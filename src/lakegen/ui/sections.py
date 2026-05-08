@@ -94,21 +94,11 @@ def build_phase3_summary(
     return "\n".join(lines)
 
 
-def build_phase4_summary(execution_attempts: list[dict[str, Any]]) -> str:
-    lines = [f"**{t('summary.execution_attempts')}**"]
-    if not execution_attempts:
-        lines.append(t("summary.no_execution_attempts"))
-    for attempt in execution_attempts:
-        status = _status_label(attempt.get("status", ""))
-        lines.append(f"- {t('summary.attempt')} `{attempt.get('attempt')}`: {status}")
-    return "\n".join(lines)
-
-
-def build_phase5_summary(session: LakeGenSession, answer: str) -> str:
+def build_phase4_summary(session: LakeGenSession, answer: str) -> str:
     return f"""
 **{t("summary.synthesized_answer")}**
 
 {answer}
 
-- {t("summary.tokens").title()}: `{session.tokens['p5']}`
+- {t("summary.tokens").title()}: `{session.tokens['p4']}`
 """.strip()

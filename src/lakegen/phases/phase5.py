@@ -1,12 +1,12 @@
-from llama_index.core.llms import ChatMessage
+"""Retired compatibility shim.
+
+The Chainlit app now treats synthesis as Phase 4. This module is intentionally
+not exported from lakegen.phases anymore, but the wrapper keeps old direct
+imports from crashing while external callers migrate.
+"""
+
+from lakegen.phases.phase4 import phase4_synthesize
 
 
 def phase5_synthesize(query, raw_result, llm, pm):
-    prompt = pm.render("synthesizer", "prompt",
-                       question=query, raw_result=raw_result)
-    res = llm.chat([ChatMessage(role="user", content=prompt)])
-    tokens = 0
-    if res.raw:
-        tokens = (res.raw.get("prompt_eval_count", 0) +
-                  res.raw.get("eval_count", 0))
-    return str(res.message.content).strip(), tokens
+    return phase4_synthesize(query, raw_result, llm, pm)
