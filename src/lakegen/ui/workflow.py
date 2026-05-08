@@ -359,6 +359,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     force_execution=session.force_execution,
                     stream_placeholder=code_box,
                     reasoning_placeholder=reasoning_box,
+                    cancel_check=session.check_cancelled,
                 )
             session.tokens["p3"] += tok3
             generation_attempt = {

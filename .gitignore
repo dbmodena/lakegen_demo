@@ -40,6 +40,7 @@ script.py
 .chainlit/translations/
 src/.chainlit/
 src/.files/
+.files/
 
 # ========================
 # 5. IDE and Operating System
