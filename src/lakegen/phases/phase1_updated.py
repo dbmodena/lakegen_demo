@@ -179,11 +179,15 @@ def phase1_updated_agent(
     except WorkflowCancelled:
         raise
     except Exception as agent_err:
+        err_msg = str(agent_err)
+        if "Max iterations" in err_msg:
+            reason = "Agent exceeded maximum iterations without a final decision. Fallback to top candidates."
+        else:
+            reason = f"Agent error: {err_msg[:120]}. Fallback to top 2."
+            
         fallback_payload = {
             "tables": ", ".join(state.all_candidates[:2]),
-            "reasoning": (
-                f"Agent error: {str(agent_err)[:80]}. Fallback to top 2."
-            ),
+            "reasoning": reason,
         }
         emit_stream(f"\n[agent error] {str(agent_err)[:160]}\n")
         agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
