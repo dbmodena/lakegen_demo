@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -92,6 +93,7 @@ class LakeGenSession:
     )
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     _cancelled: threading.Event = field(default_factory=threading.Event)
+    workflow_task: asyncio.Task | None = None
 
     @property
     def run_dir(self) -> Path:
@@ -107,15 +109,13 @@ class LakeGenSession:
     def request_cancel(self) -> None:
         """Signal all running phases to stop."""
         self._cancelled.set()
+        if self.workflow_task and not self.workflow_task.done():
+            self.workflow_task.cancel()
 
     def check_cancelled(self) -> None:
         """Raise WorkflowCancelled if the stop button was pressed."""
         if self._cancelled.is_set():
             raise WorkflowCancelled("Workflow stopped by user.")
-
-    def reset_for_query(self, query: str) -> None:
-        runtime = self.runtime
-        self.__dict__.update(LakeGenSession(runtime=runtime, query=query).__dict__)
 
     def record_phase1_run(
         self,

@@ -31,6 +31,7 @@ from lakegen.ui.state import (  # noqa: E402
     SOLR_CORE_OPTIONS,
     SOLR_CORE_PORTAL_NAMES,
     RuntimeSettings,
+    LakeGenSession,
     WorkflowCancelled,
     get_runtime_settings,
     get_session,
@@ -182,6 +183,14 @@ async def on_stop() -> None:
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     try:
+        old_session = get_session()
+        new_session = LakeGenSession(
+            runtime=old_session.runtime,
+            query=message.content,
+        )
+        new_session.workflow_task = asyncio.current_task()
+        cl.user_session.set("lakegen_session", new_session)
+        
         await run_lakegen_workflow(message.content)
     except (asyncio.CancelledError, WorkflowCancelled):
         logger.info("Workflow cancelled by user.")

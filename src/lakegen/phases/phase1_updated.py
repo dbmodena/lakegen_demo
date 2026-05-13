@@ -29,11 +29,10 @@ from lakegen.phase2_logging import (
 )
 from lakegen.types import SolrMetadata, StreamCallback
 from lakegen.ui.state import WorkflowCancelled
-from lakegen.tools import make_agent_tools
 from lakegen.utils import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
-from .utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
+from lakegen.tools_p12 import P12State, make_p12_tools
 
 def phase1_updated_agent(
     query: str,
@@ -42,74 +41,14 @@ def phase1_updated_agent(
     all_files: list[str],
     solr_client: LocalSolrClient,
     csv_dir: Path,
-    blend_db: Path,
     hint: str = "",
     portal_name: str = "",
     stream_callback: StreamCallback | None = None,
     cancel_check: Callable[[], None] | None = None,
 ) -> tuple[list[str], list[str], SolrMetadata, str, str, int]:
     
-    # We will track all tables retrieved from solr and their metadata here
-    all_candidates: list[str] = []
-    solr_meta: SolrMetadata = {}
-    used_keywords: list[str] = []
-
-    def search_solr(keywords_str: str) -> str:
-        """
-        Search for relevant tables in Solr using a space-separated string of keywords.
-        Because this uses AND logic, use ONLY 2-3 essential keywords at most to avoid getting zero results.
-        Example: "sales 2024"
-        Returns the top matching table names and their schema descriptions.
-        """
-        try:
-            keywords = [k.strip() for k in keywords_str.split(" ") if k.strip()]
-            nonlocal used_keywords
-            used_keywords = keywords
-            
-            solr_response = solr_client.select(tokens=keywords, q_op="AND", rows=15)
-            docs = solr_response.get("response", {}).get("docs", [])
-            
-            candidates: list[str] = []
-            for doc in docs:
-                matched = match_local_csv(doc, all_files)
-                if matched is None or matched in candidates:
-                    continue
-                candidates.append(matched)
-                solr_meta[matched] = solr_metadata_from_doc(doc)
-                if matched not in all_candidates:
-                    all_candidates.append(matched)
-                if len(candidates) >= 10:
-                    break
-            
-            if not candidates:
-                return f"Keywords used: {keywords}\nNo tables found. Try with fewer or different keywords."
-            
-            return f"Keywords used: {keywords}\n\n" + format_candidate_context(candidates, solr_meta)
-        except Exception as e:
-            return f"Error querying Solr: {str(e)}"
-
-    def confirm_unified_selection(selected_files: str, reasoning: str) -> str:
-        """
-        CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
-        - selected_files: A comma-separated string of the exact file names needed (e.g., "sales.csv, dates.csv").
-        - reasoning: Write a brief explanation IN ENGLISH.
-        Calling this tool means you have successfully finished the task.
-        """
-        dati_uscita = {
-            "tables": selected_files,
-            "reasoning": reasoning
-        }
-        return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
-
-    base_tools = make_agent_tools(blend_db, csv_dir=csv_dir)
-    # Remove the standard confirm_table_selection to replace it with ours
-    base_tools = [t for t in base_tools if t.metadata.name != "confirm_table_selection"]
-    
-    agent_tools = [
-        FunctionTool.from_defaults(fn=search_solr),
-        *base_tools,
-        FunctionTool.from_defaults(fn=confirm_unified_selection, return_direct=True),
-    ]
+    state = P12State()
+    agent_tools = make_p12_tools(state, solr_client, all_files, csv_dir)
 
     system_prompt = pm.render(
         "unified_architect",
@@ -182,17 +121,21 @@ def phase1_updated_agent(
                             raise Phase2AgentStall(stall_reason)
                 elif isinstance(event, ToolCall):
                     tool_call_count += 1
+                    tool_name = getattr(event, 'tool_name', 'unknown_tool')
                     tool_signature = (
-                        f"{getattr(event, 'tool_name', 'unknown_tool')}:"
+                        f"{tool_name}:"
                         f"{format_phase2_tool_args(event)}"
                     )
                     tool_call_signatures[tool_signature] = (
                         tool_call_signatures.get(tool_signature, 0) + 1
                     )
-                    if tool_call_signatures[tool_signature] >= 2:
+                    
+                    max_repeats = 3 if tool_name == 'preview_data' else 3
+                    
+                    if tool_call_signatures[tool_signature] >= max_repeats:
                         raise Phase2AgentStall(
                             "repeated identical tool call: "
-                            f"{getattr(event, 'tool_name', 'unknown_tool')}"
+                            f"{tool_name}"
                         )
                     emit_stream(format_phase2_tool_call(event, tool_call_count))
                 elif isinstance(event, ToolCallResult):
@@ -221,7 +164,7 @@ def phase1_updated_agent(
         agent_resp = str(getattr(res, "response", res)).strip()
     except Phase2AgentStall as stall_err:
         fallback_payload = {
-            "tables": ", ".join(all_candidates[:2]),
+            "tables": ", ".join(state.all_candidates[:2]),
             "reasoning": (
                 f"Phase loop guard triggered: {stall_err}. "
                 "Fallback to top candidates."
@@ -237,7 +180,7 @@ def phase1_updated_agent(
         raise
     except Exception as agent_err:
         fallback_payload = {
-            "tables": ", ".join(all_candidates[:2]),
+            "tables": ", ".join(state.all_candidates[:2]),
             "reasoning": (
                 f"Agent error: {str(agent_err)[:80]}. Fallback to top 2."
             ),
@@ -279,6 +222,6 @@ def phase1_updated_agent(
         pass
 
     if not selected:
-        selected = all_candidates[:3]
+        selected = state.all_candidates[:3]
 
-    return selected, used_keywords, solr_meta, reasoning, full_trace, tokens
+    return selected, state.used_keywords, state.solr_meta, reasoning, full_trace, tokens

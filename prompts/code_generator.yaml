@@ -42,6 +42,11 @@ initial_prompt: |
 correction_prompt: |
   The previous Python code for "{{ question }}" resulted in a fatal error.
 
+  PREVIOUS CODE
+  ```python
+  {{ previous_code }}
+  ```
+
   ERROR TRACEBACK
   "{{ error_message }}"
 

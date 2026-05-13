@@ -418,7 +418,6 @@ async def _run_unified_gate(
                     all_files=all_csv,
                     solr_client=solr,
                     csv_dir=session.runtime.csv_dir,
-                    blend_db=session.runtime.db_path,
                     hint=hint,
                     portal_name=session.runtime.portal_name,
                     stream_callback=bridge.emit,
@@ -508,6 +507,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     session.runtime.csv_dir,
                     retries=retries,
                     error_msg=error_msg,
+                    previous_code=final_code,
                     force_execution=session.force_execution,
                     stream_placeholder=code_box,
                     reasoning_placeholder=reasoning_box,
@@ -606,9 +606,19 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         elements=elements,
     ).send()
 
+    code_history_parts = []
+    for att in code_attempts:
+        code_history_parts.append(f"--- Attempt {att['attempt']} ({att['status']}) ---")
+        code_history_parts.append(f"Code:\n{att['clean_code']}")
+        if att['error']:
+            code_history_parts.append(f"Error:\n{att['error']}\n")
+        else:
+            code_history_parts.append("Status: Success\n")
+    full_code_history = "\n".join(code_history_parts)
+
     save_experiment_log(
         question=session.query,
-        code=final_code,
+        code=full_code_history,
         result=raw_result if raw_result else "",
         retries=retries,
         reasoning=session.architect_reasoning,
@@ -631,7 +641,6 @@ async def _run_locked_workflow(question: str) -> None:
     session = get_session()
     runtime = get_runtime_settings()
     session.runtime = runtime
-    session.reset_for_query(question)
 
     llm, _token_counter = get_llm(runtime.model_name, runtime.ollama_url)
     solr = get_solr(runtime.solr_core)
