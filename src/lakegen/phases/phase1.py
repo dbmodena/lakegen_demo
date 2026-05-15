@@ -184,11 +184,11 @@ def phase1_generate_keywords(
     raw_content = visible_content.strip().lower()
     model_keywords = re.findall(r"(?u)\b[\w-]+\b", raw_content)
     query_numbers = re.findall(r"\b\d+\b", query)
-    extracted = list(dict.fromkeys(model_keywords + query_numbers))[:4]
+    extracted = list(dict.fromkeys(model_keywords + query_numbers))#[:3]
 
     # Fallback: if the model looped or produced no keywords, use WordNet
     if not extracted or loop_detected:
         if loop_detected:
-            print(f"[phase1] Loop fallback → using WordNet keywords: {wordnet_keywords[:4]}")
-        extracted = wordnet_keywords[:4]
+            print(f"[phase1] Loop fallback → using WordNet keywords: {wordnet_keywords[:3]}")
+        extracted = wordnet_keywords[:3]
     return extracted, raw_content, tokens, reasoning_content

@@ -282,23 +282,17 @@ async def _run_table_gate(
         first = False
 
         if not ok:
-            action = await _ask_choice(
-                session.text(
+            import chainlit as cl
+            await cl.Message(
+                content=session.text(
                     "phase2.architect_rejected",
                     feedback=session.fallback_reason,
-                ),
-                [
-                    (
-                        "regenerate_keywords",
-                        "regenerate",
-                        session.text("phase2.generate_keywords"),
-                    )
-                ],
-                remove_after_answer=True,
-            )
+                ) + "\n\n🔄 **Auto-correcting:** Sending feedback to Phase 1 for new keywords..."
+            ).send()
+            
             phase2_step.default_open = False
             await phase2_step.update()
-            return "keywords_rejected" if action == "regenerate" else "cancelled"
+            return "keywords_rejected"
 
         action = await _ask_choice(
             session.text(
