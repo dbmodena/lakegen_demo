@@ -28,7 +28,6 @@ from lakegen.ui.streaming import (
 )
 from lakegen.phases import (
     phase1_generate_keywords,
-    phase1_retrieve_candidates,
     phase2_select_tables,
     phase1_updated_agent,
     phase3_generate_and_execute,
@@ -203,7 +202,6 @@ async def _select_tables_once(
     solr,
     all_csv: list[str],
     *,
-    initial_retrieval: bool,
     hint: str,
     accumulate_tokens: bool,
 ) -> tuple[bool, cl.Step]:
@@ -214,30 +212,19 @@ async def _select_tables_once(
         auto_collapse=True,
     ) as step:
         async with StepStreamBridge(step) as bridge:
-            if initial_retrieval:
-                result = await cl.make_async(_retrieve_and_select_tables)(
-                    session,
-                    llm,
-                    pm,
-                    solr,
-                    all_csv,
-                    hint,
-                    bridge.emit,
-                )
-            else:
-                result = await cl.make_async(phase2_select_tables)(
-                    session.query,
-                    llm,
-                    pm,
-                    all_csv,
-                    session.candidates,
-                    session.solr_metadata_map,
-                    session.runtime.csv_dir,
-                    session.runtime.db_path,
-                    hint=hint,
-                    stream_callback=bridge.emit,
-                    cancel_check=session.check_cancelled,
-                )
+            result = await cl.make_async(phase2_select_tables)(
+                query=session.query,
+                llm=llm,
+                pm=pm,
+                all_files=all_csv,
+                keywords=session.keywords,
+                solr_client=solr,
+                csv_dir=session.runtime.csv_dir,
+                hint=hint,
+                portal_name=session.runtime.portal_name,
+                stream_callback=bridge.emit,
+                cancel_check=session.check_cancelled,
+            )
 
         sel, cands, smeta, reasoning, trace, tok2 = result
         if apply_phase2_keyword_rejection(
@@ -268,53 +255,6 @@ async def _select_tables_once(
         return True, step
 
 
-def _retrieve_and_select_tables(
-    session: LakeGenSession,
-    llm,
-    pm,
-    solr,
-    all_csv: list[str],
-    hint: str,
-    stream_callback,
-):
-    cands, smeta, activity_log_parts = phase1_retrieve_candidates(
-        session.keywords,
-        solr,
-        all_csv,
-        stream_callback=stream_callback,
-    )
-
-    # make a tmp folder with a link to the actual file
-    tmp_folder = BASE_DIR / f".tmp_link_datasets_{uuid.uuid4()}"
-    os.mkdir(tmp_folder)
-
-    # link each file from the original position into the tmp folder
-    for cand_file in cands:
-        os.symlink(session.runtime.csv_dir / cand_file, tmp_folder / cand_file)
-
-    phase2_res =  phase2_select_tables(
-        session.query,
-        llm,
-        pm,
-        all_csv,
-        cands,
-        smeta,
-        tmp_folder, # session.runtime.csv_dir, # pass the tmp folder instead of the complete one
-        session.runtime.db_path,
-        activity_log_parts=activity_log_parts,
-        hint=hint,
-        stream_callback=stream_callback,
-        cancel_check=session.check_cancelled,
-    )
-
-    # clear the tmp folder 
-    for file in os.listdir(tmp_folder):
-        os.remove(tmp_folder / file)
-    os.rmdir(tmp_folder)
-
-    return phase2_res 
-
-
 async def _run_table_gate(
     session: LakeGenSession,
     llm,
@@ -322,11 +262,9 @@ async def _run_table_gate(
     solr,
     all_csv: list[str],
     *,
-    initial_retrieval: bool,
     initial_hint: str = "",
 ) -> str:
     hint = initial_hint
-    rerun_retrieval = initial_retrieval
     first = True
 
     while True:
@@ -337,7 +275,6 @@ async def _run_table_gate(
             pm,
             solr,
             all_csv,
-            initial_retrieval=rerun_retrieval,
             hint=hint,
             accumulate_tokens=not first,
         )
@@ -366,7 +303,8 @@ async def _run_table_gate(
         action = await _ask_choice(
             session.text(
                 "phase2.review_tables",
-                tables="\n".join(f"- `{table}`" for table in session.tables),
+                tables="\n".join(f"- `{table}`" for table in session.tables)
+                    + f"\n\n**Reasoning:**\n{session.architect_reasoning}",
             ),
             [
                 ("approve_tables", "approve", session.text("phase2.approve")),
@@ -387,90 +325,92 @@ async def _run_table_gate(
             session.text("phase2.change_hint"),
             remove_after_answer=True,
         )
-        rerun_retrieval = True
 
 
-# New Added Phase
-async def _run_unified_gate(
-    session: LakeGenSession,
-    llm,
-    pm,
-    solr,
-    all_csv: list[str],
-    initial_hint: str = "",
-) -> str:
-    hint = initial_hint
-    first = True
+# ── Unified Gate (phase1_updated) — kept for A/B testing ─────────────
+# Uncomment this block and comment the two-phase flow below to use the
+# unified single-agent approach instead.
 
-    while True:
-        session.check_cancelled()
-        async with cl.Step(
-            name="Phase 1 & 2 (Unified Architect & Search)", 
-            type="run", 
-            default_open=True, 
-            auto_collapse=True
-        ) as step:
-            async with StepStreamBridge(step) as bridge:
-                selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase1_updated_agent)(
-                    query=session.query,
-                    llm=llm,
-                    pm=pm,
-                    all_files=all_csv,
-                    solr_client=solr,
-                    csv_dir=session.runtime.csv_dir,
-                    hint=hint,
-                    portal_name=session.runtime.portal_name,
-                    stream_callback=bridge.emit,
-                    cancel_check=session.check_cancelled,
-                )
-
-            session.tables = selected
-            session.keywords = keywords
-            session.candidates = selected
-            session.solr_metadata_map = smeta
-            session.architect_reasoning = reasoning
-            session.full_trace = trace
-            if first:
-                session.tokens["p1"] = tokens
-                session.tokens["p2"] = 0
-            else:
-                session.tokens["p1"] += tokens
-            
-            step.output = (
-                f"**Keywords used:** {_keyword_list(keywords)}\n\n"
-                f"**Tables selected:** " + ", ".join(f"`{t}`" for t in selected) + "\n\n"
-                f"**Reasoning:**\n{reasoning}\n\n"
-                f"- Tokens: `{tokens}`\n\n"
-                f"***Full agent activity log:***\n\n"
-                f"{trace}\n\n"
-            )
-        
-        first = False
-
-        action = await _ask_choice(
-            session.text(
-                "phase2.review_tables",
-                tables=f"**Keywords:** {_keyword_list(keywords)}\n\n**Tables:**\n" + "\n".join(f"- `{table}`" for table in session.tables) + f"\n\n**Reasoning:**\n{reasoning}",
-            ),
-            [
-                ("approve_selection", "approve", "Approve Selection"),
-                ("recalculate_selection", "recalculate", "Recalculate (change hint)"),
-            ],
-            remove_after_answer=True,
-        )
-
-        step.default_open = False
-        if action == "approve":
-            await step.update()
-            return "approved"
-        
-        await step.update()
-
-        session.check_cancelled()
-        hint = await _ask_hint(
-            "What should the agent change? (e.g., use different keywords, or look for different tables)",
-            remove_after_answer=True,
-        )
+# async def _run_unified_gate(
+#     session: LakeGenSession,
+#     llm,
+#     pm,
+#     solr,
+#     all_csv: list[str],
+#     initial_hint: str = "",
+# ) -> str:
+#     hint = initial_hint
+#     first = True
+#
+#     while True:
+#         session.check_cancelled()
+#         async with cl.Step(
+#             name="Phase 1 & 2 (Unified Architect & Search)",
+#             type="run",
+#             default_open=True,
+#             auto_collapse=True
+#         ) as step:
+#             async with StepStreamBridge(step) as bridge:
+#                 selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase1_updated_agent)(
+#                     query=session.query,
+#                     llm=llm,
+#                     pm=pm,
+#                     all_files=all_csv,
+#                     solr_client=solr,
+#                     csv_dir=session.runtime.csv_dir,
+#                     hint=hint,
+#                     portal_name=session.runtime.portal_name,
+#                     stream_callback=bridge.emit,
+#                     cancel_check=session.check_cancelled,
+#                 )
+#
+#             session.tables = selected
+#             session.keywords = keywords
+#             session.candidates = selected
+#             session.solr_metadata_map = smeta
+#             session.architect_reasoning = reasoning
+#             session.full_trace = trace
+#             if first:
+#                 session.tokens["p1"] = tokens
+#                 session.tokens["p2"] = 0
+#             else:
+#                 session.tokens["p1"] += tokens
+#
+#             step.output = (
+#                 f"**Keywords used:** {_keyword_list(keywords)}\n\n"
+#                 f"**Tables selected:** " + ", ".join(f"`{t}`" for t in selected) + "\n\n"
+#                 f"**Reasoning:**\n{reasoning}\n\n"
+#                 f"- Tokens: `{tokens}`\n\n"
+#                 f"***Full agent activity log:***\n\n"
+#                 f"{trace}\n\n"
+#             )
+#
+#         first = False
+#
+#         action = await _ask_choice(
+#             session.text(
+#                 "phase2.review_tables",
+#                 tables=f"**Keywords:** {_keyword_list(keywords)}\n\n**Tables:**\n" + "\n".join(f"- `{table}`" for table in session.tables) + f"\n\n**Reasoning:**\n{reasoning}",
+#             ),
+#             [
+#                 ("approve_selection", "approve", "Approve Selection"),
+#                 ("recalculate_selection", "recalculate", "Recalculate (change hint)"),
+#             ],
+#             remove_after_answer=True,
+#         )
+#
+#         step.default_open = False
+#         if action == "approve":
+#             await step.update()
+#             return "approved"
+#
+#         await step.update()
+#
+#         session.check_cancelled()
+#         hint = await _ask_hint(
+#             "What should the agent change? (e.g., use different keywords, or look for different tables)",
+#             remove_after_answer=True,
+#         )
 
 
 async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
@@ -647,42 +587,42 @@ async def _run_locked_workflow(question: str) -> None:
     pm = get_prompt_manager()
     all_csv = get_all_csv_files(runtime.csv_dir)
 
-    unified_hint = ""
+    keyword_hint = ""
     while True:
-        # --- OLD LOGIC COMMENTED OUT ---
-        # await _run_keyword_gate(session, llm, pm, keyword_hint)
-        # table_status = await _run_table_gate(
-        #     session,
-        #     llm,
-        #     pm,
-        #     solr,
-        #     all_csv,
-        #     initial_retrieval=True,
-        # )
-        # if table_status == "keywords_rejected":
-        #     keyword_hint = (
-        #         "The previous keywords led to bad tables. "
-        #         f"Architect feedback: {session.fallback_reason}. "
-        #         "Generate completely different keywords."
-        #     )
-        #     continue
-        # if table_status != "approved":
-        #     await cl.Message(content=session.text("workflow.cancelled")).send()
-        #     return
-        # -------------------------------
-        
-        table_status = await _run_unified_gate(
+        # ── Two-phase flow: Phase 1 (keywords) → Phase 2 (search + judge) ──
+        await _run_keyword_gate(session, llm, pm, keyword_hint)
+        table_status = await _run_table_gate(
             session,
             llm,
             pm,
             solr,
             all_csv,
-            initial_hint=unified_hint,
         )
-        
+        if table_status == "keywords_rejected":
+            keyword_hint = (
+                "The previous keywords led to bad tables. "
+                f"Architect feedback: {session.fallback_reason}. "
+                "Generate completely different keywords."
+            )
+            continue
         if table_status != "approved":
             await cl.Message(content=session.text("workflow.cancelled")).send()
             return
+
+        # ── UNIFIED GATE (comment/uncomment to switch) ──────────────────
+        # table_status = await _run_unified_gate(
+        #     session,
+        #     llm,
+        #     pm,
+        #     solr,
+        #     all_csv,
+        #     initial_hint=keyword_hint,
+        # )
+        #
+        # if table_status != "approved":
+        #     await cl.Message(content=session.text("workflow.cancelled")).send()
+        #     return
+        # ────────────────────────────────────────────────────────────────
 
         session.force_execution = False
         while True:
@@ -709,28 +649,9 @@ async def _run_locked_workflow(question: str) -> None:
                 continue
 
             session.force_execution = False
-            # --- OLD RE-EVALUATION LOGIC COMMENTED OUT ---
-            # table_status = await _run_table_gate(
-            #     session,
-            #     llm,
-            #     pm,
-            #     solr,
-            #     all_csv,
-            #     initial_retrieval=False,
-            #     initial_hint=(
-            #         "Previous selection rejected by Code Generator. "
-            #         f"Coder feedback: {outcome.reason}"
-            #     ),
-            # )
-            # if table_status == "keywords_rejected":
-            #     keyword_hint = (
-            #         "The previous keywords led to bad tables. "
-            #         f"Architect feedback: {session.fallback_reason}. "
-            #         "Generate completely different keywords."
-            #     )
-            #     break
-            # ---------------------------------------------
-            table_status = await _run_unified_gate(
+
+            # Re-run Phase 2 with feedback from coder
+            table_status = await _run_table_gate(
                 session,
                 llm,
                 pm,
@@ -741,13 +662,19 @@ async def _run_locked_workflow(question: str) -> None:
                     f"Coder feedback: {outcome.reason}"
                 ),
             )
-            
+            if table_status == "keywords_rejected":
+                keyword_hint = (
+                    "The previous keywords led to bad tables. "
+                    f"Architect feedback: {session.fallback_reason}. "
+                    "Generate completely different keywords."
+                )
+                break
             if table_status != "approved":
                 await cl.Message(content=session.text("workflow.cancelled")).send()
                 return
-        
-        # If we broke out of the execution loop (which shouldn't happen with the new logic, but kept just in case)
-        if unified_hint:
+
+        # If we broke out due to keywords_rejected, loop back to Phase 1
+        if keyword_hint:
             continue
 
 

@@ -199,129 +199,83 @@ def _find_schema_matches(csv_dir: Path, file_name_1: str, file_name_2: str) -> s
         return f"Error Valentine: {e}"
 
 
-def inspect_columns(file_name: str) -> str:
-    """
-    Returns the exact list of column names in a CSV file. 
-    If a column is categorical (low cardinality), shows its unique values.
-    """
-    return _inspect_columns(CSV_DIR, file_name)
-
-def preview_data(file_name: str, n_rows: int = 3) -> str:
-    """
-    Returns the first 'n_rows' of a CSV file to check data TYPES and FORMATS (e.g., if a date is YYYY-MM-DD).
-    CRITICAL RULE: DO NOT use this tool to search for specific rows, names, or values (like 'Chicago' or '2017'). 
-    Trust the column names. The Python script will do the filtering later.
-    """
-    return _preview_data(CSV_DIR, file_name, n_rows)
-
-def find_exact_overlaps(file_name_1: str, file_name_2: str) -> str:
-    """
-    Use the SLOTH engine to find structural overlaps between two files.
-    This tool confirms which columns can be used for a pd.merge() by analyzing data content.
-    """
-    return _find_exact_overlaps(CSV_DIR, file_name_1, file_name_2)
-
-def find_schema_matches(file_name_1: str, file_name_2: str) -> str:
-    """
-    Use Valentine with JaccardDistanceMatcher to find matching columns between two files based on data content and schema.
-    This tool helps identify overlapping columns that can be used for JOIN operations.
-    """
-    return _find_schema_matches(CSV_DIR, file_name_1, file_name_2)
-
-def confirm_table_selection(selected_files: str, reasoning: str) -> str:
-    """
-    CRITICAL: Use this tool ONLY when you have identified the required files.
-    - selected_files: A comma-separated string of the exact file names needed (e.g., "2016.csv").
-    - reasoning: Write a brief explanation IN ENGLISH. Do NOT use quotes, apostrophes, or special characters.
-    Calling this tool means you have successfully finished the task.
-    """
-    dati_uscita = {
-        "tables": selected_files,
-        "reasoning": reasoning
-    }
-    return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
 
-def make_agent_tools(blend_db_path: Path, csv_dir: Path | None = None) -> list:
+
+def make_p2_judge_tools(
+    candidates: list[str],
+    csv_dir: Path,
+) -> list:
     """
-    Builds the list of LlamaIndex FunctionTools for the Data Architect agent.
-    The `find_joinable_tables` closure is bound to the pre-built BLEND index at
-    *blend_db_path*, which is constructed once in `select_tables` over the
-    fuzzy-matched top-10 candidate files.
+    Build tools for the Phase 2 *judge-only* agent.
+    Does NOT include search_solr — the Solr query is done programmatically
+    before the agent runs, and candidates are provided in the prompt.
+
+    Tools: inspect_columns, find_joinable_tables (BLEND on-demand),
+           find_schema_matches (Valentine), confirm_table_selection.
     """
-    active_csv_dir = Path(csv_dir) if csv_dir is not None else CSV_DIR
+    import os
+    import uuid
+    import shutil
+    import blend
+
+    active_csv_dir = Path(csv_dir)
 
     def inspect_columns_tool(file_name: str) -> str:
         """
         Returns a compact schema for one CSV in the active dataset.
-        Prefer this over preview_data. Call it at most once per candidate file.
+        Shows column names, data types, and sample values for categorical columns.
+        Use this to understand what data a table contains.
         """
         return _inspect_columns(active_csv_dir, file_name)
 
     inspect_columns_tool.__name__ = "inspect_columns"
 
-    def preview_data_tool(file_name: str) -> str:
-        """
-        Returns a compact preview of one CSV in the active dataset.
-        Use only when column names are insufficient to decide relevance.
-        """
-        return _preview_data(active_csv_dir, file_name, 2)
-
-    preview_data_tool.__name__ = "preview_data"
-
-    def find_exact_overlaps_tool(file_name_1: str, file_name_2: str) -> str:
-        """
-        Use the SLOTH engine to check whether two active-dataset files have an exact structural overlap.
-        """
-        return _find_exact_overlaps(active_csv_dir, file_name_1, file_name_2)
-
-    find_exact_overlaps_tool.__name__ = "find_exact_overlaps"
-
-    def find_schema_matches_tool(file_name_1: str, file_name_2: str) -> str:
-        """
-        Use Valentine with JaccardDistanceMatcher to find compact matching-column evidence between two active-dataset files.
-        """
-        return _find_schema_matches(active_csv_dir, file_name_1, file_name_2)
-
-    find_schema_matches_tool.__name__ = "find_schema_matches"
-
     def find_joinable_tables(file_name: str, target_columns: list[str]) -> str:
         """
-        Use the BLEND engine to find which other tables in the Data Lake can be joined with the specified file.
+        Use the BLEND engine to find which other tables among the candidates can be joined with the specified file.
 
         Args:
             file_name: The name of the file to search for joins.
-            target_columns: A list of strings representing the specific columns of interest to use for the join search. Do NOT use all columns, only those relevant to the user's query.
+            target_columns: A list of strings representing the specific columns of interest. Do NOT use all columns.
 
         PAY ATTENTION TO SCORE RULES:
-        The score is an AVERAGE across all columns. A low score (e.g., 0.05 - 0.20) is actually EXCELLENT
-        and indicates that the two files share the exact key column (Primary Key) for the merge,
-        but have different data elsewhere in the table (which is the purpose of a JOIN!).
-        Consider valid and recommend all files with scores > 0.05.
+        A low score (0.05 - 0.20) is EXCELLENT and means the tables share a key column.
+        Consider valid all files with scores > 0.05.
         """
         file_name = file_name.strip()
         path_file = active_csv_dir / file_name
         if not path_file.exists():
             return f"Error: Target file missing in active dataset: {file_name}"
-        if not blend_db_path.exists():
-            return "Error: BLEND index not found. The index should have been built before the agent started."
 
+        if not candidates:
+            return "Error: No candidates available."
+
+        tmp_folder = active_csv_dir.parent / f".tmp_blend_{uuid.uuid4().hex}"
+        tmp_folder.mkdir(exist_ok=True)
         try:
-            blend_engine = BLEND(db_path=blend_db_path)
-            df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
+            for cand in candidates:
+                cand_path = active_csv_dir / cand
+                if cand_path.exists():
+                    os.symlink(cand_path, tmp_folder / cand)
 
+            tmp_db = tmp_folder / "temp_blend.db"
+            indexer = blend.BLEND(db_path=tmp_db)
+            _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 5000}
+            blend.index_tables_seq(indexer, tmp_folder, load_opts=_blend_load_opts, log_stdout=False)
+
+            df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
             valid_cols = [col for col in target_columns if col in df_target.columns]
             if not valid_cols:
-                blend_engine.close()
+                indexer.close()
                 return f"Error: None of the specified target_columns {target_columns} exist in {file_name}."
 
             df_target = df_target.select(valid_cols)
-
-            results = blend_engine.multi_column_join_search(table=df_target, k=5, clean=True)
-            blend_engine.close()
+            results = indexer.multi_column_join_search(table=df_target, k=5, clean=True)
+            indexer.close()
 
             if not results:
-                return "No compatible table found."
+                return "No compatible table found among the candidates."
             output = f"BLEND Results for '{file_name}' using columns {valid_cols}:\n"
             for t_id, _, score in results:
                 if t_id != file_name:
@@ -329,12 +283,36 @@ def make_agent_tools(blend_db_path: Path, csv_dir: Path | None = None) -> list:
             return _compact_tool_output(output)
         except Exception as e:
             return f"Error BLEND: {e}"
+        finally:
+            if tmp_folder.exists():
+                shutil.rmtree(tmp_folder, ignore_errors=True)
+
+    def find_schema_matches_tool(file_name_1: str, file_name_2: str) -> str:
+        """
+        Use Valentine to find matching columns between two files based on data content and schema.
+        This tool helps identify overlapping columns that can be used for JOIN operations.
+        """
+        return _find_schema_matches(active_csv_dir, file_name_1, file_name_2)
+
+    find_schema_matches_tool.__name__ = "find_schema_matches"
+
+    def confirm_table_selection(selected_files: str, reasoning: str) -> str:
+        """
+        CRITICAL: Use this tool ONLY when you have identified the required files.
+        - selected_files: A comma-separated string of the exact file names needed (e.g., "2016.csv").
+        - reasoning: Write a brief explanation IN ENGLISH. Do NOT use quotes, apostrophes, or special characters.
+        Calling this tool means you have successfully finished the task.
+        """
+        dati_uscita = {
+            "tables": selected_files,
+            "reasoning": reasoning
+        }
+        return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
     return [
         FunctionTool.from_defaults(fn=inspect_columns_tool),
-        FunctionTool.from_defaults(fn=preview_data_tool),
         FunctionTool.from_defaults(fn=find_joinable_tables),
-        FunctionTool.from_defaults(fn=find_exact_overlaps_tool),
         FunctionTool.from_defaults(fn=find_schema_matches_tool),
         FunctionTool.from_defaults(fn=confirm_table_selection, return_direct=True),
     ]
+

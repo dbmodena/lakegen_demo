@@ -8,17 +8,7 @@ import nltk
 
 from llama_index.core.llms import ChatMessage, LLM
 
-from lakegen.phase2_logging import format_cli_log_value
-from lakegen.types import SolrMetadata, StreamCallback
 from prompts.prompt_manager import PromptManager
-from src.client_solr import LocalSolrClient
-
-from .utils import (
-    emit_candidate_summary,
-    match_local_csv,
-    solr_metadata_from_doc,
-)
-
 
 
 def extract_wordnet_query_keywords(query: str) -> str:
@@ -119,7 +109,15 @@ def phase1_generate_keywords(
 
     print("[phase1 keyword stream] ", end="", flush=True)
 
+    # Phase 1 is a simple keyword selection task — reasoning should never
+    # exceed a few hundred tokens.  These guards break the stream early
+    # when the model enters an infinite thinking loop.
+    _MAX_REASONING_LEN = 8000   # chars – generous ceiling
+    _REPEAT_WINDOW = 150        # chars – tail window for repetition check
+    _REPEAT_THRESHOLD = 4       # how many times the tail must repeat
+
     stream_kwargs = {"think": True} if stream_reasoning else {}
+    loop_detected = False
     try:
         chunk_stream = llm.stream_chat(messages, **stream_kwargs)
         for chunk in chunk_stream:
@@ -129,6 +127,21 @@ def phase1_generate_keywords(
             if thinking_delta:
                 structured_reasoning += thinking_delta
                 print(thinking_delta, end="", flush=True)
+
+                # ── Loop detection ────────────────────────────────
+                cleaned = structured_reasoning.strip()
+                if len(cleaned) > _MAX_REASONING_LEN:
+                    print("\n[phase1] Reasoning exceeded max length – breaking stream.")
+                    loop_detected = True
+                    break
+                if len(cleaned) > _REPEAT_WINDOW:
+                    tail = cleaned[-_REPEAT_WINDOW:]
+                    if cleaned.count(tail) >= _REPEAT_THRESHOLD:
+                        print("\n[phase1] Repetition loop detected in reasoning – breaking stream.")
+                        loop_detected = True
+                        break
+                # ──────────────────────────────────────────────────
+
                 update_placeholders()
 
             delta = chunk.delta or ""
@@ -171,67 +184,11 @@ def phase1_generate_keywords(
     raw_content = visible_content.strip().lower()
     model_keywords = re.findall(r"(?u)\b[\w-]+\b", raw_content)
     query_numbers = re.findall(r"\b\d+\b", query)
-    extracted = list(dict.fromkeys(model_keywords + query_numbers))[:15]
-    if not extracted:
-        extracted = wordnet_keywords[:15]
+    extracted = list(dict.fromkeys(model_keywords + query_numbers))[:4]
+
+    # Fallback: if the model looped or produced no keywords, use WordNet
+    if not extracted or loop_detected:
+        if loop_detected:
+            print(f"[phase1] Loop fallback → using WordNet keywords: {wordnet_keywords[:4]}")
+        extracted = wordnet_keywords[:4]
     return extracted, raw_content, tokens, reasoning_content
-
-
-def phase1_retrieve_candidates(
-    keywords: list[str],
-    solr_client: LocalSolrClient,
-    all_files: list[str],
-    stream_callback: StreamCallback | None = None,
-) -> tuple[list[str], SolrMetadata, list[str]]:
-    """Retrieve candidate files after Phase 1 keyword generation."""
-    activity_log_parts: list[str] = []
-    candidates: list[str] = []
-    metadata: SolrMetadata = {}
-    query_text = " ".join(keywords)
-
-    try:
-        print(
-            "\n[phase1 candidates] Solr search "
-            f"q={format_cli_log_value(query_text)} "
-            f"csv_count={len(all_files)}",
-            flush=True,
-        )
-        solr_response = solr_client.select(tokens=keywords, q_op="OR", rows=30)
-        response_body = solr_response.get("response", {})
-        docs = response_body.get("docs", [])
-        print(
-            "[phase1 candidates] Solr response "
-            f"numFound={response_body.get('numFound', 'unknown')} "
-            f"docs_returned={len(docs)}",
-            flush=True,
-        )
-
-        for doc in docs:
-            matched = match_local_csv(doc, all_files)
-            if matched is None or matched in candidates:
-                continue
-
-            candidates.append(matched)
-            metadata[matched] = solr_metadata_from_doc(doc)
-            if len(candidates) >= 10:
-                break
-
-        if not candidates:
-            candidates = all_files[:5]
-            print(
-                "[phase1 candidates] no local Solr matches; "
-                f"fallback={candidates}",
-                flush=True,
-            )
-        else:
-            print(f"[phase1 candidates] matched={candidates}", flush=True)
-    except Exception as solr_err:
-        candidates = all_files[:5]
-        print(
-            "[phase1 candidates] Solr error "
-            f"{type(solr_err).__name__}: {solr_err}; fallback={candidates}",
-            flush=True,
-        )
-
-    emit_candidate_summary(candidates, metadata, activity_log_parts, stream_callback)
-    return candidates, metadata, activity_log_parts

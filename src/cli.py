@@ -27,7 +27,13 @@ if str(_ROOT_DIR) not in sys.path:
 
 from lakegen.bootstrap import bootstrap_nltk_data
 from lakegen.resources import get_all_csv_files, get_llm, get_prompt_manager, get_solr
-from lakegen.phases import phase1_updated_agent, phase3_generate_and_execute, phase4_synthesize
+from lakegen.phases import (
+    phase1_generate_keywords,
+    phase2_select_tables,
+    # phase1_updated_agent,  # Unified approach — uncomment to switch
+    phase3_generate_and_execute,
+    phase4_synthesize,
+)
 from lakegen.utils import save_experiment_log, BASE_DIR
 from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 
@@ -77,6 +83,7 @@ def _keyword_list(keywords: list[str]) -> str:
 # ── Workflow ─────────────────────────────────────────────────────────────────
 
 MAX_RETRIES = 3
+MAX_KEYWORD_RETRIES = 3
 
 
 def _stream_to_terminal(delta: str) -> None:
@@ -99,39 +106,112 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     print(_c(f"CSVs:   {len(all_csv)} files", "cyan"))
 
     tokens = {"p1": 0, "p2": 0, "p3": 0, "p4": 0}
-    hint = ""
+    keyword_hint = ""
     run_id = uuid.uuid4().hex
+    keywords = []
+    selected = []
+    solr_meta = {}
+    reasoning = ""
+    trace = ""
 
-    # ── Phase 1 & 2 (Unified) ────────────────────────────────────────────
+    # ── Phase 1 & 2 (Two-phase: Keywords → Search + Judge) ────────────
+    keyword_retries = 0
     while True:
-        _header("Phase 1 & 2 – Unified Architect & Search")
+        # ── Phase 1: Generate AND keywords ────────────────────────────
+        _header(f"Phase 1 – Keyword Selection (AND logic)")
 
-        selected, keywords, solr_meta, reasoning, trace, tok = phase1_updated_agent(
+        keywords, raw_content, tok1, reasoning_p1 = phase1_generate_keywords(
+            query=question,
+            llm=llm,
+            pm=pm,
+            hint=keyword_hint,
+            portal_name=runtime.portal_name,
+        )
+        tokens["p1"] += tok1
+
+        print(f"\n\n{_c('AND Keywords:', 'bold')} {_keyword_list(keywords)}")
+        print(f"{_c('Tokens:', 'dim')}    {tok1}")
+
+        if _ask_yes_no(f"\n{_c('Approve these keywords?', 'yellow')}"):
+            pass  # proceed to Phase 2
+        else:
+            keyword_hint = _ask_input("Hint for keyword selection (or press Enter to retry without hint)")
+            continue
+
+        # ── Phase 2: Solr AND search + table judge ────────────────────
+        _header("Phase 2 – Table Search & Selection (Solr AND)")
+
+        selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
             query=question,
             llm=llm,
             pm=pm,
             all_files=all_csv,
+            keywords=keywords,
             solr_client=solr,
             csv_dir=runtime.csv_dir,
-            blend_db=runtime.db_path,
-            hint=hint,
+            hint=keyword_hint,
             portal_name=runtime.portal_name,
             stream_callback=_stream_to_terminal,
         )
+        tokens["p2"] += tok2
 
-        tokens["p1"] += tok
+        # Check if Phase 2 rejected the keywords
+        if reasoning.startswith("REJECT_KEYWORDS:"):
+            reject_reason = reasoning.replace("REJECT_KEYWORDS:", "").strip()
+            print(_c(f"\n⚠ Keywords rejected by table judge: {reject_reason}", "yellow"))
+            keyword_retries += 1
+            if keyword_retries >= MAX_KEYWORD_RETRIES:
+                print(_c(f"Max keyword retries ({MAX_KEYWORD_RETRIES}) reached. Using best available.", "red"))
+                selected = candidates[:3] if candidates else all_csv[:3]
+                reasoning = f"Fallback after {MAX_KEYWORD_RETRIES} keyword rejections."
+                break
+            keyword_hint = (
+                f"The previous keywords led to bad tables. "
+                f"Architect feedback: {reject_reason}. "
+                f"Generate completely different keywords."
+            )
+            continue
 
         print(f"\n\n{_c('Keywords:', 'bold')} {_keyword_list(keywords)}")
         print(f"{_c('Tables:', 'bold')}   {', '.join(selected) if selected else '(none)'}")
         print(f"{_c('Reasoning:', 'bold')} {reasoning}")
-        print(f"{_c('Tokens:', 'dim')}    {tok}")
+        print(f"{_c('Tokens:', 'dim')}    {tok2}")
 
         if _ask_yes_no(f"\n{_c('Approve this selection?', 'yellow')}"):
             break
 
-        hint = _ask_input("Hint for the agent (or press Enter to retry without hint)")
+        keyword_hint = _ask_input("Hint for the agent (or press Enter to retry)")
 
-    # ── Phase 3 – Code Generation & Execution ────────────────────────────
+    # ── UNIFIED APPROACH (comment/uncomment to switch) ────────────────
+    # while True:
+    #     _header("Phase 1 & 2 – Unified Architect & Search")
+    #
+    #     selected, keywords, solr_meta, reasoning, trace, tok = phase1_updated_agent(
+    #         query=question,
+    #         llm=llm,
+    #         pm=pm,
+    #         all_files=all_csv,
+    #         solr_client=solr,
+    #         csv_dir=runtime.csv_dir,
+    #         hint=keyword_hint,
+    #         portal_name=runtime.portal_name,
+    #         stream_callback=_stream_to_terminal,
+    #     )
+    #
+    #     tokens["p1"] += tok
+    #
+    #     print(f"\n\n{_c('Keywords:', 'bold')} {_keyword_list(keywords)}")
+    #     print(f"{_c('Tables:', 'bold')}   {', '.join(selected) if selected else '(none)'}")
+    #     print(f"{_c('Reasoning:', 'bold')} {reasoning}")
+    #     print(f"{_c('Tokens:', 'dim')}    {tok}")
+    #
+    #     if _ask_yes_no(f"\n{_c('Approve this selection?', 'yellow')}"):
+    #         break
+    #
+    #     keyword_hint = _ask_input("Hint for the agent (or press Enter to retry without hint)")
+    # ──────────────────────────────────────────────────────────────────
+
+    # ── Phase 3 – Code Generation & Execution ────────────────────────
     candidates = selected
     architect_reasoning = reasoning
     force_execution = False
@@ -173,23 +253,32 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             if _ask_yes_no("Force execution anyway?", default=False):
                 force_execution = True
                 continue
-            # Re-run unified phase
-            hint = f"Previous tables rejected by coder: {phase3_result.rejected_reason}"
-            _header("Re-running Phase 1 & 2")
-            selected, keywords, solr_meta, reasoning, trace, tok = phase1_updated_agent(
+            # Re-run Phase 1 & 2
+            keyword_hint = f"Previous tables rejected by coder: {phase3_result.rejected_reason}"
+            _header("Re-running Phase 1 – Keyword Selection")
+            keywords, raw_content, tok1, reasoning_p1 = phase1_generate_keywords(
+                query=question,
+                llm=llm,
+                pm=pm,
+                hint=keyword_hint,
+                portal_name=runtime.portal_name,
+            )
+            tokens["p1"] += tok1
+
+            _header("Re-running Phase 2 – Table Search & Selection")
+            selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
                 query=question,
                 llm=llm,
                 pm=pm,
                 all_files=all_csv,
+                keywords=keywords,
                 solr_client=solr,
                 csv_dir=runtime.csv_dir,
-                blend_db=runtime.db_path,
-                hint=hint,
+                hint=keyword_hint,
                 portal_name=runtime.portal_name,
                 stream_callback=_stream_to_terminal,
             )
-            tokens["p1"] += tok
-            candidates = selected
+            tokens["p2"] += tok2
             architect_reasoning = reasoning
             print(f"\n{_c('New tables:', 'bold')} {', '.join(selected)}")
             if not _ask_yes_no("Approve?"):
@@ -228,7 +317,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     _header("Summary")
     print(f"  Keywords:  {_keyword_list(keywords)}")
     print(f"  Tables:    {', '.join(selected)}")
-    print(f"  Tokens:    P1&2={tokens['p1']}  P3={tokens['p3']}  P4={tokens['p4']}")
+    print(f"  Tokens:    P1={tokens['p1']}  P2={tokens['p2']}  P3={tokens['p3']}  P4={tokens['p4']}")
     print(f"  Total:     {sum(tokens.values())}")
 
     save_experiment_log(

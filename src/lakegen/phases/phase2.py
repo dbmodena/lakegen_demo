@@ -1,11 +1,12 @@
 import io
 import json
 import os
+import re
 import sys
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
-import asyncio
 from llama_index.core import Settings
 from llama_index.core.agent.workflow import (
     AgentStream,
@@ -27,209 +28,54 @@ from lakegen.phase2_logging import (
 )
 from lakegen.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from lakegen.ui.state import WorkflowCancelled
-from lakegen.tools import make_agent_tools
 from lakegen.utils import ThinkingCapture
 from prompts.prompt_manager import PromptManager
+from src.client_solr import LocalSolrClient
+from lakegen.tools import make_p2_judge_tools
 
 from .utils import (
     format_candidate_context,
+    match_local_csv,
     parse_table_selector_response,
-    prepare_candidate_index,
+    solr_metadata_from_doc,
 )
 
 
-def phase2_table_selector_agent(
-    query: str,
-    llm: LLM,
-    pm: PromptManager,
+def _solr_and_search(
+    keywords: list[str],
+    solr_client: LocalSolrClient,
     all_files: list[str],
-    candidates: list[str],
-    solr_meta: SolrMetadata,
-    csv_dir: Path,
-    blend_db: Path,
-    activity_log_parts: list[str],
-    hint: str = "",
-    stream_callback: StreamCallback | None = None,
-    cancel_check: Callable[[], None] | None = None,
-) -> tuple[list[str], str, str, int]:
-    """Inspect retrieved candidates and choose or reject tables."""
+) -> tuple[list[str], SolrMetadata]:
+    """Execute a Solr AND query and return matched candidates + metadata."""
+    candidates: list[str] = []
+    metadata: SolrMetadata = {}
+
     try:
-        architect_system_prompt = pm.render("data_architect", "system_prompt")
-        agent_tools = make_agent_tools(blend_db, csv_dir=csv_dir)
-
-        token_counter = next(
-            (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")),
-            None,
-        )
-        if token_counter:
-            token_counter.reset_counts()
-
-        agent_prompt = pm.render("data_architect", "user_prompt",
-                                 question=query,
-                                 enriched_candidates_info=format_candidate_context(
-                                     candidates, solr_meta
-                                 ),
-                                 table_hint=hint)
-
-        old_stdout = sys.stdout
-        capture = io.StringIO()
-        stream_trace = io.StringIO()
-        sys.stdout = capture
-
-        def emit_stream(delta: str) -> None:
-            if not delta:
-                return
-            stream_trace.write(delta)
-            print(delta, end="", flush=True, file=old_stdout)
-            if stream_callback is not None:
-                stream_callback(delta)
-
-        thinking_capture = ThinkingCapture()
-        dispatcher = get_dispatcher()
-        dispatcher.add_event_handler(thinking_capture)
-        emit_stream(
-            "\n**Data Architect agent started**\n"
-            "- Streaming model output and tool inspections below.\n"
+        solr_response = solr_client.select(tokens=keywords, q_op="AND", rows=15)
+        docs = solr_response.get("response", {}).get("docs", [])
+        print(
+            f"[phase2] Solr AND search keywords={keywords} "
+            f"numFound={solr_response.get('response', {}).get('numFound', '?')} "
+            f"docs_returned={len(docs)}",
+            flush=True,
         )
 
-        try:
-            async def _run_agent():
-                explorer = FunctionAgent(
-                    name="data_explorer", 
-                    tools=agent_tools, 
-                    llm=llm,
-                    system_prompt=architect_system_prompt,
-                    # verbose=False, 
-                    # streaming=True,
-                    # early_stopping_method="generate",
-                )
+        for doc in docs:
+            matched = match_local_csv(doc, all_files)
+            if matched is None or matched in candidates:
+                continue
+            candidates.append(matched)
+            metadata[matched] = solr_metadata_from_doc(doc)
+            if len(candidates) >= 10:
+                break
 
-                handler = explorer.run(
-                    user_msg=agent_prompt,
-                    max_iterations=10,
-                    # early_stopping_method="generate",
-                )
-
-                tool_call_count = 0
-                tool_result_count = 0
-                tool_call_signatures: dict[str, int] = {}
-                async for event in handler.stream_events():
-                    if cancel_check is not None:
-                        cancel_check()
-                    if isinstance(event, AgentStream):
-                        emit_stream(event.delta or "")
-                        # Only check for stream-based stalls after the
-                        # agent has made at least one tool call, so retries
-                        # aren't killed before the agent even gets to act.
-                        if tool_call_count > 0:
-                            stall_reason = detect_phase2_agent_stall(
-                                stream_trace.getvalue()
-                            )
-                            if stall_reason:
-                                raise Phase2AgentStall(stall_reason)
-                    elif isinstance(event, ToolCall):
-                        tool_call_count += 1
-                        tool_signature = (
-                            f"{getattr(event, 'tool_name', 'unknown_tool')}:"
-                            f"{format_phase2_tool_args(event)}"
-                        )
-                        tool_call_signatures[tool_signature] = (
-                            tool_call_signatures.get(tool_signature, 0) + 1
-                        )
-                        if tool_call_signatures[tool_signature] >= 2:
-                            raise Phase2AgentStall(
-                                "repeated identical tool call: "
-                                f"{getattr(event, 'tool_name', 'unknown_tool')}"
-                            )
-                        emit_stream(format_phase2_tool_call(event, tool_call_count))
-                    elif isinstance(event, ToolCallResult):
-                        tool_result_count += 1
-                        emit_stream(format_phase2_tool_result(event, tool_result_count))
-                        tool_output = getattr(event, "tool_output", None)
-                        output = format_phase2_tool_output(tool_output).lower()
-                        if "missing in active dataset" in output:
-                            emit_stream(
-                                "\n⚠️ **File not found** – the requested table "
-                                "is not in the active dataset. "
-                                "The agent will try an alternative.\n"
-                            )
-
-                return await handler
-
-            # The Ollama LLM lazily creates an AsyncClient (httpx) and
-            # caches it.  That client is bound to the event loop it was
-            # created on.  We must discard the stale client so a fresh one
-            # is created on the new loop.
-            if hasattr(llm, "_async_client"):
-                llm._async_client = None
-
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                res = loop.run_until_complete(_run_agent())
-            finally:
-                loop.close()
-            agent_resp = str(getattr(res, "response", res)).strip()
-        except Phase2AgentStall as stall_err:
-            fallback_payload = {
-                "tables": ", ".join(candidates[:2]),
-                "reasoning": (
-                    f"Phase 2 loop guard triggered: {stall_err}. "
-                    "Fallback to top Solr candidates."
-                ),
-            }
-            emit_stream(
-                "\n\n**Phase 2 loop guard triggered**\n"
-                f"- Reason: `{str(stall_err)}`\n"
-                "- Action: using the top Solr candidates as a fallback.\n"
-            )
-            agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
-        except WorkflowCancelled:
-            raise
-        except Exception as agent_err:
-            fallback_payload = {
-                "tables": ", ".join(candidates[:2]),
-                "reasoning": (
-                    f"Agent error: {str(agent_err)[:80]}. Fallback to top 2."
-                ),
-            }
-            emit_stream(f"\n[phase2 agent error] {str(agent_err)[:160]}\n")
-            agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
-        finally:
-            sys.stdout = old_stdout
-            stdout_trace = capture.getvalue()
-            agent_stream_trace = stream_trace.getvalue()
-            full_trace = stdout_trace
-            phase2_activity_trace = "".join(activity_log_parts) + agent_stream_trace
-            if phase2_activity_trace:
-                full_trace += (
-                    "\n\n--- Phase 2 Activity Log ---\n"
-                    f"{phase2_activity_trace}"
-                )
-            capture.close()
-            stream_trace.close()
-            dispatcher.event_handlers.remove(thinking_capture)
-
-        tokens_p2 = 0
-        if token_counter:
-            tokens_p2 = (token_counter.prompt_llm_token_count +
-                         token_counter.completion_llm_token_count)
-            token_counter.reset_counts()
-
-        Settings.callback_manager = CallbackManager([])
-        selected, reasoning = parse_table_selector_response(
-            agent_resp,
-            all_files,
-            candidates,
+    except Exception as solr_err:
+        print(
+            f"[phase2] Solr error {type(solr_err).__name__}: {solr_err}",
+            flush=True,
         )
-        return selected, reasoning, full_trace, tokens_p2
 
-    finally:
-        if blend_db.exists():
-            try:
-                os.remove(blend_db)
-            except Exception:
-                pass
+    return candidates, metadata
 
 
 def phase2_select_tables(
@@ -237,36 +83,219 @@ def phase2_select_tables(
     llm: LLM,
     pm: PromptManager,
     all_files: list[str],
-    candidates: list[str],
-    solr_meta: SolrMetadata,
+    keywords: list[str],
+    solr_client: LocalSolrClient,
     csv_dir: Path,
-    db_path: Path,
-    activity_log_parts: list[str] | None = None,
     hint: str = "",
+    portal_name: str = "",
     stream_callback: StreamCallback | None = None,
     cancel_check: Callable[[], None] | None = None,
 ) -> Phase2SelectionResult:
-    activity_log = activity_log_parts or []
-    print("\n\n\n", all_files, "\n\n\n\n")
-    blend_db = prepare_candidate_index(
-        candidates=candidates,
-        csv_dir=csv_dir,
-        db_path=db_path,
-        activity_log_parts=activity_log,
-        stream_callback=stream_callback,
-    )
-    selected, reasoning, full_trace, tokens_p2 = phase2_table_selector_agent(
-        query=query,
-        llm=llm,
-        pm=pm,
-        all_files=all_files,
-        candidates=candidates,
-        solr_meta=solr_meta,
-        csv_dir=csv_dir,
-        blend_db=blend_db,
-        activity_log_parts=activity_log,
+    """Search Solr with AND logic, then run a judge agent on the results.
+
+    Flow:
+    1. Execute Solr AND query programmatically with the provided keywords
+    2. If 0 results → immediately return REJECT_KEYWORDS
+    3. If results found → run the FunctionAgent to inspect and judge them
+    4. Agent accepts (confirm_table_selection) or rejects (REJECT_KEYWORDS)
+
+    Returns:
+        (selected, all_candidates, solr_meta, reasoning, full_trace, tokens)
+    """
+
+    # ── Step 1: Solr AND search (programmatic, not agent-driven) ──────
+    candidates, solr_meta = _solr_and_search(keywords, solr_client, all_files)
+
+    # ── Step 2: No results → reject keywords back to Phase 1 ─────────
+    if not candidates:
+        no_result_msg = (
+            f"REJECT_KEYWORDS: No tables found with AND keywords "
+            f"[{', '.join(keywords)}]. Try broader or different terms."
+        )
+        trace = (
+            f"[phase2] Solr AND search with keywords={keywords} returned 0 results.\n"
+            f"Rejecting keywords back to Phase 1."
+        )
+        if stream_callback:
+            stream_callback(
+                f"\n⚠️ **No tables found** with keywords: "
+                f"`{' '.join(keywords)}`\n"
+                f"Sending feedback to Phase 1 for better keywords.\n"
+            )
+        return [], [], {}, no_result_msg, trace, 0
+
+    # ── Step 3: Prepare agent with judge-only tools (no search_solr) ──
+    agent_tools = make_p2_judge_tools(candidates, csv_dir)
+
+    system_prompt = pm.render(
+        "data_architect",
+        "system_prompt",
+        portal_name=portal_name,
         hint=hint,
-        stream_callback=stream_callback,
-        cancel_check=cancel_check,
     )
+
+    token_counter = next(
+        (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")),
+        None,
+    )
+    if token_counter:
+        token_counter.reset_counts()
+
+    candidate_context = format_candidate_context(candidates, solr_meta)
+    agent_prompt = pm.render(
+        "data_architect",
+        "user_prompt",
+        question=query,
+        keywords_str=" ".join(keywords),
+        enriched_candidates_info=candidate_context,
+        table_hint=hint,
+    )
+
+    old_stdout = sys.stdout
+    capture = io.StringIO()
+    stream_trace = io.StringIO()
+    sys.stdout = capture
+
+    def emit_stream(delta: str) -> None:
+        if not delta:
+            return
+        stream_trace.write(delta)
+        print(delta, end="", flush=True, file=old_stdout)
+        if stream_callback is not None:
+            stream_callback(delta)
+
+    thinking_capture = ThinkingCapture()
+    dispatcher = get_dispatcher()
+    dispatcher.add_event_handler(thinking_capture)
+
+    candidates_summary = ", ".join(f"`{c}`" for c in candidates)
+    emit_stream(
+        "\n**Phase 2 – Table Judge agent started**\n"
+        f"- Keywords from Phase 1: `{' '.join(keywords)}`\n"
+        f"- Solr AND returned {len(candidates)} candidates: {candidates_summary}\n"
+        "- Agent inspecting and judging tables below.\n"
+    )
+
+    # ── Step 4: Run the judge agent ──────────────────────────────────
+    try:
+        async def _run_agent():
+            explorer = FunctionAgent(
+                name="table_judge",
+                tools=agent_tools,
+                llm=llm,
+                system_prompt=system_prompt,
+            )
+
+            handler = explorer.run(
+                user_msg=agent_prompt,
+                max_iterations=10,
+            )
+
+            tool_call_count = 0
+            tool_result_count = 0
+            tool_call_signatures: dict[str, int] = {}
+            async for event in handler.stream_events():
+                if cancel_check is not None:
+                    cancel_check()
+                if isinstance(event, AgentStream):
+                    emit_stream(event.delta or "")
+                    if tool_call_count > 0:
+                        stall_reason = detect_phase2_agent_stall(
+                            stream_trace.getvalue()
+                        )
+                        if stall_reason:
+                            raise Phase2AgentStall(stall_reason)
+                elif isinstance(event, ToolCall):
+                    tool_call_count += 1
+                    tool_name = getattr(event, 'tool_name', 'unknown_tool')
+                    tool_signature = (
+                        f"{tool_name}:"
+                        f"{format_phase2_tool_args(event)}"
+                    )
+                    tool_call_signatures[tool_signature] = (
+                        tool_call_signatures.get(tool_signature, 0) + 1
+                    )
+
+                    if tool_call_signatures[tool_signature] >= 3:
+                        raise Phase2AgentStall(
+                            "repeated identical tool call: "
+                            f"{tool_name}"
+                        )
+                    emit_stream(format_phase2_tool_call(event, tool_call_count))
+                elif isinstance(event, ToolCallResult):
+                    tool_result_count += 1
+                    emit_stream(format_phase2_tool_result(event, tool_result_count))
+                    tool_output = getattr(event, "tool_output", None)
+                    output = format_phase2_tool_output(tool_output).lower()
+                    if "missing in active dataset" in output:
+                        emit_stream(
+                            "\n⚠️ **File not found** – the requested table "
+                            "is not in the active dataset. "
+                            "The agent will try an alternative.\n"
+                        )
+
+            return await handler
+
+        if hasattr(llm, "_async_client"):
+            llm._async_client = None
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            res = loop.run_until_complete(_run_agent())
+        finally:
+            loop.close()
+        agent_resp = str(getattr(res, "response", res)).strip()
+    except Phase2AgentStall as stall_err:
+        fallback_payload = {
+            "tables": ", ".join(candidates[:2]),
+            "reasoning": (
+                f"Phase 2 loop guard triggered: {stall_err}. "
+                "Fallback to top Solr candidates."
+            ),
+        }
+        emit_stream(
+            "\n\n**Phase 2 loop guard triggered**\n"
+            f"- Reason: `{str(stall_err)}`\n"
+            "- Action: using the top Solr candidates as a fallback.\n"
+        )
+        agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
+    except WorkflowCancelled:
+        raise
+    except Exception as agent_err:
+        err_msg = str(agent_err)
+        if "Max iterations" in err_msg:
+            reason = "Agent exceeded maximum iterations. Fallback to top candidates."
+        else:
+            reason = f"Agent error: {err_msg[:120]}. Fallback to top 2."
+
+        fallback_payload = {
+            "tables": ", ".join(candidates[:2]),
+            "reasoning": reason,
+        }
+        emit_stream(f"\n[phase2 agent error] {str(agent_err)[:160]}\n")
+        agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
+    finally:
+        sys.stdout = old_stdout
+        stdout_trace = capture.getvalue()
+        agent_stream_trace = stream_trace.getvalue()
+        full_trace = stdout_trace + "\n\n--- Phase 2 Activity Log ---\n" + agent_stream_trace
+        capture.close()
+        stream_trace.close()
+        dispatcher.event_handlers.remove(thinking_capture)
+
+    tokens_p2 = 0
+    if token_counter:
+        tokens_p2 = (token_counter.prompt_llm_token_count +
+                     token_counter.completion_llm_token_count)
+        token_counter.reset_counts()
+
+    Settings.callback_manager = CallbackManager([])
+
+    selected, reasoning = parse_table_selector_response(
+        agent_resp,
+        all_files,
+        candidates,
+    )
+
     return selected, candidates, solr_meta, reasoning, full_trace, tokens_p2
