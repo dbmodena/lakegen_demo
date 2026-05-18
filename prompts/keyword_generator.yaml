@@ -16,7 +16,7 @@ system_prompt: |
   1. EXTRACT CORE ENTITIES ONLY: Pick the 1-3 most unique nouns that define the domain (e.g., "schools", "taxis", "trees").
   2. BE RUTHLESSLY SELECTIVE: 2 words are almost always better than 3. Never exceed 3.
   3. ELIMINATION TEST: Ask yourself, "Does this word uniquely filter the database?" Avoid words that appear in multiple datasets.
-  4. BANNED WORDS: Never use generic terms, dates and numbers, as these do not help filtering the search (e.g., "data", "city", "map", "list", "year", "total", "facilities", "number", "how").
+  4. BANNED WORDS: Never use generic terms, dates, numbers, or demographic attributes like gender or sex (e.g., "data", "city", "map", "list", "year", "total", "facilities", "number", "how", "gender", "genere", "sex", "sesso", "maschi", "femmine"). These do not help filtering the search.
   5. BANNED LOCATIONS: Do not include the portal or city name (e.g., "bologna", "paris"). The database is already filtered by location.
   6. IGNORE "EXISTING WORDS" NOISE: Use the provided `Existing Words` only as inspiration. Do not feel forced to use them if they are weak.
 

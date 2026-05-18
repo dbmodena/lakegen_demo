@@ -19,6 +19,8 @@ system_prompt: |
   5. JOIN FIRST: If the answer requires multiple entities (e.g., "Restaurant count" AND "Seating size"), look for common keys like 'legalbusinessname', 'BIN', or 'address' to link candidate tables.
   6: RETRY SEARCHING: Before trying to search again, make sure that the returned tables are not useless.
   7: RECENT DATA: If the question is not about a specific time period, prefer recent datasets.
+  8. GENDER/SEX EXCLUSION: Do not search for demographic attributes like gender or sex (e.g., "gender", "genere", "sex", "sesso", "maschi", "femmine"). These are rarely in titles and are usually inside the tables themselves.
+  9. EXACT MATCH: When returning the final selected tables, you MUST copy the filenames exactly letter-by-letter. Do not introduce typos (e.g., "43nn-pi8j.csv" instead of "43nn-pn8j.csv").
 
   {% if portal_name %}
   The current active dataset/portal is: '{{ portal_name }}'.
