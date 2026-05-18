@@ -30,7 +30,7 @@ from lakegen.resources import get_all_csv_files, get_llm, get_prompt_manager, ge
 from lakegen.phases import (
     phase1_generate_keywords,
     phase2_select_tables,
-    # phase1_updated_agent,  # Unified approach — uncomment to switch
+    phase1_updated_agent,
     phase3_generate_and_execute,
     phase4_synthesize,
 )
@@ -114,9 +114,38 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     reasoning = ""
     trace = ""
 
-    # ── Phase 1 & 2 (Two-phase: Keywords → Search + Judge) ────────────
+    # ── Phase 1 & 2 ────────────
     keyword_retries = 0
     while True:
+        if runtime.use_unified_agent:
+            _header("Phase 1 & 2 – Unified Architect & Search")
+
+            selected, keywords, solr_meta, reasoning, trace, tok = phase1_updated_agent(
+                query=question,
+                llm=llm,
+                pm=pm,
+                all_files=all_csv,
+                solr_client=solr,
+                csv_dir=runtime.csv_dir,
+                hint=keyword_hint,
+                portal_name=runtime.portal_name,
+                stream_callback=_stream_to_terminal,
+            )
+
+            tokens["p1"] += tok
+
+            print(f"\n\n{_c('Keywords:', 'bold')} {_keyword_list(keywords)}")
+            print(f"{_c('Tables:', 'bold')}   {', '.join(selected) if selected else '(none)'}")
+            print(f"{_c('Reasoning:', 'bold')} {reasoning}")
+            print(f"{_c('Tokens:', 'dim')}    {tok}")
+
+            if _ask_yes_no(f"\n{_c('Approve this selection?', 'yellow')}"):
+                break
+
+            keyword_hint = _ask_input("Hint for the agent (or press Enter to retry without hint)")
+            continue
+
+        # ── Two-phase flow: Keywords → Search + Judge ────────────
         # ── Phase 1: Generate AND keywords ────────────────────────────
         _header(f"Phase 1 – Keyword Selection (AND logic)")
 
@@ -182,34 +211,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
         keyword_hint = _ask_input("Hint for the agent (or press Enter to retry)")
 
-    # ── UNIFIED APPROACH (comment/uncomment to switch) ────────────────
-    # while True:
-    #     _header("Phase 1 & 2 – Unified Architect & Search")
-    #
-    #     selected, keywords, solr_meta, reasoning, trace, tok = phase1_updated_agent(
-    #         query=question,
-    #         llm=llm,
-    #         pm=pm,
-    #         all_files=all_csv,
-    #         solr_client=solr,
-    #         csv_dir=runtime.csv_dir,
-    #         hint=keyword_hint,
-    #         portal_name=runtime.portal_name,
-    #         stream_callback=_stream_to_terminal,
-    #     )
-    #
-    #     tokens["p1"] += tok
-    #
-    #     print(f"\n\n{_c('Keywords:', 'bold')} {_keyword_list(keywords)}")
-    #     print(f"{_c('Tables:', 'bold')}   {', '.join(selected) if selected else '(none)'}")
-    #     print(f"{_c('Reasoning:', 'bold')} {reasoning}")
-    #     print(f"{_c('Tokens:', 'dim')}    {tok}")
-    #
-    #     if _ask_yes_no(f"\n{_c('Approve this selection?', 'yellow')}"):
-    #         break
-    #
-    #     keyword_hint = _ask_input("Hint for the agent (or press Enter to retry without hint)")
-    # ──────────────────────────────────────────────────────────────────
+
 
     # ── Phase 3 – Code Generation & Execution ────────────────────────
     candidates = selected
@@ -255,31 +257,47 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 continue
             # Re-run Phase 1 & 2
             keyword_hint = f"Previous tables rejected by coder: {phase3_result.rejected_reason}"
-            _header("Re-running Phase 1 – Keyword Selection")
-            keywords, raw_content, tok1, reasoning_p1 = phase1_generate_keywords(
-                query=question,
-                llm=llm,
-                pm=pm,
-                hint=keyword_hint,
-                portal_name=runtime.portal_name,
-            )
-            tokens["p1"] += tok1
+            if runtime.use_unified_agent:
+                _header("Re-running Phase 1 & 2 (Unified)")
+                selected, keywords, solr_meta, reasoning, trace, tok = phase1_updated_agent(
+                    query=question,
+                    llm=llm,
+                    pm=pm,
+                    all_files=all_csv,
+                    solr_client=solr,
+                    csv_dir=runtime.csv_dir,
+                    hint=keyword_hint,
+                    portal_name=runtime.portal_name,
+                    stream_callback=_stream_to_terminal,
+                )
+                tokens["p1"] += tok
+                architect_reasoning = reasoning
+            else:
+                _header("Re-running Phase 1 – Keyword Selection")
+                keywords, raw_content, tok1, reasoning_p1 = phase1_generate_keywords(
+                    query=question,
+                    llm=llm,
+                    pm=pm,
+                    hint=keyword_hint,
+                    portal_name=runtime.portal_name,
+                )
+                tokens["p1"] += tok1
 
-            _header("Re-running Phase 2 – Table Search & Selection")
-            selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
-                query=question,
-                llm=llm,
-                pm=pm,
-                all_files=all_csv,
-                keywords=keywords,
-                solr_client=solr,
-                csv_dir=runtime.csv_dir,
-                hint=keyword_hint,
-                portal_name=runtime.portal_name,
-                stream_callback=_stream_to_terminal,
-            )
-            tokens["p2"] += tok2
-            architect_reasoning = reasoning
+                _header("Re-running Phase 2 – Table Search & Selection")
+                selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
+                    query=question,
+                    llm=llm,
+                    pm=pm,
+                    all_files=all_csv,
+                    keywords=keywords,
+                    solr_client=solr,
+                    csv_dir=runtime.csv_dir,
+                    hint=keyword_hint,
+                    portal_name=runtime.portal_name,
+                    stream_callback=_stream_to_terminal,
+                )
+                tokens["p2"] += tok2
+                architect_reasoning = reasoning
             print(f"\n{_c('New tables:', 'bold')} {', '.join(selected)}")
             if not _ask_yes_no("Approve?"):
                 print(_c("Workflow cancelled.", "red"))
@@ -365,6 +383,11 @@ def main() -> None:
         default="http://127.0.0.1:11434",
         help="Ollama server URL (default: http://127.0.0.1:11434).",
     )
+    parser.add_argument(
+        "--unified",
+        action="store_true",
+        help="Use the unified agent (Phase 1 & 2 together) instead of divided phases.",
+    )
     args = parser.parse_args()
 
     nltk_err = bootstrap_nltk_data()
@@ -378,6 +401,7 @@ def main() -> None:
         solr_core=args.core,
         csv_dir=BASE_DIR / f"data/{args.core}/datasets/csv",
         db_path=BASE_DIR / f"data/blend_{args.core}.db",
+        use_unified_agent=args.unified,
     )
 
     run_cli_workflow(args.question, runtime)

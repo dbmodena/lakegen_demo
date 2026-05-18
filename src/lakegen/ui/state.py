@@ -31,6 +31,7 @@ class RuntimeSettings:
     solr_core: str = SOLR_CORE_OPTIONS[0]
     csv_dir: Path = BASE_DIR / "data/nyc/datasets/csv"
     db_path: Path = BASE_DIR / "data/blend_nyc.db"
+    use_unified_agent: bool = False
 
     @property
     def portal_name(self) -> str:
@@ -60,12 +61,15 @@ class RuntimeSettings:
             model_name = default.model_name
 
         ollama_url = str(settings.get("ollama_url") or default.ollama_url).strip()
+        use_unified_agent = settings.get("use_unified_agent", default.use_unified_agent)
+        
         return cls(
             ollama_url=ollama_url or default.ollama_url,
             model_name=model_name,
             solr_core=selected_solr_core,
             csv_dir=BASE_DIR / f"data/{selected_solr_core}/datasets/csv",
             db_path=BASE_DIR / f"data/blend_{selected_solr_core}.db",
+            use_unified_agent=bool(use_unified_agent),
         )
 
 

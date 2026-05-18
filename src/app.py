@@ -11,7 +11,7 @@ from pathlib import Path
 import chainlit as cl
 import sniffio
 from chainlit.server import app as chainlit_app
-from chainlit.input_widget import Select, TextInput
+from chainlit.input_widget import Select, TextInput, Switch
 
 _SRC_DIR = Path(__file__).resolve().parent
 _ROOT_DIR = _SRC_DIR.parent
@@ -76,6 +76,11 @@ def _settings_widgets(runtime: RuntimeSettings | None = None) -> list:
             label=t("settings.model"),
             values=MODEL_OPTIONS,
             initial_value=runtime.model_name,
+        ),
+        Switch(
+            id="use_unified_agent",
+            label="Use Unified Agent (Phase 1 & 2)",
+            initial=runtime.use_unified_agent,
         ),
     ]
 
