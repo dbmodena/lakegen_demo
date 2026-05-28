@@ -114,6 +114,20 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
         return None, f"[{type(e).__name__}] {e}", code
 
 
+def _detect_separator(filepath: str) -> str:
+    """Helper to detect whether a CSV uses ',' or ';' as delimiter."""
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            first_line = f.readline()
+        semicolons = first_line.count(";")
+        commas = first_line.count(",")
+        if semicolons > commas:
+            return ";"
+    except Exception:
+        pass
+    return ","
+
+
 def phase3_generate_code(
     query, 
     tables, 
@@ -139,7 +153,8 @@ def phase3_generate_code(
         cn = meta.get("columns.name", [])
         ct = meta.get("columns.type", [])
         
-        df = pd.read_csv(filepath, nrows=5)
+        sep = _detect_separator(filepath)
+        df = pd.read_csv(filepath, sep=sep, nrows=5)
         sample_rows = df.head(3).to_string(index=False)
 
         if cn and len(cn) == len(ct):
@@ -154,6 +169,7 @@ def phase3_generate_code(
             except Exception:
                 cols = ["Unknown columns"]
         info_lines.append(f"{idx}. '{filepath}'")
+        info_lines.append(f"   Separator: {repr(sep)}")
         info_lines.append(f"   Columns: [" + ", ".join(cols) + "]")
         info_lines.append(f"   Sample rows:\n{sample_rows}")
 

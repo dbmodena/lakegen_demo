@@ -102,7 +102,7 @@ def phase1_updated_agent(
 
             handler = explorer.run(
                 user_msg=agent_prompt,
-                max_iterations=15,
+                max_iterations=16,
             )
 
             tool_call_count = 0
@@ -129,8 +129,8 @@ def phase1_updated_agent(
                     tool_call_signatures[tool_signature] = (
                         tool_call_signatures.get(tool_signature, 0) + 1
                     )
-                    
-                    max_repeats = 3 if tool_name == 'preview_data' else 3
+
+                    max_repeats = 4
                     
                     if tool_call_signatures[tool_signature] >= max_repeats:
                         raise Phase2AgentStall(
