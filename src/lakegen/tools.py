@@ -309,10 +309,20 @@ def make_p2_judge_tools(
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
+    def reject_selection(reasoning: str, suggestion: str) -> str:
+        """
+        CRITICAL: Use this tool ONLY when NONE of the candidate tables are relevant to the user's question.
+        - reasoning: Explain step-by-step why the current tables are not good.
+        - suggestion: Suggest better keywords to search for.
+        Calling this tool means you have successfully finished the task by rejecting the candidates.
+        """
+        return f"REJECT_KEYWORDS: {reasoning}\nSuggestion: {suggestion}"
+
     return [
         FunctionTool.from_defaults(fn=inspect_columns_tool),
         FunctionTool.from_defaults(fn=find_joinable_tables),
         FunctionTool.from_defaults(fn=find_schema_matches_tool),
         FunctionTool.from_defaults(fn=confirm_table_selection, return_direct=True),
+        FunctionTool.from_defaults(fn=reject_selection, return_direct=True),
     ]
 

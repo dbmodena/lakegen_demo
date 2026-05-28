@@ -7,6 +7,7 @@ from nltk.corpus import stopwords
 import nltk
 
 from llama_index.core.llms import ChatMessage, LLM
+from llama_index.core import Settings
 
 from prompts.prompt_manager import PromptManager
 
@@ -40,18 +41,18 @@ def split_thinking_blocks(text: str) -> tuple[str, str]:
         return ""
 
     visible_text = re.sub(
-        r"<think>(.*?)</think>",
+        r"<(?:think|reasoning)>(.*?)</(?:think|reasoning)>",
         collect_closed,
         text,
         flags=re.IGNORECASE | re.DOTALL,
     )
 
-    open_match = re.search(r"<think>(.*)$", visible_text, flags=re.IGNORECASE | re.DOTALL)
+    open_match = re.search(r"<(?:think|reasoning)>(.*)$", visible_text, flags=re.IGNORECASE | re.DOTALL)
     if open_match:
         thinking_parts.append(open_match.group(1))
         visible_text = visible_text[:open_match.start()]
 
-    visible_text = re.sub(r"</think>", "", visible_text, flags=re.IGNORECASE)
+    visible_text = re.sub(r"</(?:think|reasoning)>", "", visible_text, flags=re.IGNORECASE)
     thinking_text = "\n".join(part.strip() for part in thinking_parts if part.strip())
     return visible_text.strip(), thinking_text.strip()
 
@@ -66,6 +67,7 @@ def phase1_generate_keywords(
     reasoning_placeholder=None,
     stream_reasoning: bool = True,
     cancel_check: Callable[[], None] | None = None,
+    avoid_keywords: list[str] | None = None,
 ):
     wordnet_keywords_str = extract_wordnet_query_keywords(query)
     wordnet_keywords = [k.strip() for k in wordnet_keywords_str.split(",") if k.strip()]
@@ -75,13 +77,16 @@ def phase1_generate_keywords(
         "system_prompt"
     )
 
+    avoid_keywords_str = ", ".join(avoid_keywords) if avoid_keywords else ""
+
     user_prompt = pm.render(
         "keyword_generator",
         "user_prompt",
         question=query,
         portal_name=portal_name,
         raw_keywords_str=wordnet_keywords_str,
-        keyword_hint=hint
+        keyword_hint=hint,
+        avoid_keywords_str=avoid_keywords_str,
     )
 
     messages = [
@@ -92,6 +97,13 @@ def phase1_generate_keywords(
     raw_stream = ""
     structured_reasoning = ""
     tokens = 0
+
+    token_counter = next(
+        (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")),
+        None,
+    )
+    if token_counter:
+        token_counter.reset_counts()
 
     def update_placeholders() -> None:
         visible_stream, tagged_reasoning = split_thinking_blocks(raw_stream)
@@ -109,15 +121,11 @@ def phase1_generate_keywords(
 
     print("[phase1 keyword stream] ", end="", flush=True)
 
-    # Phase 1 is a simple keyword selection task — reasoning should never
-    # exceed a few hundred tokens.  These guards break the stream early
-    # when the model enters an infinite thinking loop.
-    _MAX_REASONING_LEN = 8000   # chars – generous ceiling
-    _REPEAT_WINDOW = 150        # chars – tail window for repetition check
-    _REPEAT_THRESHOLD = 4       # how many times the tail must repeat
+    _REPEAT_WINDOW = 200        # chars – tail window for repetition check
+    _REPEAT_THRESHOLD = 5       # how many times the tail must repeat
+    loop_detected = False
 
     stream_kwargs = {"think": True} if stream_reasoning else {}
-    loop_detected = False
     try:
         chunk_stream = llm.stream_chat(messages, **stream_kwargs)
         for chunk in chunk_stream:
@@ -128,19 +136,19 @@ def phase1_generate_keywords(
                 structured_reasoning += thinking_delta
                 print(thinking_delta, end="", flush=True)
 
-                # ── Loop detection ────────────────────────────────
+                # ── Repetition loop detection (No max length constraint) ──
                 cleaned = structured_reasoning.strip()
-                if len(cleaned) > _MAX_REASONING_LEN:
-                    print("\n[phase1] Reasoning exceeded max length – breaking stream.")
-                    loop_detected = True
-                    break
                 if len(cleaned) > _REPEAT_WINDOW:
                     tail = cleaned[-_REPEAT_WINDOW:]
                     if cleaned.count(tail) >= _REPEAT_THRESHOLD:
                         print("\n[phase1] Repetition loop detected in reasoning – breaking stream.")
                         loop_detected = True
+                        if reasoning_placeholder is not None:
+                            reasoning_placeholder.markdown(
+                                structured_reasoning + "\n\n⚠️ **[Phase 1] Attenzione: Rilevato loop di ripetizione nel ragionamento del modello! Lo stream è stato interrotto per evitare blocchi.**"
+                            )
                         break
-                # ──────────────────────────────────────────────────
+                # ──────────────────────────────────────────────────────────
 
                 update_placeholders()
 
@@ -150,7 +158,7 @@ def phase1_generate_keywords(
                 print(delta, end="", flush=True)
                 update_placeholders()
 
-            if chunk.raw:
+            if chunk.raw and isinstance(chunk.raw, dict):
                 prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
                 completion_tokens = chunk.raw.get("eval_count") or 0
                 if prompt_tokens or completion_tokens:
@@ -168,20 +176,41 @@ def phase1_generate_keywords(
                 print(delta, end="", flush=True)
                 update_placeholders()
 
-            if chunk.raw:
+            if chunk.raw and isinstance(chunk.raw, dict):
                 prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
                 completion_tokens = chunk.raw.get("eval_count") or 0
                 if prompt_tokens or completion_tokens:
                     tokens = prompt_tokens + completion_tokens
     print("", flush=True)
 
+    if token_counter and tokens == 0:
+        tokens = token_counter.prompt_llm_token_count + token_counter.completion_llm_token_count
+    if tokens == 0:
+        # Fallback estimation if stream skipped token tracking completely
+        tokens = int((len(system_prompt.split()) + len(user_prompt.split()) + len(raw_stream.split())) * 1.3)
+
     visible_content, tagged_reasoning = split_thinking_blocks(raw_stream)
+
+    reasoning_blocks = re.findall(r"<reasoning>(.*?)</reasoning>", raw_stream, re.IGNORECASE | re.DOTALL)
+    for block in reasoning_blocks:
+        if block.strip():
+            tagged_reasoning += "\n" + block.strip()
+
     reasoning_content = "\n\n".join(
         part.strip()
         for part in (structured_reasoning, tagged_reasoning)
         if part.strip()
     )
-    raw_content = visible_content.strip().lower()
+
+    keywords_match = re.search(r"<keywords>\s*(.*?)\s*</keywords>", raw_stream, re.IGNORECASE | re.DOTALL)
+    if keywords_match:
+        raw_content = keywords_match.group(1).strip().lower()
+    else:
+        raw_content = re.sub(r"<reasoning>.*?</reasoning>", "", visible_content, flags=re.IGNORECASE | re.DOTALL).strip().lower()
+        if not raw_content:
+            fallback_match = re.search(r"keywords?[:\s]+(.*)", raw_stream, flags=re.IGNORECASE | re.DOTALL)
+            raw_content = fallback_match.group(1).strip().lower() if fallback_match else raw_stream.strip().lower()
+
     model_keywords = re.findall(r"(?u)\b[\w-]+\b", raw_content)
     query_numbers = re.findall(r"\b\d+\b", query)
     extracted = list(dict.fromkeys(model_keywords + query_numbers))#[:3]
@@ -191,4 +220,8 @@ def phase1_generate_keywords(
         if loop_detected:
             print(f"[phase1] Loop fallback → using WordNet keywords: {wordnet_keywords[:3]}")
         extracted = wordnet_keywords[:3]
+
+    if loop_detected:
+        reasoning_content += "\n\n⚠️ **[Phase 1] Attenzione: Rilevato loop di ripetizione nel ragionamento del modello! Lo stream è stato interrotto ed è stato attivato il fallback sulle keyword WordNet.**"
+
     return extracted, raw_content, tokens, reasoning_content

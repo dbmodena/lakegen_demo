@@ -107,6 +107,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
     tokens = {"p1": 0, "p2": 0, "p3": 0, "p4": 0}
     keyword_hint = ""
+    attempted_keywords = []
     run_id = uuid.uuid4().hex
     keywords = []
     selected = []
@@ -155,6 +156,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             pm=pm,
             hint=keyword_hint,
             portal_name=runtime.portal_name,
+            avoid_keywords=attempted_keywords,
         )
         tokens["p1"] += tok1
 
@@ -164,6 +166,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         if _ask_yes_no(f"\n{_c('Approve these keywords?', 'yellow')}"):
             pass  # proceed to Phase 2
         else:
+            attempted_keywords.extend(keywords)
+            attempted_keywords = list(dict.fromkeys(attempted_keywords))
             keyword_hint = _ask_input("Hint for keyword selection (or press Enter to retry without hint)")
             continue
 
@@ -188,6 +192,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         if reasoning.startswith("REJECT_KEYWORDS:"):
             reject_reason = reasoning.replace("REJECT_KEYWORDS:", "").strip()
             print(_c(f"\n⚠ Keywords rejected by table judge: {reject_reason}", "yellow"))
+            attempted_keywords.extend(keywords)
+            attempted_keywords = list(dict.fromkeys(attempted_keywords))
             keyword_retries += 1
             if keyword_retries >= MAX_KEYWORD_RETRIES:
                 print(_c(f"Max keyword retries ({MAX_KEYWORD_RETRIES}) reached. Using best available.", "red"))
@@ -209,6 +215,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         if _ask_yes_no(f"\n{_c('Approve this selection?', 'yellow')}"):
             break
 
+        attempted_keywords.extend(keywords)
+        attempted_keywords = list(dict.fromkeys(attempted_keywords))
         keyword_hint = _ask_input("Hint for the agent (or press Enter to retry)")
 
 
@@ -256,6 +264,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 force_execution = True
                 continue
             # Re-run Phase 1 & 2
+            attempted_keywords.extend(keywords)
+            attempted_keywords = list(dict.fromkeys(attempted_keywords))
             keyword_hint = f"Previous tables rejected by coder: {phase3_result.rejected_reason}"
             if runtime.use_unified_agent:
                 _header("Re-running Phase 1 & 2 (Unified)")
@@ -280,6 +290,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     pm=pm,
                     hint=keyword_hint,
                     portal_name=runtime.portal_name,
+                    avoid_keywords=attempted_keywords,
                 )
                 tokens["p1"] += tok1
 

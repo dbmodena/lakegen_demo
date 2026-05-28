@@ -131,6 +131,12 @@ async def _generate_keywords(
     hint: str,
     label: str,
 ) -> cl.Step:
+    # Gather previously generated keywords in the session to avoid repeating them
+    avoid_kws = []
+    for run in session.phase1_runs:
+        avoid_kws.extend(run.get("keywords", []))
+    avoid_kws = list(dict.fromkeys(avoid_kws))
+
     async with cl.Step(name=session.text("phase1.step"), type="llm", default_open=True) as step:
         async with StepStreamBridge(step) as bridge:
             stream_box = CumulativeMarkdownEmitter(
@@ -149,6 +155,7 @@ async def _generate_keywords(
                 portal_name=session.runtime.portal_name,
                 stream_placeholder=stream_box,
                 reasoning_placeholder=reasoning_box,
+                avoid_keywords=avoid_kws,
             )
         session.keywords = kws
         session.raw_keywords = raw
