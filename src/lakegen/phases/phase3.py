@@ -146,32 +146,50 @@ def phase3_generate_code(
     stream_reasoning: bool = True,
     cancel_check: Callable[[], None] | None = None,
 ):
-    info_lines = [f"AVAILABLE SELECTED TABLES IN '{csv_dir}/':"]
+    MAX_DETAIL_COLS = 25    # columns shown with type info
+    MAX_SAMPLE_COLS = 15    # columns shown in sample rows
+    MAX_SAMPLE_ROWS = 2     # rows in sample preview
+    MAX_CELL_WIDTH = 40     # max chars per cell in sample
+
+    info_lines = ["AVAILABLE TABLES:"]
     for idx, fn in enumerate(tables, 1):
         filepath = os.path.join(csv_dir, fn.strip())
         meta = solr_meta.get(fn, {})
         cn = meta.get("columns.name", [])
         ct = meta.get("columns.type", [])
-        
-        sep = _detect_separator(filepath)
-        df = pd.read_csv(filepath, sep=sep, nrows=5)
-        sample_rows = df.head(3).to_string(index=False)
 
+        sep = _detect_separator(filepath)
+        load_cmd = f"pd.read_csv('{filepath}', sep={repr(sep)})"
+        df = pd.read_csv(filepath, sep=sep, nrows=MAX_SAMPLE_ROWS + 1)
+
+        # Build column info from metadata or actual dataframe
         if cn and len(cn) == len(ct):
-            cols = [f"'{n}' ({t})" for n, t in zip(cn, ct)]
+            col_typed = [f"{n}({t})" for n, t in zip(cn, ct)]
         elif cn:
-            cols = [f"'{n}'" for n in cn]
+            col_typed = list(cn)
         else:
             try:
-                cols = [f"'{n}' ({t})" for n, t in
-                        zip(df.columns, [str(d) for d in df.dtypes])]
-                
+                col_typed = [f"{c}({df[c].dtype})" for c in df.columns]
             except Exception:
-                cols = ["Unknown columns"]
-        info_lines.append(f"{idx}. '{filepath}'")
-        info_lines.append(f"   Separator: {repr(sep)}")
-        info_lines.append(f"   Columns: [" + ", ".join(cols) + "]")
-        info_lines.append(f"   Sample rows:\n{sample_rows}")
+                col_typed = ["Unknown columns"]
+
+        total_cols = len(col_typed)
+        shown = col_typed[:MAX_DETAIL_COLS]
+
+        # Sample preview: limit columns and truncate wide cells
+        sample_df = df.head(MAX_SAMPLE_ROWS).copy()
+        if len(sample_df.columns) > MAX_SAMPLE_COLS:
+            sample_df = sample_df.iloc[:, :MAX_SAMPLE_COLS].copy()
+        for col in sample_df.columns:
+            sample_df[col] = sample_df[col].astype(str).str.slice(0, MAX_CELL_WIDTH)
+        sample_str = sample_df.to_string(index=False)
+
+        info_lines.append(f"{idx}. LOAD: {load_cmd}")
+        info_lines.append(f"   Columns ({total_cols}): {', '.join(shown)}")
+        if total_cols > MAX_DETAIL_COLS:
+            rest_names = [c.split("(")[0] if "(" in c else c for c in col_typed[MAX_DETAIL_COLS:]]
+            info_lines.append(f"   +{total_cols - MAX_DETAIL_COLS} more: {', '.join(rest_names[:15])}")
+        info_lines.append(f"   Sample:\n{sample_str}")
 
     tables_info = "\n".join(info_lines)
 
