@@ -146,7 +146,7 @@ def make_p12_tools(
     def confirm_unified_selection(selected_files: str, reasoning: str) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
-        - selected_files: A comma-separated string of the exact file names needed (e.g., "sales.csv, dates.csv").
+        - selected_files: A comma-separated string of ALL the exact file names needed (e.g., "sales.csv", or "sales.csv, dates.csv", or "sales.csv, dates.csv, lookup.csv"). Do not omit any table you need!
         - reasoning: Write a brief explanation IN ENGLISH.
         Calling this tool means you have successfully finished the task.
         """

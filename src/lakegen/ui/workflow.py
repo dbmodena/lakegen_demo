@@ -533,7 +533,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         ),
         cl.Text(
             name="execution_output.txt",
-            content=str(raw_result or ""),
+            content=str(raw_result) if raw_result else "No output generated.",
             language="text",
             display="side",
         ),
