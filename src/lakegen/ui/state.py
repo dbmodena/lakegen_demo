@@ -14,7 +14,7 @@ from lakegen.types import SolrMetadata
 from lakegen.utils import BASE_DIR
 
 
-MODEL_OPTIONS = ["gemma4:26b", "qwen3.5:latest", "llama3.1:8b", "gpt-oss:20b"]
+MODEL_OPTIONS = ["gemma4:26b", "qwen3.5:latest", "qwen3.5:27b", "llama3.1:8b", "gpt-oss:20b"]
 SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris"]
 SOLR_CORE_PORTAL_NAMES = {
     "nyc": "New York City Open Data portal",
@@ -31,7 +31,7 @@ class RuntimeSettings:
     solr_core: str = SOLR_CORE_OPTIONS[0]
     csv_dir: Path = BASE_DIR / "data/nyc/datasets/csv"
     db_path: Path = BASE_DIR / "data/blend_nyc.db"
-    use_unified_agent: bool = False
+    use_unified_agent: bool = True
 
     @property
     def portal_name(self) -> str:

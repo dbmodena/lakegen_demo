@@ -105,7 +105,5 @@ def build_phase4_summary(session: LakeGenSession, answer: str) -> str:
     return f"""
 **{t("summary.synthesized_answer")}**
 
-{answer}
-
 - {t("summary.tokens").title()}: `{session.tokens['p4']}`
 """.strip()

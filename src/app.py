@@ -159,11 +159,13 @@ async def on_settings_update(settings: dict) -> None:
         )
         set_runtime_settings(runtime)
         get_session().runtime = runtime
+        agent_mode = "Unified" if runtime.use_unified_agent else "Divided"
         await cl.Message(
             content=t(
                 "app.settings_updated",
                 model_name=runtime.model_name,
                 solr_core=runtime.solr_core,
+                agent_mode=agent_mode,
             )
         ).send()
     except Exception as exc:

@@ -37,6 +37,7 @@
 							 "Protection des activités", "Sites de protection"]
 2- "question": "What are the top 5 social economy activities in Paris with the largest protected green spaces, and what are their corresponding areas?"
 2- "translated_question": "Quelles sont les 5 activités d'économie sociale à Paris avec les plus grands espaces verts protégés, et quelles sont leurs superficies correspondantes?"
+			Quels sont les 5 secteurs de Paris abritant des sites de l'économie sociale et solidaire (ESS) qui bénéficient des plus grandes superficies d'espaces verts protégés?
 	- Selected table:
 	"Table_0": "plub_ess",
 	"Table_1": "plub_evp"
