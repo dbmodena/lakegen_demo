@@ -10,6 +10,7 @@ prompt: |
   5. Empty Data: If the data shows "Empty DataFrame", "NaN", or has no actual results, politely say that no data was found for this specific request.
   6. Use the user question for create the final answer.
   7. If the result of the code are a number use the question to understand what the number means.
+  8. Final Answer ONLY: Provide ONLY the final answer. Be concise and direct. Do NOT show your reasoning process or chain of thought under any circumstances.
 
   USER QUESTION: "{{ question }}"
 
