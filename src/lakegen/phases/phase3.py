@@ -57,7 +57,11 @@ def _extract_code(code_raw: str) -> str:
 def _rejected_tables_reason(code_raw: str) -> str:
     if "REJECT_TABLES" not in code_raw:
         return ""
-    return code_raw.replace("REJECT_TABLES:", "").replace("REJECT_TABLES", "").strip()
+    for line in code_raw.splitlines():
+        if "REJECT_TABLES" in line:
+            # Extract just the reason part from the line
+            return line.replace("print(", "").replace(")", "").replace('"', '').replace("'", "").replace("REJECT_TABLES:", "").replace("REJECT_TABLES", "").strip()
+    return "Tables rejected by model."
 
 
 def _execute_code(code_raw: str, run_dir: Path | None = None):
