@@ -69,17 +69,20 @@ def make_p12_tools(
         except Exception as e:
             return f"Error querying Solr: {str(e)}"
 
-    def inspect_columns_tool(file_name: str) -> str:
+    def inspect_columns_tool(file_name: str | None = None, filename: str | None = None) -> str:
         """
         Returns a compact schema for one CSV in the active dataset.
         Shows column names, data types, and sample values for categorical columns.
         Use this SOLO DOPO aver identificato un csv_path valido con search_solr.
         """
-        return _inspect_columns(csv_dir, file_name)
+        name = file_name or filename
+        if not name:
+            return "Error: file_name or filename parameter is required."
+        return _inspect_columns(csv_dir, name)
 
     inspect_columns_tool.__name__ = "inspect_columns"
 
-    def find_joinable_tables(file_name: str, target_columns: list[str]) -> str:
+    def find_joinable_tables(file_name: str | None = None, target_columns: list[str] = [], filename: str | None = None) -> str:
         """
         Use the BLEND engine to find which other tables among the discovered candidates can be joined with the specified file.
         DA USARE NELLA FASE DI INTEGRAZIONE, quando devi incrociare i dati di una tabella già ispezionata.
@@ -92,10 +95,13 @@ def make_p12_tools(
         """
         import blend
 
-        file_name = file_name.strip()
-        path_file = csv_dir / file_name
+        name = file_name or filename
+        if not name:
+            return "Error: file_name or filename parameter is required."
+        name = name.strip()
+        path_file = csv_dir / name
         if not path_file.exists():
-            return f"Error: Target file missing in active dataset: {file_name}"
+            return f"Error: Target file missing in active dataset: {name}"
 
         if not state.all_candidates:
             return "Error: No candidates found yet. Please use search_solr first."
@@ -117,7 +123,7 @@ def make_p12_tools(
             valid_cols = [col for col in target_columns if col in df_target.columns]
             if not valid_cols:
                 indexer.close()
-                return f"Error: None of the specified target_columns {target_columns} exist in {file_name}."
+                return f"Error: None of the specified target_columns {target_columns} exist in {name}."
 
             df_target = df_target.select(valid_cols)
             results = indexer.multi_column_join_search(table=df_target, k=5, clean=True)
@@ -125,9 +131,9 @@ def make_p12_tools(
 
             if not results:
                 return "No compatible table found among the candidates."
-            output = f"BLEND Results for '{file_name}' using columns {valid_cols}:\n"
+            output = f"BLEND Results for '{name}' using columns {valid_cols}:\n"
             for t_id, _, score in results:
-                if t_id != file_name:
+                if t_id != name:
                     output += f"-> {t_id} (Score: {score:.3f})\n"
             return output
         except Exception as e:
@@ -145,15 +151,15 @@ def make_p12_tools(
 
     find_schema_matches_tool.__name__ = "find_schema_matches"
 
-    def confirm_unified_selection(selected_files: str, reasoning: str) -> str:
+    def confirm_unified_selection(selected_tables: str, reasoning: str) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
-        - selected_files: A comma-separated string of ALL the exact file names needed (e.g., "sales.csv", or "sales.csv, dates.csv", or "sales.csv, dates.csv, lookup.csv"). Do not omit any table you need!
+        - selected_tables: A comma-separated string of ALL the exact file names needed (e.g., "sales.csv", or "sales.csv, dates.csv", or "sales.csv, dates.csv, lookup.csv"). Do not omit any table you need!
         - reasoning: Write a brief explanation IN ENGLISH.
         Calling this tool means you have successfully finished the task.
         """
         dati_uscita = {
-            "tables": selected_files,
+            "tables": selected_tables,
             "reasoning": reasoning
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"

@@ -296,15 +296,15 @@ def make_p2_judge_tools(
 
     find_schema_matches_tool.__name__ = "find_schema_matches"
 
-    def confirm_table_selection(selected_files: str, reasoning: str) -> str:
+    def confirm_table_selection(selected_tables: str, reasoning: str) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files.
-        - selected_files: A comma-separated string of the exact file names needed (e.g., "2016.csv").
+        - selected_tables: A comma-separated string of the exact file names needed (e.g., "2016.csv").
         - reasoning: Write a brief explanation IN ENGLISH. Do NOT use quotes, apostrophes, or special characters.
         Calling this tool means you have successfully finished the task.
         """
         dati_uscita = {
-            "tables": selected_files,
+            "tables": selected_tables,
             "reasoning": reasoning
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
