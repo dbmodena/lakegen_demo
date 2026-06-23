@@ -21,7 +21,7 @@ def get_llm(model, url) -> tuple[Ollama, TokenCountingHandler]:
     llm = Ollama(
         model=model, 
         base_url=url, 
-        request_timeout=300.0,
+        request_timeout=500.0,
         temperature=0.1,
         context_window=NUM_CTX
     )
