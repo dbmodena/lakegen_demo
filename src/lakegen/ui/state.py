@@ -14,7 +14,7 @@ from lakegen.types import SolrMetadata
 from lakegen.utils import BASE_DIR
 
 
-MODEL_OPTIONS = ["gemma4:26b", "qwen3.5:latest", "qwen3.5:27b", "qwen3.6:27b-q8_0", "llama3.1:8b", "gpt-oss:20b"]
+MODEL_OPTIONS = ["qwen3.5:latest", "gemma4:26b", "qwen3.5:27b", "qwen3.6:27b-q8_0", "llama3.1:8b", "gpt-oss:20b"]
 SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris"]
 SOLR_CORE_PORTAL_NAMES = {
     "nyc": "New York City Open Data portal",

@@ -145,7 +145,7 @@ def normalize_phase2_stall_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower()).strip()
 
 
-def detect_phase2_agent_stall(stream_text: str, min_repeats: int = 3) -> str | None:
+def detect_phase2_agent_stall(stream_text: str, min_repeats: int = 5) -> str | None:
     if len(stream_text) > PHASE2_MAX_STREAM_CHARS:
         return f"stream exceeded {PHASE2_MAX_STREAM_CHARS} characters without finishing"
 

@@ -296,15 +296,59 @@ def make_p2_judge_tools(
 
     find_schema_matches_tool.__name__ = "find_schema_matches"
 
-    def confirm_table_selection(selected_tables: str, reasoning: str) -> str:
+    def confirm_table_selection(
+        reasoning: str,
+        selected_tables: str | None = None,
+        tables: str | None = None,
+        selected_files: str | None = None,
+        **kwargs,
+    ) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files.
-        - selected_tables: A comma-separated string of the exact file names needed (e.g., "2016.csv").
-        - reasoning: Write a brief explanation IN ENGLISH. Do NOT use quotes, apostrophes, or special characters.
-        Calling this tool means you have successfully finished the task.
+        Calling this tool terminates execution and confirms the selection.
+
+        Args:
+            reasoning: MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question. Do NOT use quotes, apostrophes, or special characters.
+            selected_tables: A comma-separated string of the exact file names needed (e.g., "2016.csv"). Do not omit any table you need!
+            tables: Alternative argument name (alias) for selected_tables.
+            selected_files: Alternative argument name (alias) for selected_tables.
         """
+        raw_tables = (
+            selected_tables
+            or tables
+            or selected_files
+            or kwargs.get("table_names")
+            or kwargs.get("table_name")
+            or ""
+        )
+        if isinstance(raw_tables, list):
+            final_tables = ", ".join(str(t) for t in raw_tables)
+        elif isinstance(raw_tables, str):
+            # Handle cases like "['file.csv']" or "[\"file.csv\"]"
+            cleaned = raw_tables.strip()
+            if cleaned.startswith("[") and cleaned.endswith("]"):
+                try:
+                    # Try parsing as JSON list
+                    parsed = json.loads(cleaned.replace("'", "\""))
+                    if isinstance(parsed, list):
+                        final_tables = ", ".join(str(t) for t in parsed)
+                    else:
+                        final_tables = cleaned.strip("[]'\" ")
+                except Exception:
+                    # Fallback to simple regex/strip cleaning
+                    import re
+                    parts = re.findall(r"['\"](.*?)['\"]", cleaned)
+                    if parts:
+                        final_tables = ", ".join(parts)
+                    else:
+                        final_tables = cleaned.strip("[]'\" ")
+            else:
+                final_tables = cleaned
+        else:
+            final_tables = str(raw_tables)
+
         dati_uscita = {
-            "tables": selected_tables,
+            "tables": final_tables,
             "reasoning": reasoning
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
