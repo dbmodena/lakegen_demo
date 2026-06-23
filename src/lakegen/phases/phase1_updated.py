@@ -95,7 +95,7 @@ def phase1_updated_agent(
         async def _run_agent():
             explorer = FunctionAgent(
                 name="unified_explorer", 
-                tools=agent_tools, 
+                tool_retriever=agent_tools, 
                 llm=llm,
                 system_prompt=system_prompt,
             )

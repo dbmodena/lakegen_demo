@@ -6,6 +6,8 @@ from pathlib import Path
 
 import polars as pl
 from llama_index.core.tools import FunctionTool
+from llama_index.core import VectorStoreIndex
+from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 
 from lakegen.types import SolrMetadata
 from lakegen.tools import _inspect_columns, _find_schema_matches
@@ -26,18 +28,19 @@ def make_p12_tools(
     solr_client: LocalSolrClient,
     all_files: list[str],
     csv_dir: Path,
-) -> list[FunctionTool]:
+):
     """
-    Build the 5 tools for the unified Phase 1 & 2 agent:
-    search_solr, inspect_columns, find_joinable_tables (BLEND),
-    find_schema_matches (Valentine), confirm_unified_selection.
+    Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
+    The retriever will dynamically fetch the top relevant tools based on the agent's intent.
     """
 
     def search_solr(keywords_str: str) -> str:
         """
         Search for relevant tables in Solr using a space-separated string of keywords.
+        ATTENZIONE: Le keyword devono TASSATIVAMENTE essere mantenute nella lingua nativa 
+        del portale Open Data che si sta interrogando (es. francese per Parigi, italiano per Bologna).
         Because this uses AND logic, use ONLY 2-3 essential keywords at most to avoid getting zero results.
-        Example: "sales 2024"
+        Example: "sales 2024" (or equivalent in target language).
         Returns the top matching table names and their schema descriptions.
         """
         try:
@@ -70,7 +73,7 @@ def make_p12_tools(
         """
         Returns a compact schema for one CSV in the active dataset.
         Shows column names, data types, and sample values for categorical columns.
-        Use this to understand what data a table contains.
+        Use this SOLO DOPO aver identificato un csv_path valido con search_solr.
         """
         return _inspect_columns(csv_dir, file_name)
 
@@ -79,17 +82,16 @@ def make_p12_tools(
     def find_joinable_tables(file_name: str, target_columns: list[str]) -> str:
         """
         Use the BLEND engine to find which other tables among the discovered candidates can be joined with the specified file.
-
+        DA USARE NELLA FASE DI INTEGRAZIONE, quando devi incrociare i dati di una tabella già ispezionata.
         Args:
             file_name: The name of the file to search for joins.
             target_columns: A list of strings representing the specific columns of interest. Do NOT use all columns.
-
         PAY ATTENTION TO SCORE RULES:
         A low score (0.05 - 0.20) is EXCELLENT and means the tables share a key column.
         Consider valid all files with scores > 0.05.
         """
         import blend
-
+        
         file_name = file_name.strip()
         path_file = csv_dir / file_name
         if not path_file.exists():
@@ -137,7 +139,7 @@ def make_p12_tools(
     def find_schema_matches_tool(file_name_1: str, file_name_2: str) -> str:
         """
         Use Valentine to find matching columns between two files based on data content and schema.
-        This tool helps identify overlapping columns that can be used for JOIN operations.
+        Da usare ESCLUSIVAMENTE nella fase di integrazione, quando possiedi già due schemi estratti.
         """
         return _find_schema_matches(csv_dir, file_name_1, file_name_2)
 
@@ -156,7 +158,8 @@ def make_p12_tools(
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
-    return [
+    # 1. Definiamo la lista statica dei tool
+    tools_list = [
         FunctionTool.from_defaults(fn=search_solr),
         FunctionTool.from_defaults(fn=inspect_columns_tool),
         FunctionTool.from_defaults(fn=find_joinable_tables),
@@ -164,5 +167,17 @@ def make_p12_tools(
         FunctionTool.from_defaults(fn=confirm_unified_selection, return_direct=True),
     ]
 
+    # 2. Creiamo il mapping per l'indicizzazione
+    tool_mapping = SimpleToolNodeMapping.from_objects(tools_list)
+    
+    # 3. Creiamo l'ObjectIndex vettoriale (questo creerà gli embedding delle docstring in background)
+    obj_index = ObjectIndex.from_objects(
+        tools_list,
+        tool_mapping,
+        VectorStoreIndex,
+    )
 
-
+    # 4. Restituiamo il retriever. 
+    # similarity_top_k=3 assicura che il LLM veda al massimo i 3 tool più pertinenti all'azione che vuole compiere.
+    # Includiamo sempre confirm_unified_selection in modo che possa fermarsi quando ha finito.
+    return obj_index.as_retriever(similarity_top_k=3)
