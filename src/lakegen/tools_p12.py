@@ -91,7 +91,7 @@ def make_p12_tools(
         Consider valid all files with scores > 0.05.
         """
         import blend
-        
+
         file_name = file_name.strip()
         path_file = csv_dir / file_name
         if not path_file.exists():
@@ -158,7 +158,7 @@ def make_p12_tools(
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
-    # 1. Definiamo la lista statica dei tool
+    # 1. Define the list of tools
     tools_list = [
         FunctionTool.from_defaults(fn=search_solr),
         FunctionTool.from_defaults(fn=inspect_columns_tool),
@@ -167,17 +167,17 @@ def make_p12_tools(
         FunctionTool.from_defaults(fn=confirm_unified_selection, return_direct=True),
     ]
 
-    # 2. Creiamo il mapping per l'indicizzazione
+    # 2. Define the tool mapping
     tool_mapping = SimpleToolNodeMapping.from_objects(tools_list)
     
-    # 3. Creiamo l'ObjectIndex vettoriale (questo creerà gli embedding delle docstring in background)
+    # 3. Create the vector index (this will create the embeddings of the docstrings in background)
     obj_index = ObjectIndex.from_objects(
         tools_list,
         tool_mapping,
         VectorStoreIndex,
     )
 
-    # 4. Restituiamo il retriever. 
-    # similarity_top_k=3 assicura che il LLM veda al massimo i 3 tool più pertinenti all'azione che vuole compiere.
-    # Includiamo sempre confirm_unified_selection in modo che possa fermarsi quando ha finito.
+    # 4. Return the retriever
+    # similarity_top_k=3 ensures that the LLM sees at most the 3 tools most relevant to the action it wants to perform.
+    # Always include confirm_unified_selection so that it can stop when it has finished.
     return obj_index.as_retriever(similarity_top_k=3)
