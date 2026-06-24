@@ -59,12 +59,18 @@
 
 
 TEST TabPFN:
+Regression:
 - Bologna: Fai una previsione dell'inquinamento atmosferico nei quartieri di Bologna in base al numero di veicoli.
 - New York: Can you predict the number of accidents in each district based on the historical data?
 - Paris: Fais une prévision de la population pour l'année prochaine.
 - Valencia: ¿Puedes predecir el número mensual de viajeros de la EMT en base al histórico de viajes?
 			¿Puedes predecir el nivel de PM10 en la estación de Pista de Silla basándote en otros contaminantes como el NO2?
-	
+
+Causal Inference:
+- Bologna: Qual è l'effetto causale dell'introduzione del limite Zona 30 sulla velocità media dei veicoli a Bologna?
+- Valencia: ¿Cuál es el efecto causal del volumen mensual de tráfico de vehículos en el APR sobre el nivel de ruido medio mensual (laeq) registrado por el sonómetro t248655-daily (calle Cadis)?
+
+
 
               
 
