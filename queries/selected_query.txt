@@ -57,6 +57,14 @@
 	"Table_0": "t248682-daily__5a050cef-1107-4b3b-8e61-5daf5cfb2ca4"
 	"Table_1": "t248655-daily__6fa5210b-f9c7-47c8-9d1f-ddb7568f62de"
 
+
+TEST TabPFN:
+- Bologna: Fai una previsione dell'inquinamento atmosferico nei quartieri di Bologna in base al numero di veicoli.
+- New York: Can you predict the number of accidents in each district based on the historical data?
+- Paris: Fais une prévision de la population pour l'année prochaine.
+- Valencia: ¿Puedes predecir el tráfico en las calles principales?
+	
+
               
 
 

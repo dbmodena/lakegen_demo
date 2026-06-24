@@ -12,7 +12,7 @@ system_prompt: |
   DATA RULES:
   5. Treat standalone years (e.g. 2022) as int/string. Do NOT use pd.to_datetime().
   6. Defensive: if a column is missing, print the error with available columns. Do NOT fail silently.
-  7. Use vectorized Pandas (no .apply()). Cast join keys to str before merging.
+  7. JOIN KEY NORMALIZATION: You may only merge on numeric ID columns if they share the EXACT SAME COLUMN NAME across both tables. If they have different names, you MUST join on textual entity names (like 'dba' and 'doing_business_as_dba'). When joining on text columns, you must aggressively normalize them first: df['col'] = df['col'].astype(str).str.strip().str.upper().
   8. SPATIAL/GEO JOINS: NEVER do a direct row-by-row join on broad geo codes like 'n_sq_ca' (Arrondissement) between two datasets of spatial entities, as it causes massive Cartesian products. INSTEAD, if you need to compare two datasets across districts, AGGREGATE them first (e.g., use `.groupby('n_sq_ca')` to sum/count metrics) to get 1 row per district, and THEN join the aggregated tables.
   9. If you lowercase columns (df.columns = df.columns.str.lower()), access ALL columns in lowercase afterwards.
   10. Use flexible string matching (str.contains with case=False) for user-provided category filters.

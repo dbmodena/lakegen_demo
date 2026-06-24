@@ -209,6 +209,33 @@ def phase3_generate_code(
                                 arch_reasoning=reasoning,
                                 tables_info=tables_info)
 
+    # --- TabPFN Dynamic Hint Injection ---
+    tabpfn_keywords = [
+        # English
+        "predict", "regression", "causal", "forecast", "prediction", "predictive",
+        # Italian
+        "predici", "regressione", "causale", "previsione", "predittivo", "predizione",
+        # French
+        "prédir", "predir", "régression", "regression", "prévision", "prevision", "prédictif", "predictif",
+        # Spanish
+        "predecir", "regresión", "regresion", "pronóstico", "pronostico", "predicción", "prediccion", "predictivo"
+    ]
+    if any(kw in query.lower() for kw in tabpfn_keywords):
+        tabpfn_hint = (
+            "\n\n[TABPFN REQUIREMENT]\n"
+            "The user query requires prediction, forecasting, or causal inference. "
+            "You MUST use the `tabpfn` library for this task. Small models MUST follow this exact API:\n"
+            "```python\n"
+            "import torch\n"
+            "from tabpfn import TabPFNRegressor, TabPFNClassifier\n"
+            "device = 'cuda' if torch.cuda.is_available() else 'cpu'\n"
+            "# For regression: model = TabPFNRegressor(device=device)\n"
+            "# For classification: model = TabPFNClassifier(device=device)\n"
+            "```\n"
+            "Prepare the data (X and y), use train_test_split, fit the model, and print the metrics (e.g. MSE or accuracy)."
+        )
+        user_prompt += tabpfn_hint
+
     original_temperature = getattr(llm, "temperature", 0.1)
     if retries > 0:
         # Dynamic temperature adjustment to break out of reasoning local minimums
