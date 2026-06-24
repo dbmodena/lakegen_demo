@@ -81,7 +81,7 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
             [sys.executable, str(fp)],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=180, # Increased from 15s to 180s to allow TabPFN to run and download weights
         )
         if result.returncode == 0:
             stdout_lower = result.stdout.lower()
@@ -113,7 +113,7 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
             
         return None, error_msg, code
     except subprocess.TimeoutExpired:
-        return None, "Execution timed out (15s limit).", code
+        return None, "Execution timed out (180s limit).", code
     except Exception as e:
         return None, f"[{type(e).__name__}] {e}", code
 
@@ -232,7 +232,10 @@ def phase3_generate_code(
             "# For regression: model = TabPFNRegressor(device=device)\n"
             "# For classification: model = TabPFNClassifier(device=device)\n"
             "```\n"
-            "Prepare the data (X and y), use train_test_split, fit the model, and print the metrics (e.g. MSE or accuracy)."
+            "DATAFRAME PREPARATION RULES:\n"
+            "1. SPATIAL ALIGNMENT (NEIGHBORHOODS/DISTRICTS): If the user asks for predictions by neighborhood/district ('nei quartieri'), you MUST aggregate and merge the datasets by neighborhood. Map station names or coordinates (latitude, longitude) of the sensors/loops to neighborhoods using spatial proximity or lookup tables (e.g. `quartieri-di-bologna.csv` or `zone_urbanistiche.csv`). Do not just aggregate globally.\n"
+            "2. TEMPORAL ALIGNMENT & FALLBACK: If merging on absolute dates (YYYY-MM-DD) results in 0 rows (e.g., due to different years like 2024 vs 2026), DO NOT fail. Fall back to merge the datasets by seasonal/weekly profiles: group both datasets by day of week (e.g., `.dt.dayofweek` or `.dt.strftime('%A')`) and/or hour/month, then merge on these profile keys.\n"
+            "3. MODELING: Prepare features (X) and target (y), perform a train_test_split (80/20), train the TabPFN model, and print metrics (MSE or R2 for regression, accuracy for classification) along with a sample of predictions."
         )
         user_prompt += tabpfn_hint
 

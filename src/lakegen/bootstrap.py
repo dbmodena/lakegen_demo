@@ -3,6 +3,10 @@ import sys
 from pathlib import Path
 
 import nltk
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def ensure_project_paths(src_dir: Path, root_dir: Path) -> None:

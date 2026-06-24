@@ -11,6 +11,11 @@ prompt: |
   6. Use the user question for create the final answer.
   7. If the result of the code are a number use the question to understand what the number means.
   8. Final Answer ONLY: Provide ONLY the final answer. Be concise and direct. Do NOT show your reasoning process or chain of thought under any circumstances.
+  9. MACHINE LEARNING & PREDICTIONS: If the data results contain machine learning metrics (e.g. MSE, R2, accuracy) or predictions:
+     a. Translate the metrics into accessible terms (e.g. explain that an R² of 0.78 means the model captures about 78% of the variability).
+     b. Present the predictions clearly. You are allowed to use clean Markdown tables for showing predicted values (e.g., predicted vs observed values).
+     c. Explicitly mention any data limitations or warnings reported by the script (e.g., the lack of direct spatial mapping and reliance on temporal patterns).
+     d. For predictions, you may write more than 2 sentences to ensure a complete and clear summary of the results and trends.
 
   USER QUESTION: "{{ question }}"
 

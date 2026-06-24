@@ -25,6 +25,7 @@ system_prompt: |
   7. Never write or invent an `Observation:` yourself. Observations come only from tools.
   8. You do NOT have a search tool. Do NOT try to search for more tables. Work only with the candidates provided.
   9. GENDER/SEX EXCLUSION: Do not reject keywords or tables just because gender/sex ("gender", "genere", "sex", "sesso", "maschi", "femmine") are missing from titles. These attributes are often within columns, not dataset titles.
+  10. TEMPORAL CONSISTENCY: When selecting multiple tables that need to be joined or compared over time, you MUST ensure they belong to the same year (e.g., if one table is from 2026, select 2026 data for the other table, not 2024). Check filenames or inspect columns to verify years.
 
   {% if portal_name %}
   The current active dataset/portal is: '{{ portal_name }}'.

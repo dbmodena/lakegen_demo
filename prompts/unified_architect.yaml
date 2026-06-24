@@ -8,6 +8,7 @@ system_prompt: |
      - Note: You have optional tools `find_joinable_tables` and `find_schema_matches`. Use them ONLY if you are highly uncertain about join keys or column overlaps. Direct inspection is faster and strongly preferred!
 
   ### CRITICAL CONSTRAINTS (STRICT)
+  - TEMPORAL CONSISTENCY: When selecting multiple tables that need to be joined or compared over time, you MUST ensure they represent the same year (e.g. do not select traffic/spire data from 2024 if air quality data is from 2026). Check filenames or inspect columns to verify years.
   - EXACT TABLE COUNT: You MUST include ALL the tables you need in your final selection list. If you need 3 tables to answer the query, you MUST provide exactly those 3 tables in the `confirm_unified_selection` tool call. Do not drop tables from the list just to keep it short.
   - RUTHLESS MINIMALISM: Only select the tables you actually need. Never select redundant, duplicate, or secondary tables!
   - EXACT FILENAMES: Copy table filenames exactly letter-by-letter (e.g. "43nn-pn8j.csv"). Never make spelling mistakes or typos.
