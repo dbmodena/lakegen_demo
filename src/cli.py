@@ -1,15 +1,20 @@
 """
 LakeGen CLI - Run the full workflow from the terminal.
 
-Esempio base (usa il core e modello di default)
+Basic example (using the default model and core)
 uv run python src/cli.py "What are the top 3 districts by student suspensions?"
+
+Using a specific core:
 uv run python src/cli.py --core bologna "Quali sono le zone più inquinate?"
 
-Specificando core e modello
+Using a specific core and model
 uv run python src/cli.py --core nyc --model qwen3.5:latest "How many parks are there?"
 
-Con un URL Ollama diverso
+Using a custom Ollama URL
 uv run python src/cli.py --core bologna --ollama-url http://192.168.1.10:11434 "Quali sono le zone più inquinate?"
+
+Using the divided architecture (separate Phase 1 & 2) instead of the default unified architecture:
+uv run python src/cli.py --divided "What are the top 3 districts by student suspensions?"
 """
 
 import argparse
@@ -395,9 +400,11 @@ def main() -> None:
         help="Ollama server URL (default: http://127.0.0.1:11434).",
     )
     parser.add_argument(
-        "--unified",
-        action="store_true",
-        help="Use the unified agent (Phase 1 & 2 together) instead of divided phases.",
+        "--divided",
+        dest="unified",
+        action="store_false",
+        default=True,
+        help="Use the divided agent (separate Phase 1 & 2) instead of the default unified agent.",
     )
     args = parser.parse_args()
 
