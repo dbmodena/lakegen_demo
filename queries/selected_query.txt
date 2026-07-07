@@ -67,7 +67,15 @@ Regression:
 			¿Puedes predecir el nivel de PM10 en la estación de Pista de Silla basándote en otros contaminantes como el NO2?
 
 Causal Inference:
-- Bologna: Qual è l'effetto causale dell'introduzione del limite Zona 30 sulla velocità media dei veicoli a Bologna?
+- Bologna: 	1- Qual è l'effetto causale delle precipitazioni giornaliere sulla concentrazione di monossido di carbonio a Bologna, controllando per la temperatura media?
+				- Selected table:
+				"Table_0": "centraline-qualita-aria.csv"
+				"Table_1": "temperature_bologna.csv"
+				"Table_2": "precipitazioni_bologna.csv"
+			2- Qual è l'effetto causale della velocità consentita sulle strade (strade a 30 km/h o inferiore) sul numero di incidenti stradali nei diversi quartieri di Bologna?
+				- Selected table:
+				"Table_0": "velocita-citta-30.csv"
+				"Table_1": "incidenti_new.csv"
 - Valencia: ¿Cuál es el efecto causal del volumen mensual de tráfico de vehículos en el APR sobre el nivel de ruido medio mensual (laeq) registrado por el sonómetro t248655-daily (calle Cadis)?
 
 
