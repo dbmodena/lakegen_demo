@@ -76,8 +76,16 @@ Causal Inference:
 				- Selected table:
 				"Table_0": "velocita-citta-30.csv"
 				"Table_1": "incidenti_new.csv"
-- Valencia: ¿Cuál es el efecto causal del volumen mensual de tráfico de vehículos en el APR sobre el nivel de ruido medio mensual (laeq) registrado por el sonómetro t248655-daily (calle Cadis)?
-
+- Valencia:	1- ¿Cuál es el efecto causal de los niveles diarios de dióxido de nitrógeno sobre el nivel de ruido diario en la estación de Pista de Silla de Valencia, controlando por los niveles de PM10 y ozono?
+				- Selected table:
+				"Table_0": Datos-de-la-estación-de-contaminación-atmosférica-de-Pista-de-Silla-(4A)__7b62d3d0-6a48-42e1-af5f-261272e17cf6.csv
+			2- ¿Cuál es el efecto causal de los niveles diarios de dióxido de nitrógeno sobre el nivel de ruido diario en la estación de Pista de Silla de Valencia, controlando por los niveles de PM10 y ozono?
+				- Selected table:
+				"Table_0": "Datos-de-la-estación-de-contaminación-atmosférica-de-Pista-de-Silla-(4A)__7b62d3d0-6a48-42e1-af5f-261272e17cf6.csv"
+- Paris: 1- Quel est l'effet causal de la température moyenne annuelle sur les niveaux de PM10 en proximité du trafic à Paris?
+				- Selected table:
+				"Table_0": "Données-sur-les-mesures-de-qualité-de-l-air-par-site-et-par-polluant__b2a563e1-54c0-4d60-a2aa-1555f96b150a.csv"
+				"Table_1": "temperature-moyenne-paris-1991-2020-arrondissements.csv"
 
 
               

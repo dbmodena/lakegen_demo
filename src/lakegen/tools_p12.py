@@ -3,6 +3,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
+from pydantic import BaseModel, Field
 
 import polars as pl
 from llama_index.core.tools import FunctionTool
@@ -15,6 +16,11 @@ from src.client_solr import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
 
 
+class ConfirmUnifiedSelectionSchema(BaseModel):
+    reasoning: str = Field(description="MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question.")
+    tables: list[str] = Field(description="A list of ALL the exact file names needed (e.g., ['sales.csv', 'dates.csv']). Do not omit any table you need!")
+
+
 class P12State:
     """State tracker for the Phase 1 & 2 unified agent."""
     def __init__(self):
@@ -23,18 +29,22 @@ class P12State:
         self.used_keywords: list[str] = []
 
 
-def make_p12_tools(
-    state: P12State,
-    solr_client: LocalSolrClient,
-    all_files: list[str],
-    csv_dir: Path,
-):
-    """
-    Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
-    The retriever will dynamically fetch the top relevant tools based on the agent's intent.
-    """
+class Phase12ToolsManager:
+    """Manager for Phase 1 & 2 unified tools to avoid closures and improve testability."""
+    
+    def __init__(
+        self,
+        state: P12State,
+        solr_client: LocalSolrClient,
+        all_files: list[str],
+        csv_dir: Path,
+    ):
+        self.state = state
+        self.solr_client = solr_client
+        self.all_files = all_files
+        self.csv_dir = Path(csv_dir)
 
-    def search_solr(keywords_str: str) -> str:
+    def search_solr(self, keywords_str: str) -> str:
         """
         Search for relevant tables in Solr using a space-separated string of keywords.
         ATTENZIONE: Le keyword devono TASSATIVAMENTE essere mantenute nella lingua nativa 
@@ -45,31 +55,31 @@ def make_p12_tools(
         """
         try:
             keywords = [k.strip() for k in keywords_str.split(" ") if k.strip()]
-            state.used_keywords = keywords
+            self.state.used_keywords = keywords
 
-            solr_response = solr_client.select(tokens=keywords, q_op="AND", rows=15)
+            solr_response = self.solr_client.select(tokens=keywords, q_op="AND", rows=15)
             docs = solr_response.get("response", {}).get("docs", [])
 
             candidates: list[str] = []
             for doc in docs:
-                matched = match_local_csv(doc, all_files)
+                matched = match_local_csv(doc, self.all_files)
                 if matched is None or matched in candidates:
                     continue
                 candidates.append(matched)
-                state.solr_meta[matched] = solr_metadata_from_doc(doc)
-                if matched not in state.all_candidates:
-                    state.all_candidates.append(matched)
+                self.state.solr_meta[matched] = solr_metadata_from_doc(doc)
+                if matched not in self.state.all_candidates:
+                    self.state.all_candidates.append(matched)
                 if len(candidates) >= 10:
                     break
 
             if not candidates:
                 return f"Keywords used: {keywords}\nNo tables found. Try with fewer or different keywords."
 
-            return f"Keywords used: {keywords}\n\n" + format_candidate_context(candidates, state.solr_meta)
+            return f"Keywords used: {keywords}\n\n" + format_candidate_context(candidates, self.state.solr_meta)
         except Exception as e:
             return f"Error querying Solr: {str(e)}"
 
-    def inspect_columns_tool(file_name: str | None = None, filename: str | None = None) -> str:
+    def inspect_columns(self, file_name: str | None = None, filename: str | None = None) -> str:
         """
         Returns a compact schema for one CSV in the active dataset.
         Shows column names, data types, and sample values for categorical columns.
@@ -78,11 +88,9 @@ def make_p12_tools(
         name = file_name or filename
         if not name:
             return "Error: file_name or filename parameter is required."
-        return _inspect_columns(csv_dir, name)
+        return _inspect_columns(self.csv_dir, name)
 
-    inspect_columns_tool.__name__ = "inspect_columns"
-
-    def find_joinable_tables(file_name: str | None = None, target_columns: list[str] = [], filename: str | None = None) -> str:
+    def find_joinable_tables(self, file_name: str | None = None, target_columns: list[str] = [], filename: str | None = None) -> str:
         """
         Use the BLEND engine to find which other tables among the discovered candidates can be joined with the specified file.
         DA USARE NELLA FASE DI INTEGRAZIONE, quando devi incrociare i dati di una tabella già ispezionata.
@@ -99,18 +107,18 @@ def make_p12_tools(
         if not name:
             return "Error: file_name or filename parameter is required."
         name = name.strip()
-        path_file = csv_dir / name
+        path_file = self.csv_dir / name
         if not path_file.exists():
             return f"Error: Target file missing in active dataset: {name}"
 
-        if not state.all_candidates:
+        if not self.state.all_candidates:
             return "Error: No candidates found yet. Please use search_solr first."
 
-        tmp_folder = csv_dir.parent / f".tmp_blend_{uuid.uuid4().hex}"
+        tmp_folder = self.csv_dir.parent / f".tmp_blend_{uuid.uuid4().hex}"
         tmp_folder.mkdir(exist_ok=True)
         try:
-            for cand in state.all_candidates:
-                cand_path = csv_dir / cand
+            for cand in self.state.all_candidates:
+                cand_path = self.csv_dir / cand
                 if cand_path.exists():
                     os.symlink(cand_path, tmp_folder / cand)
 
@@ -142,65 +150,19 @@ def make_p12_tools(
             if tmp_folder.exists():
                 shutil.rmtree(tmp_folder, ignore_errors=True)
 
-    def find_schema_matches_tool(file_name_1: str, file_name_2: str) -> str:
+    def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
         """
         Use Valentine to find matching columns between two files based on data content and schema.
         Da usare ESCLUSIVAMENTE nella fase di integrazione, quando possiedi già due schemi estratti.
         """
-        return _find_schema_matches(csv_dir, file_name_1, file_name_2)
+        return _find_schema_matches(self.csv_dir, file_name_1, file_name_2)
 
-    find_schema_matches_tool.__name__ = "find_schema_matches"
-
-    def confirm_unified_selection(
-        reasoning: str,
-        selected_tables: str | None = None,
-        tables: str | None = None,
-        selected_files: str | None = None,
-        **kwargs,
-    ) -> str:
+    def confirm_unified_selection(self, reasoning: str, tables: list[str]) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
         Calling this tool terminates execution and confirms the selection.
-
-        Args:
-            reasoning: MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question.
-            selected_tables: A comma-separated string of ALL the exact file names needed (e.g., "sales.csv", or "sales.csv, dates.csv"). Do not omit any table you need!
-            tables: Alternative argument name (alias) for selected_tables.
-            selected_files: Alternative argument name (alias) for selected_tables.
         """
-        raw_tables = (
-            selected_tables
-            or tables
-            or selected_files
-            or kwargs.get("table_names")
-            or kwargs.get("table_name")
-            or ""
-        )
-        if isinstance(raw_tables, list):
-            final_tables = ", ".join(str(t) for t in raw_tables)
-        elif isinstance(raw_tables, str):
-            # Handle cases like "['file.csv']" or "[\"file.csv\"]"
-            cleaned = raw_tables.strip()
-            if cleaned.startswith("[") and cleaned.endswith("]"):
-                try:
-                    # Try parsing as JSON list
-                    parsed = json.loads(cleaned.replace("'", "\""))
-                    if isinstance(parsed, list):
-                        final_tables = ", ".join(str(t) for t in parsed)
-                    else:
-                        final_tables = cleaned.strip("[]'\" ")
-                except Exception:
-                    # Fallback to simple regex/strip cleaning
-                    import re
-                    parts = re.findall(r"['\"](.*?)['\"]", cleaned)
-                    if parts:
-                        final_tables = ", ".join(parts)
-                    else:
-                        final_tables = cleaned.strip("[]'\" ")
-            else:
-                final_tables = cleaned
-        else:
-            final_tables = str(raw_tables)
+        final_tables = ", ".join(str(t) for t in tables)
 
         dati_uscita = {
             "tables": final_tables,
@@ -208,14 +170,28 @@ def make_p12_tools(
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
-    # 1. Define the list of tools
-    tools_list = [
-        FunctionTool.from_defaults(fn=search_solr),
-        FunctionTool.from_defaults(fn=inspect_columns_tool),
-        FunctionTool.from_defaults(fn=find_joinable_tables),
-        FunctionTool.from_defaults(fn=find_schema_matches_tool),
-        FunctionTool.from_defaults(fn=confirm_unified_selection, return_direct=True),
-    ]
+    def get_tools(self) -> list[FunctionTool]:
+        return [
+            FunctionTool.from_defaults(fn=self.search_solr),
+            FunctionTool.from_defaults(fn=self.inspect_columns),
+            FunctionTool.from_defaults(fn=self.find_joinable_tables),
+            FunctionTool.from_defaults(fn=self.find_schema_matches),
+            FunctionTool.from_defaults(fn=self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),
+        ]
+
+
+def make_p12_tools(
+    state: P12State,
+    solr_client: LocalSolrClient,
+    all_files: list[str],
+    csv_dir: Path,
+):
+    """
+    Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
+    The retriever will dynamically fetch the top relevant tools based on the agent's intent.
+    """
+    manager = Phase12ToolsManager(state, solr_client, all_files, csv_dir)
+    tools_list = manager.get_tools()
 
     # 2. Define the tool mapping
     tool_mapping = SimpleToolNodeMapping.from_objects(tools_list)
