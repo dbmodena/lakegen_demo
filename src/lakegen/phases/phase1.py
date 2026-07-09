@@ -61,14 +61,14 @@ def phase1_generate_keywords(
     query: str,
     llm: LLM,
     pm: PromptManager,
-    hint="",
+    hint: str = "",
     portal_name: str = "",
     stream_placeholder=None,
     reasoning_placeholder=None,
     stream_reasoning: bool = True,
     cancel_check: Callable[[], None] | None = None,
     avoid_keywords: list[str] | None = None,
-):
+) -> tuple[list[str], str, int, str]:
     wordnet_keywords_str = extract_wordnet_query_keywords(query)
     wordnet_keywords = [k.strip() for k in wordnet_keywords_str.split(",") if k.strip()]
 

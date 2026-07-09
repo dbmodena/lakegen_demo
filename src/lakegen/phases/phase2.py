@@ -174,73 +174,20 @@ def phase2_select_tables(
     )
 
     # ── Step 4: Run the judge agent ──────────────────────────────────
+    from lakegen.agent_runner import run_agent_workflow
+    
     try:
-        async def _run_agent():
-            explorer = FunctionAgent(
-                name="table_judge",
-                tools=agent_tools,
-                llm=llm,
-                system_prompt=system_prompt,
-            )
-
-            handler = explorer.run(
-                user_msg=agent_prompt,
-                max_iterations=10,
-            )
-
-            tool_call_count = 0
-            tool_result_count = 0
-            tool_call_signatures: dict[str, int] = {}
-            async for event in handler.stream_events():
-                if cancel_check is not None:
-                    cancel_check()
-                if isinstance(event, AgentStream):
-                    emit_stream(event.delta or "")
-                    if tool_call_count > 0:
-                        stall_reason = detect_phase2_agent_stall(
-                            stream_trace.getvalue()
-                        )
-                        if stall_reason:
-                            raise Phase2AgentStall(stall_reason)
-                elif isinstance(event, ToolCall):
-                    tool_call_count += 1
-                    tool_name = getattr(event, 'tool_name', 'unknown_tool')
-                    tool_signature = (
-                        f"{tool_name}:"
-                        f"{format_phase2_tool_args(event)}"
-                    )
-                    tool_call_signatures[tool_signature] = (
-                        tool_call_signatures.get(tool_signature, 0) + 1
-                    )
-
-                    if tool_call_signatures[tool_signature] >= 3:
-                        raise Phase2AgentStall(
-                            "repeated identical tool call: "
-                            f"{tool_name}"
-                        )
-                    emit_stream(format_phase2_tool_call(event, tool_call_count))
-                elif isinstance(event, ToolCallResult):
-                    tool_result_count += 1
-                    emit_stream(format_phase2_tool_result(event, tool_result_count))
-                    tool_output = getattr(event, "tool_output", None)
-                    output = format_phase2_tool_output(tool_output).lower()
-                    if "missing in active dataset" in output:
-                        emit_stream(
-                            "\n⚠️ **File not found** – the requested table "
-                            "is not in the active dataset. "
-                            "The agent will try an alternative.\n"
-                        )
-
-            return await handler
-
-        if hasattr(llm, "_async_client"):
-            llm._async_client = None
-
-        try:
-            res = asyncio.run(_run_agent())
-        except Exception:
-            raise
-        agent_resp = str(getattr(res, "response", res)).strip()
+        agent_resp = run_agent_workflow(
+            llm=llm,
+            system_prompt=system_prompt,
+            user_prompt=agent_prompt,
+            agent_name="table_judge",
+            emit_stream=emit_stream,
+            cancel_check=cancel_check,
+            tools=agent_tools,
+            max_iterations=10,
+            max_repeats=3,
+        )
     except Phase2AgentStall as stall_err:
         fallback_payload = {
             "tables": ", ".join(candidates[:2]),
