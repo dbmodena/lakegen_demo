@@ -189,19 +189,4 @@ def make_p12_tools(
     The retriever will dynamically fetch the top relevant tools based on the agent's intent.
     """
     manager = Phase12ToolsManager(state, solr_client, all_files, csv_dir)
-    tools_list = manager.get_tools()
-
-    # 2. Define the tool mapping
-    tool_mapping = SimpleToolNodeMapping.from_objects(tools_list)
-    
-    # 3. Create the vector index (this will create the embeddings of the docstrings in background)
-    obj_index = ObjectIndex.from_objects(
-        tools_list,
-        tool_mapping,
-        VectorStoreIndex,
-    )
-
-    # 4. Return the retriever
-    # similarity_top_k=3 ensures that the LLM sees at most the 3 tools most relevant to the action it wants to perform.
-    # Always include confirm_unified_selection so that it can stop when it has finished.
-    return obj_index.as_retriever(similarity_top_k=3)
+    return manager.get_tools()

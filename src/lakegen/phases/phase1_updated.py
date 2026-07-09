@@ -98,7 +98,7 @@ def phase1_updated_agent(
             agent_name="unified_explorer",
             emit_stream=emit_stream,
             cancel_check=cancel_check,
-            tool_retriever=agent_tools,
+            tools=agent_tools,
             max_iterations=16,
             max_repeats=4,
         )
