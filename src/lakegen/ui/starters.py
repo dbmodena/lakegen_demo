@@ -7,7 +7,7 @@ from typing import Any, Iterator
 
 import chainlit as cl
 
-from lakegen.utils import BASE_DIR
+from lakegen.config import BASE_DIR
 
 
 STARTER_LIMIT = 3

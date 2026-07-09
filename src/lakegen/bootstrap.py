@@ -10,7 +10,10 @@ load_dotenv()
 
 
 def ensure_project_paths(src_dir: Path, root_dir: Path) -> None:
-    for path in (src_dir, root_dir):
+    blend_path = src_dir / "blend"
+    sloth_path = src_dir / "Sloth"
+
+    for path in (sloth_path, blend_path, src_dir, root_dir):
         path_str = str(path)
         if path_str not in sys.path:
             sys.path.insert(0, path_str)

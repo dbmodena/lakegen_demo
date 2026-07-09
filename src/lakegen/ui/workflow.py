@@ -39,7 +39,8 @@ from lakegen.resources import (
     get_prompt_manager,
     get_solr,
 )
-from lakegen.utils import save_experiment_log, BASE_DIR
+from lakegen.logger import save_experiment_log
+from lakegen.config import BASE_DIR
 
 from llama_index.core import Settings
 

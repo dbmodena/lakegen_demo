@@ -39,7 +39,8 @@ from lakegen.phases import (
     phase3_generate_and_execute,
     phase4_synthesize,
 )
-from lakegen.utils import save_experiment_log, BASE_DIR
+from lakegen.logger import save_experiment_log
+from lakegen.config import BASE_DIR
 from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 
 

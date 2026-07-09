@@ -28,7 +28,7 @@ from lakegen.phase2_logging import (
 )
 from lakegen.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from lakegen.ui.state import WorkflowCancelled
-from lakegen.utils import ThinkingCapture
+from lakegen.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.tools import make_p2_judge_tools
@@ -151,16 +151,13 @@ def phase2_select_tables(
         table_hint=hint,
     )
 
-    old_stdout = sys.stdout
-    capture = io.StringIO()
     stream_trace = io.StringIO()
-    sys.stdout = capture
 
     def emit_stream(delta: str) -> None:
         if not delta:
             return
         stream_trace.write(delta)
-        print(delta, end="", flush=True, file=old_stdout)
+        print(delta, end="", flush=True)
         if stream_callback is not None:
             stream_callback(delta)
 
@@ -239,12 +236,10 @@ def phase2_select_tables(
         if hasattr(llm, "_async_client"):
             llm._async_client = None
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            res = loop.run_until_complete(_run_agent())
-        finally:
-            loop.close()
+            res = asyncio.run(_run_agent())
+        except Exception:
+            raise
         agent_resp = str(getattr(res, "response", res)).strip()
     except Phase2AgentStall as stall_err:
         fallback_payload = {
@@ -276,11 +271,8 @@ def phase2_select_tables(
         emit_stream(f"\n[phase2 agent error] {str(agent_err)[:160]}\n")
         agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
     finally:
-        sys.stdout = old_stdout
-        stdout_trace = capture.getvalue()
         agent_stream_trace = stream_trace.getvalue()
-        full_trace = stdout_trace + "\n\n--- Phase 2 Activity Log ---\n" + agent_stream_trace
-        capture.close()
+        full_trace = "--- Phase 2 Activity Log ---\n" + agent_stream_trace
         stream_trace.close()
         dispatcher.event_handlers.remove(thinking_capture)
 
