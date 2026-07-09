@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import uuid
+import tempfile
 import pandas as pd
 import polars as pl
 from pathlib import Path
@@ -149,7 +150,7 @@ def _find_exact_overlaps(csv_dir: Path, file_name_1: str, file_name_2: str) -> s
             return "No exact overlap found."
         return "Exact overlap found!"
     except Exception as e:
-        return f"Error SLOTH: {e}"
+        return f"Error in SLOTH when comparing '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
 
 
 def _find_schema_matches(csv_dir: Path, file_name_1: str, file_name_2: str) -> str:
@@ -209,7 +210,7 @@ def _find_schema_matches(csv_dir: Path, file_name_1: str, file_name_2: str) -> s
         return _compact_tool_output(output)
 
     except Exception as e:
-        return f"Error Valentine: {e}"
+        return f"Error in Valentine matcher for '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
 
 
 class Phase2JudgeToolsManager:
@@ -242,47 +243,44 @@ class Phase2JudgeToolsManager:
         file_name = file_name.strip()
         path_file = self.csv_dir / file_name
         if not path_file.exists():
-            return f"Error: Target file missing in active dataset: {file_name}"
+            return f"Error: Target file '{file_name}' missing. You must provide a valid file name that exists in the dataset."
 
         if not self.candidates:
-            return "Error: No candidates available."
+            return "Error: No candidates available to join with. Please ensure candidates are provided."
 
-        tmp_folder = self.csv_dir.parent / f".tmp_blend_{uuid.uuid4().hex}"
-        tmp_folder.mkdir(exist_ok=True)
         try:
-            for cand in self.candidates:
-                cand_path = self.csv_dir / cand
-                if cand_path.exists():
-                    os.symlink(cand_path, tmp_folder / cand)
+            with tempfile.TemporaryDirectory(dir=self.csv_dir.parent, prefix=".tmp_blend_") as tmp_dir:
+                tmp_folder = Path(tmp_dir)
+                for cand in self.candidates:
+                    cand_path = self.csv_dir / cand
+                    if cand_path.exists():
+                        os.symlink(cand_path, tmp_folder / cand)
 
-            tmp_db = tmp_folder / "temp_blend.db"
-            indexer = BLEND(db_path=tmp_db)
-            _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 5000}
-            import blend
-            blend.index_tables_seq(indexer, tmp_folder, load_opts=_blend_load_opts, log_stdout=False)
+                tmp_db = tmp_folder / "temp_blend.db"
+                indexer = BLEND(db_path=tmp_db)
+                _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 5000}
+                import blend
+                blend.index_tables_seq(indexer, tmp_folder, load_opts=_blend_load_opts, log_stdout=False)
 
-            df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
-            valid_cols = [col for col in target_columns if col in df_target.columns]
-            if not valid_cols:
+                df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
+                valid_cols = [col for col in target_columns if col in df_target.columns]
+                if not valid_cols:
+                    indexer.close()
+                    return f"Error: None of the specified target_columns {target_columns} exist in '{file_name}'. Please inspect the columns first."
+
+                df_target = df_target.select(valid_cols)
+                results = indexer.multi_column_join_search(table=df_target, k=5, clean=True)
                 indexer.close()
-                return f"Error: None of the specified target_columns {target_columns} exist in {file_name}."
 
-            df_target = df_target.select(valid_cols)
-            results = indexer.multi_column_join_search(table=df_target, k=5, clean=True)
-            indexer.close()
-
-            if not results:
-                return "No compatible table found among the candidates."
-            output = f"BLEND Results for '{file_name}' using columns {valid_cols}:\n"
-            for t_id, _, score in results:
-                if t_id != file_name:
-                    output += f"-> {t_id} (Score: {score:.3f})\n"
-            return _compact_tool_output(output)
+                if not results:
+                    return "No compatible table found among the candidates."
+                output = f"BLEND Results for '{file_name}' using columns {valid_cols}:\n"
+                for t_id, _, score in results:
+                    if t_id != file_name:
+                        output += f"-> {t_id} (Score: {score:.3f})\n"
+                return _compact_tool_output(output)
         except Exception as e:
-            return f"Error BLEND: {e}"
-        finally:
-            if tmp_folder.exists():
-                shutil.rmtree(tmp_folder, ignore_errors=True)
+            return f"Error in BLEND tool for '{file_name}': {str(e)}. This might be due to incompatible data types or memory issues. Try a different approach or table."
 
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
         """

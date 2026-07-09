@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import uuid
+import tempfile
 from pathlib import Path
 from pydantic import BaseModel, Field
 
@@ -77,7 +78,7 @@ class Phase12ToolsManager:
 
             return f"Keywords used: {keywords}\n\n" + format_candidate_context(candidates, self.state.solr_meta)
         except Exception as e:
-            return f"Error querying Solr: {str(e)}"
+            return f"Error querying Solr: {str(e)}. Try different keywords."
 
     def inspect_columns(self, file_name: str | None = None, filename: str | None = None) -> str:
         """
@@ -105,50 +106,47 @@ class Phase12ToolsManager:
 
         name = file_name or filename
         if not name:
-            return "Error: file_name or filename parameter is required."
+            return "Error: file_name or filename parameter is required. Please pass a valid file name."
         name = name.strip()
         path_file = self.csv_dir / name
         if not path_file.exists():
-            return f"Error: Target file missing in active dataset: {name}"
+            return f"Error: Target file '{name}' missing. You must provide a valid file name that exists in the dataset."
 
         if not self.state.all_candidates:
             return "Error: No candidates found yet. Please use search_solr first."
 
-        tmp_folder = self.csv_dir.parent / f".tmp_blend_{uuid.uuid4().hex}"
-        tmp_folder.mkdir(exist_ok=True)
         try:
-            for cand in self.state.all_candidates:
-                cand_path = self.csv_dir / cand
-                if cand_path.exists():
-                    os.symlink(cand_path, tmp_folder / cand)
+            with tempfile.TemporaryDirectory(dir=self.csv_dir.parent, prefix=".tmp_blend_") as tmp_dir:
+                tmp_folder = Path(tmp_dir)
+                for cand in self.state.all_candidates:
+                    cand_path = self.csv_dir / cand
+                    if cand_path.exists():
+                        os.symlink(cand_path, tmp_folder / cand)
 
-            tmp_db = tmp_folder / "temp_blend.db"
-            indexer = blend.BLEND(db_path=tmp_db)
-            _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 5000}
-            blend.index_tables_seq(indexer, tmp_folder, load_opts=_blend_load_opts, log_stdout=False)
+                tmp_db = tmp_folder / "temp_blend.db"
+                indexer = blend.BLEND(db_path=tmp_db)
+                _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 5000}
+                blend.index_tables_seq(indexer, tmp_folder, load_opts=_blend_load_opts, log_stdout=False)
 
-            df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
-            valid_cols = [col for col in target_columns if col in df_target.columns]
-            if not valid_cols:
+                df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
+                valid_cols = [col for col in target_columns if col in df_target.columns]
+                if not valid_cols:
+                    indexer.close()
+                    return f"Error: None of the specified target_columns {target_columns} exist in '{name}'. Please inspect the columns first."
+
+                df_target = df_target.select(valid_cols)
+                results = indexer.multi_column_join_search(table=df_target, k=5, clean=True)
                 indexer.close()
-                return f"Error: None of the specified target_columns {target_columns} exist in {name}."
 
-            df_target = df_target.select(valid_cols)
-            results = indexer.multi_column_join_search(table=df_target, k=5, clean=True)
-            indexer.close()
-
-            if not results:
-                return "No compatible table found among the candidates."
-            output = f"BLEND Results for '{name}' using columns {valid_cols}:\n"
-            for t_id, _, score in results:
-                if t_id != name:
-                    output += f"-> {t_id} (Score: {score:.3f})\n"
-            return output
+                if not results:
+                    return "No compatible table found among the candidates."
+                output = f"BLEND Results for '{name}' using columns {valid_cols}:\n"
+                for t_id, _, score in results:
+                    if t_id != name:
+                        output += f"-> {t_id} (Score: {score:.3f})\n"
+                return output
         except Exception as e:
-            return f"Error BLEND: {e}"
-        finally:
-            if tmp_folder.exists():
-                shutil.rmtree(tmp_folder, ignore_errors=True)
+            return f"Error in BLEND tool for '{name}': {str(e)}. This might be due to incompatible data types or memory issues. Try a different table."
 
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
         """
