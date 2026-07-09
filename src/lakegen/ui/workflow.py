@@ -33,14 +33,14 @@ from lakegen.phases import (
     phase3_generate_and_execute,
     phase4_synthesize,
 )
-from lakegen.resources import (
+from lakegen.core.resources import (
     get_all_csv_files,
     get_llm,
     get_prompt_manager,
     get_solr,
 )
-from lakegen.logger import save_experiment_log
-from lakegen.config import BASE_DIR
+from lakegen.core.logger import save_experiment_log
+from lakegen.core.config import BASE_DIR
 
 from llama_index.core import Settings
 

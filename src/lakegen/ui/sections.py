@@ -4,7 +4,7 @@ from typing import Any
 
 from lakegen.ui.i18n import t
 from lakegen.ui.state import LakeGenSession
-from lakegen.phase2_logging import (
+from lakegen.phases.logging import (
     extract_phase2_activity_log,
     format_phase2_solr_results,
 )

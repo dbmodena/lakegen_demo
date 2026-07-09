@@ -9,7 +9,7 @@ from llama_index.core.agent.workflow import (
 )
 from llama_index.core.llms import LLM
 
-from lakegen.phase2_logging import (
+from lakegen.phases.logging import (
     Phase2AgentStall,
     detect_phase2_agent_stall,
     format_phase2_tool_args,
@@ -57,6 +57,7 @@ def run_agent_workflow(
         tool_result_count = 0
         tool_call_signatures: dict[str, int] = {}
         stream_content = ""
+        last_stall_check_len = 0
 
         async for event in handler.stream_events():
             if cancel_check is not None:
@@ -66,10 +67,11 @@ def run_agent_workflow(
                 delta = event.delta or ""
                 emit_stream(delta)
                 stream_content += delta
-                if tool_call_count > 0:
+                if tool_call_count > 0 and (len(stream_content) - last_stall_check_len > 100):
                     stall_reason = detect_phase2_agent_stall(stream_content)
                     if stall_reason:
                         raise Phase2AgentStall(stall_reason)
+                    last_stall_check_len = len(stream_content)
                         
             elif isinstance(event, ToolCall):
                 tool_call_count += 1

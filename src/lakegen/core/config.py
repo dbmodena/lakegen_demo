@@ -1,14 +1,14 @@
 import json
 from pathlib import Path
 
-CURRENT_DIR = Path(__file__).parent.resolve()
+_src_dir = Path(__file__).resolve()
+while _src_dir.name != "src" and _src_dir.parent != _src_dir:
+    _src_dir = _src_dir.parent
 
-if CURRENT_DIR.name == "src":
-    BASE_DIR = CURRENT_DIR.parent
-elif CURRENT_DIR.name == "lakegen":
-    BASE_DIR = CURRENT_DIR.parent.parent
+if _src_dir.name == "src":
+    BASE_DIR = _src_dir.parent
 else:
-    BASE_DIR = CURRENT_DIR
+    BASE_DIR = Path.cwd()
 
 CONFIG_FILE = BASE_DIR / "config_paths.json"
 if CONFIG_FILE.exists():

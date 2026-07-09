@@ -19,7 +19,7 @@ from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 from llama_index.core.tools import FunctionTool
 
-from lakegen.phase2_logging import (
+from lakegen.phases.logging import (
     Phase2AgentStall,
     detect_phase2_agent_stall,
     format_phase2_tool_args,
@@ -27,12 +27,12 @@ from lakegen.phase2_logging import (
     format_phase2_tool_output,
     format_phase2_tool_result,
 )
-from lakegen.types import SolrMetadata, StreamCallback
+from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.ui.state import WorkflowCancelled
-from lakegen.instrumentation import ThinkingCapture
+from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
-from lakegen.tools_p12 import P12State, make_p12_tools
+from lakegen.agent_tools.tools_p12 import P12State, make_p12_tools
 
 def phase1_updated_agent(
     query: str,
@@ -88,7 +88,7 @@ def phase1_updated_agent(
         "- Streaming model output and tool inspections below.\n"
     )
 
-    from lakegen.agent_runner import run_agent_workflow
+    from lakegen.agents.agent_runner import run_agent_workflow
     
     try:
         agent_resp = run_agent_workflow(

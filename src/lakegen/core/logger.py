@@ -3,7 +3,7 @@ import csv
 import datetime
 import pandas as pd
 
-from lakegen.config import LOG_DIR
+from lakegen.core.config import LOG_DIR
 
 CSV_LOG_COLUMNS = [
     "ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", 

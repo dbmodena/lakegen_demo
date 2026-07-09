@@ -30,8 +30,8 @@ if str(_SRC_DIR) not in sys.path:
 if str(_ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(_ROOT_DIR))
 
-from lakegen.bootstrap import bootstrap_nltk_data
-from lakegen.resources import get_all_csv_files, get_llm, get_prompt_manager, get_solr
+from lakegen.core.bootstrap import bootstrap_nltk_data
+from lakegen.core.resources import get_all_csv_files, get_llm, get_prompt_manager, get_solr
 from lakegen.phases import (
     phase1_generate_keywords,
     phase2_select_tables,
@@ -39,8 +39,8 @@ from lakegen.phases import (
     phase3_generate_and_execute,
     phase4_synthesize,
 )
-from lakegen.logger import save_experiment_log
-from lakegen.config import BASE_DIR
+from lakegen.core.logger import save_experiment_log
+from lakegen.core.config import BASE_DIR
 from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 
 

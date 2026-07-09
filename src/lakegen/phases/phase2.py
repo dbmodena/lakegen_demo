@@ -18,7 +18,7 @@ from llama_index.core.callbacks import CallbackManager
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 
-from lakegen.phase2_logging import (
+from lakegen.phases.logging import (
     Phase2AgentStall,
     detect_phase2_agent_stall,
     format_phase2_tool_args,
@@ -26,14 +26,14 @@ from lakegen.phase2_logging import (
     format_phase2_tool_output,
     format_phase2_tool_result,
 )
-from lakegen.types import Phase2SelectionResult, SolrMetadata, StreamCallback
+from lakegen.core.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from lakegen.ui.state import WorkflowCancelled
-from lakegen.instrumentation import ThinkingCapture
+from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
-from lakegen.tools import make_p2_judge_tools
+from lakegen.agent_tools.tools_p2 import make_p2_judge_tools
 
-from .utils import (
+from lakegen.phases.utils import (
     format_candidate_context,
     match_local_csv,
     parse_table_selector_response,
@@ -174,7 +174,7 @@ def phase2_select_tables(
     )
 
     # ── Step 4: Run the judge agent ──────────────────────────────────
-    from lakegen.agent_runner import run_agent_workflow
+    from lakegen.agents.agent_runner import run_agent_workflow
     
     try:
         agent_resp = run_agent_workflow(

@@ -4,8 +4,8 @@ import re
 import uuid
 from pathlib import Path
 
-from lakegen.phase2_logging import format_phase2_solr_results
-from lakegen.types import SolrMetadata, StreamCallback
+from lakegen.phases.logging import format_phase2_solr_results
+from lakegen.core.types import SolrMetadata, StreamCallback
 # from src.indexes.blend_indexer import BlendIndexer
 import blend
 

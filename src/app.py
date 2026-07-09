@@ -21,7 +21,7 @@ if str(_SRC_DIR) not in sys.path:
 if str(_ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(_ROOT_DIR))
 
-from lakegen.bootstrap import (  # noqa: E402
+from lakegen.core.bootstrap import (  # noqa: E402
     bootstrap_nltk_data,
     ensure_project_paths,
     nltk_download_dir,

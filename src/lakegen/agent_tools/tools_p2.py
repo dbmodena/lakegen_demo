@@ -12,7 +12,7 @@ from llama_index.core.tools import FunctionTool
 from valentine import valentine_match
 from valentine.algorithms import ComaPy
 
-from lakegen.config import CSV_DIR
+from lakegen.core.config import CSV_DIR
 
 try:
     from blend import BLEND

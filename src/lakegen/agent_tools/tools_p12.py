@@ -11,8 +11,8 @@ from llama_index.core.tools import FunctionTool
 from llama_index.core import VectorStoreIndex
 from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 
-from lakegen.types import SolrMetadata
-from lakegen.tools import _inspect_columns, _find_schema_matches
+from lakegen.core.types import SolrMetadata
+from lakegen.agent_tools.tools_p2 import _inspect_columns, _find_schema_matches
 from src.client_solr import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
 
