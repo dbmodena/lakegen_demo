@@ -1,7 +1,7 @@
 import os
 import yaml
 from pathlib import Path
-from jinja2 import Template
+from jinja2 import Environment, StrictUndefined
 
 class PromptManager:
     def __init__(self):
@@ -17,6 +17,8 @@ class PromptManager:
         self._prompts_dir = Path(__file__).resolve().parent
         self._excluded_files = {"agents_config.yaml"}
 
+        # Use StrictUndefined to raise an error if a variable is missing during render
+        self._env = Environment(undefined=StrictUndefined)
         self._prompts: dict[str, dict] = {}
         self._load_all()
 
@@ -29,9 +31,13 @@ class PromptManager:
         with open(path, "r", encoding="utf-8") as fh:
             try:
                 data = yaml.safe_load(fh) or {}
-            except yaml.YAMLError as exc:
+                # Pre-compile templates to catch syntax errors early and improve performance
+                for key, value in data.items():
+                    if isinstance(value, str):
+                        data[key] = self._env.from_string(value)
+            except Exception as exc:
                 raise ValueError(
-                    f"[PromptManager] Syntax error in YAML file '{path}': {exc}"
+                    f"[PromptManager] Error loading or compiling YAML file '{path}': {exc}"
                 )
         return data
 
@@ -91,13 +97,19 @@ class PromptManager:
                 f"agent '{agent_name}'. Available keys: {list(agent_config.keys())}"
             )
 
-        template_str = agent_config[prompt_type]
+        template = agent_config[prompt_type]
 
         # Gracefully handle empty/null prompt entries
-        if not template_str:
+        if not template:
             return ""
 
-        rendered = Template(template_str).render(**kwargs)
+        try:
+            rendered = template.render(**kwargs)
+        except Exception as exc:
+            raise RuntimeError(
+                f"[PromptManager] Error rendering prompt '{prompt_type}' for agent '{agent_name}'. "
+                f"Did you forget to pass a variable? Details: {exc}"
+            )
         return rendered.strip()
 
     def reload(self):
