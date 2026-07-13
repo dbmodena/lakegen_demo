@@ -35,7 +35,7 @@ from lakegen.core.resources import get_all_csv_files, get_llm, get_prompt_manage
 from lakegen.phases import (
     phase1_generate_keywords,
     phase2_select_tables,
-    phase1_updated_agent,
+    phase12_agent,
     phase3_generate_and_execute,
     phase4_synthesize,
 )
@@ -127,7 +127,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         if runtime.use_unified_agent:
             _header("Phase 1 & 2 – Unified Architect & Search")
 
-            selected, keywords, solr_meta, reasoning, trace, tok = phase1_updated_agent(
+            selected, keywords, solr_meta, reasoning, trace, tok = phase12_agent(
                 query=question,
                 llm=llm,
                 pm=pm,
@@ -275,7 +275,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             keyword_hint = f"Previous tables rejected by coder: {phase3_result.rejected_reason}"
             if runtime.use_unified_agent:
                 _header("Re-running Phase 1 & 2 (Unified)")
-                selected, keywords, solr_meta, reasoning, trace, tok = phase1_updated_agent(
+                selected, keywords, solr_meta, reasoning, trace, tok = phase12_agent(
                     query=question,
                     llm=llm,
                     pm=pm,

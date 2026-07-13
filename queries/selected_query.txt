@@ -86,6 +86,10 @@ Causal Inference:
 				- Selected table:
 				"Table_0": "Données-sur-les-mesures-de-qualité-de-l-air-par-site-et-par-polluant__b2a563e1-54c0-4d60-a2aa-1555f96b150a.csv"
 				"Table_1": "temperature-moyenne-paris-1991-2020-arrondissements.csv"
+- New York: 1- Using the DOHMH collisions dataset (knr6-vurn.csv), train a TabPFN classifier to predict 'injuries_fatalities' using 'borough', 'location_1', and 'contributing_factors' as features. Print the classification accuracy and some sample predictions.
+				- Selected table:
+				"Table_0": "knr6-vurn.csv"
+
 
 
               

@@ -34,7 +34,7 @@ from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.agent_tools.tools_p12 import P12State, make_p12_tools
 
-def phase1_updated_agent(
+def phase12_agent(
     query: str,
     llm: LLM,
     pm: PromptManager,

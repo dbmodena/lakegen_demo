@@ -29,7 +29,7 @@ from lakegen.ui.streaming import (
 from lakegen.phases import (
     phase1_generate_keywords,
     phase2_select_tables,
-    phase1_updated_agent,
+    phase12_agent,
     phase3_generate_and_execute,
     phase4_synthesize,
 )
@@ -332,7 +332,7 @@ async def _run_table_gate(
         )
 
 
-# ── Unified Gate (phase1_updated) — kept for A/B testing ─────────────
+# ── Unified Gate (phase12) — kept for A/B testing ─────────────
 # Uncomment this block and comment the two-phase flow below to use the
 # unified single-agent approach instead.
 
@@ -356,7 +356,7 @@ async def _run_unified_gate(
             auto_collapse=True
         ) as step:
             async with StepStreamBridge(step) as bridge:
-                selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase1_updated_agent)(
+                selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
                     query=session.query,
                     llm=llm,
                     pm=pm,
