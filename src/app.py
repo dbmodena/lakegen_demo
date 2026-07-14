@@ -92,7 +92,7 @@ def _selected_solr_core() -> str:
     return RuntimeSettings.default().solr_core
 
 
-@cl.set_chat_profiles  # ty: ignore
+@cl.set_chat_profiles  # type: ignore
 async def chat_profiles():
     default_core = RuntimeSettings.default().solr_core
     return [

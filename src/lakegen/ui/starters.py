@@ -86,7 +86,7 @@ def _starter_label(question: str) -> str:
 
 
 @lru_cache(maxsize=len(CORE_QUERY_FILES))
-def starter_questions_for_core(core: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def starter_questions_for_core(core: str) -> tuple[tuple[str, str], ...]:
     labels, questions = zip(*DEFAULT_QUESTIONS[core])
     labels = list(labels)
     questions = list(questions)

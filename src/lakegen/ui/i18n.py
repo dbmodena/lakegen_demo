@@ -84,6 +84,6 @@ def t(key: str, default: str | None = None, **kwargs: Any) -> str:
     template = _MESSAGES.get(key) or default or key
     try:
         return template.format(**kwargs)
-    except KeyError as exc:
-        print(f"\n\n{exc}\n\n")
+    except (KeyError, ValueError) as exc:
+        print(f"[i18n] Error formatting key '{key}': {exc}")
         return template
