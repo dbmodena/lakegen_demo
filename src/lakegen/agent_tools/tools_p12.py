@@ -50,16 +50,26 @@ class Phase12ToolsManager:
         Search for relevant tables in Solr using a space-separated string of keywords.
         ATTENZIONE: Le keyword devono TASSATIVAMENTE essere mantenute nella lingua nativa 
         del portale Open Data che si sta interrogando (es. francese per Parigi, italiano per Bologna).
-        Because this uses AND logic, use ONLY 2-3 essential keywords at most to avoid getting zero results.
-        Example: "sales 2024" (or equivalent in target language).
+        Search for DATASET CONCEPTS that appear in metadata, not concrete row-filter values.
+        Use ONLY 1-2 essential keywords. The tool tries strict AND first and automatically
+        falls back to broader OR matching when a multi-keyword AND search returns no results.
+        Example: use "language interpretation", not row values such as "Mandarin Intake".
         Returns the top matching table names and their schema descriptions.
         """
         try:
             keywords = [k.strip() for k in keywords_str.split(" ") if k.strip()]
+            if not keywords:
+                return "No keywords provided. Search with one or two dataset concepts."
             self.state.used_keywords = keywords
 
             solr_response = self.solr_client.select(tokens=keywords, q_op="AND", rows=15)
             docs = solr_response.get("response", {}).get("docs", [])
+            search_mode = "AND"
+
+            if not docs and len(keywords) > 1:
+                solr_response = self.solr_client.select(tokens=keywords, q_op="OR", rows=15)
+                docs = solr_response.get("response", {}).get("docs", [])
+                search_mode = "OR fallback"
 
             candidates: list[str] = []
             for doc in docs:
@@ -76,7 +86,11 @@ class Phase12ToolsManager:
             if not candidates:
                 return f"Keywords used: {keywords}\nNo tables found. Try with fewer or different keywords."
 
-            return f"Keywords used: {keywords}\n\n" + format_candidate_context(candidates, self.state.solr_meta)
+            return (
+                f"Keywords used: {keywords}\n"
+                f"Search mode: {search_mode}\n\n"
+                + format_candidate_context(candidates, self.state.solr_meta)
+            )
         except Exception as e:
             return f"Error querying Solr: {str(e)}. Try different keywords."
 
