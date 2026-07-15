@@ -293,14 +293,21 @@ def phase3_generate_code(
             ),
             "forecasting": (
                 "\nFORECASTING RULES:\n"
-                "- Use TabPFNRegressor with explicitly time-ordered features and leakage-safe lag values. Never randomly shuffle future observations into training.\n"
-                "- Evaluate with a chronological holdout or walk-forward split, and state the forecast horizon and last observed date."
+                "- Parse the time column with `errors='coerce'`, drop invalid timestamps, and ALWAYS call `sort_values(time_column).reset_index(drop=True)` before splitting, creating lags, or fitting. Never assume CSV row order is chronological.\n"
+                "- A date-only inclusive cutoff such as 2025-09-30 MUST include the entire day. Filter with `< cutoff + pd.Timedelta(days=1)` (or normalize dates); do not use `<= '2025-09-30'`, which excludes timestamps later that day.\n"
+                "- Match the aggregation grain to the question. For an average monthly trend, aggregate observations to exact year-month periods first. Never calculate a requested month using only `dt.month == N`, because that mixes the same month across different years; filter by both year and month or by a Period value.\n"
+                "- Use TabPFNRegressor with explicitly time-ordered features and leakage-safe lag values. Never randomly shuffle future observations into training, and never train on later dates to evaluate earlier dates.\n"
+                "- Evaluate with a chronological holdout or walk-forward split and actually print at least one error metric (for example MAE). State the last observed date and forecast horizon. If evaluation is impossible, print that limitation explicitly.\n"
+                "- Before forecasting a calendar month or season, inspect which months/seasons exist historically. Do not forecast an unseen month as though it were supported by seasonal evidence. If the next calendar period has no historical coverage, use TabPFN for a chronological backtest on the latest historically supported period, report the observed direction from the latest exact periods, and clearly state that a next-period forecast is unsupported.\n"
+                "- Determine `upward` or `downward` only from comparable quantities at the same aggregation grain (for example September 2025 observed average versus October 2025 forecast). Print the exact periods and values used so the direction can be verified."
             ),
             "causal": (
                 "\nCAUSAL-INFERENCE RULES:\n"
-                "- Use TabPFNRegressor only as an outcome model; explicitly define treatment, outcome, and observed confounders.\n"
-                "- Estimate counterfactual predictions with treatment set to 1 and 0 while holding covariates fixed.\n"
-                "- Describe the result as an observational adjusted estimate, not proof of causation. Print limitations such as unmeasured confounding, overlap problems, or lack of temporal ordering."
+                "- Explicitly define treatment, outcome, and pre-treatment confounders. Before string conversion, drop missing values. Keep nominal categories as strings/native categories or one-hot encode them; never use LabelEncoder ordinals as numeric distances.\n"
+                "- LEAKAGE CHECK: A subtype/detail column must not adjust its parent-category outcome (for example `factype` or `facsubgrp` predicting `facgroup`). Check a categorical crosstab; if one value maps to one outcome at least 95% of the time, treat it as outcome leakage, exclude it from causal features, and use it only in a separate composition table.\n"
+                "- Always print raw treatment/control outcome counts, denominators, and rates before modeling. For a composition explanation, print within-group percentages, not only absolute counts.\n"
+                "- Use a TabPFN outcome model only with valid non-leaking covariates. Estimate treatment=1 versus treatment=0 while preserving identical feature names and order. If no credible confounders remain, label the result an unadjusted predictive association and state that a causal effect is not identifiable.\n"
+                "- Report near-zero rounded effects as `no detectable difference`, never as an increase/decrease of 0.0. Do not claim that a subtype `drives` an association unless the printed proportions support it. Always state observational limitations."
             ),
             "prediction": (
                 "\nGENERIC PREDICTION RULES:\n"
