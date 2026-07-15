@@ -210,13 +210,28 @@ def phase3_generate_code(
     # --- TabPFN Dynamic Hint Injection ---
     tabpfn_keywords = [
         # English
-        "predict", "regression", "causal", "forecast", "prediction", "predictive",
+        "predict", "prediction", "predictive", "regression", "regressor",
+        "classify", "classification", "classifier", "likely", "probability",
+        "expected", "estimate", "forecast", "trend", "trending",
+        "causal", "cause", "causing", "treatment effect",
         # Italian
-        "predici", "regressione", "causale", "previsione", "predittivo", "predizione",
+        "predici", "predire", "prevedi", "prevedere", "predizione", "predittivo",
+        "regressione", "regressore", "classifica", "classificare", "classificazione",
+        "probabile", "probabilità", "atteso", "attesa", "stimare", "stima",
+        "previsione", "previsionale", "tendenza", "trend",
+        "causale", "causa", "causando", "effetto del trattamento",
         # French
-        "prédir", "predir", "régression", "regression", "prévision", "prevision", "prédictif", "predictif",
+        "prédire", "prédir", "predire", "predir", "prédiction", "prediction",
+        "prédictif", "predictif", "régression", "regression", "régresseur", "regresseur",
+        "classer", "classification", "classificateur", "probable", "probabilité", "probabilite",
+        "attendu", "attendue", "estimer", "estimation", "prévision", "prevision",
+        "tendance", "causal", "cause", "effet du traitement",
         # Spanish
-        "predecir", "regresión", "regresion", "pronóstico", "pronostico", "predicción", "prediccion", "predictivo"
+        "predecir", "predicción", "prediccion", "predictivo", "regresión", "regresion",
+        "regresor", "clasificar", "clasificación", "clasificacion", "clasificador",
+        "probable", "probabilidad", "esperado", "esperada", "estimar", "estimación", "estimacion",
+        "pronóstico", "pronostico", "previsión", "prevision", "tendencia",
+        "causal", "causa", "causando", "efecto del tratamiento"
     ]
     if any(kw in query.lower() for kw in tabpfn_keywords):
         tabpfn_hint = (
