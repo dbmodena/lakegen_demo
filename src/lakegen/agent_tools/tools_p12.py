@@ -96,8 +96,11 @@ class Phase12ToolsManager:
 
     def inspect_columns(self, file_name: str | None = None, filename: str | None = None) -> str:
         """
-        Returns a compact schema for one CSV in the active dataset.
-        Shows column names, data types, and sample values for categorical columns.
+        Returns a compact profile for one CSV in the active dataset.
+        Shows row count, full-file min/max coverage for temporal columns, column
+        types, and sample values for low-cardinality categorical columns.
+        If the question has a date or time range, compare it with the reported
+        temporal coverage before selecting the table.
         Use this SOLO DOPO aver identificato un csv_path valido con search_solr.
         """
         name = file_name or filename

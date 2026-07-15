@@ -1,6 +1,7 @@
 import sys
 import json
 import os
+import re
 import shutil
 import uuid
 import tempfile
@@ -41,6 +42,13 @@ MAX_SCHEMA_COLUMNS = 80
 MAX_UNIQUE_VALUES = 8
 MAX_PREVIEW_COLUMNS = 20
 MAX_SCHEMA_MATCHES = 12
+MAX_TEMPORAL_PROFILE_COLUMNS = 4
+PROFILE_CHUNK_ROWS = 100_000
+
+_TEMPORAL_COLUMN_PATTERN = re.compile(
+    r"(^|_)(date|datetime|timestamp|time|year)($|_)",
+    re.IGNORECASE,
+)
 
 
 class ConfirmSelectionSchema(BaseModel):
@@ -70,6 +78,73 @@ def _csv_path(csv_dir: Path, file_name: str) -> Path:
     return Path(csv_dir) / file_name.strip()
 
 
+def _temporal_profile(path: Path, columns: list[str]) -> tuple[int, list[str]]:
+    """Return row count and compact full-file coverage for likely temporal columns."""
+    temporal_columns = [
+        col for col in columns if _TEMPORAL_COLUMN_PATTERN.search(str(col))
+    ][:MAX_TEMPORAL_PROFILE_COLUMNS]
+    usecols = temporal_columns or columns[:1]
+    total_rows = 0
+    stats = {
+        col: {"valid": 0, "min": None, "max": None}
+        for col in temporal_columns
+    }
+
+    for chunk in pd.read_csv(
+        path,
+        usecols=usecols,
+        chunksize=PROFILE_CHUNK_ROWS,
+        low_memory=False,
+    ):
+        total_rows += len(chunk)
+        for col in temporal_columns:
+            series = chunk[col]
+            col_stats = stats[col]
+
+            if re.search(r"(^|_)year($|_)", str(col), re.IGNORECASE):
+                parsed = pd.to_numeric(series, errors="coerce")
+                parsed = parsed[(parsed >= 1000) & (parsed <= 3000)]
+            else:
+                parsed = pd.to_datetime(
+                    series,
+                    errors="coerce",
+                    utc=True,
+                    format="mixed",
+                )
+
+            parsed = parsed.dropna()
+            if parsed.empty:
+                continue
+            col_stats["valid"] += len(parsed)
+            chunk_min = parsed.min()
+            chunk_max = parsed.max()
+            if col_stats["min"] is None or chunk_min < col_stats["min"]:
+                col_stats["min"] = chunk_min
+            if col_stats["max"] is None or chunk_max > col_stats["max"]:
+                col_stats["max"] = chunk_max
+
+    coverage_lines = []
+    for col, col_stats in stats.items():
+        if not col_stats["valid"]:
+            continue
+        unavailable_pct = (
+            (total_rows - col_stats["valid"]) / total_rows * 100
+            if total_rows
+            else 0.0
+        )
+        min_value = col_stats["min"]
+        max_value = col_stats["max"]
+        if isinstance(min_value, pd.Timestamp):
+            min_value = min_value.strftime("%Y-%m-%d")
+            max_value = max_value.strftime("%Y-%m-%d")
+        coverage_lines.append(
+            f"- {col}: {min_value} to {max_value} "
+            f"(missing/unparseable {unavailable_pct:.1f}%)"
+        )
+
+    return total_rows, coverage_lines
+
+
 def _inspect_columns(csv_dir: Path, file_name: str) -> str:
     path = _csv_path(csv_dir, file_name)
     if not path.exists():
@@ -79,6 +154,7 @@ def _inspect_columns(csv_dir: Path, file_name: str) -> str:
         df = pd.read_csv(path, nrows=MAX_SCHEMA_SAMPLE_ROWS, low_memory=False)
         schema_info = []
         columns = list(df.columns)
+        total_rows, temporal_coverage = _temporal_profile(path, columns)
 
         for col in columns[:MAX_SCHEMA_COLUMNS]:
             dtype = str(df[col].dtype)
@@ -95,11 +171,13 @@ def _inspect_columns(csv_dir: Path, file_name: str) -> str:
                 f"- ... {len(columns) - MAX_SCHEMA_COLUMNS} more columns omitted"
             )
 
-        output = (
-            f"Schema for {file_name} "
-            f"(sampled first {MAX_SCHEMA_SAMPLE_ROWS} rows):\n"
-            + "\n".join(schema_info)
+        header_lines = [f"Schema for {file_name}:", f"Rows: {total_rows:,}"]
+        if temporal_coverage:
+            header_lines.extend(["Temporal coverage:", *temporal_coverage])
+        header_lines.append(
+            f"Columns (types and categories sampled from first {MAX_SCHEMA_SAMPLE_ROWS} rows):"
         )
+        output = "\n".join(header_lines + schema_info)
         return _compact_tool_output(output)
     except Exception as e:
         return f"Error: {str(e)}"
@@ -222,8 +300,9 @@ class Phase2JudgeToolsManager:
 
     def inspect_columns(self, file_name: str) -> str:
         """
-        Returns a compact schema for one CSV in the active dataset.
-        Shows column names, data types, and sample values for categorical columns.
+        Returns a compact profile for one CSV in the active dataset.
+        Shows row count, full-file min/max coverage for temporal columns, column
+        types, and sample values for low-cardinality categorical columns.
         Use this to understand what data a table contains.
         """
         return _inspect_columns(self.csv_dir, file_name)
@@ -333,4 +412,3 @@ def make_p2_judge_tools(
     """
     manager = Phase2JudgeToolsManager(candidates, csv_dir)
     return manager.get_tools()
-

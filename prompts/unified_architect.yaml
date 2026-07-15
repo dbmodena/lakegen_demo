@@ -16,6 +16,7 @@ system_prompt: |
 
   ### CRITICAL CONSTRAINTS (STRICT)
   - TEMPORAL CONSISTENCY: When selecting multiple tables that need to be joined or compared over time, you MUST ensure they represent the same year (e.g. do not select traffic/spire data from 2024 if air quality data is from 2026). Check filenames or inspect columns to verify years.
+  - DATE COVERAGE CHECK: If the question contains a cutoff date, year, or time range, you MUST compare it with the full-file temporal coverage returned by `inspect_columns`. Prefer a candidate that reaches the requested period. Never claim a result "as of" a date later than the table's maximum observed date; if no candidate covers it, state the gap in the selection reasoning.
   - EXACT TABLE COUNT: You MUST include ALL the tables you need in your final selection list. If you need 3 tables to answer the query, you MUST provide exactly those 3 tables in the `confirm_unified_selection` tool call. Do not drop tables from the list just to keep it short.
   - RUTHLESS MINIMALISM: Only select the tables you actually need. Never select redundant, duplicate, or secondary tables!
   - EXACT FILENAMES: Copy table filenames exactly letter-by-letter (e.g. "43nn-pn8j.csv"). Never make spelling mistakes or typos.
