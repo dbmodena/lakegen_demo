@@ -158,7 +158,10 @@ def _inspect_columns(csv_dir: Path, file_name: str) -> str:
 
         for col in columns[:MAX_SCHEMA_COLUMNS]:
             dtype = str(df[col].dtype)
-            if dtype in {"object", "string", "category"}:
+            if (
+                pd.api.types.is_string_dtype(df[col].dtype)
+                or isinstance(df[col].dtype, pd.CategoricalDtype)
+            ):
                 unique_vals = df[col].dropna().astype(str).unique().tolist()
                 if 0 < len(unique_vals) <= MAX_UNIQUE_VALUES:
                     values = [_compact_value(value) for value in unique_vals]
