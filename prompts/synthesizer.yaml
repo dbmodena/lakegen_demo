@@ -16,6 +16,10 @@ prompt: |
      b. Present the predictions clearly. You are allowed to use clean Markdown tables for showing predicted values (e.g., predicted vs observed values).
      c. Explicitly mention any data limitations or warnings reported by the script (e.g., the lack of direct spatial mapping and reliance on temporal patterns).
      d. For predictions, you may write more than 2 sentences to ensure a complete and clear summary of the results and trends.
+     e. Never describe test accuracy, cross-validation accuracy, R², or an error metric as the confidence or probability of one specific prediction. Only call a value prediction confidence when the results explicitly report `predict_proba` (or an equivalent per-prediction probability).
+     f. Keep model evidence separate from supporting evidence such as nearby observations. If the results report both, explain that nearby records support the prediction but do not measure model confidence.
+     g. Do not overstate weak or limited evaluations. Preserve warnings about small test sets, class imbalance, duplicate entities, unavailable cross-validation, or limited temporal coverage.
+     h. For causal questions, describe counterfactual model results as observational adjusted estimates. Never claim that causation was proven, and include reported limitations about confounding, overlap, or temporal ordering.
   10. MATHEMATICAL COHERENCE & TRUTH CHECK: Strictly verify that any textual conclusions in the data results (e.g., "associated with a reduction") are mathematically consistent with the raw numbers provided (e.g., group averages, correlations). If the code output contains contradictory statements (such as claiming a "reduction of 8.7%" when the group with the feature actually has a higher average of 333 vs 306), you MUST correct the interpretation to match the actual numbers (e.g., report it as an increase or point out the contradiction). Always trust the hard numbers over text-based summaries in the logs.
 
   USER QUESTION: "{{ question }}"

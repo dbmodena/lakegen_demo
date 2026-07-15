@@ -45,6 +45,52 @@ _ERROR_PATTERNS = [
 ]
 
 
+_TABPFN_INTENT_KEYWORDS = {
+    "causal": [
+        "causal", "cause", "causing", "treatment effect",
+        "causale", "causa", "causare", "causando", "effetto del trattamento",
+        "causalité", "causalite", "causer", "provoque", "effet du traitement",
+        "causalidad", "causar", "causando", "efecto del tratamiento",
+    ],
+    "forecasting": [
+        "forecast", "trend", "trending", "time series",
+        "previsione", "previsionale", "tendenza", "serie temporale",
+        "prévision", "prevision", "tendance", "série temporelle", "serie temporelle",
+        "pronóstico", "pronostico", "previsión", "tendencia", "serie temporal",
+    ],
+    "classification": [
+        "classify", "classification", "classifier", "likely", "probability",
+        "classifica", "classificare", "classificazione", "probabile", "probabilità",
+        "classer", "classificateur", "probable", "probabilité", "probabilite",
+        "clasificar", "clasificación", "clasificacion", "clasificador", "probabilidad",
+    ],
+    "regression": [
+        "regression", "regressor", "expected", "estimate",
+        "regressione", "regressore", "atteso", "attesa", "stimare", "stima",
+        "régression", "regression", "régresseur", "regresseur", "attendu", "attendue", "estimer", "estimation",
+        "regresión", "regresion", "regresor", "esperado", "esperada", "estimar", "estimación", "estimacion",
+    ],
+    "prediction": [
+        "predict", "predicts", "predicted", "predicting", "prediction", "predictive",
+        "predici", "predire", "prevedi", "prevedere", "predizione", "predittivo",
+        "prédire", "prédir", "predire", "predir", "prédiction", "prédictif", "predictif",
+        "predecir", "predicción", "prediccion", "predictivo",
+    ],
+}
+
+
+def _detect_tabpfn_intent(query: str) -> str | None:
+    """Return the most specific multilingual TabPFN intent found in a query."""
+    normalized_query = query.casefold()
+    for intent in ("causal", "forecasting", "classification", "regression", "prediction"):
+        if any(
+            re.search(rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)", normalized_query)
+            for keyword in _TABPFN_INTENT_KEYWORDS[intent]
+        ):
+            return intent
+    return None
+
+
 def _extract_code(code_raw: str) -> str:
     match = re.search(r"```python\n(.*?)\n```", code_raw, re.DOTALL)
     if match:
@@ -207,37 +253,13 @@ def phase3_generate_code(
                                 arch_reasoning=reasoning,
                                 tables_info=tables_info)
 
-    # --- TabPFN Dynamic Hint Injection ---
-    tabpfn_keywords = [
-        # English
-        "predict", "prediction", "predictive", "regression", "regressor",
-        "classify", "classification", "classifier", "likely", "probability",
-        "expected", "estimate", "forecast", "trend", "trending",
-        "causal", "cause", "causing", "treatment effect",
-        # Italian
-        "predici", "predire", "prevedi", "prevedere", "predizione", "predittivo",
-        "regressione", "regressore", "classifica", "classificare", "classificazione",
-        "probabile", "probabilità", "atteso", "attesa", "stimare", "stima",
-        "previsione", "previsionale", "tendenza", "trend",
-        "causale", "causa", "causando", "effetto del trattamento",
-        # French
-        "prédire", "prédir", "predire", "predir", "prédiction", "prediction",
-        "prédictif", "predictif", "régression", "regression", "régresseur", "regresseur",
-        "classer", "classification", "classificateur", "probable", "probabilité", "probabilite",
-        "attendu", "attendue", "estimer", "estimation", "prévision", "prevision",
-        "tendance", "causal", "cause", "effet du traitement",
-        # Spanish
-        "predecir", "predicción", "prediccion", "predictivo", "regresión", "regresion",
-        "regresor", "clasificar", "clasificación", "clasificacion", "clasificador",
-        "probable", "probabilidad", "esperado", "esperada", "estimar", "estimación", "estimacion",
-        "pronóstico", "pronostico", "previsión", "prevision", "tendencia",
-        "causal", "causa", "causando", "efecto del tratamiento"
-    ]
-    if any(kw in query.lower() for kw in tabpfn_keywords):
-        tabpfn_hint = (
-            "\n\n[TABPFN REQUIREMENT]\n"
-            "The user query requires prediction, forecasting, or causal inference. "
-            "You MUST use the `tabpfn` library for this task. Small models MUST follow this exact API:\n"
+    # --- TabPFN intent routing and task-specific hint injection ---
+    tabpfn_intent = _detect_tabpfn_intent(query)
+    if tabpfn_intent:
+        common_hint = (
+            f"\n\n[TABPFN REQUIREMENT — {tabpfn_intent.upper()}]\n"
+            f"The detected task is `{tabpfn_intent}`. You MUST use the `tabpfn` library "
+            "and follow the rules for this specific intent. Use this API:\n"
             "```python\n"
             "import torch\n"
             "from tabpfn import TabPFNRegressor, TabPFNClassifier\n"
@@ -245,16 +267,47 @@ def phase3_generate_code(
             "# For regression: model = TabPFNRegressor(device=device)\n"
             "# For classification: model = TabPFNClassifier(device=device)\n"
             "```\n"
-            "DATAFRAME PREPARATION RULES:\n"
+            "COMMON DATAFRAME AND MODELING RULES:\n"
             "1. SPATIAL ALIGNMENT (NEIGHBORHOODS/DISTRICTS): If the user asks for predictions by neighborhood/district ('nei quartieri'), you MUST aggregate and merge the datasets by neighborhood. Map station names or coordinates (latitude, longitude) of the sensors/loops to neighborhoods using spatial proximity or lookup tables (e.g. `quartieri-di-bologna.csv` or `zone_urbanistiche.csv`). Do not just aggregate globally.\n"
             "2. TEMPORAL ALIGNMENT & FALLBACK: If merging on absolute dates (YYYY-MM-DD) results in 0 rows (e.g., due to different years like 2024 vs 2026), DO NOT fail. Fall back to merge the datasets by seasonal/weekly profiles: group both datasets by day of week (e.g., `.dt.dayofweek` or `.dt.strftime('%A')`) and/or hour/month, then merge on these profile keys.\n"
             "3. PREDICTIONS VS AVERAGES: When showing aggregated predictions (e.g. average monthly accidents per borough), DO NOT feed the average of features to the model (i.e. model.predict(X_mean)). Instead, feed the actual raw samples (X) to the model to get individual predictions, and then calculate the average of those predictions (e.g. y_pred = model.predict(X) and then calculate averages grouped by borough/district).\n"
             "4. FUTURE FORECASTS (DUPLICATION AVOIDANCE): When preparing a DataFrame for future predictions (e.g. forecasting the values of the next year for each district), make sure you only have one row per unique entity (e.g. use `.drop_duplicates()` on the district/neighborhood column). Otherwise, you will generate duplicate predictions for the same entity and sum/aggregate them incorrectly.\n"
             "5. TABPFN DATA LIMITS (CUDA OOM AVOIDANCE): TabPFN models are strictly designed for small-to-medium datasets (up to 10,000 samples). If the prepared training dataset (X) exceeds 10,000 rows, you MUST downsample it to exactly 10,000 rows (or fewer) using `df = df.sample(n=min(10000, len(df)), random_state=42)` and aligning X and y accordingly. This is critical to prevent CUDA Out of Memory errors.\n"
             "6. STRING-NUMERIC CLEANING: For columns containing mixed text/units and numbers (e.g. 'Strade 30 km/h o inferiore'), DO NOT use simple pd.to_numeric() with errors='coerce' directly because this turns all values into NaN. Instead, you MUST clean them by extracting the digits using regular expressions (e.g., `.str.extract(r'(\\d+)')`) before converting to numeric, ensuring features do not become constant.\n"
-            "7. MODELING: Prepare features (X) and target (y), perform a train_test_split (80/20), train the TabPFN model, and print metrics (MSE or R2 for regression, accuracy for classification) along with a sample of predictions."
+            "7. DATA SPLITTING: Use a reproducible 80/20 train/test split. For classification, pass `stratify=y` whenever every class has enough examples. If rows share the same entity or coordinates, use a group-aware split so duplicates cannot appear in both train and test.\n"
+            "8. SMALL-DATA EVALUATION: When computationally feasible, supplement the holdout metric with at most 3-fold cross-validation. Use stratified folds for classification and group-aware folds when duplicate entities or coordinates exist. If cross-validation is not feasible, print that limitation instead of inventing a score.\n"
+            "9. SPATIAL EXPLANATION: For a coordinate-based prediction, also calculate and print a concise comparison with the nearest observed locations and their target values. Treat this as supporting evidence, not as model confidence."
         )
-        user_prompt += tabpfn_hint
+
+        intent_hints = {
+            "classification": (
+                "\nCLASSIFICATION RULES:\n"
+                "- Use TabPFNClassifier. Normalize equivalent target labels before fitting.\n"
+                "- Print the predicted class and, when supported, `predict_proba` for that specific prediction.\n"
+                "- Clearly label test accuracy, cross-validation results, and prediction probability as different quantities. Never describe test accuracy as the confidence of one prediction."
+            ),
+            "regression": (
+                "\nREGRESSION RULES:\n"
+                "- Use TabPFNRegressor and print the predicted numeric value with its unit.\n"
+                "- Evaluate with R2 and an absolute-error metric when the test set permits it. Do not present an evaluation metric as prediction confidence."
+            ),
+            "forecasting": (
+                "\nFORECASTING RULES:\n"
+                "- Use TabPFNRegressor with explicitly time-ordered features and leakage-safe lag values. Never randomly shuffle future observations into training.\n"
+                "- Evaluate with a chronological holdout or walk-forward split, and state the forecast horizon and last observed date."
+            ),
+            "causal": (
+                "\nCAUSAL-INFERENCE RULES:\n"
+                "- Use TabPFNRegressor only as an outcome model; explicitly define treatment, outcome, and observed confounders.\n"
+                "- Estimate counterfactual predictions with treatment set to 1 and 0 while holding covariates fixed.\n"
+                "- Describe the result as an observational adjusted estimate, not proof of causation. Print limitations such as unmeasured confounding, overlap problems, or lack of temporal ordering."
+            ),
+            "prediction": (
+                "\nGENERIC PREDICTION RULES:\n"
+                "- Infer from the target whether TabPFNClassifier or TabPFNRegressor is appropriate, then follow the corresponding evaluation and output conventions above."
+            ),
+        }
+        user_prompt += common_hint + intent_hints[tabpfn_intent]
 
     original_temperature = getattr(llm, "temperature", 0.1)
     if retries > 0:

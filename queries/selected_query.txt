@@ -90,10 +90,15 @@ Causal Inference:
 				- Selected table:
 				"Table_0": "knr6-vurn.csv"
 			2- If we placed a new bike sensor at latitude 40.75 and longitude -73.95, what measurement interval (15-minute or 60-minute) would it likely use?
+				- smn3-rzf9
 			3- If a Mandarin interpretation request is handled by the Intake division, how long is the call expected to last?
+				- wapz-jfhq
 			4- As of 2025-09-30, is the average lead concentration in NYC water samples trending upward or downward?
+				- 3wxk-qa8q
 			5- Is being located in Brooklyn itself causing facilities to belong to the Transportation group, or is that just because many of those facilities are bus depots?
+				- 67g2-p84d
 			6- Which NYC borough saw the biggest increase in total public-school enrollment between the 2014-15 and 2018-19 school years, and what was the size of that increase?
+				- uh2w-zjsn
 
 
 
