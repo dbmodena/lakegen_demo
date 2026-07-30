@@ -28,10 +28,10 @@ htmlcov/
 # ========================
 # Ignore heavy CSVs and databases
 data/
-old_data/
 *.zip
 data
 logs
+queries_old
 
 # Ignore dynamically generated Python code by the agent
 coding/
@@ -51,3 +51,5 @@ src/.files/
 .codex
 .DS_Store
 Thumbs.db
+
+

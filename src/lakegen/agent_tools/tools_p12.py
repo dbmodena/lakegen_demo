@@ -1,12 +1,7 @@
 import json
-import os
-import shutil
-import uuid
-import tempfile
 from pathlib import Path
 from pydantic import BaseModel, Field
 
-import polars as pl
 from llama_index.core.tools import FunctionTool
 from llama_index.core import VectorStoreIndex
 from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
@@ -48,8 +43,8 @@ class Phase12ToolsManager:
     def search_solr(self, keywords_str: str) -> str:
         """
         Search for relevant tables in Solr using a space-separated string of keywords.
-        ATTENZIONE: Le keyword devono TASSATIVAMENTE essere mantenute nella lingua nativa 
-        del portale Open Data che si sta interrogando (es. francese per Parigi, italiano per Bologna).
+        IMPORTANT: Keywords must be written in the native language of the Open Data
+        portal being queried (for example, French for Paris or Italian for Bologna).
         Search for DATASET CONCEPTS that appear in metadata, not concrete row-filter values.
         Use ONLY 1-2 essential keywords. The tool tries strict AND first and automatically
         falls back to broader OR matching when a multi-keyword AND search returns no results.
@@ -101,74 +96,18 @@ class Phase12ToolsManager:
         types, and sample values for low-cardinality categorical columns.
         If the question has a date or time range, compare it with the reported
         temporal coverage before selecting the table.
-        Use this SOLO DOPO aver identificato un csv_path valido con search_solr.
+        Use this only after identifying a valid CSV file with search_solr.
         """
         name = file_name or filename
         if not name:
             return "Error: file_name or filename parameter is required."
         return _inspect_columns(self.csv_dir, name)
 
-    def find_joinable_tables(self, file_name: str | None = None, target_columns: list[str] = [], filename: str | None = None) -> str:
-        """
-        Use the BLEND engine to find which other tables among the discovered candidates can be joined with the specified file.
-        DA USARE NELLA FASE DI INTEGRAZIONE, quando devi incrociare i dati di una tabella già ispezionata.
-        Args:
-            file_name: The name of the file to search for joins.
-            target_columns: A list of strings representing the specific columns of interest. Do NOT use all columns.
-        PAY ATTENTION TO SCORE RULES:
-        A low score (0.05 - 0.20) is EXCELLENT and means the tables share a key column.
-        Consider valid all files with scores > 0.05.
-        """
-        import blend
-
-        name = file_name or filename
-        if not name:
-            return "Error: file_name or filename parameter is required. Please pass a valid file name."
-        name = name.strip()
-        path_file = self.csv_dir / name
-        if not path_file.exists():
-            return f"Error: Target file '{name}' missing. You must provide a valid file name that exists in the dataset."
-
-        if not self.state.all_candidates:
-            return "Error: No candidates found yet. Please use search_solr first."
-
-        try:
-            with tempfile.TemporaryDirectory(dir=self.csv_dir.parent, prefix=".tmp_blend_") as tmp_dir:
-                tmp_folder = Path(tmp_dir)
-                for cand in self.state.all_candidates:
-                    cand_path = self.csv_dir / cand
-                    if cand_path.exists():
-                        os.symlink(cand_path, tmp_folder / cand)
-
-                tmp_db = tmp_folder / "temp_blend.db"
-                indexer = blend.BLEND(db_path=tmp_db)
-                _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 5000}
-                blend.index_tables_seq(indexer, tmp_folder, load_opts=_blend_load_opts, log_stdout=False)
-
-                df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
-                valid_cols = [col for col in target_columns if col in df_target.columns]
-                if not valid_cols:
-                    indexer.close()
-                    return f"Error: None of the specified target_columns {target_columns} exist in '{name}'. Please inspect the columns first."
-
-                df_target = df_target.select(valid_cols)
-                results = indexer.multi_column_join_search(table=df_target, k=5, clean=True)
-                indexer.close()
-
-                if not results:
-                    return "No compatible table found among the candidates."
-                output = f"BLEND Results for '{name}' using columns {valid_cols}:\n"
-                for t_id, _, score in results:
-                    if t_id != name:
-                        output += f"-> {t_id} (Score: {score:.3f})\n"
-                return output
-        except Exception as e:
-            return f"Error in BLEND tool for '{name}': {str(e)}. This might be due to incompatible data types or memory issues. Try a different table."
-
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
         """
-        Use Valentine to find matching columns between two files based on data content and schema.
-        Da usare ESCLUSIVAMENTE nella fase di integrazione, quando possiedi già due schemi estratti.
+        Use Valentine to identify matching columns, then verify their practical
+        joinability through overlap, coverage, uniqueness, cardinality, and
+        estimated join expansion.
         """
         return _find_schema_matches(self.csv_dir, file_name_1, file_name_2)
 
@@ -189,7 +128,6 @@ class Phase12ToolsManager:
         return [
             FunctionTool.from_defaults(fn=self.search_solr),
             FunctionTool.from_defaults(fn=self.inspect_columns),
-            FunctionTool.from_defaults(fn=self.find_joinable_tables),
             FunctionTool.from_defaults(fn=self.find_schema_matches),
             FunctionTool.from_defaults(fn=self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),
         ]

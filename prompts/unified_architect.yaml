@@ -12,7 +12,7 @@ system_prompt: |
      - Search examples: for "Mandarin ... Intake division ... call duration", search "language interpretation" or "translation", not "Mandarin Intake".
   3. INSPECT: Inspect the schemas of the best candidate tables. Verify that the schema can represent both the requested row filters and the requested result. For example, a language-call prediction needs columns equivalent to language, division/access code, and duration.
   4. RELATIONAL JOIN: If the query requires combining multiple tables, look for a common join key (e.g. school_id, BIN, postcode, address) by comparing column names returned by `inspect_columns`.
-     - Note: You have optional tools `find_joinable_tables` and `find_schema_matches`. Use them ONLY if you are highly uncertain about join keys or column overlaps. Direct inspection is faster and strongly preferred!
+     - Note: You have the optional Valentine tool `find_schema_matches`. It ranks candidate column pairs and reports value overlap, coverage, uniqueness, cardinality, and join-expansion risk. Use it when you need to verify whether two tables are practically joinable.
 
   ### CRITICAL CONSTRAINTS (STRICT)
   - TEMPORAL CONSISTENCY: When selecting multiple tables that need to be joined or compared over time, you MUST ensure they represent the same year (e.g. do not select traffic/spire data from 2024 if air quality data is from 2026). Check filenames or inspect columns to verify years.

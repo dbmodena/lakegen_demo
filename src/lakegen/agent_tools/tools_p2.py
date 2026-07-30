@@ -1,12 +1,7 @@
 import sys
 import json
-import os
 import re
-import shutil
-import uuid
-import tempfile
 import pandas as pd
-import polars as pl
 from pathlib import Path
 from pydantic import BaseModel, Field
 from llama_index.core.tools import FunctionTool
@@ -14,12 +9,6 @@ from valentine import valentine_match
 from valentine.algorithms import ComaPy
 
 from lakegen.core.config import CSV_DIR
-
-try:
-    from blend import BLEND
-except ImportError as e:
-    print(f"❌ Critical error: impossible to import BLEND: {e}")
-    sys.exit(1)
 
 try:
     try:
@@ -41,7 +30,8 @@ MAX_SCHEMA_SAMPLE_ROWS = 500
 MAX_SCHEMA_COLUMNS = 80
 MAX_UNIQUE_VALUES = 8
 MAX_PREVIEW_COLUMNS = 20
-MAX_SCHEMA_MATCHES = 12
+MAX_JOINABILITY_MATCHES = 5
+JOINABILITY_SAMPLE_ROWS = 5000
 MAX_TEMPORAL_PROFILE_COLUMNS = 4
 PROFILE_CHUNK_ROWS = 100_000
 
@@ -234,61 +224,166 @@ def _find_exact_overlaps(csv_dir: Path, file_name_1: str, file_name_2: str) -> s
         return f"Error in SLOTH when comparing '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
 
 
+def _normalize_join_values(series: pd.Series) -> pd.Series:
+    """Normalize non-null values before measuring exact equi-join overlap."""
+    values = series.dropna()
+    if values.empty:
+        return pd.Series(dtype="string")
+
+    if pd.api.types.is_numeric_dtype(values.dtype):
+        numeric = pd.to_numeric(values, errors="coerce").dropna()
+        return numeric.map(lambda value: format(float(value), ".15g"))
+
+    normalized = values.astype("string").str.strip().str.casefold()
+    return normalized[normalized != ""]
+
+
+def _joinability_metrics(left: pd.Series, right: pd.Series) -> dict[str, object]:
+    left_values = _normalize_join_values(left)
+    right_values = _normalize_join_values(right)
+    left_counts = left_values.value_counts()
+    right_counts = right_values.value_counts()
+    common_values = left_counts.index.intersection(right_counts.index)
+
+    left_distinct = len(left_counts)
+    right_distinct = len(right_counts)
+    common_distinct = len(common_values)
+    union_distinct = left_distinct + right_distinct - common_distinct
+
+    left_common_rows = int(left_counts.loc[common_values].sum()) if common_distinct else 0
+    right_common_rows = int(right_counts.loc[common_values].sum()) if common_distinct else 0
+    estimated_inner_rows = (
+        int((left_counts.loc[common_values] * right_counts.loc[common_values]).sum())
+        if common_distinct
+        else 0
+    )
+
+    left_unique = (
+        bool((left_counts.loc[common_values] == 1).all())
+        if common_distinct
+        else False
+    )
+    right_unique = (
+        bool((right_counts.loc[common_values] == 1).all())
+        if common_distinct
+        else False
+    )
+    if not common_distinct:
+        relationship = "undetermined"
+    elif left_unique and right_unique:
+        relationship = "one-to-one"
+    elif left_unique:
+        relationship = "one-to-many"
+    elif right_unique:
+        relationship = "many-to-one"
+    else:
+        relationship = "many-to-many"
+
+    left_distinct_coverage = common_distinct / left_distinct if left_distinct else 0.0
+    right_distinct_coverage = common_distinct / right_distinct if right_distinct else 0.0
+    containment = max(left_distinct_coverage, right_distinct_coverage)
+
+    if not common_distinct:
+        verdict = "not joinable: no common values in the sample"
+    elif relationship == "many-to-many" and containment >= 0.5:
+        verdict = "risky: value overlap exists but the join is many-to-many"
+    elif containment >= 0.8:
+        verdict = "joinable candidate"
+    elif containment >= 0.4:
+        verdict = "partially joinable"
+    else:
+        verdict = "weak join candidate"
+
+    matched_baseline = max(left_common_rows, right_common_rows, 1)
+    return {
+        "common_distinct": common_distinct,
+        "left_distinct_coverage": left_distinct_coverage,
+        "right_distinct_coverage": right_distinct_coverage,
+        "jaccard": common_distinct / union_distinct if union_distinct else 0.0,
+        "left_row_coverage": left_common_rows / len(left_values) if len(left_values) else 0.0,
+        "right_row_coverage": right_common_rows / len(right_values) if len(right_values) else 0.0,
+        "left_uniqueness": left_distinct / len(left_values) if len(left_values) else 0.0,
+        "right_uniqueness": right_distinct / len(right_values) if len(right_values) else 0.0,
+        "relationship": relationship,
+        "estimated_inner_rows": estimated_inner_rows,
+        "expansion_factor": estimated_inner_rows / matched_baseline,
+        "verdict": verdict,
+    }
+
+
 def _find_schema_matches(csv_dir: Path, file_name_1: str, file_name_2: str) -> str:
-    def format_matches_table(res, max_matches=MAX_SCHEMA_MATCHES):
-        rows = [
-            (col1, col2, score)
-            for ((_, col1), (_, col2)), score in sorted(
-                res.items(),
-                key=lambda item: item[1],
-                reverse=True,
-            )
-            if score > 0.0
-        ]
-
-        if not rows:
-            return ""
-
-        rows = rows[:max_matches]
-
-        lines = []
-        header = f"{'table_1_column':30} | {'table_2_column':30} | score"
-        lines.append(header)
-        lines.append("-" * len(header))
-
-        for col1, col2, score in rows:
-            lines.append(f"{col1:30} | {col2:30} | {score:.4f}")
-
-        omitted = len([score for score in res.values() if score > 0.0]) - len(rows)
-        if omitted > 0:
-            lines.append(f"... {omitted} lower-scoring matches omitted")
-
-        return "\n".join(lines)
 
     path_1 = str(_csv_path(csv_dir, file_name_1))
     path_2 = str(_csv_path(csv_dir, file_name_2))
 
     try:
-        df1 = pd.read_csv(path_1, nrows=5000).astype(str)
-        df2 = pd.read_csv(path_2, nrows=5000).astype(str)
+        df1 = pd.read_csv(path_1, nrows=JOINABILITY_SAMPLE_ROWS, low_memory=False)
+        df2 = pd.read_csv(path_2, nrows=JOINABILITY_SAMPLE_ROWS, low_memory=False)
 
         matcher = ComaPy(use_instances=True)
-        matches = valentine_match(df1, df2, matcher)
+        matches = valentine_match(
+            df1.astype("string"),
+            df2.astype("string"),
+            matcher,
+        )
 
         if not matches:
             return "No schema matches found."
 
-        table = format_matches_table(matches)
-
-        if not table:
+        ranked_matches = [
+            (col1, col2, score)
+            for ((_, col1), (_, col2)), score in sorted(
+                matches.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            if score > 0.0 and col1 in df1.columns and col2 in df2.columns
+        ]
+        if not ranked_matches:
             return "No schema matches found."
 
-        output = (
-            f"Valentine matches between '{file_name_1}' and '{file_name_2}':\n\n"
-            f"{table}"
-        )
+        lines = [
+            f"Valentine joinability analysis between '{file_name_1}' and '{file_name_2}':",
+            f"Sample: first {JOINABILITY_SAMPLE_ROWS} rows per table; comparisons use normalized exact values.",
+        ]
+        for index, (col1, col2, score) in enumerate(
+            ranked_matches[:MAX_JOINABILITY_MATCHES],
+            start=1,
+        ):
+            metrics = _joinability_metrics(df1[col1], df2[col2])
+            lines.extend(
+                [
+                    "",
+                    f"{index}. {col1} <-> {col2}",
+                    f"   Valentine similarity: {score:.4f}",
+                    (
+                        f"   Distinct overlap: {metrics['common_distinct']} "
+                        f"(left {metrics['left_distinct_coverage']:.1%}, "
+                        f"right {metrics['right_distinct_coverage']:.1%}, "
+                        f"Jaccard {metrics['jaccard']:.1%})"
+                    ),
+                    (
+                        f"   Row coverage: left {metrics['left_row_coverage']:.1%}, "
+                        f"right {metrics['right_row_coverage']:.1%}"
+                    ),
+                    (
+                        f"   Key uniqueness: left {metrics['left_uniqueness']:.1%}, "
+                        f"right {metrics['right_uniqueness']:.1%}"
+                    ),
+                    (
+                        f"   Cardinality: {metrics['relationship']}; "
+                        f"estimated inner-join rows {metrics['estimated_inner_rows']:,}; "
+                        f"expansion {metrics['expansion_factor']:.2f}x"
+                    ),
+                    f"   Verdict: {metrics['verdict']}",
+                ]
+            )
 
-        return _compact_tool_output(output)
+        omitted = len(ranked_matches) - MAX_JOINABILITY_MATCHES
+        if omitted > 0:
+            lines.extend(["", f"... {omitted} lower-scoring matches omitted"])
+
+        return _compact_tool_output("\n".join(lines))
 
     except Exception as e:
         return f"Error in Valentine matcher for '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
@@ -310,64 +405,11 @@ class Phase2JudgeToolsManager:
         """
         return _inspect_columns(self.csv_dir, file_name)
 
-    def find_joinable_tables(self, file_name: str, target_columns: list[str]) -> str:
-        """
-        Use the BLEND engine to find which other tables among the candidates can be joined with the specified file.
-
-        Args:
-            file_name: The name of the file to search for joins.
-            target_columns: A list of strings representing the specific columns of interest. Do NOT use all columns.
-
-        PAY ATTENTION TO SCORE RULES:
-        A low score (0.05 - 0.20) is EXCELLENT and means the tables share a key column.
-        Consider valid all files with scores > 0.05.
-        """
-        file_name = file_name.strip()
-        path_file = self.csv_dir / file_name
-        if not path_file.exists():
-            return f"Error: Target file '{file_name}' missing. You must provide a valid file name that exists in the dataset."
-
-        if not self.candidates:
-            return "Error: No candidates available to join with. Please ensure candidates are provided."
-
-        try:
-            with tempfile.TemporaryDirectory(dir=self.csv_dir.parent, prefix=".tmp_blend_") as tmp_dir:
-                tmp_folder = Path(tmp_dir)
-                for cand in self.candidates:
-                    cand_path = self.csv_dir / cand
-                    if cand_path.exists():
-                        os.symlink(cand_path, tmp_folder / cand)
-
-                tmp_db = tmp_folder / "temp_blend.db"
-                indexer = BLEND(db_path=tmp_db)
-                _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 5000}
-                import blend
-                blend.index_tables_seq(indexer, tmp_folder, load_opts=_blend_load_opts, log_stdout=False)
-
-                df_target = pl.read_csv(str(path_file), n_rows=2000, ignore_errors=True)
-                valid_cols = [col for col in target_columns if col in df_target.columns]
-                if not valid_cols:
-                    indexer.close()
-                    return f"Error: None of the specified target_columns {target_columns} exist in '{file_name}'. Please inspect the columns first."
-
-                df_target = df_target.select(valid_cols)
-                results = indexer.multi_column_join_search(table=df_target, k=5, clean=True)
-                indexer.close()
-
-                if not results:
-                    return "No compatible table found among the candidates."
-                output = f"BLEND Results for '{file_name}' using columns {valid_cols}:\n"
-                for t_id, _, score in results:
-                    if t_id != file_name:
-                        output += f"-> {t_id} (Score: {score:.3f})\n"
-                return _compact_tool_output(output)
-        except Exception as e:
-            return f"Error in BLEND tool for '{file_name}': {str(e)}. This might be due to incompatible data types or memory issues. Try a different approach or table."
-
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
         """
-        Use Valentine to find matching columns between two files based on data content and schema.
-        This tool helps identify overlapping columns that can be used for JOIN operations.
+        Use Valentine to identify matching columns, then verify their practical
+        joinability through value overlap, row coverage, key uniqueness,
+        cardinality, and estimated join expansion.
         """
         return _find_schema_matches(self.csv_dir, file_name_1, file_name_2)
 
@@ -394,7 +436,6 @@ class Phase2JudgeToolsManager:
     def get_tools(self) -> list[FunctionTool]:
         return [
             FunctionTool.from_defaults(fn=self.inspect_columns),
-            FunctionTool.from_defaults(fn=self.find_joinable_tables),
             FunctionTool.from_defaults(fn=self.find_schema_matches),
             FunctionTool.from_defaults(fn=self.confirm_table_selection, fn_schema=ConfirmSelectionSchema, return_direct=True),
             FunctionTool.from_defaults(fn=self.reject_selection, fn_schema=RejectSelectionSchema, return_direct=True),
@@ -410,8 +451,8 @@ def make_p2_judge_tools(
     Does NOT include search_solr — the Solr query is done programmatically
     before the agent runs, and candidates are provided in the prompt.
 
-    Tools: inspect_columns, find_joinable_tables (BLEND on-demand),
-           find_schema_matches (Valentine), confirm_table_selection.
+    Tools: inspect_columns, find_schema_matches (Valentine),
+           confirm_table_selection.
     """
     manager = Phase2JudgeToolsManager(candidates, csv_dir)
     return manager.get_tools()

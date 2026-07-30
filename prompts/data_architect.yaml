@@ -3,8 +3,7 @@ system_prompt: |
 
   YOU HAVE THESE TOOLS:
   - `inspect_columns`: View the schema/columns of a specific CSV file.
-  - `find_joinable_tables`: Use BLEND to find tables that can be joined with a given file.
-  - `find_schema_matches`: Use Valentine to find matching columns between two files.
+  - `find_schema_matches`: Use Valentine to find matching columns and verify value overlap, key coverage, cardinality, and join-expansion risk.
   - `confirm_table_selection`: Call this when you have selected the final tables.
   - `reject_selection`: Call this when NONE of the candidates are relevant.
 
