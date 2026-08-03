@@ -31,7 +31,7 @@ if str(_ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(_ROOT_DIR))
 
 from lakegen.core.bootstrap import bootstrap_nltk_data
-from lakegen.core.resources import get_all_csv_files, get_llm, get_prompt_manager, get_solr
+from lakegen.core.resources import get_all_table_files, get_llm, get_prompt_manager, get_solr
 from lakegen.phases import (
     phase1_generate_keywords,
     phase2_select_tables,
@@ -40,7 +40,7 @@ from lakegen.phases import (
     phase4_synthesize,
 )
 from lakegen.core.logger import save_experiment_log
-from lakegen.core.config import BASE_DIR
+from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 
 
@@ -101,15 +101,15 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     llm, _token_counter = get_llm(runtime.model_name, runtime.ollama_url)
     solr = get_solr(runtime.solr_core)
     pm = get_prompt_manager()
-    all_csv = get_all_csv_files(runtime.csv_dir)
+    all_files = get_all_table_files(runtime.csv_dir)
 
-    if not all_csv:
-        print(_c(f"No CSV files found in {runtime.csv_dir}", "red"))
+    if not all_files:
+        print(_c(f"No CSV or Parquet files found in {runtime.csv_dir}", "red"))
         return
 
     print(_c(f"Portal: {runtime.portal_name}", "cyan"))
     print(_c(f"Model:  {runtime.model_name}", "cyan"))
-    print(_c(f"CSVs:   {len(all_csv)} files", "cyan"))
+    print(_c(f"Tables: {len(all_files)} files", "cyan"))
 
     tokens = {"p1": 0, "p2": 0, "p3": 0, "p4": 0}
     keyword_hint = ""
@@ -131,7 +131,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 query=question,
                 llm=llm,
                 pm=pm,
-                all_files=all_csv,
+                all_files=all_files,
                 solr_client=solr,
                 csv_dir=runtime.csv_dir,
                 hint=keyword_hint,
@@ -184,7 +184,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             query=question,
             llm=llm,
             pm=pm,
-            all_files=all_csv,
+            all_files=all_files,
             keywords=keywords,
             solr_client=solr,
             csv_dir=runtime.csv_dir,
@@ -203,7 +203,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             keyword_retries += 1
             if keyword_retries >= MAX_KEYWORD_RETRIES:
                 print(_c(f"Max keyword retries ({MAX_KEYWORD_RETRIES}) reached. Using best available.", "red"))
-                selected = candidates[:3] if candidates else all_csv[:3]
+                selected = candidates[:3] if candidates else all_files[:3]
                 reasoning = f"Fallback after {MAX_KEYWORD_RETRIES} keyword rejections."
                 break
             keyword_hint = (
@@ -279,7 +279,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     query=question,
                     llm=llm,
                     pm=pm,
-                    all_files=all_csv,
+                    all_files=all_files,
                     solr_client=solr,
                     csv_dir=runtime.csv_dir,
                     hint=keyword_hint,
@@ -305,7 +305,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     query=question,
                     llm=llm,
                     pm=pm,
-                    all_files=all_csv,
+                    all_files=all_files,
                     keywords=keywords,
                     solr_client=solr,
                     csv_dir=runtime.csv_dir,
@@ -418,7 +418,7 @@ def main() -> None:
         ollama_url=args.ollama_url,
         model_name=args.model,
         solr_core=args.core,
-        csv_dir=BASE_DIR / f"data/{args.core}/datasets/csv",
+        csv_dir=resolve_portal_tables_dir(args.core),
         db_path=BASE_DIR / f"data/blend_{args.core}.db",
         use_unified_agent=args.unified,
     )

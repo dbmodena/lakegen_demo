@@ -11,16 +11,17 @@ import chainlit as cl
 
 from lakegen.ui.i18n import t
 from lakegen.core.types import SolrMetadata
-from lakegen.core.config import BASE_DIR
+from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 
 
 MODEL_OPTIONS = ["qwen3.6:27b", "qwen3.5:27b", "qwen3.5:latest", "gemma4:26b", "llama3.1:8b", "gpt-oss:20b"]
-SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris"]
+SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris", "uk"]
 SOLR_CORE_PORTAL_NAMES = {
     "nyc": "New York City Open Data portal",
     "valencia": "Valencia Open Data portal",
     "bologna": "Bologna Open Data portal",
     "paris": "Paris Open Data portal",
+    "uk": "UK Open Data portal",
 }
 
 
@@ -29,7 +30,7 @@ class RuntimeSettings:
     ollama_url: str = "http://127.0.0.1:11434"
     model_name: str = MODEL_OPTIONS[0]
     solr_core: str = SOLR_CORE_OPTIONS[0]
-    csv_dir: Path = BASE_DIR / "data/nyc/datasets/csv"
+    csv_dir: Path = field(default_factory=lambda: resolve_portal_tables_dir("nyc"))
     db_path: Path = BASE_DIR / "data/blend_nyc.db"
     use_unified_agent: bool = True
 
@@ -67,7 +68,7 @@ class RuntimeSettings:
             ollama_url=ollama_url or default.ollama_url,
             model_name=model_name,
             solr_core=selected_solr_core,
-            csv_dir=BASE_DIR / f"data/{selected_solr_core}/datasets/csv",
+            csv_dir=resolve_portal_tables_dir(selected_solr_core),
             db_path=BASE_DIR / f"data/blend_{selected_solr_core}.db",
             use_unified_agent=bool(use_unified_agent),
         )

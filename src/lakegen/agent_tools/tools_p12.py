@@ -14,7 +14,7 @@ from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format
 
 class ConfirmUnifiedSelectionSchema(BaseModel):
     reasoning: str = Field(description="MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question.")
-    tables: list[str] = Field(description="A list of ALL the exact file names needed (e.g., ['sales.csv', 'dates.csv']). Do not omit any table you need!")
+    tables: list[str] = Field(description="A list of ALL the exact file names needed (e.g., ['sales.parquet', 'dates.parquet']). Do not omit any table you need!")
 
 
 class P12State:
@@ -91,12 +91,12 @@ class Phase12ToolsManager:
 
     def inspect_columns(self, file_name: str | None = None, filename: str | None = None) -> str:
         """
-        Returns a compact profile for one CSV in the active dataset.
+        Returns a compact profile for one table in the active dataset.
         Shows row count, full-file min/max coverage for temporal columns, column
         types, and sample values for low-cardinality categorical columns.
         If the question has a date or time range, compare it with the reported
         temporal coverage before selecting the table.
-        Use this only after identifying a valid CSV file with search_solr.
+        Use this only after identifying a valid table file with search_solr.
         """
         name = file_name or filename
         if not name:

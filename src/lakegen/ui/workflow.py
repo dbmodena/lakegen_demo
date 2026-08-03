@@ -34,7 +34,7 @@ from lakegen.phases import (
     phase4_synthesize,
 )
 from lakegen.core.resources import (
-    get_all_csv_files,
+    get_all_table_files,
     get_llm,
     get_prompt_manager,
     get_solr,
@@ -211,7 +211,7 @@ async def _select_tables_once(
     llm,
     pm,
     solr,
-    all_csv: list[str],
+    all_files: list[str],
     *,
     hint: str,
     accumulate_tokens: bool,
@@ -227,7 +227,7 @@ async def _select_tables_once(
                 query=session.query,
                 llm=llm,
                 pm=pm,
-                all_files=all_csv,
+                all_files=all_files,
                 keywords=session.keywords,
                 solr_client=solr,
                 csv_dir=session.runtime.csv_dir,
@@ -271,7 +271,7 @@ async def _run_table_gate(
     llm,
     pm,
     solr,
-    all_csv: list[str],
+    all_files: list[str],
     *,
     initial_hint: str = "",
 ) -> str:
@@ -285,7 +285,7 @@ async def _run_table_gate(
             llm,
             pm,
             solr,
-            all_csv,
+            all_files,
             hint=hint,
             accumulate_tokens=not first,
         )
@@ -341,7 +341,7 @@ async def _run_unified_gate(
     llm,
     pm,
     solr,
-    all_csv: list[str],
+    all_files: list[str],
     initial_hint: str = "",
 ) -> str:
     hint = initial_hint
@@ -360,7 +360,7 @@ async def _run_unified_gate(
                     query=session.query,
                     llm=llm,
                     pm=pm,
-                    all_files=all_csv,
+                    all_files=all_files,
                     solr_client=solr,
                     csv_dir=session.runtime.csv_dir,
                     hint=hint,
@@ -590,7 +590,15 @@ async def _run_locked_workflow(question: str) -> None:
     llm, _token_counter = get_llm(runtime.model_name, runtime.ollama_url)
     solr = get_solr(runtime.solr_core)
     pm = get_prompt_manager()
-    all_csv = get_all_csv_files(runtime.csv_dir)
+    all_files = get_all_table_files(runtime.csv_dir)
+    if not all_files:
+        await cl.Message(
+            content=(
+                "No CSV or Parquet files were found in "
+                f"`{runtime.csv_dir}`."
+            )
+        ).send()
+        return
 
     keyword_hint = ""
     while True:
@@ -600,7 +608,7 @@ async def _run_locked_workflow(question: str) -> None:
                 llm,
                 pm,
                 solr,
-                all_csv,
+                all_files,
                 initial_hint=keyword_hint,
             )
             if table_status != "approved":
@@ -614,7 +622,7 @@ async def _run_locked_workflow(question: str) -> None:
                 llm,
                 pm,
                 solr,
-                all_csv,
+                all_files,
             )
             if table_status == "keywords_rejected":
                 keyword_hint = (
@@ -660,7 +668,7 @@ async def _run_locked_workflow(question: str) -> None:
             )
             if session.runtime.use_unified_agent:
                 table_status = await _run_unified_gate(
-                    session, llm, pm, solr, all_csv, initial_hint=hint_msg
+                    session, llm, pm, solr, all_files, initial_hint=hint_msg
                 )
                 if table_status != "approved":
                     await cl.Message(content=session.text("workflow.cancelled")).send()
@@ -671,7 +679,7 @@ async def _run_locked_workflow(question: str) -> None:
                     llm,
                     pm,
                     solr,
-                    all_csv,
+                    all_files,
                     initial_hint=hint_msg,
                 )
                 if table_status == "keywords_rejected":

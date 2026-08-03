@@ -20,8 +20,30 @@ else:
 paths = config_data.get("paths", {})
 
 DATA_DIR = BASE_DIR / paths.get("data_dir", "Data")
-CSV_DIR = BASE_DIR / paths.get("csv_dir", "Data/bologna_update/datasets/csv")
+TABLES_DIR = BASE_DIR / paths.get(
+    "tables_dir",
+    paths.get("csv_dir", "data/nyc/datasets/parquets"),
+)
+# Backward-compatible alias for older imports.
+CSV_DIR = TABLES_DIR
 JSON_DIR = BASE_DIR / paths.get("json_metadata_dir", "Data/bologna_update/metadata")
 DB_PATH = BASE_DIR / paths.get("blend_db_path", "Data/blend_index.db")
 INDEXES_DIR = BASE_DIR / paths.get("indexes_dir", "Data/indexes")
 LOG_DIR = BASE_DIR / paths.get("logs_dir", "logs")
+
+
+def resolve_portal_tables_dir(portal: str) -> Path:
+    datasets_dir = BASE_DIR / "data" / portal / "datasets"
+    candidates = (
+        datasets_dir / "parquets",
+        datasets_dir / "parquet",
+        datasets_dir / "csv",
+    )
+    supported_suffixes = {".parquet", ".pq", ".csv"}
+    for candidate in candidates:
+        if candidate.is_dir() and any(
+            entry.is_file() and entry.suffix.casefold() in supported_suffixes
+            for entry in candidate.iterdir()
+        ):
+            return candidate
+    return next((candidate for candidate in candidates if candidate.is_dir()), candidates[0])

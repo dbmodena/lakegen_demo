@@ -87,9 +87,9 @@ def _starter_label(question: str) -> str:
 
 @lru_cache(maxsize=len(CORE_QUERY_FILES))
 def starter_questions_for_core(core: str) -> tuple[tuple[str, str], ...]:
-    labels, questions = zip(*DEFAULT_QUESTIONS[core])
-    labels = list(labels)
-    questions = list(questions)
+    defaults = DEFAULT_QUESTIONS.get(core, [])
+    labels = [label for label, _ in defaults]
+    questions = [question for _, question in defaults]
 
     query_file = CORE_QUERY_FILES.get(core)
     if query_file is not None and query_file.exists():

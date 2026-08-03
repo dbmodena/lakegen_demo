@@ -13,6 +13,7 @@ from llama_index.core.llms import ChatMessage, LLM
 from lakegen.core.types import SolrMetadata
 from prompts.prompt_manager import PromptManager
 from lakegen.core.config import BASE_DIR
+from lakegen.core.table_io import read_table, table_load_command
 
 from .phase1 import split_thinking_blocks
 
@@ -162,20 +163,6 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
         return None, f"[{type(e).__name__}] {e}", code
 
 
-def _detect_separator(filepath: str) -> str:
-    """Helper to detect whether a CSV uses ',' or ';' as delimiter."""
-    try:
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            first_line = f.readline()
-        semicolons = first_line.count(";")
-        commas = first_line.count(",")
-        if semicolons > commas:
-            return ";"
-    except Exception:
-        pass
-    return ","
-
-
 def phase3_generate_code(
     query, 
     tables, 
@@ -206,9 +193,8 @@ def phase3_generate_code(
         cn = meta.get("columns.name", [])
         ct = meta.get("columns.type", [])
 
-        sep = _detect_separator(filepath)
-        load_cmd = f"pd.read_csv('{filepath}', sep={repr(sep)})"
-        df = pd.read_csv(filepath, sep=sep, nrows=MAX_SAMPLE_ROWS + 1)
+        load_cmd = table_load_command(filepath)
+        df = read_table(filepath, nrows=MAX_SAMPLE_ROWS + 1)
 
         # Build column info from metadata or actual dataframe
         if cn and len(cn) == len(ct):
@@ -268,7 +254,7 @@ def phase3_generate_code(
             "# For classification: model = TabPFNClassifier(device=device)\n"
             "```\n"
             "COMMON DATAFRAME AND MODELING RULES:\n"
-            "1. SPATIAL ALIGNMENT (NEIGHBORHOODS/DISTRICTS): If the user asks for predictions by neighborhood/district ('nei quartieri'), you MUST aggregate and merge the datasets by neighborhood. Map station names or coordinates (latitude, longitude) of the sensors/loops to neighborhoods using spatial proximity or lookup tables (e.g. `quartieri-di-bologna.csv` or `zone_urbanistiche.csv`). Do not just aggregate globally.\n"
+            "1. SPATIAL ALIGNMENT (NEIGHBORHOODS/DISTRICTS): If the user asks for predictions by neighborhood/district ('nei quartieri'), you MUST aggregate and merge the datasets by neighborhood. Map station names or coordinates (latitude, longitude) of the sensors/loops to neighborhoods using spatial proximity or lookup tables. Do not just aggregate globally.\n"
             "2. TEMPORAL ALIGNMENT & FALLBACK: If merging on absolute dates (YYYY-MM-DD) results in 0 rows (e.g., due to different years like 2024 vs 2026), DO NOT fail. Fall back to merge the datasets by seasonal/weekly profiles: group both datasets by day of week (e.g., `.dt.dayofweek` or `.dt.strftime('%A')`) and/or hour/month, then merge on these profile keys.\n"
             "3. PREDICTIONS VS AVERAGES: When showing aggregated predictions (e.g. average monthly accidents per borough), DO NOT feed the average of features to the model (i.e. model.predict(X_mean)). Instead, feed the actual raw samples (X) to the model to get individual predictions, and then calculate the average of those predictions (e.g. y_pred = model.predict(X) and then calculate averages grouped by borough/district).\n"
             "4. FUTURE FORECASTS (DUPLICATION AVOIDANCE): When preparing a DataFrame for future predictions (e.g. forecasting the values of the next year for each district), make sure you only have one row per unique entity (e.g. use `.drop_duplicates()` on the district/neighborhood column). Otherwise, you will generate duplicate predictions for the same entity and sum/aggregate them incorrectly.\n"
@@ -293,7 +279,7 @@ def phase3_generate_code(
             ),
             "forecasting": (
                 "\nFORECASTING RULES:\n"
-                "- Parse the time column with `errors='coerce'`, drop invalid timestamps, and ALWAYS call `sort_values(time_column).reset_index(drop=True)` before splitting, creating lags, or fitting. Never assume CSV row order is chronological.\n"
+                "- Parse the time column with `errors='coerce'`, drop invalid timestamps, and ALWAYS call `sort_values(time_column).reset_index(drop=True)` before splitting, creating lags, or fitting. Never assume the input row order is chronological.\n"
                 "- A date-only inclusive cutoff such as 2025-09-30 MUST include the entire day. Filter with `< cutoff + pd.Timedelta(days=1)` (or normalize dates); do not use `<= '2025-09-30'`, which excludes timestamps later that day.\n"
                 "- Match the aggregation grain to the question. For an average monthly trend, aggregate observations to exact year-month periods first. Never calculate a requested month using only `dt.month == N`, because that mixes the same month across different years; filter by both year and month or by a Period value.\n"
                 "- Use TabPFNRegressor with explicitly time-ordered features and leakage-safe lag values. Never randomly shuffle future observations into training, and never train on later dates to evaluate earlier dates.\n"

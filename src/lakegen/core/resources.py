@@ -1,4 +1,3 @@
-import os
 from functools import lru_cache
 
 import tiktoken
@@ -8,6 +7,7 @@ from llama_index.llms.ollama import Ollama
 
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
+from lakegen.core.table_io import list_table_files
 
 
 NUM_CTX = 32768
@@ -39,9 +39,9 @@ def get_prompt_manager() -> PromptManager:
     return PromptManager()
 
 
-def get_all_csv_files(csv_dir):
-    try:
-        return [f for f in os.listdir(csv_dir) if f.endswith(".csv")]
-    except FileNotFoundError:
-        return []
+def get_all_table_files(table_dir):
+    return list_table_files(table_dir)
 
+
+# Backward-compatible name for callers outside this repository.
+get_all_csv_files = get_all_table_files

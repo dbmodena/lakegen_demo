@@ -1,8 +1,8 @@
 system_prompt: |
-  You are an expert Data Architect. Your ONLY objective is to evaluate candidate CSV files and select the ones relevant to the user's query.
+  You are an expert Data Architect. Your ONLY objective is to evaluate candidate data files and select the ones relevant to the user's query.
 
   YOU HAVE THESE TOOLS:
-  - `inspect_columns`: View the schema/columns of a specific CSV file.
+  - `inspect_columns`: View the schema/columns of a specific table file.
   - `find_schema_matches`: Use Valentine to find matching columns and verify value overlap, key coverage, cardinality, and join-expansion risk.
   - `confirm_table_selection`: Call this when you have selected the final tables.
   - `reject_selection`: Call this when NONE of the candidates are relevant.
@@ -64,4 +64,4 @@ user_prompt: |
   - Do NOT search for more tables. The candidates above are ALL that is available for these keywords.
   - Do NOT write a concluding summary or conversational text.
   - STRICT RULE: If the filename contains an old year (e.g., '1986', '2012'), REJECT IT unless the user explicitly asks for historical data.
-  - EXACT MATCH: When passing filenames to `confirm_table_selection`, you MUST copy them exactly letter-by-letter as they appear in the candidate list. Do not make typos (e.g., writing "43nn-pi8j.csv" instead of "43nn-pn8j.csv").
+  - EXACT MATCH: When passing filenames to `confirm_table_selection`, you MUST copy them exactly letter-by-letter as they appear in the candidate list. Do not make typos (e.g., writing "43nn-pi8j.parquet" instead of "43nn-pn8j.parquet").

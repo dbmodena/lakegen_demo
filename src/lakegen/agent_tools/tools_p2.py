@@ -8,7 +8,7 @@ from llama_index.core.tools import FunctionTool
 from valentine import valentine_match
 from valentine.algorithms import ComaPy
 
-from lakegen.core.config import CSV_DIR
+from lakegen.core.table_io import iter_table_chunks, read_table
 
 try:
     try:
@@ -43,7 +43,7 @@ _TEMPORAL_COLUMN_PATTERN = re.compile(
 
 class ConfirmSelectionSchema(BaseModel):
     reasoning: str = Field(description="MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question. Do NOT use quotes, apostrophes, or special characters.")
-    tables: list[str] = Field(description="A list of the exact file names needed (e.g., ['2016.csv']). Do not omit any table you need!")
+    tables: list[str] = Field(description="A list of the exact file names needed (e.g., ['2016.parquet']). Do not omit any table you need!")
 
 class RejectSelectionSchema(BaseModel):
     reasoning: str = Field(description="Explain step-by-step why the current tables are not good.")
@@ -64,8 +64,8 @@ def _compact_value(value, max_chars: int = 40) -> str:
     return text
 
 
-def _csv_path(csv_dir: Path, file_name: str) -> Path:
-    return Path(csv_dir) / file_name.strip()
+def _table_path(table_dir: Path, file_name: str) -> Path:
+    return Path(table_dir) / file_name.strip()
 
 
 def _temporal_profile(path: Path, columns: list[str]) -> tuple[int, list[str]]:
@@ -80,11 +80,10 @@ def _temporal_profile(path: Path, columns: list[str]) -> tuple[int, list[str]]:
         for col in temporal_columns
     }
 
-    for chunk in pd.read_csv(
+    for chunk in iter_table_chunks(
         path,
-        usecols=usecols,
-        chunksize=PROFILE_CHUNK_ROWS,
-        low_memory=False,
+        columns=usecols,
+        chunk_rows=PROFILE_CHUNK_ROWS,
     ):
         total_rows += len(chunk)
         for col in temporal_columns:
@@ -135,13 +134,13 @@ def _temporal_profile(path: Path, columns: list[str]) -> tuple[int, list[str]]:
     return total_rows, coverage_lines
 
 
-def _inspect_columns(csv_dir: Path, file_name: str) -> str:
-    path = _csv_path(csv_dir, file_name)
+def _inspect_columns(table_dir: Path, file_name: str) -> str:
+    path = _table_path(table_dir, file_name)
     if not path.exists():
         return f"Error: File missing in active dataset: {file_name}"
 
     try:
-        df = pd.read_csv(path, nrows=MAX_SCHEMA_SAMPLE_ROWS, low_memory=False)
+        df = read_table(path, nrows=MAX_SCHEMA_SAMPLE_ROWS)
         schema_info = []
         columns = list(df.columns)
         total_rows, temporal_coverage = _temporal_profile(path, columns)
@@ -176,8 +175,8 @@ def _inspect_columns(csv_dir: Path, file_name: str) -> str:
         return f"Error: {str(e)}"
 
 
-def _preview_data(csv_dir: Path, file_name: str, n_rows: int = 3) -> str:
-    path = _csv_path(csv_dir, file_name)
+def _preview_data(table_dir: Path, file_name: str, n_rows: int = 3) -> str:
+    path = _table_path(table_dir, file_name)
     if not path.exists():
         return f"Error: File missing in active dataset: {file_name}"
 
@@ -187,7 +186,7 @@ def _preview_data(csv_dir: Path, file_name: str, n_rows: int = 3) -> str:
         n_rows = 3
     n_rows = max(1, min(n_rows, 5))
     try:
-        df = pd.read_csv(path, nrows=n_rows)
+        df = read_table(path, nrows=n_rows)
         omitted = ""
         if len(df.columns) > MAX_PREVIEW_COLUMNS:
             omitted = f"\n... {len(df.columns) - MAX_PREVIEW_COLUMNS} more columns omitted"
@@ -198,12 +197,12 @@ def _preview_data(csv_dir: Path, file_name: str, n_rows: int = 3) -> str:
         return f"Error: {str(e)}"
 
 
-def _find_exact_overlaps(csv_dir: Path, file_name_1: str, file_name_2: str) -> str:
-    path_1 = str(_csv_path(csv_dir, file_name_1))
-    path_2 = str(_csv_path(csv_dir, file_name_2))
+def _find_exact_overlaps(table_dir: Path, file_name_1: str, file_name_2: str) -> str:
+    path_1 = _table_path(table_dir, file_name_1)
+    path_2 = _table_path(table_dir, file_name_2)
     try:
-        df1 = pd.read_csv(path_1, nrows=5000).astype(str)
-        df2 = pd.read_csv(path_2, nrows=5000).astype(str)
+        df1 = read_table(path_1, nrows=5000).astype(str)
+        df2 = read_table(path_2, nrows=5000).astype(str)
         r_tab = [df1[col].tolist() for col in df1.columns]
         s_tab = [df2[col].tolist() for col in df2.columns]
         results = sloth(
@@ -311,14 +310,14 @@ def _joinability_metrics(left: pd.Series, right: pd.Series) -> dict[str, object]
     }
 
 
-def _find_schema_matches(csv_dir: Path, file_name_1: str, file_name_2: str) -> str:
+def _find_schema_matches(table_dir: Path, file_name_1: str, file_name_2: str) -> str:
 
-    path_1 = str(_csv_path(csv_dir, file_name_1))
-    path_2 = str(_csv_path(csv_dir, file_name_2))
+    path_1 = _table_path(table_dir, file_name_1)
+    path_2 = _table_path(table_dir, file_name_2)
 
     try:
-        df1 = pd.read_csv(path_1, nrows=JOINABILITY_SAMPLE_ROWS, low_memory=False)
-        df2 = pd.read_csv(path_2, nrows=JOINABILITY_SAMPLE_ROWS, low_memory=False)
+        df1 = read_table(path_1, nrows=JOINABILITY_SAMPLE_ROWS)
+        df2 = read_table(path_2, nrows=JOINABILITY_SAMPLE_ROWS)
 
         matcher = ComaPy(use_instances=True)
         matches = valentine_match(
@@ -398,7 +397,7 @@ class Phase2JudgeToolsManager:
 
     def inspect_columns(self, file_name: str) -> str:
         """
-        Returns a compact profile for one CSV in the active dataset.
+        Returns a compact profile for one table in the active dataset.
         Shows row count, full-file min/max coverage for temporal columns, column
         types, and sample values for low-cardinality categorical columns.
         Use this to understand what data a table contains.
