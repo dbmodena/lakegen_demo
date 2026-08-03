@@ -30,7 +30,8 @@ def save_experiment_log(
     tokens_phase4: int = 0, 
     llm_thinking: str = "", 
     agent_thinking: str = "", 
-    error: str = ""
+    error: str = "",
+    csv_filename: str = "experiments_log.csv",
 ):
     os.makedirs(LOG_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -60,7 +61,7 @@ def save_experiment_log(
         f.write(log_entry)
 
     # --- CSV log (structured, for analysis) ---
-    csv_path = os.path.join(LOG_DIR, "experiments_log.csv")
+    csv_path = os.path.join(LOG_DIR, csv_filename)
     is_new_file = not os.path.exists(csv_path)
     success = not result.startswith("[EXECUTION ERROR]") and not result.startswith("[CRITICAL ERROR]") and not error
     

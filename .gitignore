@@ -36,6 +36,7 @@ queries_old
 # Ignore dynamically generated Python code by the agent
 coding/
 script.py
+.lakegen_jobs/
 
 # Ignore Chainlit-generated runtime assets
 .chainlit/translations/
@@ -51,5 +52,4 @@ src/.files/
 .codex
 .DS_Store
 Thumbs.db
-
 
