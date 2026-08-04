@@ -6,10 +6,37 @@ import pandas as pd
 from lakegen.core.config import LOG_DIR
 
 CSV_LOG_COLUMNS = [
-    "ID", "TIMESTAMP", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", 
+    "ID", "TIMESTAMP", "MODEL", "ARCHITECTURE", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL",
     "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", 
     "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3", "TOKENS_PHASE4", "ERROR"
 ]
+
+
+def _ensure_csv_columns(csv_path: str, required_columns: list[str]) -> list[str]:
+    """Add newly introduced columns to an existing log without losing rows."""
+
+    if not os.path.exists(csv_path):
+        return required_columns
+
+    with open(csv_path, "r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        existing_columns = list(reader.fieldnames or [])
+        rows = list(reader)
+
+    missing_columns = [
+        column for column in required_columns if column not in existing_columns
+    ]
+    if not missing_columns:
+        return existing_columns
+
+    evolved_columns = existing_columns + missing_columns
+    temporary_path = f"{csv_path}.tmp"
+    with open(temporary_path, "w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=evolved_columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    os.replace(temporary_path, csv_path)
+    return evolved_columns
 
 def save_experiment_log(
     question: str, 
@@ -32,6 +59,8 @@ def save_experiment_log(
     agent_thinking: str = "", 
     error: str = "",
     csv_filename: str = "experiments_log.csv",
+    model: str = "",
+    architecture: str = "",
 ):
     os.makedirs(LOG_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -40,6 +69,8 @@ def save_experiment_log(
     # --- TXT log (human-readable) ---
     txt_path = os.path.join(LOG_DIR, "experiments_log.txt")
     tables_str = f"\nTABLES SELECTED: {', '.join(tables)}" if tables else ""
+    model_str = f"\nMODEL: {model}" if model else ""
+    architecture_str = f"\nARCHITECTURE: {architecture}" if architecture else ""
     raw_kw_str = f"\nKEYWORDS (model raw output): {raw_keywords}" if raw_keywords else ""
     final_kw_str = f"\nKEYWORDS (final elaborated): {', '.join(final_keywords)}" if final_keywords else ""
     final_result_str = f"\nFINAL RESULT (Phase 4):\n{final_result}" if final_result else ""
@@ -56,13 +87,14 @@ def save_experiment_log(
     reasoning_txt = "\n\n".join(reasoning_parts) if reasoning_parts else reasoning
     
     tokens_str = f"\nTOKENS: Phase1={tokens_phase1} | Phase2={tokens_phase2} | Phase3={tokens_phase3} | Phase4={synthesis_tokens}" if any([tokens_phase1, tokens_phase2, tokens_phase3, synthesis_tokens]) else ""
-    log_entry = f"\n{'='*50}\nDATA: {timestamp}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}{tokens_str}\nRETRIES: {retries}{llm_thinking_str}\nCODE (extracted):\n{code}\n\nRAW OUTPUT (Phase 3):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
+    log_entry = f"\n{'='*50}\nDATA: {timestamp}{model_str}{architecture_str}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}{tokens_str}\nRETRIES: {retries}{llm_thinking_str}\nCODE (extracted):\n{code}\n\nRAW OUTPUT (Phase 3):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
     with open(txt_path, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
     # --- CSV log (structured, for analysis) ---
     csv_path = os.path.join(LOG_DIR, csv_filename)
     is_new_file = not os.path.exists(csv_path)
+    fieldnames = _ensure_csv_columns(csv_path, CSV_LOG_COLUMNS)
     success = not result.startswith("[EXECUTION ERROR]") and not result.startswith("[CRITICAL ERROR]") and not error
     
     next_id = 1
@@ -80,6 +112,8 @@ def save_experiment_log(
     row = {
         "ID":              next_id,
         "TIMESTAMP":       timestamp,
+        "MODEL":           model,
+        "ARCHITECTURE":    architecture,
         "QUESTION":        question,
         "TABLES_SELECTED": ", ".join(tables) if tables else "",
         "KEYWORDS_RAW":    raw_keywords,
@@ -97,15 +131,6 @@ def save_experiment_log(
         "TOKENS_PHASE5":   synthesis_tokens,
         "ERROR":           error.replace("\n", "  "),
     }
-    fieldnames = CSV_LOG_COLUMNS
-    if not is_new_file:
-        try:
-            with open(csv_path, "r", newline="", encoding="utf-8") as f:
-                existing_header = next(csv.reader(f), None)
-            if existing_header:
-                fieldnames = existing_header
-        except Exception:
-            pass
     with open(csv_path, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         if is_new_file:

@@ -12,12 +12,14 @@ from llama_index.core import Settings
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 from llama_index.core.llms import ChatMessage, LLM, MessageRole
 from llama_index.core.llms.llm import ToolSelection
+from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.llms.oci_genai import OCIGenAI
 from llama_index.llms.oci_genai.utils import CHAT_MODELS, PROVIDERS, XAIProvider
 
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.core.table_io import list_table_files
+from lakegen.core.token_usage import extract_total_tokens
 
 
 OCI_DEFAULT_PROFILE = "DEFAULT"
@@ -42,6 +44,9 @@ class _OCIGenericProvider(XAIProvider):
         info: dict[str, Any] = {
             "finish_reason": chat_response.choices[0].finish_reason,
         }
+        usage_total = extract_total_tokens(getattr(chat_response, "usage", None))
+        if usage_total:
+            info["usage"] = {"total_tokens": usage_total}
         assistant_message = chat_response.choices[0].message
         tool_calls = getattr(assistant_message, "tool_calls", None) or []
         formatted_tool_calls = []
@@ -139,6 +144,21 @@ def _parse_tool_call_input(raw_input: Any) -> dict[str, Any] | None:
 class _LakeGenOCIGenAI(OCIGenAI):
     """Compatibility fixes for OCI tool calls and async LlamaIndex agents."""
 
+    _token_usage_total: int = PrivateAttr(default=0)
+
+    @property
+    def token_usage_total(self) -> int:
+        return self._token_usage_total
+
+    def reset_token_usage(self) -> None:
+        self._token_usage_total = 0
+
+    def _record_token_usage(self, value: Any) -> int:
+        total = extract_total_tokens(value)
+        if total:
+            self._token_usage_total += total
+        return total
+
     @property
     def metadata(self):
         return super().metadata.model_copy(
@@ -196,6 +216,13 @@ class _LakeGenOCIGenAI(OCIGenAI):
             raise ValueError("Expected at least one complete tool call, but got none.")
         return selections
 
+    def chat(self, messages, **kwargs):
+        response = super().chat(messages, **kwargs)
+        total = self._record_token_usage(response.raw)
+        if not total:
+            self._record_token_usage(response.message.additional_kwargs)
+        return response
+
     def stream_chat(self, messages, **kwargs):
         stream = super().stream_chat(messages, **kwargs)
         if self.model not in GENERIC_CHAT_MODELS:
@@ -203,6 +230,7 @@ class _LakeGenOCIGenAI(OCIGenAI):
 
         def generate():
             accumulated_tool_calls: list[dict[str, Any]] = []
+            recorded_for_request = 0
             for chunk in stream:
                 raw = chunk.raw if isinstance(chunk.raw, dict) else {}
                 raw_data = raw.get("data", "")
@@ -216,6 +244,13 @@ class _LakeGenOCIGenAI(OCIGenAI):
                         )
                     except json.JSONDecodeError:
                         pass
+                usage_total = extract_total_tokens(event_data)
+                if usage_total > recorded_for_request:
+                    self._token_usage_total += usage_total - recorded_for_request
+                    recorded_for_request = usage_total
+                    chunk.message.additional_kwargs["usage"] = {
+                        "total_tokens": usage_total
+                    }
                 if event_data.get("finishReason") == "tool_calls":
                     finalized = _finalized_stream_tool_calls(
                         accumulated_tool_calls

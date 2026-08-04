@@ -369,6 +369,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         tokens_phase3=tokens["p3"],
         tokens_phase4=tokens["p4"],
         error=err if err is not None else "",
+        model=runtime.model_name,
+        architecture="unified" if runtime.use_unified_agent else "divided",
     )
     print(_c("\nExperiment log saved.", "dim"))
 

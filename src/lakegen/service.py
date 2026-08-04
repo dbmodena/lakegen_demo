@@ -245,6 +245,9 @@ def run_question(question: str, runtime: RuntimeSettings) -> QueryResult:
                 tokens_phase4=result.tokens["p4"],
                 error=result.error,
                 csv_filename="api_experiments_log.csv",
+                model=runtime.model_name,
+                # The non-interactive API currently executes phase12_agent.
+                architecture="unified",
             )
         except Exception:
             logger.exception("Could not persist the LakeGen experiment log")

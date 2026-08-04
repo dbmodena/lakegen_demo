@@ -578,6 +578,10 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         tokens_phase3=session.tokens["p3"],
         tokens_phase4=session.tokens["p4"],
         error=err if err is not None else "",
+        model=session.runtime.model_name,
+        architecture=(
+            "unified" if session.runtime.use_unified_agent else "divided"
+        ),
     )
     return ExecutionOutcome(status="done")
 

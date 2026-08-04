@@ -14,7 +14,6 @@ from llama_index.core.agent.workflow import (
     ToolCall,
     ToolCallResult,
 )
-from llama_index.core.callbacks import CallbackManager
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 from llama_index.core.tools import FunctionTool
@@ -28,6 +27,7 @@ from lakegen.phases.logging import (
     format_phase2_tool_result,
 )
 from lakegen.core.types import SolrMetadata, StreamCallback
+from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.ui.state import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
@@ -63,6 +63,7 @@ def phase12_agent(
     )
     if token_counter:
         token_counter.reset_counts()
+    reset_llm_token_usage(llm)
 
     agent_prompt = pm.render(
         "unified_architect",
@@ -142,8 +143,7 @@ def phase12_agent(
         tokens = (token_counter.prompt_llm_token_count +
                      token_counter.completion_llm_token_count)
         token_counter.reset_counts()
-
-    Settings.callback_manager = CallbackManager([])
+    tokens = max(tokens, get_llm_token_usage(llm))
     
     # Parse agent_resp
     selected = []

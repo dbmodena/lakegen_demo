@@ -14,6 +14,11 @@ from lakegen.core.types import SolrMetadata
 from prompts.prompt_manager import PromptManager
 from lakegen.core.config import BASE_DIR
 from lakegen.core.table_io import read_table, table_load_command
+from lakegen.core.token_usage import (
+    extract_total_tokens,
+    get_llm_token_usage,
+    reset_llm_token_usage,
+)
 
 from .phase1 import split_thinking_blocks
 
@@ -339,6 +344,7 @@ def phase3_generate_code(
     raw_stream = ""
     structured_reasoning = ""
     tokens = 0
+    reset_llm_token_usage(llm)
 
     def update_placeholders() -> None:
         visible_stream, tagged_reasoning = split_thinking_blocks(raw_stream)
@@ -385,11 +391,11 @@ def phase3_generate_code(
                 print(delta, end="", flush=True)
                 update_placeholders()
 
-            if chunk.raw:
-                prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
-                completion_tokens = chunk.raw.get("eval_count") or 0
-                if prompt_tokens or completion_tokens:
-                    tokens = prompt_tokens + completion_tokens
+            tokens = max(
+                tokens,
+                extract_total_tokens(chunk.raw),
+                extract_total_tokens(chunk.additional_kwargs),
+            )
 
     except Exception as e:
         print(f"\n[!] Error during stream: {e}")
@@ -405,11 +411,11 @@ def phase3_generate_code(
                 print(delta, end="", flush=True)
                 update_placeholders()
 
-            if chunk.raw:
-                prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
-                completion_tokens = chunk.raw.get("eval_count") or 0
-                if prompt_tokens or completion_tokens:
-                    tokens = prompt_tokens + completion_tokens
+            tokens = max(
+                tokens,
+                extract_total_tokens(chunk.raw),
+                extract_total_tokens(chunk.additional_kwargs),
+            )
 
     print("", flush=True)
     visible_content, _tagged_reasoning = split_thinking_blocks(raw_stream)
@@ -429,6 +435,7 @@ def phase3_generate_code(
     if hasattr(llm, "temperature"):
         llm.temperature = original_temperature
 
+    tokens = max(tokens, get_llm_token_usage(llm))
     return final_code, tokens
 
 

@@ -10,6 +10,11 @@ from llama_index.core.llms import ChatMessage, LLM
 from llama_index.core import Settings
 
 from prompts.prompt_manager import PromptManager
+from lakegen.core.token_usage import (
+    extract_total_tokens,
+    get_llm_token_usage,
+    reset_llm_token_usage,
+)
 
 
 def extract_wordnet_query_keywords(query: str) -> str:
@@ -104,6 +109,7 @@ def phase1_generate_keywords(
     )
     if token_counter:
         token_counter.reset_counts()
+    reset_llm_token_usage(llm)
 
     def update_placeholders() -> None:
         visible_stream, tagged_reasoning = split_thinking_blocks(raw_stream)
@@ -158,11 +164,11 @@ def phase1_generate_keywords(
                 print(delta, end="", flush=True)
                 update_placeholders()
 
-            if chunk.raw and isinstance(chunk.raw, dict):
-                prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
-                completion_tokens = chunk.raw.get("eval_count") or 0
-                if prompt_tokens or completion_tokens:
-                    tokens = prompt_tokens + completion_tokens
+            tokens = max(
+                tokens,
+                extract_total_tokens(chunk.raw),
+                extract_total_tokens(chunk.additional_kwargs),
+            )
     except Exception:
         if raw_stream or structured_reasoning or not stream_reasoning:
             raise
@@ -176,15 +182,16 @@ def phase1_generate_keywords(
                 print(delta, end="", flush=True)
                 update_placeholders()
 
-            if chunk.raw and isinstance(chunk.raw, dict):
-                prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
-                completion_tokens = chunk.raw.get("eval_count") or 0
-                if prompt_tokens or completion_tokens:
-                    tokens = prompt_tokens + completion_tokens
+            tokens = max(
+                tokens,
+                extract_total_tokens(chunk.raw),
+                extract_total_tokens(chunk.additional_kwargs),
+            )
     print("", flush=True)
 
     if token_counter and tokens == 0:
         tokens = token_counter.prompt_llm_token_count + token_counter.completion_llm_token_count
+    tokens = max(tokens, get_llm_token_usage(llm))
     if tokens == 0:
         # Fallback estimation if stream skipped token tracking completely
         tokens = int((len(system_prompt.split()) + len(user_prompt.split()) + len(raw_stream.split())) * 1.3)

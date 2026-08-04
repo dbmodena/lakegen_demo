@@ -14,7 +14,6 @@ from llama_index.core.agent.workflow import (
     ToolCall,
     ToolCallResult,
 )
-from llama_index.core.callbacks import CallbackManager
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 
@@ -27,6 +26,7 @@ from lakegen.phases.logging import (
     format_phase2_tool_result,
 )
 from lakegen.core.types import Phase2SelectionResult, SolrMetadata, StreamCallback
+from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.ui.state import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
@@ -140,6 +140,7 @@ def phase2_select_tables(
     )
     if token_counter:
         token_counter.reset_counts()
+    reset_llm_token_usage(llm)
 
     candidate_context = format_candidate_context(candidates, solr_meta)
     agent_prompt = pm.render(
@@ -228,8 +229,7 @@ def phase2_select_tables(
         tokens_p2 = (token_counter.prompt_llm_token_count +
                      token_counter.completion_llm_token_count)
         token_counter.reset_counts()
-
-    Settings.callback_manager = CallbackManager([])
+    tokens_p2 = max(tokens_p2, get_llm_token_usage(llm))
 
     selected, reasoning = parse_table_selector_response(
         agent_resp,
