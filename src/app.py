@@ -1,6 +1,9 @@
 """
 LakeGen Interactive - Chainlit application.
-Run with: uv run chainlit run src/app.py -w
+Run with: uv run chainlit run src/app.py
+
+Do not use Chainlit's --watch flag during normal runs: LakeGen writes generated
+Python scripts under coding/, and a file watcher would restart the active chat.
 """
 
 import sys
@@ -11,7 +14,7 @@ from pathlib import Path
 import chainlit as cl
 import sniffio
 from chainlit.server import app as chainlit_app
-from chainlit.input_widget import Select, TextInput, Switch
+from chainlit.input_widget import Select, Switch
 
 _SRC_DIR = Path(__file__).resolve().parent
 _ROOT_DIR = _SRC_DIR.parent
@@ -66,11 +69,6 @@ chainlit_app.add_middleware(AsyncioSniffioMiddleware)
 def _settings_widgets(runtime: RuntimeSettings | None = None) -> list:
     runtime = runtime or RuntimeSettings.default()
     return [
-        TextInput(
-            id="ollama_url",
-            label=t("settings.ollama_url"),
-            initial=runtime.ollama_url,
-        ),
         Select(
             id="model_name",
             label=t("settings.model"),

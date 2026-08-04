@@ -587,7 +587,7 @@ async def _run_locked_workflow(question: str) -> None:
     runtime = get_runtime_settings()
     session.runtime = runtime
 
-    llm, _token_counter = get_llm(runtime.model_name, runtime.ollama_url)
+    llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
     pm = get_prompt_manager()
     all_files = get_all_table_files(runtime.csv_dir)

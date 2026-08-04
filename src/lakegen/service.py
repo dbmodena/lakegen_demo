@@ -109,7 +109,6 @@ def make_runtime_settings(
     *,
     core: str,
     model: str,
-    ollama_url: str,
     use_unified_agent: bool = True,
 ) -> RuntimeSettings:
     if core not in SOLR_CORE_OPTIONS:
@@ -122,7 +121,6 @@ def make_runtime_settings(
         )
 
     return RuntimeSettings(
-        ollama_url=ollama_url,
         model_name=model,
         solr_core=core,
         csv_dir=resolve_portal_tables_dir(core),
@@ -136,7 +134,7 @@ def run_question(question: str, runtime: RuntimeSettings) -> QueryResult:
 
     started = time.monotonic()
     result = QueryResult(question=question, status="running")
-    llm, _token_counter = get_llm(runtime.model_name, runtime.ollama_url)
+    llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
     prompt_manager = get_prompt_manager()
     all_files = get_all_table_files(runtime.csv_dir)

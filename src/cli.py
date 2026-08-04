@@ -8,10 +8,7 @@ Using a specific core:
 uv run python src/cli.py --core bologna "Quali sono le zone più inquinate?"
 
 Using a specific core and model
-uv run python src/cli.py --core nyc --model qwen3.5:latest "How many parks are there?"
-
-Using a custom Ollama URL
-uv run python src/cli.py --core bologna --ollama-url http://192.168.1.10:11434 "Quali sono le zone più inquinate?"
+uv run python src/cli.py --core nyc --model openai.gpt-oss-120b "How many parks are there?"
 
 Using the divided architecture (separate Phase 1 & 2) instead of the default unified architecture:
 uv run python src/cli.py --divided "What are the top 3 districts by student suspensions?"
@@ -98,7 +95,7 @@ def _stream_to_terminal(delta: str) -> None:
 
 
 def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
-    llm, _token_counter = get_llm(runtime.model_name, runtime.ollama_url)
+    llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
     pm = get_prompt_manager()
     all_files = get_all_table_files(runtime.csv_dir)
@@ -393,12 +390,7 @@ def main() -> None:
         "--model",
         choices=MODEL_OPTIONS,
         default=MODEL_OPTIONS[0],
-        help=f"Ollama model name (default: {MODEL_OPTIONS[0]}).",
-    )
-    parser.add_argument(
-        "--ollama-url",
-        default="http://127.0.0.1:11434",
-        help="Ollama server URL (default: http://127.0.0.1:11434).",
+        help=f"OCI Generative AI model name (default: {MODEL_OPTIONS[0]}).",
     )
     parser.add_argument(
         "--divided",
@@ -415,7 +407,6 @@ def main() -> None:
         sys.exit(1)
 
     runtime = RuntimeSettings(
-        ollama_url=args.ollama_url,
         model_name=args.model,
         solr_core=args.core,
         csv_dir=resolve_portal_tables_dir(args.core),

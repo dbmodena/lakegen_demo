@@ -51,7 +51,6 @@ class QueryRequest(StrictModel):
     question: str = Field(min_length=1)
     core: str = DEFAULT_CORE
     model: str = DEFAULT_MODEL
-    ollama_url: str = "http://127.0.0.1:11434"
 
     @field_validator("question")
     @classmethod
@@ -185,7 +184,6 @@ def query_lakegen(request: QueryRequest) -> dict[str, Any]:
         runtime = make_runtime_settings(
             core=request.core,
             model=request.model,
-            ollama_url=request.ollama_url,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -214,10 +212,9 @@ def submit_batch(
     ],
     core: Annotated[str, Query()] = DEFAULT_CORE,
     model: Annotated[str, Query()] = DEFAULT_MODEL,
-    ollama_url: Annotated[str, Query()] = "http://127.0.0.1:11434",
 ) -> BatchAccepted:
     try:
-        make_runtime_settings(core=core, model=model, ollama_url=ollama_url)
+        make_runtime_settings(core=core, model=model)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -249,7 +246,7 @@ def submit_batch(
         "question_count": len(questions),
         "processed": 0,
         "failed": 0,
-        "settings": {"core": core, "model": model, "ollama_url": ollama_url},
+        "settings": {"core": core, "model": model},
         "results": [],
         "error": "",
     }

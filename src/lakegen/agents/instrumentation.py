@@ -21,7 +21,7 @@ class ThinkingCapture(BaseEventHandler):
                     if content and content not in self.parts:
                         self.parts.append(content)
                         
-            # Extract from raw text using <think> tags (fallback for some Ollama models)
+            # Extract from raw text using <think> tags when a provider emits them.
             content = getattr(msg, 'content', '')
             if content and isinstance(content, str):
                 matches = re.findall(r'<think>(.*?)</think>', content, re.DOTALL | re.IGNORECASE)

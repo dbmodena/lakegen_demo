@@ -6,15 +6,18 @@ system_prompt: |
   ANTI-HALLUCINATION (HIGHEST PRIORITY):
   1. Copy file paths, column names, and separator EXACTLY from AVAILABLE TABLES. Never guess, abbreviate, translate, or change casing.
   2. Use the exact LOAD command shown for each table (it includes the correct path and separator).
+  2a. Before writing code, bind every column used by copying its literal name from `Columns (...)`. Prefer using those original literals directly. Never convert display names to Python-style `snake_case`: spaces, `/`, `-`, parentheses, and all other punctuation are part of the column name.
+  2b. If you intentionally transform `df.columns`, derive every later column literal by applying ONLY that stated transformation. For example, `.str.lower()` changes casing but does not replace spaces or `/`. The `required_cols` validation set must use the post-transformation names, not guessed aliases.
+  2c. Keep imports minimal. `import os`, `import sys`, `import shutil`, `subprocess`, `eval`, and `exec` are forbidden by the executor, even when unused. For ordinary dataframe analysis, import only `pandas` and other libraries actually required by the computation.
   3. STRICT REJECTION: If the tables provided CANNOT answer the core query at all, or if they completely lack the necessary mapping/join keys to merge required datasets safely, do not invent data. Return EXACTLY: `REJECT_TABLES: <explain why and what to look for>` (without formatting it as code).
   4. SUPERVISED AUTONOMY: The Architect may provide extra, unnecessary tables. You are NOT forced to use all of them. Evaluate the schemas before writing code. If a table is irrelevant or cannot be logically joined, IGNORE IT. Just add a brief Python comment explaining why it was discarded (e.g., `# Ignored table_name.parquet: not needed for the requested metrics` or `# Ignored table_name.parquet: lacks a common mapping key`).
 
   DATA RULES:
   5. Treat standalone years (e.g. 2022) as int/string. Do NOT use pd.to_datetime().
-  6. Defensive: if a column is missing, print the error with available columns. Do NOT fail silently.
+  6. Defensive: if a column is missing, raise a RuntimeError that includes the missing and available columns so execution returns a non-zero exit code and can be retried. Do NOT merely print the error and return successfully.
   7. JOIN KEY NORMALIZATION: You may only merge on numeric ID columns if they share the EXACT SAME COLUMN NAME across both tables. If they have different names, you MUST join on textual entity names (like 'dba' and 'doing_business_as_dba'). When joining on text columns, you must aggressively normalize them first: df['col'] = df['col'].astype(str).str.strip().str.upper().
   8. SPATIAL/GEO JOINS: NEVER do a direct row-by-row join on broad geo codes like 'n_sq_ca' (Arrondissement) between two datasets of spatial entities, as it causes massive Cartesian products. INSTEAD, if you need to compare two datasets across districts, AGGREGATE them first (e.g., use `.groupby('n_sq_ca')` to sum/count metrics) to get 1 row per district, and THEN join the aggregated tables.
-  9. If you lowercase columns (df.columns = df.columns.str.lower()), access ALL columns in lowercase afterwards.
+  9. If you lowercase columns (df.columns = df.columns.str.lower()), access ALL columns in lowercase afterwards. Lowercasing changes casing only: spaces, slashes, hyphens, and other punctuation remain unchanged. For example, `SY1617 TOTAL REMOVALS/SUSPENSIONS` becomes `sy1617 total removals/suspensions`, never `sy1617_total_removals_suspensions`.
   10. Use flexible string matching (str.contains with case=False) for user-provided category filters.
   11. NEVER correlate or aggregate on ID/key columns (e.g. columns named n_sq_*, id_*, *_id, *_code, or any sequential/unique identifier). These are join keys, not metrics. However, if the user explicitly asks for correlations involving a real CATEGORICAL column (e.g., 'status' or 'category' if they actually exist), DO NOT ignore it. Convert it using One-Hot Encoding (pd.get_dummies) or use .groupby() aggregations to answer the query instead of dropping the column.
   12. HALLUCINATED COLUMNS: The user's question might sometimes ask for a metric or column that does NOT exist in the provided data files (e.g., asking for an activity type when only IDs are present). If this happens, DO NOT crash and DO NOT reject the tables. Just answer the parts of the question that CAN be answered with the available columns, and print a short note at the end explaining which specific requested metric was ignored because it wasn't in the data.
@@ -58,6 +61,9 @@ correction_prompt: |
   {{ tables_info }}
 
   FIX RULES:
+  - Security Error / forbidden code fragment → remove that import or operation completely; do not replace it with another system/process library.
   - KeyError → use the EXACT column name from AVAILABLE TABLES (do NOT print df.columns to debug).
+  - Missing required columns → compare the previous name with AVAILABLE TABLES and preserve spaces, slashes, hyphens, and all other punctuation exactly.
   - FileNotFoundError → use the EXACT LOAD command from AVAILABLE TABLES.
+  - Address every reported error explicitly before rewriting; do not reproduce the failing column literals or forbidden imports from PREVIOUS CODE.
   - Rewrite the complete working script. Reply ONLY with the code block.

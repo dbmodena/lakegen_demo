@@ -14,7 +14,10 @@ from lakegen.core.types import SolrMetadata
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 
 
-MODEL_OPTIONS = ["qwen3.6:27b", "qwen3.5:27b", "qwen3.5:latest", "gemma4:26b", "llama3.1:8b", "gpt-oss:20b"]
+MODEL_OPTIONS = [
+    "openai.gpt-oss-120b",
+    "meta.llama-3.3-70b-instruct",
+]
 SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris", "uk"]
 SOLR_CORE_PORTAL_NAMES = {
     "nyc": "New York City Open Data portal",
@@ -27,7 +30,6 @@ SOLR_CORE_PORTAL_NAMES = {
 
 @dataclass
 class RuntimeSettings:
-    ollama_url: str = "http://127.0.0.1:11434"
     model_name: str = MODEL_OPTIONS[0]
     solr_core: str = SOLR_CORE_OPTIONS[0]
     csv_dir: Path = field(default_factory=lambda: resolve_portal_tables_dir("nyc"))
@@ -61,11 +63,9 @@ class RuntimeSettings:
         if model_name not in MODEL_OPTIONS:
             model_name = default.model_name
 
-        ollama_url = str(settings.get("ollama_url") or default.ollama_url).strip()
         use_unified_agent = settings.get("use_unified_agent", default.use_unified_agent)
         
         return cls(
-            ollama_url=ollama_url or default.ollama_url,
             model_name=model_name,
             solr_core=selected_solr_core,
             csv_dir=resolve_portal_tables_dir(selected_solr_core),

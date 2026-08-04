@@ -1,5 +1,50 @@
 # LakeGen
 
+## OCI Generative AI
+
+LakeGen uses OCI Generative AI for text generation and reads credentials from
+the standard `~/.oci/config` file. The selected profile must contain the normal
+OCI API-key fields plus the LakeGen compartment field:
+
+```ini
+[DEFAULT]
+user=...
+fingerprint=...
+tenancy=...
+region=eu-frankfurt-1
+key_file=/absolute/path/to/oci_api_key.pem
+oci_compartment_id=...
+```
+
+Keep the config and private key outside the repository and restrict their
+permissions:
+
+```bash
+chmod 700 ~/.oci
+chmod 600 ~/.oci/config ~/.oci/oci_api_key.pem
+```
+
+Optional environment overrides are `OCI_CONFIG_FILE`, `OCI_PROFILE`,
+`OCI_COMPARTMENT_ID`, and `OCI_SERVICE_ENDPOINT`.
+
+The Chainlit, CLI, and HTTP API model selector exposes:
+
+- `openai.gpt-oss-120b` (default)
+- `meta.llama-3.3-70b-instruct`
+
+## Chainlit UI
+
+Start the interactive application without file watching:
+
+```bash
+uv run chainlit run src/app.py
+```
+
+Do not add `-w` or `--watch` during normal use. LakeGen generates Python files
+under `coding/` while answering a question; Chainlit's watcher would detect
+those files, restart the server, and discard the active chat before the final
+answer is displayed.
+
 ## HTTP API
 
 Avvia l'API in locale:
@@ -19,7 +64,7 @@ curl -X POST http://127.0.0.1:8000/v1/query \
   -d '{
     "question": "Which districts have the most parks?",
     "core": "nyc",
-    "model": "qwen3.6:27b"
+    "model": "openai.gpt-oss-120b"
   }'
 ```
 
@@ -31,7 +76,7 @@ oltre ai formati più semplici `[{"question": "..."}]` e
 
 ```bash
 curl -X POST \
-  'http://127.0.0.1:8000/v1/batches?core=nyc&model=qwen3.6:27b' \
+  'http://127.0.0.1:8000/v1/batches?core=nyc&model=openai.gpt-oss-120b' \
   -H 'Content-Type: application/json' \
   --data-binary @queries_old/generated_queries_new_york.json
 ```

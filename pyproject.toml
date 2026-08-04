@@ -10,7 +10,6 @@ dependencies = [
     "duckdb>=1.5.1",
     "jinja2>=3.1.6",
     "llama-index>=0.14.19",
-    "llama-index-llms-ollama>=0.10.1",
     "llama-index-llms-openai-like>=0.7.1",
     "nltk>=3.9.4",
     "pandas>=2.3.3",
@@ -29,6 +28,8 @@ dependencies = [
     "pydantic>=2.13.4",
     "fastapi>=0.115,<1",
     "uvicorn>=0.30,<1",
+    "oci>=2.184.0",
+    "llama-index-llms-oci-genai>=0.7.0",
 ]
 
 [tool.uv.sources]

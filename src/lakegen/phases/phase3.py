@@ -43,6 +43,13 @@ _ERROR_PATTERNS = [
     "typeerror",
     "indexerror",
     "zerodivisionerror",
+    # Generated scripts sometimes handle schema validation themselves, print a
+    # failure, and return normally.  The process then exits with code 0 even
+    # though no analysis result was produced, so these messages must trigger a
+    # correction attempt too.
+    "missing required column",
+    "required column is missing",
+    "required columns are missing",
 ]
 
 
@@ -113,8 +120,14 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
     code = _extract_code(code_raw)
 
     forbidden = ["import os", "import sys", "import shutil", "subprocess", "eval(", "exec("]
-    if any(f in code for f in forbidden):
-        return None, "Security Error: Forbidden libraries used.", code
+    forbidden_match = next((fragment for fragment in forbidden if fragment in code), None)
+    if forbidden_match is not None:
+        return (
+            None,
+            f"Security Error: forbidden code fragment {forbidden_match!r}. "
+            "Remove it completely; use only data-analysis libraries required by the task.",
+            code,
+        )
 
     coding_dir = run_dir or BASE_DIR / "coding" / uuid.uuid4().hex
     coding_dir.mkdir(parents=True, exist_ok=True)

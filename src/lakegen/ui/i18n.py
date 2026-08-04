@@ -7,7 +7,6 @@ _MESSAGES: dict[str, str] = {
     "app.title": "# LakeGen - Data Assistant",
     "app.intro": "Ask a natural-language question about the selected Open Data portal.",
     "app.settings_updated": "Settings updated: `{model_name}` on `{solr_core}` (Agent Mode: `{agent_mode}`).",
-    "settings.ollama_url": "Ollama Server URL",
     "settings.model": "Model",
     "settings.solr_core": "Open Data Lake",
     "hint.skip_suffix": "Reply with `skip` for no hint.",
