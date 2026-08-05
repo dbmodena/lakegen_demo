@@ -60,6 +60,16 @@ def test_oci_runtime_config_requires_compartment(monkeypatch, tmp_path):
         resources._oci_runtime_config()
 
 
+def test_get_solr_honors_configurable_base_url(monkeypatch):
+    resources.get_solr.cache_clear()
+    monkeypatch.setenv("SOLR_BASE_URL", "http://127.0.0.1:8993/solr")
+
+    client = resources.get_solr("nyc")
+
+    assert client.base_url == "http://127.0.0.1:8993/solr"
+    resources.get_solr.cache_clear()
+
+
 def test_get_llm_builds_oci_client(monkeypatch):
     captured = {}
     fake_llm = object()

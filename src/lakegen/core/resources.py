@@ -376,7 +376,10 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
 
 @lru_cache(maxsize=8)
 def get_solr(core):
-    return LocalSolrClient(core=core)
+    return LocalSolrClient(
+        core=core,
+        base_url=os.environ.get("SOLR_BASE_URL", "http://localhost:8983/solr"),
+    )
 
 
 @lru_cache(maxsize=1)

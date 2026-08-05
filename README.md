@@ -28,6 +28,8 @@ export LAKEGEN_EMBEDDING_MODEL=bge-m3
 export LAKEGEN_EMBEDDING_BASE_URL=http://localhost:11434
 export LAKEGEN_VECTOR_FIELD=table_embedding
 export LAKEGEN_REPRESENTATION_VERSION=metadata-v1
+# Optional when Solr is not served on the default local endpoint:
+export SOLR_BASE_URL=http://localhost:8983/solr
 ```
 
 The lexical branch searches the table metadata already indexed by Solr:

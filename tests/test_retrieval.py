@@ -218,6 +218,7 @@ def test_metadata_v1_is_stable_and_includes_requested_table_metadata():
     )
 
     assert representation.splitlines() == [
+        "Represent this table metadata for information retrieval.",
         "Title: Incidenti",
         "Description: Serie comunale",
         "Tags: mobilità | sicurezza",
@@ -253,7 +254,8 @@ class FakeIndexSolr:
         return {"schema": {"uniqueKey": "resource_id", "fields": [], "fieldTypes": []}}
 
     def iter_documents(self, **params):
-        del params
+        assert params["fields"] == ("*",)
+        assert params["restore_columns"] is False
         yield {
             "resource_id": "table-1",
             "title": "Incidenti",
@@ -282,14 +284,19 @@ def test_embedding_indexer_stores_vector_and_representation_provenance():
 
     assert summary.indexed_documents == 1
     assert summary.vector_dimension == 2
-    assert embedding.documents == [["Title: Incidenti\nColumn names: anno | totale"]]
+    assert embedding.documents == [[
+        "Represent this table metadata for information retrieval.\n"
+        "Title: Incidenti\nColumn names: anno | totale"
+    ]]
     assert solr.updates == [
         [
             {
                 "resource_id": "table-1",
-                "table_embedding": {"set": [1.0, 1.0]},
-                "representation_version": {"set": "metadata-v1"},
-                "embedding_model": {"set": "test-multilingual"},
+                "title": "Incidenti",
+                "columns.name": ["anno", "totale"],
+                "table_embedding": [1.0, 1.0],
+                "representation_version": "metadata-v1",
+                "embedding_model": "test-multilingual",
             }
         ]
     ]
@@ -329,11 +336,11 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
                 }
             }
 
-    def fake_get(url, *, params, timeout):
-        captured.update(url=url, params=params, timeout=timeout)
+    def fake_post(url, *, data, timeout):
+        captured.update(url=url, params=data, timeout=timeout)
         return Response()
 
-    monkeypatch.setattr("src.client_solr.requests.get", fake_get)
+    monkeypatch.setattr("src.client_solr.requests.post", fake_post)
     client = LocalSolrClient("bologna", timeout=4)
 
     response = client.knn_select(
@@ -344,7 +351,7 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
         filters=['representation_version:"metadata-v1"'],
     )
 
-    assert captured["url"].endswith("/bologna/select")
+    assert captured["url"].endswith("/bologna/query")
     assert captured["params"]["q"] == (
         "{!knn f=table_embedding topK=50}[0.25,-0.5]"
     )

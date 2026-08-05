@@ -51,8 +51,16 @@ def metadata_v1(document: dict[str, Any]) -> str:
         ("Column names", column_names),
         ("Column descriptions", column_descriptions),
     ]
-    return "\n".join(
+    rendered_sections = [
         f"{label}: {' | '.join(values)}" for label, values in sections if values
+    ]
+    if not rendered_sections:
+        return ""
+    return "\n".join(
+        (
+            "Represent this table metadata for information retrieval.",
+            *rendered_sections,
+        )
     )
 
 

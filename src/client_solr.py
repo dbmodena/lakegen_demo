@@ -29,6 +29,10 @@ class LocalSolrClient:
     def select_url(self) -> str:
         return f"{self.core_url}/select"
 
+    @property
+    def query_url(self) -> str:
+        return f"{self.core_url}/query"
+
     @staticmethod
     def _as_list(value: Any) -> list[Any]:
         if isinstance(value, list):
@@ -146,9 +150,13 @@ class LocalSolrClient:
         if filters:
             request_params["fq"] = list(filters)
 
-        response = requests.get(
-            self.select_url,
-            params=request_params,
+        # Dense vectors easily exceed HTTP request-line limits when serialized
+        # as a GET query string. Use Solr's generic /query handler so a
+        # collection-specific /select default such as defType=edismax cannot
+        # reinterpret the KNN query parser. Both handlers accept form POSTs.
+        response = requests.post(
+            self.query_url,
+            data=request_params,
             timeout=self.timeout,
         )
         response.raise_for_status()
@@ -160,6 +168,7 @@ class LocalSolrClient:
         fields: Sequence[str],
         batch_size: int = 100,
         sort_field: str = "resource_id",
+        restore_columns: bool = True,
     ):
         """Yield all documents using Solr's cursor API."""
         if batch_size <= 0:
@@ -180,7 +189,9 @@ class LocalSolrClient:
                 timeout=self.timeout,
             )
             response.raise_for_status()
-            payload = self._restore_response_docs(response.json())
+            payload = response.json()
+            if restore_columns:
+                payload = self._restore_response_docs(payload)
             docs = payload.get("response", {}).get("docs", [])
             for doc in docs:
                 if isinstance(doc, dict):

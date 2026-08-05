@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,17 +11,6 @@ from src.client_solr import LocalSolrClient
 from lakegen.retrieval.config import RetrievalConfig
 from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.representation import represent_table
-
-
-INDEX_FIELDS = (
-    "title",
-    "description",
-    "tags",
-    "columns.name",
-    "columns.description",
-    "columns_name",
-    "columns_description",
-)
 
 
 def _batches(items: Iterator[dict[str, Any]], size: int):
@@ -135,10 +124,14 @@ class SolrEmbeddingIndexer:
         if not unique_key:
             raise RuntimeError("Solr schema does not define a uniqueKey")
 
+        # DenseVectorField does not support Solr's atomic ``set`` syntax.
+        # Fetch every stored field without transforming dotted schema fields,
+        # then replace the document while adding vector provenance.
         documents = self.solr.iter_documents(
-            fields=(unique_key, *INDEX_FIELDS),
+            fields=("*",),
             batch_size=max(batch_size, 100),
             sort_field=unique_key,
+            restore_columns=False,
         )
         indexed = 0
         skipped = 0
@@ -181,16 +174,17 @@ class SolrEmbeddingIndexer:
                 if key_value is None:
                     skipped += 1
                     continue
-                updates.append(
-                    {
-                        unique_key: key_value,
-                        self.config.vector_field: {"set": vector},
-                        "representation_version": {
-                            "set": self.config.representation_version
-                        },
-                        "embedding_model": {"set": self.config.embedding_model},
-                    }
+                replacement = {
+                    key: value
+                    for key, value in document.items()
+                    if key != "_version_"
+                }
+                replacement[self.config.vector_field] = vector
+                replacement["representation_version"] = (
+                    self.config.representation_version
                 )
+                replacement["embedding_model"] = self.config.embedding_model
+                updates.append(replacement)
             if updates and not dry_run:
                 self.solr.update_documents(updates)
             indexed += len(updates)
