@@ -22,6 +22,8 @@ def test_extracts_queries_old_shape_and_preserves_metadata():
     assert [item.question for item in questions] == ["First question?", "Second question?"]
     assert questions[0].source_id == 7
     assert questions[0].path == "$.model.SQL['0'].data.queries[0].question"
+    assert questions[0].source_data["code"] == "SELECT 1"
+    assert questions[0].log_fields()["SOURCE_CODE"] == "SELECT 1"
 
 
 def test_extracts_simple_question_lists():

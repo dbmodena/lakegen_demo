@@ -27,7 +27,12 @@ for _path in (_SRC_DIR, _ROOT_DIR):
 
 from lakegen.core.bootstrap import bootstrap_nltk_data
 from lakegen.core.config import BASE_DIR
-from lakegen.service import extract_questions, make_runtime_settings, run_question
+from lakegen.service import (
+    QuestionSource,
+    extract_questions,
+    make_runtime_settings,
+    run_question,
+)
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS
 from lakegen.retrieval import RetrievalMode
 
@@ -155,8 +160,20 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
 
         for index, source in enumerate(questions):
             with _workflow_lock:
-                query_result = run_question(source["question"], runtime).to_dict()
-            entry = {**source, "result": query_result}
+                query_result = run_question(
+                    source["question"],
+                    runtime,
+                    log_context={
+                        "JOB_ID": job_id,
+                        **source["log_fields"],
+                    },
+                ).to_dict()
+            entry = {
+                "question": source["question"],
+                "source_path": source["source_path"],
+                "source_id": source["source_id"],
+                "result": query_result,
+            }
             _append_result(job_id, entry)
             with _jobs_lock:
                 job = _jobs[job_id]
@@ -201,7 +218,16 @@ def query_lakegen(request: QueryRequest) -> dict[str, Any]:
     if nltk_error:
         raise HTTPException(status_code=503, detail=nltk_error)
     with _workflow_lock:
-        return run_question(request.question, runtime).to_dict()
+        source = QuestionSource(
+            question=request.question,
+            path="$.question",
+            source_data=request.model_dump(mode="json"),
+        )
+        return run_question(
+            request.question,
+            runtime,
+            log_context=source.log_fields(),
+        ).to_dict()
 
 
 @app.post(
@@ -252,7 +278,12 @@ def submit_batch(
 
     job_id = uuid.uuid4().hex
     questions = [
-        {"question": item.question, "source_path": item.path, "source_id": item.source_id}
+        {
+            "question": item.question,
+            "source_path": item.path,
+            "source_id": item.source_id,
+            "log_fields": item.log_fields(),
+        }
         for item in extracted
     ]
     now = _now()

@@ -1,15 +1,41 @@
 import os
 import csv
 import datetime
+import json
+import threading
+from pathlib import Path
+from typing import Any, Mapping
+
 import pandas as pd
 
 from lakegen.core.config import LOG_DIR
 
 CSV_LOG_COLUMNS = [
-    "ID", "TIMESTAMP", "MODEL", "ARCHITECTURE", "QUESTION", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL",
-    "RETRIES", "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT", 
-    "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3", "TOKENS_PHASE4", "ERROR"
+    "ID", "TIMESTAMP", "JOB_ID", "SOURCE_PATH", "SOURCE_ID", "MODEL",
+    "ARCHITECTURE", "CORE", "PORTAL_NAME", "STATUS", "QUESTION",
+    "SOURCE_JSON", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL",
+    "RETRIEVAL_MODE", "TOP_K", "HYBRID_ALPHA", "CANDIDATE_MULTIPLIER",
+    "REPRESENTATION_VERSION", "EMBEDDING_MODEL", "EMBEDDING_BASE_URL",
+    "VECTOR_FIELD", "LEXICAL_QUERY_FIELDS", "MISSING_SIGNAL_POLICY",
+    "RETRIEVAL_RUNS_JSON", "RETRIES", "SUCCESS", "REASONING", "FULL_TRACE",
+    "DEBUG_RAW", "LLM_THINKING", "AGENT_THINKING", "CODE", "RAW_RESULT",
+    "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3",
+    "TOKENS_PHASE4", "TOKENS_PHASE5", "ELAPSED_SECONDS", "ERROR",
 ]
+
+_CSV_LOCK = threading.Lock()
+
+
+def _csv_value(value: Any) -> Any:
+    """Return a lossless, CSV-safe representation for structured values."""
+
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple, set)):
+        return json.dumps(value, ensure_ascii=False, default=str, allow_nan=False)
+    if isinstance(value, Path):
+        return str(value)
+    return value
 
 
 def _ensure_csv_columns(csv_path: str, required_columns: list[str]) -> list[str]:
@@ -61,6 +87,9 @@ def save_experiment_log(
     csv_filename: str = "experiments_log.csv",
     model: str = "",
     architecture: str = "",
+    status: str = "",
+    elapsed_seconds: float = 0.0,
+    extra_fields: Mapping[str, Any] | None = None,
 ):
     os.makedirs(LOG_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -93,27 +122,18 @@ def save_experiment_log(
 
     # --- CSV log (structured, for analysis) ---
     csv_path = os.path.join(LOG_DIR, csv_filename)
-    is_new_file = not os.path.exists(csv_path)
-    fieldnames = _ensure_csv_columns(csv_path, CSV_LOG_COLUMNS)
-    success = not result.startswith("[EXECUTION ERROR]") and not result.startswith("[CRITICAL ERROR]") and not error
-    
-    next_id = 1
-    if not is_new_file:
-        try:
-            df = pd.read_csv(csv_path, usecols=["ID"])
-            numeric_ids = pd.to_numeric(df["ID"], errors="coerce")
-            if not numeric_ids.isna().all():
-                next_id = int(numeric_ids.max()) + 1
-            else:
-                next_id = len(df) + 1
-        except Exception:
-            pass
-
-    row = {
-        "ID":              next_id,
+    success = (
+        status == "completed"
+        if status
+        else not result.startswith("[EXECUTION ERROR]")
+        and not result.startswith("[CRITICAL ERROR]")
+        and not error
+    )
+    row: dict[str, Any] = {
         "TIMESTAMP":       timestamp,
         "MODEL":           model,
         "ARCHITECTURE":    architecture,
+        "STATUS":          status,
         "QUESTION":        question,
         "TABLES_SELECTED": ", ".join(tables) if tables else "",
         "KEYWORDS_RAW":    raw_keywords,
@@ -121,18 +141,44 @@ def save_experiment_log(
         "RETRIES":         retries,
         "SUCCESS":         success,
         "REASONING":       reasoning,
-        "DEBUG_RAW":       debug_raw[:100].replace("'", "").replace('"', "").replace("\n", " "),
-        "RAW_RESULT":      result[:500].replace("\n", "  "),
-        "FINAL_RESULT":    final_result[:500].replace("\n", "  ") if final_result else "",
+        "FULL_TRACE":      full_trace,
+        "DEBUG_RAW":       debug_raw,
+        "LLM_THINKING":    llm_thinking,
+        "AGENT_THINKING":  agent_thinking,
+        "CODE":            code,
+        "RAW_RESULT":      result,
+        "FINAL_RESULT":    final_result,
         "TOKENS_PHASE1":   tokens_phase1,
         "TOKENS_PHASE2":   tokens_phase2,
         "TOKENS_PHASE3":   tokens_phase3,
         "TOKENS_PHASE4":   synthesis_tokens,
         "TOKENS_PHASE5":   synthesis_tokens,
-        "ERROR":           error.replace("\n", "  "),
+        "ELAPSED_SECONDS": elapsed_seconds,
+        "ERROR":           error,
     }
-    with open(csv_path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-        if is_new_file:
-            writer.writeheader()
-        writer.writerow(row)
+    if extra_fields:
+        row.update({str(key): _csv_value(value) for key, value in extra_fields.items()})
+
+    required_columns = list(dict.fromkeys([*CSV_LOG_COLUMNS, *row]))
+    with _CSV_LOCK:
+        is_new_file = not os.path.exists(csv_path)
+        fieldnames = _ensure_csv_columns(csv_path, required_columns)
+
+        next_id = 1
+        if not is_new_file:
+            try:
+                df = pd.read_csv(csv_path, usecols=["ID"])
+                numeric_ids = pd.to_numeric(df["ID"], errors="coerce")
+                if not numeric_ids.isna().all():
+                    next_id = int(numeric_ids.max()) + 1
+                else:
+                    next_id = len(df) + 1
+            except Exception:
+                pass
+        row["ID"] = next_id
+
+        with open(csv_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            if is_new_file:
+                writer.writeheader()
+            writer.writerow(row)

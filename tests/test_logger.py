@@ -1,4 +1,5 @@
 import csv
+import json
 
 import lakegen.core.logger as experiment_logger
 
@@ -52,3 +53,37 @@ def test_existing_csv_gains_model_and_architecture_columns(tmp_path, monkeypatch
     assert rows[0]["ARCHITECTURE"] == ""
     assert rows[1]["MODEL"] == "openai.gpt-oss-120b"
     assert rows[1]["ARCHITECTURE"] == "unified"
+
+
+def test_api_log_keeps_full_outputs_and_dynamic_json_fields(tmp_path, monkeypatch):
+    monkeypatch.setattr(experiment_logger, "LOG_DIR", tmp_path)
+    long_result = "x" * 700
+
+    experiment_logger.save_experiment_log(
+        question="Test question?",
+        code="print('complete')",
+        result=long_result,
+        retries=0,
+        status="completed",
+        elapsed_seconds=1.25,
+        csv_filename="api_experiments_log.csv",
+        extra_fields={
+            "JOB_ID": "job-1",
+            "SOURCE_DIFFICULTY": "easy",
+            "SOURCE_TABLES": [{"name": "Table_0"}],
+            "RETRIEVAL_RUNS_JSON": [{"mode": "keyword", "hits": []}],
+        },
+    )
+
+    with (tmp_path / "api_experiments_log.csv").open(
+        newline="", encoding="utf-8"
+    ) as csv_file:
+        row = next(csv.DictReader(csv_file))
+
+    assert row["RAW_RESULT"] == long_result
+    assert row["CODE"] == "print('complete')"
+    assert row["STATUS"] == "completed"
+    assert row["ELAPSED_SECONDS"] == "1.25"
+    assert row["SOURCE_DIFFICULTY"] == "easy"
+    assert json.loads(row["SOURCE_TABLES"]) == [{"name": "Table_0"}]
+    assert json.loads(row["RETRIEVAL_RUNS_JSON"])[0]["mode"] == "keyword"

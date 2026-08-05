@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from lakegen.core import resources
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
 def test_oci_runtime_config_uses_profile_and_region(monkeypatch, tmp_path):
@@ -166,3 +167,28 @@ def test_incomplete_stream_tool_calls_are_not_exposed():
     assert resources._finalized_stream_tool_calls(
         [{"toolUseId": "call-1", "name": "lookup_table", "input": "{\"name\":"}]
     ) == []
+
+
+def test_retrieval_runs_are_logged_and_captured_for_the_api_csv(monkeypatch):
+    persisted = []
+
+    class FakeSolr:
+        def select(self, tokens, **params):
+            return {
+                "response": {
+                    "docs": [{"resource_id": "parks", "score": 2.5}]
+                }
+            }
+
+    monkeypatch.setattr(resources, "get_retrieval_run_logger", lambda: persisted.append)
+    service = resources.get_table_retrieval_service(
+        FakeSolr(), RetrievalConfig(mode=RetrievalMode.KEYWORD)
+    )
+
+    with resources.capture_retrieval_runs() as captured:
+        service.retrieve(question="Where are the parks?", keywords=["parks"])
+
+    assert len(persisted) == 1
+    assert captured[0]["mode"] == "keyword"
+    assert captured[0]["hits"][0]["resource_id"] == "parks"
+    assert "timestamp" in captured[0]

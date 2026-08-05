@@ -1,4 +1,7 @@
 import asyncio
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timezone
 from functools import lru_cache
 import json
 import os
@@ -22,6 +25,7 @@ from lakegen.core.table_io import list_table_files
 from lakegen.core.token_usage import extract_total_tokens
 from lakegen.core.config import LOG_DIR
 from lakegen.retrieval import RetrievalConfig, RetrievalRunLogger, TableRetrievalService
+from lakegen.retrieval.models import RetrievalRun
 
 
 OCI_DEFAULT_PROFILE = "DEFAULT"
@@ -387,6 +391,32 @@ def get_retrieval_run_logger() -> RetrievalRunLogger:
     return RetrievalRunLogger(LOG_DIR / "retrieval_rankings.jsonl")
 
 
+_retrieval_capture: ContextVar[list[dict[str, Any]] | None] = ContextVar(
+    "lakegen_retrieval_capture", default=None
+)
+
+
+@contextmanager
+def capture_retrieval_runs():
+    """Collect retrieval JSON records produced by the current workflow."""
+
+    captured: list[dict[str, Any]] = []
+    token = _retrieval_capture.set(captured)
+    try:
+        yield captured
+    finally:
+        _retrieval_capture.reset(token)
+
+
+def _log_and_capture_retrieval_run(run: RetrievalRun) -> None:
+    get_retrieval_run_logger()(run)
+    captured = _retrieval_capture.get()
+    if captured is not None:
+        payload = run.to_log_dict()
+        payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+        captured.append(payload)
+
+
 def get_table_retrieval_service(
     solr: LocalSolrClient,
     config: RetrievalConfig,
@@ -394,7 +424,7 @@ def get_table_retrieval_service(
     return TableRetrievalService(
         solr,
         config,
-        observer=get_retrieval_run_logger(),
+        observer=_log_and_capture_retrieval_run,
     )
 
 

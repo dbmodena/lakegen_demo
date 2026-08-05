@@ -180,8 +180,13 @@ riavvio dell'API. L'API va esposta su una rete pubblica solo dopo aver aggiunto 
 livello di autenticazione e limiti di traffico.
 
 Il riepilogo CSV delle esecuzioni API viene scritto in
-`logs/api_experiments_log.csv`; CLI e Chainlit continuano a usare
-`logs/experiments_log.csv`.
+`logs/api_experiments_log.csv`; include il contesto del job e della sorgente,
+tutti i campi della domanda JSON (sia in `SOURCE_JSON` sia in colonne
+`SOURCE_*`), configurazione e ranking del retrieval, codice, output completi,
+token, stato e durata. CLI e Chainlit continuano a usare
+`logs/experiments_log.csv`. I ranking restano anche in
+`logs/retrieval_rankings.jsonl` per compatibilità con gli strumenti di
+valutazione esistenti.
 
 ## Methodological references
 

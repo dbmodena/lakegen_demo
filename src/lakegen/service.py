@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.core.logger import save_experiment_log
-from lakegen.core.resources import get_all_table_files, get_llm, get_prompt_manager, get_solr
+from lakegen.core.resources import (
+    capture_retrieval_runs,
+    get_all_table_files,
+    get_llm,
+    get_prompt_manager,
+    get_solr,
+)
 from lakegen.phases import phase12_agent, phase3_generate_and_execute, phase4_synthesize
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
@@ -28,6 +35,19 @@ class QuestionSource:
     question: str
     path: str
     source_id: str | int | None = None
+    source_data: dict[str, Any] = field(default_factory=dict)
+
+    def log_fields(self) -> dict[str, Any]:
+        """Expose every top-level input variable without CSV name collisions."""
+
+        fields: dict[str, Any] = {"SOURCE_JSON": self.source_data}
+        for key, value in self.source_data.items():
+            column = re.sub(r"[^A-Z0-9]+", "_", str(key).upper()).strip("_")
+            if column:
+                fields[f"SOURCE_{column}"] = value
+        fields["SOURCE_PATH"] = self.path
+        fields["SOURCE_ID"] = self.source_id
+        return fields
 
 
 @dataclass
@@ -90,6 +110,7 @@ def extract_questions(payload: Any) -> list[QuestionSource]:
                     question=question.strip(),
                     path=_json_path(path, "question"),
                     source_id=value.get("id"),
+                    source_data=dict(value),
                 )
             )
 
@@ -140,7 +161,12 @@ def make_runtime_settings(
     )
 
 
-def run_question(question: str, runtime: RuntimeSettings) -> QueryResult:
+def run_question(
+    question: str,
+    runtime: RuntimeSettings,
+    *,
+    log_context: Mapping[str, Any] | None = None,
+) -> QueryResult:
     """Run the automatic unified LakeGen workflow for one question."""
 
     started = time.monotonic()
@@ -161,105 +187,127 @@ def run_question(question: str, runtime: RuntimeSettings) -> QueryResult:
     hint = ""
     error = ""
 
-    try:
-        for table_attempt in range(MAX_TABLE_ATTEMPTS):
-            (
-                selected,
-                keywords,
-                solr_meta,
-                reasoning,
-                trace,
-                architecture_tokens,
-            ) = phase12_agent(
-                query=question,
-                llm=llm,
-                pm=prompt_manager,
-                all_files=all_files,
-                solr_client=solr,
-                csv_dir=runtime.csv_dir,
-                hint=hint,
-                portal_name=runtime.portal_name,
-                retrieval_config=runtime.retrieval,
-            )
-            result.tokens["p1_p2"] += architecture_tokens
-            result.tables = selected
-            result.keywords = keywords
-
-            previous_code = ""
-            for code_attempt in range(MAX_CODE_ATTEMPTS):
-                generated = phase3_generate_and_execute(
-                    question,
+    with capture_retrieval_runs() as retrieval_runs:
+        try:
+            for table_attempt in range(MAX_TABLE_ATTEMPTS):
+                (
                     selected,
-                    selected,
+                    keywords,
                     solr_meta,
                     reasoning,
-                    llm,
-                    prompt_manager,
-                    runtime.csv_dir,
-                    retries=code_attempt,
-                    error_msg=error,
-                    previous_code=previous_code,
-                    run_dir=run_dir,
+                    trace,
+                    architecture_tokens,
+                ) = phase12_agent(
+                    query=question,
+                    llm=llm,
+                    pm=prompt_manager,
+                    all_files=all_files,
+                    solr_client=solr,
+                    csv_dir=runtime.csv_dir,
+                    hint=hint,
+                    portal_name=runtime.portal_name,
+                    retrieval_config=runtime.retrieval,
                 )
-                result.tokens["p3"] += generated.tokens
-                result.retries += int(code_attempt > 0)
-                previous_code = generated.clean_code or generated.code_raw
-                result.code = generated.clean_code
+                result.tokens["p1_p2"] += architecture_tokens
+                result.tables = selected
+                result.keywords = keywords
 
-                if generated.rejected_reason:
-                    hint = (
-                        "The code generator rejected the previous tables. "
-                        f"Select different tables. Feedback: {generated.rejected_reason}"
+                previous_code = ""
+                for code_attempt in range(MAX_CODE_ATTEMPTS):
+                    generated = phase3_generate_and_execute(
+                        question,
+                        selected,
+                        selected,
+                        solr_meta,
+                        reasoning,
+                        llm,
+                        prompt_manager,
+                        runtime.csv_dir,
+                        retries=code_attempt,
+                        error_msg=error,
+                        previous_code=previous_code,
+                        run_dir=run_dir,
                     )
-                    error = generated.rejected_reason
+                    result.tokens["p3"] += generated.tokens
+                    result.retries += int(code_attempt > 0)
+                    previous_code = generated.clean_code or generated.code_raw
+                    result.code = previous_code
+
+                    if generated.rejected_reason:
+                        hint = (
+                            "The code generator rejected the previous tables. "
+                            f"Select different tables. Feedback: {generated.rejected_reason}"
+                        )
+                        error = generated.rejected_reason
+                        break
+
+                    if generated.error is None and generated.raw_result is not None:
+                        result.raw_result = generated.raw_result
+                        answer, synthesis_tokens = phase4_synthesize(
+                            question, generated.raw_result, llm, prompt_manager
+                        )
+                        result.answer = answer
+                        result.tokens["p4"] = synthesis_tokens
+                        result.status = "completed"
+                        result.error = ""
+                        return result
+
+                    error = generated.error or "Code execution returned no output."
+                else:
                     break
 
-                if generated.error is None and generated.raw_result is not None:
-                    result.raw_result = generated.raw_result
-                    answer, synthesis_tokens = phase4_synthesize(
-                        question, generated.raw_result, llm, prompt_manager
-                    )
-                    result.answer = answer
-                    result.tokens["p4"] = synthesis_tokens
-                    result.status = "completed"
-                    result.error = ""
-                    return result
+                if table_attempt == MAX_TABLE_ATTEMPTS - 1:
+                    break
 
-                error = generated.error or "Code execution returned no output."
-            else:
-                break
-
-            if table_attempt == MAX_TABLE_ATTEMPTS - 1:
-                break
-
-        result.status = "failed"
-        result.error = error or "LakeGen could not produce an executable answer."
-        return result
-    except Exception as exc:
-        result.status = "failed"
-        result.error = f"{type(exc).__name__}: {exc}"
-        return result
-    finally:
-        result.elapsed_seconds = round(time.monotonic() - started, 3)
-        try:
-            save_experiment_log(
-                question=question,
-                code=result.code,
-                result=result.raw_result,
-                retries=result.retries,
-                reasoning=reasoning,
-                tables=selected,
-                final_keywords=keywords,
-                final_result=result.answer,
-                full_trace=trace,
-                tokens_phase1=result.tokens["p1_p2"],
-                tokens_phase3=result.tokens["p3"],
-                tokens_phase4=result.tokens["p4"],
-                error=result.error,
-                csv_filename="api_experiments_log.csv",
-                model=runtime.model_name,
-                # The non-interactive API currently executes phase12_agent.
-                architecture="unified",
-            )
-        except Exception:
-            logger.exception("Could not persist the LakeGen experiment log")
+            result.status = "failed"
+            result.error = error or "LakeGen could not produce an executable answer."
+            return result
+        except Exception as exc:
+            result.status = "failed"
+            result.error = f"{type(exc).__name__}: {exc}"
+            return result
+        finally:
+            result.elapsed_seconds = round(time.monotonic() - started, 3)
+            retrieval = runtime.retrieval
+            extra_fields: dict[str, Any] = {
+                "CORE": runtime.solr_core,
+                "PORTAL_NAME": runtime.portal_name,
+                "RETRIEVAL_MODE": retrieval.mode.value,
+                "TOP_K": retrieval.top_k,
+                "HYBRID_ALPHA": retrieval.alpha,
+                "CANDIDATE_MULTIPLIER": retrieval.candidate_multiplier,
+                "REPRESENTATION_VERSION": retrieval.representation_version,
+                "EMBEDDING_MODEL": retrieval.embedding_model,
+                "EMBEDDING_BASE_URL": retrieval.embedding_base_url,
+                "VECTOR_FIELD": retrieval.vector_field,
+                "LEXICAL_QUERY_FIELDS": retrieval.lexical_query_fields,
+                "MISSING_SIGNAL_POLICY": retrieval.missing_signal_policy.value,
+                "RETRIEVAL_RUNS_JSON": retrieval_runs,
+            }
+            if log_context:
+                extra_fields.update(log_context)
+            try:
+                save_experiment_log(
+                    question=question,
+                    code=result.code,
+                    result=result.raw_result,
+                    retries=result.retries,
+                    reasoning=reasoning,
+                    tables=selected,
+                    final_keywords=keywords,
+                    final_result=result.answer,
+                    full_trace=trace,
+                    tokens_phase1=result.tokens["p1_p2"],
+                    tokens_phase3=result.tokens["p3"],
+                    tokens_phase4=result.tokens["p4"],
+                    error=result.error,
+                    csv_filename="api_experiments_log.csv",
+                    model=runtime.model_name,
+                    # The non-interactive API currently executes phase12_agent.
+                    architecture="unified",
+                    status=result.status,
+                    elapsed_seconds=result.elapsed_seconds,
+                    extra_fields=extra_fields,
+                )
+            except Exception:
+                logger.exception("Could not persist the LakeGen experiment log")
