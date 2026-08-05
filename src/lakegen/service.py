@@ -13,6 +13,7 @@ from lakegen.core.logger import save_experiment_log
 from lakegen.core.resources import get_all_table_files, get_llm, get_prompt_manager, get_solr
 from lakegen.phases import phase12_agent, phase3_generate_and_execute, phase4_synthesize
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
 MAX_CODE_ATTEMPTS = 3
@@ -110,6 +111,10 @@ def make_runtime_settings(
     core: str,
     model: str,
     use_unified_agent: bool = True,
+    retrieval_mode: RetrievalMode | str = RetrievalMode.KEYWORD,
+    top_k: int = 10,
+    alpha: float = 0.5,
+    candidate_multiplier: int = 5,
 ) -> RuntimeSettings:
     if core not in SOLR_CORE_OPTIONS:
         raise ValueError(
@@ -126,6 +131,12 @@ def make_runtime_settings(
         csv_dir=resolve_portal_tables_dir(core),
         db_path=BASE_DIR / f"data/blend_{core}.db",
         use_unified_agent=use_unified_agent,
+        retrieval=RetrievalConfig.from_env(
+            mode=retrieval_mode,
+            top_k=top_k,
+            alpha=alpha,
+            candidate_multiplier=candidate_multiplier,
+        ),
     )
 
 
@@ -168,6 +179,7 @@ def run_question(question: str, runtime: RuntimeSettings) -> QueryResult:
                 csv_dir=runtime.csv_dir,
                 hint=hint,
                 portal_name=runtime.portal_name,
+                retrieval_config=runtime.retrieval,
             )
             result.tokens["p1_p2"] += architecture_tokens
             result.tables = selected

@@ -46,6 +46,9 @@ def solr_metadata_from_doc(doc: dict) -> dict[str, object]:
         "description": doc.get("description", ""),
         "tags": [str(tag) for tag in tags],
         "columns.name": [col.get("name") for col in columns if col.get("name")],
+        "columns.description": [
+            col.get("description") for col in columns if col.get("description")
+        ],
         "columns.type": [col.get("type") for col in columns if col.get("type")],
     }
 

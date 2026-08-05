@@ -29,6 +29,7 @@ from lakegen.core.bootstrap import bootstrap_nltk_data
 from lakegen.core.config import BASE_DIR
 from lakegen.service import extract_questions, make_runtime_settings, run_question
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS
+from lakegen.retrieval import RetrievalMode
 
 
 DEFAULT_MODEL = MODEL_OPTIONS[0]
@@ -51,6 +52,10 @@ class QueryRequest(StrictModel):
     question: str = Field(min_length=1)
     core: str = DEFAULT_CORE
     model: str = DEFAULT_MODEL
+    retrieval_mode: RetrievalMode = RetrievalMode.KEYWORD
+    top_k: int = Field(default=10, ge=1, le=1000)
+    hybrid_alpha: float = Field(default=0.5, ge=0.0, le=1.0)
+    candidate_multiplier: int = Field(default=5, ge=1, le=100)
 
     @field_validator("question")
     @classmethod
@@ -140,7 +145,7 @@ def _update_job(job_id: str, **changes: Any) -> None:
     _persist_job(snapshot)
 
 
-def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str, str]) -> None:
+def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str, Any]) -> None:
     _update_job(job_id, status="running", started_at=_now())
     try:
         runtime = make_runtime_settings(**settings)
@@ -184,6 +189,10 @@ def query_lakegen(request: QueryRequest) -> dict[str, Any]:
         runtime = make_runtime_settings(
             core=request.core,
             model=request.model,
+            retrieval_mode=request.retrieval_mode,
+            top_k=request.top_k,
+            alpha=request.hybrid_alpha,
+            candidate_multiplier=request.candidate_multiplier,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -212,9 +221,20 @@ def submit_batch(
     ],
     core: Annotated[str, Query()] = DEFAULT_CORE,
     model: Annotated[str, Query()] = DEFAULT_MODEL,
+    retrieval_mode: Annotated[RetrievalMode, Query()] = RetrievalMode.KEYWORD,
+    top_k: Annotated[int, Query(ge=1, le=1000)] = 10,
+    hybrid_alpha: Annotated[float, Query(ge=0.0, le=1.0)] = 0.5,
+    candidate_multiplier: Annotated[int, Query(ge=1, le=100)] = 5,
 ) -> BatchAccepted:
     try:
-        make_runtime_settings(core=core, model=model)
+        make_runtime_settings(
+            core=core,
+            model=model,
+            retrieval_mode=retrieval_mode,
+            top_k=top_k,
+            alpha=hybrid_alpha,
+            candidate_multiplier=candidate_multiplier,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -246,7 +266,14 @@ def submit_batch(
         "question_count": len(questions),
         "processed": 0,
         "failed": 0,
-        "settings": {"core": core, "model": model},
+        "settings": {
+            "core": core,
+            "model": model,
+            "retrieval_mode": retrieval_mode,
+            "top_k": top_k,
+            "alpha": hybrid_alpha,
+            "candidate_multiplier": candidate_multiplier,
+        },
         "results": [],
         "error": "",
     }

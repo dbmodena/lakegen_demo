@@ -20,6 +20,8 @@ from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.core.table_io import list_table_files
 from lakegen.core.token_usage import extract_total_tokens
+from lakegen.core.config import LOG_DIR
+from lakegen.retrieval import RetrievalConfig, RetrievalRunLogger, TableRetrievalService
 
 
 OCI_DEFAULT_PROFILE = "DEFAULT"
@@ -375,6 +377,22 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
 @lru_cache(maxsize=8)
 def get_solr(core):
     return LocalSolrClient(core=core)
+
+
+@lru_cache(maxsize=1)
+def get_retrieval_run_logger() -> RetrievalRunLogger:
+    return RetrievalRunLogger(LOG_DIR / "retrieval_rankings.jsonl")
+
+
+def get_table_retrieval_service(
+    solr: LocalSolrClient,
+    config: RetrievalConfig,
+) -> TableRetrievalService:
+    return TableRetrievalService(
+        solr,
+        config,
+        observer=get_retrieval_run_logger(),
+    )
 
 
 @lru_cache(maxsize=1)

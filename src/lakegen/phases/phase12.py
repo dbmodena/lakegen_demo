@@ -33,6 +33,7 @@ from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.agent_tools.tools_p12 import P12State, make_p12_tools
+from lakegen.retrieval import RetrievalConfig
 
 def phase12_agent(
     query: str,
@@ -45,10 +46,18 @@ def phase12_agent(
     portal_name: str = "",
     stream_callback: StreamCallback | None = None,
     cancel_check: Callable[[], None] | None = None,
+    retrieval_config: RetrievalConfig | None = None,
 ) -> tuple[list[str], list[str], SolrMetadata, str, str, int]:
     
     state = P12State()
-    agent_tools = make_p12_tools(state, solr_client, all_files, csv_dir)
+    agent_tools = make_p12_tools(
+        state,
+        solr_client,
+        all_files,
+        csv_dir,
+        question=query,
+        retrieval_config=retrieval_config,
+    )
 
     system_prompt = pm.render(
         "unified_architect",

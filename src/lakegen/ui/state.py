@@ -12,6 +12,7 @@ import chainlit as cl
 from lakegen.ui.i18n import t
 from lakegen.core.types import SolrMetadata
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
 MODEL_OPTIONS = [
@@ -26,6 +27,7 @@ SOLR_CORE_PORTAL_NAMES = {
     "paris": "Paris Open Data portal",
     "uk": "UK Open Data portal",
 }
+RETRIEVAL_MODE_OPTIONS = [mode.value for mode in RetrievalMode]
 
 
 @dataclass
@@ -35,6 +37,7 @@ class RuntimeSettings:
     csv_dir: Path = field(default_factory=lambda: resolve_portal_tables_dir("nyc"))
     db_path: Path = BASE_DIR / "data/blend_nyc.db"
     use_unified_agent: bool = True
+    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig.from_env)
 
     @property
     def portal_name(self) -> str:
@@ -64,6 +67,11 @@ class RuntimeSettings:
             model_name = default.model_name
 
         use_unified_agent = settings.get("use_unified_agent", default.use_unified_agent)
+        retrieval_mode = str(
+            settings.get("retrieval_mode") or default.retrieval.mode
+        )
+        if retrieval_mode not in RETRIEVAL_MODE_OPTIONS:
+            retrieval_mode = default.retrieval.mode
         
         return cls(
             model_name=model_name,
@@ -71,6 +79,7 @@ class RuntimeSettings:
             csv_dir=resolve_portal_tables_dir(selected_solr_core),
             db_path=BASE_DIR / f"data/blend_{selected_solr_core}.db",
             use_unified_agent=bool(use_unified_agent),
+            retrieval=RetrievalConfig.from_env(mode=retrieval_mode),
         )
 
 

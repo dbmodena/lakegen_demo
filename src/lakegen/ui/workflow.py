@@ -235,6 +235,7 @@ async def _select_tables_once(
                 portal_name=session.runtime.portal_name,
                 stream_callback=bridge.emit,
                 cancel_check=session.check_cancelled,
+                retrieval_config=session.runtime.retrieval,
             )
 
         sel, cands, smeta, reasoning, trace, tok2 = result
@@ -367,6 +368,7 @@ async def _run_unified_gate(
                     portal_name=session.runtime.portal_name,
                     stream_callback=bridge.emit,
                     cancel_check=session.check_cancelled,
+                    retrieval_config=session.runtime.retrieval,
                 )
 
             session.tables = selected

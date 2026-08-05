@@ -39,6 +39,7 @@ from lakegen.phases import (
 from lakegen.core.logger import save_experiment_log
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -134,6 +135,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 hint=keyword_hint,
                 portal_name=runtime.portal_name,
                 stream_callback=_stream_to_terminal,
+                retrieval_config=runtime.retrieval,
             )
 
             tokens["p1"] += tok
@@ -174,8 +176,11 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             keyword_hint = _ask_input("Hint for keyword selection (or press Enter to retry without hint)")
             continue
 
-        # ── Phase 2: Solr AND search + table judge ────────────────────
-        _header("Phase 2 – Table Search & Selection (Solr AND)")
+        # ── Phase 2: configured retrieval + table judge ──────────────
+        _header(
+            "Phase 2 – Table Search & Selection "
+            f"({runtime.retrieval.mode})"
+        )
 
         selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
             query=question,
@@ -188,6 +193,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             hint=keyword_hint,
             portal_name=runtime.portal_name,
             stream_callback=_stream_to_terminal,
+            retrieval_config=runtime.retrieval,
         )
         tokens["p2"] += tok2
 
@@ -282,6 +288,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     hint=keyword_hint,
                     portal_name=runtime.portal_name,
                     stream_callback=_stream_to_terminal,
+                    retrieval_config=runtime.retrieval,
                 )
                 tokens["p1"] += tok
                 architect_reasoning = reasoning
@@ -309,6 +316,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     hint=keyword_hint,
                     portal_name=runtime.portal_name,
                     stream_callback=_stream_to_terminal,
+                    retrieval_config=runtime.retrieval,
                 )
                 tokens["p2"] += tok2
                 architect_reasoning = reasoning
@@ -401,6 +409,15 @@ def main() -> None:
         default=True,
         help="Use the divided agent (separate Phase 1 & 2) instead of the default unified agent.",
     )
+    parser.add_argument(
+        "--retrieval-mode",
+        choices=[mode.value for mode in RetrievalMode],
+        default=RetrievalMode.KEYWORD,
+        help="Table retriever: keyword BM25, semantic KNN, or hybrid fusion.",
+    )
+    parser.add_argument("--top-k", type=int, default=10)
+    parser.add_argument("--hybrid-alpha", type=float, default=0.5)
+    parser.add_argument("--candidate-multiplier", type=int, default=5)
     args = parser.parse_args()
 
     nltk_err = bootstrap_nltk_data()
@@ -414,6 +431,12 @@ def main() -> None:
         csv_dir=resolve_portal_tables_dir(args.core),
         db_path=BASE_DIR / f"data/blend_{args.core}.db",
         use_unified_agent=args.unified,
+        retrieval=RetrievalConfig.from_env(
+            mode=args.retrieval_mode,
+            top_k=args.top_k,
+            alpha=args.hybrid_alpha,
+            candidate_multiplier=args.candidate_multiplier,
+        ),
     )
 
     run_cli_workflow(args.question, runtime)

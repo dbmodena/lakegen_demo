@@ -39,34 +39,48 @@ from lakegen.phases.utils import (
     parse_table_selector_response,
     solr_metadata_from_doc,
 )
+from lakegen.core.resources import get_table_retrieval_service
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
 def _solr_and_search(
+    query: str,
     keywords: list[str],
     solr_client: LocalSolrClient,
     all_files: list[str],
+    retrieval_config: RetrievalConfig | None = None,
 ) -> tuple[list[str], SolrMetadata]:
-    """Execute a Solr AND query and return matched candidates + metadata."""
+    """Execute the configured retriever and return candidates + metadata."""
     candidates: list[str] = []
     metadata: SolrMetadata = {}
+    config = retrieval_config or RetrievalConfig()
 
     try:
-        solr_response = solr_client.select(tokens=keywords, q_op="AND", rows=15)
-        docs = solr_response.get("response", {}).get("docs", [])
+        retriever = get_table_retrieval_service(solr_client, config)
+        hits = retriever.retrieve(
+            question=query,
+            keywords=keywords,
+            top_k=config.top_k,
+            # Preserve the baseline's 15 fetched BM25 documents while still
+            # returning top_k=10 table candidates.
+            lexical_fetch_k=15,
+            q_op="AND",
+        )
         print(
-            f"[phase2] Solr AND search keywords={keywords} "
-            f"numFound={solr_response.get('response', {}).get('numFound', '?')} "
-            f"docs_returned={len(docs)}",
+            f"[phase2] {config.mode} retrieval keywords={keywords} "
+            f"docs_returned={len(hits)}",
             flush=True,
         )
 
-        for doc in docs:
+        for hit in hits:
+            doc = hit.document
             matched = match_local_csv(doc, all_files)
             if matched is None or matched in candidates:
                 continue
             candidates.append(matched)
             metadata[matched] = solr_metadata_from_doc(doc)
-            if len(candidates) >= 10:
+            metadata[matched]["retrieval"] = hit.to_log_dict()
+            if len(candidates) >= config.top_k:
                 break
 
     except Exception as solr_err:
@@ -74,6 +88,10 @@ def _solr_and_search(
             f"[phase2] Solr error {type(solr_err).__name__}: {solr_err}",
             flush=True,
         )
+        # Dense setup errors (missing model/vector field/provenance) must not be
+        # disguised as a failed Phase 1 keyword query.
+        if config.mode != RetrievalMode.KEYWORD:
+            raise
 
     return candidates, metadata
 
@@ -90,11 +108,12 @@ def phase2_select_tables(
     portal_name: str = "",
     stream_callback: StreamCallback | None = None,
     cancel_check: Callable[[], None] | None = None,
+    retrieval_config: RetrievalConfig | None = None,
 ) -> Phase2SelectionResult:
-    """Search Solr with AND logic, then run a judge agent on the results.
+    """Run the configured retriever, then judge the retrieved tables.
 
     Flow:
-    1. Execute Solr AND query programmatically with the provided keywords
+    1. Execute keyword, semantic, or hybrid retrieval programmatically
     2. If 0 results → immediately return REJECT_KEYWORDS
     3. If results found → run the FunctionAgent to inspect and judge them
     4. Agent accepts (confirm_table_selection) or rejects (REJECT_KEYWORDS)
@@ -103,17 +122,24 @@ def phase2_select_tables(
         (selected, all_candidates, solr_meta, reasoning, full_trace, tokens)
     """
 
-    # ── Step 1: Solr AND search (programmatic, not agent-driven) ──────
-    candidates, solr_meta = _solr_and_search(keywords, solr_client, all_files)
+    # ── Step 1: table retrieval (programmatic, not agent-driven) ─────
+    config = retrieval_config or RetrievalConfig()
+    candidates, solr_meta = _solr_and_search(
+        query,
+        keywords,
+        solr_client,
+        all_files,
+        config,
+    )
 
     # ── Step 2: No results → reject keywords back to Phase 1 ─────────
     if not candidates:
         no_result_msg = (
-            f"REJECT_KEYWORDS: No tables found with AND keywords "
-            f"[{', '.join(keywords)}]. Try broader or different terms."
+            f"REJECT_KEYWORDS: No tables found with {config.mode} retrieval "
+            f"for [{', '.join(keywords)}]. Try broader or different terms."
         )
         trace = (
-            f"[phase2] Solr AND search with keywords={keywords} returned 0 results.\n"
+            f"[phase2] {config.mode} retrieval with keywords={keywords} returned 0 results.\n"
             f"Rejecting keywords back to Phase 1."
         )
         if stream_callback:
@@ -170,7 +196,8 @@ def phase2_select_tables(
     emit_stream(
         "\n**Phase 2 – Table Judge agent started**\n"
         f"- Keywords from Phase 1: `{' '.join(keywords)}`\n"
-        f"- Solr AND returned {len(candidates)} candidates: {candidates_summary}\n"
+        f"- {config.mode} retrieval returned {len(candidates)} candidates: "
+        f"{candidates_summary}\n"
         "- Agent inspecting and judging tables below.\n"
     )
 

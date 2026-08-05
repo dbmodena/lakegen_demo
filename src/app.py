@@ -31,6 +31,7 @@ from lakegen.core.bootstrap import (  # noqa: E402
 )
 from lakegen.ui.state import (  # noqa: E402
     MODEL_OPTIONS,
+    RETRIEVAL_MODE_OPTIONS,
     SOLR_CORE_OPTIONS,
     SOLR_CORE_PORTAL_NAMES,
     RuntimeSettings,
@@ -74,6 +75,12 @@ def _settings_widgets(runtime: RuntimeSettings | None = None) -> list:
             label=t("settings.model"),
             values=MODEL_OPTIONS,
             initial_value=runtime.model_name,
+        ),
+        Select(
+            id="retrieval_mode",
+            label="Table retriever",
+            values=RETRIEVAL_MODE_OPTIONS,
+            initial_value=runtime.retrieval.mode,
         ),
         Switch(
             id="use_unified_agent",

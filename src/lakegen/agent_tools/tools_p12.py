@@ -10,6 +10,8 @@ from lakegen.core.types import SolrMetadata
 from lakegen.agent_tools.tools_p2 import _inspect_columns, _find_schema_matches
 from src.client_solr import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
+from lakegen.core.resources import get_table_retrieval_service
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
 class ConfirmUnifiedSelectionSchema(BaseModel):
@@ -34,11 +36,15 @@ class Phase12ToolsManager:
         solr_client: LocalSolrClient,
         all_files: list[str],
         csv_dir: Path,
+        question: str = "",
+        retrieval_config: RetrievalConfig | None = None,
     ):
         self.state = state
         self.solr_client = solr_client
         self.all_files = all_files
         self.csv_dir = Path(csv_dir)
+        self.question = question
+        self.retrieval_config = retrieval_config or RetrievalConfig()
 
     def search_solr(self, keywords_str: str) -> str:
         """
@@ -46,8 +52,9 @@ class Phase12ToolsManager:
         IMPORTANT: Keywords must be written in the native language of the Open Data
         portal being queried (for example, French for Paris or Italian for Bologna).
         Search for DATASET CONCEPTS that appear in metadata, not concrete row-filter values.
-        Use ONLY 1-2 essential keywords. The tool tries strict AND first and automatically
-        falls back to broader OR matching when a multi-keyword AND search returns no results.
+        Use ONLY 1-2 essential keywords. In keyword mode the tool tries strict AND first
+        and automatically falls back to broader OR matching when needed. Semantic mode
+        embeds the complete user question; hybrid mode fuses that signal with BM25.
         Example: use "language interpretation", not row values such as "Mandarin Intake".
         Returns the top matching table names and their schema descriptions.
         """
@@ -57,25 +64,47 @@ class Phase12ToolsManager:
                 return "No keywords provided. Search with one or two dataset concepts."
             self.state.used_keywords = keywords
 
-            solr_response = self.solr_client.select(tokens=keywords, q_op="AND", rows=15)
-            docs = solr_response.get("response", {}).get("docs", [])
-            search_mode = "AND"
+            retriever = get_table_retrieval_service(
+                self.solr_client, self.retrieval_config
+            )
+            hits = retriever.retrieve(
+                question=self.question,
+                keywords=keywords,
+                top_k=self.retrieval_config.top_k,
+                lexical_fetch_k=15,
+                q_op="AND",
+            )
+            search_mode = (
+                "AND" if self.retrieval_config.mode == RetrievalMode.KEYWORD
+                else self.retrieval_config.mode.value
+            )
 
-            if not docs and len(keywords) > 1:
-                solr_response = self.solr_client.select(tokens=keywords, q_op="OR", rows=15)
-                docs = solr_response.get("response", {}).get("docs", [])
+            if (
+                not hits
+                and len(keywords) > 1
+                and self.retrieval_config.mode == RetrievalMode.KEYWORD
+            ):
+                hits = retriever.retrieve(
+                    question=self.question,
+                    keywords=keywords,
+                    top_k=self.retrieval_config.top_k,
+                    lexical_fetch_k=15,
+                    q_op="OR",
+                )
                 search_mode = "OR fallback"
 
             candidates: list[str] = []
-            for doc in docs:
+            for hit in hits:
+                doc = hit.document
                 matched = match_local_csv(doc, self.all_files)
                 if matched is None or matched in candidates:
                     continue
                 candidates.append(matched)
                 self.state.solr_meta[matched] = solr_metadata_from_doc(doc)
+                self.state.solr_meta[matched]["retrieval"] = hit.to_log_dict()
                 if matched not in self.state.all_candidates:
                     self.state.all_candidates.append(matched)
-                if len(candidates) >= 10:
+                if len(candidates) >= self.retrieval_config.top_k:
                     break
 
             if not candidates:
@@ -83,6 +112,7 @@ class Phase12ToolsManager:
 
             return (
                 f"Keywords used: {keywords}\n"
+                f"Retriever: {self.retrieval_config.mode}\n"
                 f"Search mode: {search_mode}\n\n"
                 + format_candidate_context(candidates, self.state.solr_meta)
             )
@@ -138,10 +168,19 @@ def make_p12_tools(
     solr_client: LocalSolrClient,
     all_files: list[str],
     csv_dir: Path,
+    question: str = "",
+    retrieval_config: RetrievalConfig | None = None,
 ):
     """
     Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
     The retriever will dynamically fetch the top relevant tools based on the agent's intent.
     """
-    manager = Phase12ToolsManager(state, solr_client, all_files, csv_dir)
+    manager = Phase12ToolsManager(
+        state,
+        solr_client,
+        all_files,
+        csv_dir,
+        question=question,
+        retrieval_config=retrieval_config,
+    )
     return manager.get_tools()
