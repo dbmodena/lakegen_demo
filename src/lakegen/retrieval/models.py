@@ -62,6 +62,12 @@ class RetrievalRun:
     alpha: float | None = None
     candidate_multiplier: int | None = None
     missing_signal_policy: str | None = None
+    fusion_method: str | None = None
+    rrf_k: int | None = None
+    job_id: str | None = None
+    source_path: str | None = None
+    source_id: str | int | None = None
+    retrieval_attempt: int | None = None
     hits: list[RetrievalHit] = field(default_factory=list)
 
     def to_log_dict(self) -> dict[str, Any]:

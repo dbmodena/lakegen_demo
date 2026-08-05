@@ -179,7 +179,7 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
                 job = _jobs[job_id]
                 job["results"].append(entry)
                 job["processed"] = index + 1
-                if query_result["status"] == "failed":
+                if query_result["status"] != "completed":
                     job["failed"] += 1
                 job["updated_at"] = _now()
                 snapshot = json.loads(json.dumps(job))

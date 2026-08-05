@@ -185,10 +185,16 @@ def test_retrieval_runs_are_logged_and_captured_for_the_api_csv(monkeypatch):
         FakeSolr(), RetrievalConfig(mode=RetrievalMode.KEYWORD)
     )
 
-    with resources.capture_retrieval_runs() as captured:
+    with resources.capture_retrieval_runs(
+        {"JOB_ID": "job-1", "SOURCE_PATH": "$.questions[0]", "SOURCE_ID": 7}
+    ) as captured:
         service.retrieve(question="Where are the parks?", keywords=["parks"])
 
     assert len(persisted) == 1
     assert captured[0]["mode"] == "keyword"
     assert captured[0]["hits"][0]["resource_id"] == "parks"
+    assert captured[0]["job_id"] == "job-1"
+    assert captured[0]["source_path"] == "$.questions[0]"
+    assert captured[0]["source_id"] == 7
+    assert captured[0]["retrieval_attempt"] == 1
     assert "timestamp" in captured[0]

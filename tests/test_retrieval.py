@@ -1,11 +1,13 @@
 import json
 import math
+import csv
 
 import pytest
 
 from src.client_solr import LocalSolrClient
 from lakegen.retrieval import (
     HybridRetriever,
+    FusionMethod,
     KeywordRetriever,
     MissingSignalPolicy,
     RetrievalConfig,
@@ -17,6 +19,11 @@ from lakegen.retrieval import (
     evaluate_ranking,
     min_max_normalize,
     represent_table,
+)
+from lakegen.retrieval.benchmark import (
+    BenchmarkCase,
+    append_benchmark_metrics_log,
+    run_retriever_benchmark,
 )
 
 
@@ -204,6 +211,21 @@ def test_hybrid_rescore_policy_requires_and_uses_reliable_resolver():
     assert all(result.semantic_score is not None for result in results)
 
 
+def test_hybrid_rrf_is_a_configurable_rank_fusion_baseline():
+    lexical = StubBranch([hit("a", 100, 1), hit("b", 1, 2)])
+    semantic = StubBranch([hit("b", 0.99, 1), hit("c", 0.98, 2)])
+    config = RetrievalConfig(
+        mode="hybrid", fusion_method=FusionMethod.RRF, rrf_k=60
+    )
+
+    results = HybridRetriever(lexical, semantic, config).retrieve(
+        "question", ["keyword"], top_k=3
+    )
+
+    assert [item.document["resource_id"] for item in results] == ["b", "a", "c"]
+    assert results[0].score == pytest.approx(1 / 62 + 1 / 61)
+
+
 def test_metadata_v1_is_stable_and_includes_requested_table_metadata():
     representation = represent_table(
         {
@@ -242,6 +264,68 @@ def test_target_metrics_include_hit_recall_mrr_and_graded_ndcg():
     assert metrics["Recall@3"] == 1.0
     assert metrics["MRR"] == 0.5
     assert 0.0 < metrics["nDCG@3"] < 1.0
+
+
+def test_retriever_only_benchmark_runs_once_per_case_without_pipeline_stages():
+    solr = FakeSolr(
+        select_docs=[
+            {"resource_id": "gold", "title": "Gold", "score": 2.0},
+            {"resource_id": "other", "title": "Other", "score": 1.0},
+        ]
+    )
+    cases = [
+        BenchmarkCase("q1", "Question one?", ("gold",), ("gold",)),
+        BenchmarkCase("q2", "Question two?", ("other",), ("gold",)),
+    ]
+
+    report = run_retriever_benchmark(
+        solr,
+        cases,
+        base_config=RetrievalConfig(top_k=10),
+        modes=(RetrievalMode.KEYWORD,),
+    )
+
+    assert len(solr.select_calls) == 2
+    keyword = report["experiments"]["keyword"]
+    assert keyword["mean_metrics"]["Hit@1"] == 1.0
+    assert keyword["cases"][0]["ranking"][:2] == ["gold", "other"]
+    assert "table_selection" not in report
+    assert "code_execution" not in report
+
+
+def test_benchmark_metrics_csv_uses_variable_case_count_and_reuses_job_id(tmp_path):
+    solr = FakeSolr(select_docs=[{"resource_id": "gold", "score": 2.0}])
+    cases = [
+        BenchmarkCase(str(index), f"Question {index}?", ("gold",), ("gold",))
+        for index in range(3)
+    ]
+    report = run_retriever_benchmark(
+        solr,
+        cases,
+        base_config=RetrievalConfig(top_k=10),
+        modes=(RetrievalMode.KEYWORD,),
+    )
+    path = tmp_path / "retrieval_benchmarks_log.csv"
+
+    append_benchmark_metrics_log(
+        report,
+        path,
+        run_id="run-variable",
+        core="nyc",
+        source_path="queries.json",
+        source_job_ids={"keyword": "existing-job-id"},
+    )
+
+    with path.open(newline="", encoding="utf-8") as input_file:
+        row = next(csv.DictReader(input_file))
+    assert row["RUN_ID"] == "run-variable"
+    assert row["JOB_ID"] == "existing-job-id"
+    assert row["QUESTION_COUNT"] == "3"
+    assert row["HIT_AT_1"] == "1.0"
+    assert row["RECALL_AT_10"] == "1.0"
+    assert row["MRR"] == "1.0"
+    assert len(json.loads(row["CASE_METRICS_JSON"])) == 3
+    assert "FULL_TRACE" not in row
 
 
 class FakeIndexSolr:

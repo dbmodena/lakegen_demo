@@ -47,9 +47,10 @@ def phase12_agent(
     stream_callback: StreamCallback | None = None,
     cancel_check: Callable[[], None] | None = None,
     retrieval_config: RetrievalConfig | None = None,
+    state: P12State | None = None,
 ) -> tuple[list[str], list[str], SolrMetadata, str, str, int]:
-    
-    state = P12State()
+
+    state = state or P12State()
     agent_tools = make_p12_tools(
         state,
         solr_client,

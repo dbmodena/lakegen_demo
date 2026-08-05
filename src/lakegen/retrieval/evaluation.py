@@ -83,6 +83,10 @@ class RetrievalRunLogger:
 
     def __call__(self, run: RetrievalRun) -> None:
         payload: dict[str, Any] = run.to_log_dict()
+        self.log_payload(payload)
+
+    def log_payload(self, payload: Mapping[str, Any]) -> None:
+        payload = dict(payload)
         payload["timestamp"] = datetime.now(timezone.utc).isoformat()
         line = json.dumps(payload, ensure_ascii=False, allow_nan=False)
         with self._lock:

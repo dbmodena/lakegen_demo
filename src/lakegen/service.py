@@ -17,10 +17,13 @@ from lakegen.core.resources import (
     get_llm,
     get_prompt_manager,
     get_solr,
+    log_retrieval_decision,
 )
 from lakegen.phases import phase12_agent, phase3_generate_and_execute, phase4_synthesize
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.output_validation import AnswerDisposition, validate_answer
+from lakegen.agent_tools.tools_p12 import P12State
 
 
 MAX_CODE_ATTEMPTS = 3
@@ -65,6 +68,15 @@ class QueryResult:
     retries: int = 0
     error: str = ""
     elapsed_seconds: float = 0.0
+    answer_disposition: str = ""
+    pipeline_stages: dict[str, str] = field(
+        default_factory=lambda: {
+            "retrieval": "not_run",
+            "table_selection": "not_run",
+            "code_execution": "not_run",
+            "final_answer": "not_run",
+        }
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -186,8 +198,9 @@ def run_question(
     trace = ""
     hint = ""
     error = ""
+    selection_state = P12State()
 
-    with capture_retrieval_runs() as retrieval_runs:
+    with capture_retrieval_runs(log_context) as retrieval_runs:
         try:
             for table_attempt in range(MAX_TABLE_ATTEMPTS):
                 (
@@ -207,10 +220,18 @@ def run_question(
                     hint=hint,
                     portal_name=runtime.portal_name,
                     retrieval_config=runtime.retrieval,
+                    state=selection_state,
                 )
                 result.tokens["p1_p2"] += architecture_tokens
                 result.tables = selected
                 result.keywords = keywords
+                result.pipeline_stages["retrieval"] = (
+                    "hit" if retrieval_runs and any(run.get("hits") for run in retrieval_runs)
+                    else "no_hits"
+                )
+                result.pipeline_stages["table_selection"] = (
+                    "selected" if selected else "empty"
+                )
 
                 previous_code = ""
                 for code_attempt in range(MAX_CODE_ATTEMPTS):
@@ -234,6 +255,7 @@ def run_question(
                     result.code = previous_code
 
                     if generated.rejected_reason:
+                        result.pipeline_stages["code_execution"] = "tables_rejected"
                         hint = (
                             "The code generator rejected the previous tables. "
                             f"Select different tables. Feedback: {generated.rejected_reason}"
@@ -243,16 +265,41 @@ def run_question(
 
                     if generated.error is None and generated.raw_result is not None:
                         result.raw_result = generated.raw_result
+                        raw_validation = validate_answer(generated.raw_result)
+                        if raw_validation.disposition == AnswerDisposition.EMPTY:
+                            result.pipeline_stages["code_execution"] = "empty"
+                            error = raw_validation.reason
+                            continue
+                        if raw_validation.disposition == AnswerDisposition.REJECTED:
+                            result.pipeline_stages["code_execution"] = "rejected"
+                            result.pipeline_stages["final_answer"] = "rejected"
+                            result.answer_disposition = raw_validation.disposition.value
+                            result.status = "rejected"
+                            result.error = raw_validation.reason
+                            return result
+
+                        result.pipeline_stages["code_execution"] = "succeeded"
                         answer, synthesis_tokens = phase4_synthesize(
                             question, generated.raw_result, llm, prompt_manager
                         )
                         result.answer = answer
                         result.tokens["p4"] = synthesis_tokens
-                        result.status = "completed"
-                        result.error = ""
+                        validation = validate_answer(generated.raw_result, answer)
+                        result.answer_disposition = validation.disposition.value
+                        result.pipeline_stages["final_answer"] = validation.disposition.value
+                        if validation.disposition == AnswerDisposition.VALID:
+                            result.status = "completed"
+                            result.error = ""
+                        elif validation.disposition == AnswerDisposition.REJECTED:
+                            result.status = "rejected"
+                            result.error = validation.reason
+                        else:
+                            result.status = "failed"
+                            result.error = validation.reason
                         return result
 
                     error = generated.error or "Code execution returned no output."
+                    result.pipeline_stages["code_execution"] = "failed"
                 else:
                     break
 
@@ -267,6 +314,21 @@ def run_question(
             result.error = f"{type(exc).__name__}: {exc}"
             return result
         finally:
+            for run in retrieval_runs:
+                run["selected_tables"] = list(selected)
+                run["selection_reason"] = reasoning or error
+            try:
+                log_retrieval_decision(
+                    question=question,
+                    selected_tables=selected,
+                    reason=reasoning or error,
+                    context=log_context,
+                    mode=runtime.retrieval.mode.value,
+                    keywords=keywords,
+                    retrieval_attempt=len(selection_state.search_attempts),
+                )
+            except Exception:
+                logger.exception("Could not persist the retrieval selection decision")
             result.elapsed_seconds = round(time.monotonic() - started, 3)
             retrieval = runtime.retrieval
             extra_fields: dict[str, Any] = {
@@ -282,7 +344,11 @@ def run_question(
                 "VECTOR_FIELD": retrieval.vector_field,
                 "LEXICAL_QUERY_FIELDS": retrieval.lexical_query_fields,
                 "MISSING_SIGNAL_POLICY": retrieval.missing_signal_policy.value,
+                "FUSION_METHOD": retrieval.fusion_method.value,
+                "RRF_K": retrieval.rrf_k,
                 "RETRIEVAL_RUNS_JSON": retrieval_runs,
+                "PIPELINE_STAGES_JSON": result.pipeline_stages,
+                "ANSWER_DISPOSITION": result.answer_disposition,
             }
             if log_context:
                 extra_fields.update(log_context)

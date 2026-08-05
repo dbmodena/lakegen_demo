@@ -9,6 +9,7 @@ from typing import Any
 from src.client_solr import LocalSolrClient
 
 from lakegen.retrieval.config import (
+    FusionMethod,
     MissingSignalPolicy,
     RetrievalConfig,
     RetrievalMode,
@@ -263,14 +264,21 @@ class HybridRetriever:
             semantic_score = semantic_scores.get(key)
             lexical_normalized = normalized_lexical.get(key, 0.0)
             semantic_normalized = normalized_semantic.get(key, 0.0)
-            score = (
-                self.config.alpha * lexical_normalized
-                + (1.0 - self.config.alpha) * semantic_normalized
-            )
-            if not math.isfinite(score):
-                continue
             lexical_hit = lexical_by_key.get(key)
             semantic_hit = semantic_by_key.get(key)
+            if self.config.fusion_method == FusionMethod.RRF:
+                score = sum(
+                    1.0 / (self.config.rrf_k + branch_hit.rank)
+                    for branch_hit in (lexical_hit, semantic_hit)
+                    if branch_hit is not None and branch_hit.rank > 0
+                )
+            else:
+                score = (
+                    self.config.alpha * lexical_normalized
+                    + (1.0 - self.config.alpha) * semantic_normalized
+                )
+            if not math.isfinite(score):
+                continue
             fused.append(
                 RetrievalHit(
                     document=documents[key],
@@ -377,6 +385,17 @@ class TableRetrievalService:
             missing_signal_policy=(
                 self.config.missing_signal_policy
                 if self.config.mode == RetrievalMode.HYBRID
+                else None
+            ),
+            fusion_method=(
+                self.config.fusion_method
+                if self.config.mode == RetrievalMode.HYBRID
+                else None
+            ),
+            rrf_k=(
+                self.config.rrf_k
+                if self.config.mode == RetrievalMode.HYBRID
+                and self.config.fusion_method == FusionMethod.RRF
                 else None
             ),
             hits=hits,

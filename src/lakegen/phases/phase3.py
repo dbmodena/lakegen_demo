@@ -14,6 +14,7 @@ from lakegen.core.types import SolrMetadata
 from prompts.prompt_manager import PromptManager
 from lakegen.core.config import BASE_DIR
 from lakegen.core.table_io import read_table, table_load_command
+from lakegen.column_resolution import resolve_generated_code_columns
 from lakegen.core.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
@@ -66,10 +67,10 @@ _TABPFN_INTENT_KEYWORDS = {
         "causalidad", "causar", "causando", "efecto del tratamiento",
     ],
     "forecasting": [
-        "forecast", "trend", "trending", "time series",
-        "previsione", "previsionale", "tendenza", "serie temporale",
-        "prévision", "prevision", "tendance", "série temporelle", "serie temporelle",
-        "pronóstico", "pronostico", "previsión", "tendencia", "serie temporal",
+        "forecast", "forecasting", "future forecast", "next year", "next month",
+        "previsione", "previsionale", "anno prossimo", "mese prossimo",
+        "prévision", "prevision", "année prochaine", "mois prochain",
+        "pronóstico", "pronostico", "previsión", "próximo año", "proximo ano",
     ],
     "classification": [
         "classify", "classification", "classifier", "likely", "probability",
@@ -181,6 +182,39 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
         return None, f"[{type(e).__name__}] {e}", code
 
 
+def _resolve_and_validate_columns(
+    code_raw: str,
+    tables: list[str],
+    csv_dir: Path,
+) -> tuple[str, str | None]:
+    """Resolve generated aliases against the exact selected-table schemas."""
+
+    code = _extract_code(code_raw)
+    schemas: dict[str, list[str]] = {}
+    try:
+        for table in tables:
+            path = Path(csv_dir) / table.strip()
+            schemas[table] = [str(column) for column in read_table(path, nrows=0).columns]
+        resolution = resolve_generated_code_columns(code, schemas)
+    except (SyntaxError, ValueError) as exc:
+        return code, f"Column preflight failed: {type(exc).__name__}: {exc}"
+
+    if resolution.unresolved_required:
+        available = sorted({column for columns in schemas.values() for column in columns})
+        return resolution.code, (
+            "Column preflight failed. Required generated column names do not match "
+            f"the selected schemas: {list(resolution.unresolved_required)}. "
+            f"Available exact columns: {available}"
+        )
+    return resolution.code, None
+
+
+def _exact_column_labels(frame) -> list[str]:
+    """Render the executable table schema without substituting Solr aliases."""
+
+    return [f"{column}({frame[column].dtype})" for column in frame.columns]
+
+
 def phase3_generate_code(
     query, 
     tables, 
@@ -207,23 +241,17 @@ def phase3_generate_code(
     info_lines = ["AVAILABLE TABLES:"]
     for idx, fn in enumerate(tables, 1):
         filepath = os.path.join(csv_dir, fn.strip())
-        meta = solr_meta.get(fn, {})
-        cn = meta.get("columns.name", [])
-        ct = meta.get("columns.type", [])
 
         load_cmd = table_load_command(filepath)
         df = read_table(filepath, nrows=MAX_SAMPLE_ROWS + 1)
 
-        # Build column info from metadata or actual dataframe
-        if cn and len(cn) == len(ct):
-            col_typed = [f"{n}({t})" for n, t in zip(cn, ct)]
-        elif cn:
-            col_typed = list(cn)
-        else:
-            try:
-                col_typed = [f"{c}({df[c].dtype})" for c in df.columns]
-            except Exception:
-                col_typed = ["Unknown columns"]
+        # The local file is the execution schema and therefore the sole source
+        # of truth for exact names. Solr may expose API field names such as
+        # ``mbps_bandwidth`` while the parquet contains ``Mbps Bandwidth``.
+        try:
+            col_typed = _exact_column_labels(df)
+        except Exception:
+            col_typed = ["Unknown columns"]
 
         total_cols = len(col_typed)
         shown = col_typed[:MAX_DETAIL_COLS]
@@ -498,7 +526,18 @@ def phase3_generate_and_execute(
     if cancel_check is not None:
         cancel_check()
 
-    raw_result, error, clean_code = _execute_code(code_raw, run_dir=run_dir)
+    resolved_code, preflight_error = _resolve_and_validate_columns(
+        code_raw, tables, csv_dir
+    )
+    if preflight_error:
+        return Phase3Result(
+            code_raw=code_raw,
+            tokens=tokens,
+            error=preflight_error,
+            clean_code=resolved_code,
+        )
+
+    raw_result, error, clean_code = _execute_code(resolved_code, run_dir=run_dir)
     return Phase3Result(
         code_raw=code_raw,
         tokens=tokens,

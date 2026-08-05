@@ -1,4 +1,5 @@
 from lakegen.retrieval.config import (
+    FusionMethod,
     MissingSignalPolicy,
     RetrievalConfig,
     RetrievalMode,
@@ -21,6 +22,7 @@ from lakegen.retrieval.retrievers import (
 
 __all__ = [
     "HybridRetriever",
+    "FusionMethod",
     "KeywordRetriever",
     "METADATA_V1",
     "MissingSignalPolicy",

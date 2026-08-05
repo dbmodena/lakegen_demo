@@ -18,6 +18,11 @@ class MissingSignalPolicy(StrEnum):
     RESCORE = "rescore"
 
 
+class FusionMethod(StrEnum):
+    WEIGHTED = "weighted"
+    RRF = "rrf"
+
+
 @dataclass(frozen=True)
 class RetrievalConfig:
     """Reproducible retrieval settings for a LakeGen experiment."""
@@ -32,6 +37,8 @@ class RetrievalConfig:
     vector_field: str = "table_embedding"
     lexical_query_fields: str | None = None
     missing_signal_policy: MissingSignalPolicy = MissingSignalPolicy.ZERO
+    fusion_method: FusionMethod = FusionMethod.WEIGHTED
+    rrf_k: int = 60
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", RetrievalMode(self.mode))
@@ -40,12 +47,15 @@ class RetrievalConfig:
             "missing_signal_policy",
             MissingSignalPolicy(self.missing_signal_policy),
         )
+        object.__setattr__(self, "fusion_method", FusionMethod(self.fusion_method))
         if self.top_k <= 0:
             raise ValueError("top_k must be greater than zero")
         if not 0.0 <= self.alpha <= 1.0:
             raise ValueError("alpha must be between 0 and 1")
         if self.candidate_multiplier <= 0:
             raise ValueError("candidate_multiplier must be greater than zero")
+        if self.rrf_k <= 0:
+            raise ValueError("rrf_k must be greater than zero")
         for name in ("representation_version", "embedding_model", "vector_field"):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} must not be blank")
@@ -99,4 +109,8 @@ class RetrievalConfig:
             missing_signal_policy=MissingSignalPolicy(
                 os.environ.get("LAKEGEN_MISSING_SIGNAL_POLICY", "zero")
             ),
+            fusion_method=FusionMethod(
+                os.environ.get("LAKEGEN_FUSION_METHOD", "weighted")
+            ),
+            rrf_k=int(os.environ.get("LAKEGEN_RRF_K", "60")),
         )

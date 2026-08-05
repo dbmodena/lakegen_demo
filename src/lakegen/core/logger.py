@@ -11,13 +11,23 @@ import pandas as pd
 from lakegen.core.config import LOG_DIR
 
 CSV_LOG_COLUMNS = [
+    "ID", "TIMESTAMP", "MODEL", "ARCHITECTURE", "QUESTION",
+    "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES",
+    "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT",
+    "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3", "TOKENS_PHASE4",
+    "ERROR",
+]
+
+API_CSV_LOG_COLUMNS = [
     "ID", "TIMESTAMP", "JOB_ID", "SOURCE_PATH", "SOURCE_ID", "MODEL",
     "ARCHITECTURE", "CORE", "PORTAL_NAME", "STATUS", "QUESTION",
     "SOURCE_JSON", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL",
     "RETRIEVAL_MODE", "TOP_K", "HYBRID_ALPHA", "CANDIDATE_MULTIPLIER",
     "REPRESENTATION_VERSION", "EMBEDDING_MODEL", "EMBEDDING_BASE_URL",
     "VECTOR_FIELD", "LEXICAL_QUERY_FIELDS", "MISSING_SIGNAL_POLICY",
-    "RETRIEVAL_RUNS_JSON", "RETRIES", "SUCCESS", "REASONING", "FULL_TRACE",
+    "FUSION_METHOD", "RRF_K",
+    "RETRIEVAL_RUNS_JSON", "PIPELINE_STAGES_JSON", "ANSWER_DISPOSITION",
+    "RETRIES", "SUCCESS", "REASONING",
     "DEBUG_RAW", "LLM_THINKING", "AGENT_THINKING", "CODE", "RAW_RESULT",
     "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3",
     "TOKENS_PHASE4", "TOKENS_PHASE5", "ELAPSED_SECONDS", "ERROR",
@@ -38,8 +48,13 @@ def _csv_value(value: Any) -> Any:
     return value
 
 
-def _ensure_csv_columns(csv_path: str, required_columns: list[str]) -> list[str]:
-    """Add newly introduced columns to an existing log without losing rows."""
+def _ensure_csv_columns(
+    csv_path: str,
+    required_columns: list[str],
+    *,
+    excluded_columns: tuple[str, ...] = (),
+) -> list[str]:
+    """Evolve a CSV schema, adding fields and removing explicitly private ones."""
 
     if not os.path.exists(csv_path):
         return required_columns
@@ -49,16 +64,24 @@ def _ensure_csv_columns(csv_path: str, required_columns: list[str]) -> list[str]
         existing_columns = list(reader.fieldnames or [])
         rows = list(reader)
 
-    missing_columns = [
-        column for column in required_columns if column not in existing_columns
+    excluded = set(excluded_columns)
+    retained_columns = [
+        column for column in existing_columns if column not in excluded
     ]
-    if not missing_columns:
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in retained_columns and column not in excluded
+    ]
+    evolved_columns = retained_columns + missing_columns
+    if evolved_columns == existing_columns:
         return existing_columns
 
-    evolved_columns = existing_columns + missing_columns
     temporary_path = f"{csv_path}.tmp"
     with open(temporary_path, "w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=evolved_columns)
+        writer = csv.DictWriter(
+            csv_file, fieldnames=evolved_columns, extrasaction="ignore"
+        )
         writer.writeheader()
         writer.writerows(rows)
     os.replace(temporary_path, csv_path)
@@ -129,6 +152,7 @@ def save_experiment_log(
         and not result.startswith("[CRITICAL ERROR]")
         and not error
     )
+    is_api_log = csv_filename == "api_experiments_log.csv"
     row: dict[str, Any] = {
         "TIMESTAMP":       timestamp,
         "MODEL":           model,
@@ -141,28 +165,41 @@ def save_experiment_log(
         "RETRIES":         retries,
         "SUCCESS":         success,
         "REASONING":       reasoning,
-        "FULL_TRACE":      full_trace,
-        "DEBUG_RAW":       debug_raw,
-        "LLM_THINKING":    llm_thinking,
-        "AGENT_THINKING":  agent_thinking,
-        "CODE":            code,
-        "RAW_RESULT":      result,
-        "FINAL_RESULT":    final_result,
+        "DEBUG_RAW":       debug_raw[:100].replace("'", "").replace('"', "").replace("\n", " "),
+        "RAW_RESULT":      result[:500].replace("\n", "  "),
+        "FINAL_RESULT":    final_result[:500].replace("\n", "  ") if final_result else "",
         "TOKENS_PHASE1":   tokens_phase1,
         "TOKENS_PHASE2":   tokens_phase2,
         "TOKENS_PHASE3":   tokens_phase3,
         "TOKENS_PHASE4":   synthesis_tokens,
         "TOKENS_PHASE5":   synthesis_tokens,
-        "ELAPSED_SECONDS": elapsed_seconds,
-        "ERROR":           error,
+        "ERROR":           error.replace("\n", "  "),
     }
+    if is_api_log:
+        row.update({
+            "DEBUG_RAW": debug_raw,
+            "LLM_THINKING": llm_thinking,
+            "AGENT_THINKING": agent_thinking,
+            "CODE": code,
+            "RAW_RESULT": result,
+            "FINAL_RESULT": final_result,
+            "TOKENS_PHASE5": synthesis_tokens,
+            "ELAPSED_SECONDS": elapsed_seconds,
+            "ERROR": error,
+        })
     if extra_fields:
         row.update({str(key): _csv_value(value) for key, value in extra_fields.items()})
 
-    required_columns = list(dict.fromkeys([*CSV_LOG_COLUMNS, *row]))
+    base_columns = API_CSV_LOG_COLUMNS if is_api_log else CSV_LOG_COLUMNS
+    extra_columns = list(extra_fields) if extra_fields else []
+    required_columns = list(dict.fromkeys([*base_columns, *extra_columns]))
     with _CSV_LOCK:
         is_new_file = not os.path.exists(csv_path)
-        fieldnames = _ensure_csv_columns(csv_path, required_columns)
+        fieldnames = _ensure_csv_columns(
+            csv_path,
+            required_columns,
+            excluded_columns=("FULL_TRACE",),
+        )
 
         next_id = 1
         if not is_new_file:

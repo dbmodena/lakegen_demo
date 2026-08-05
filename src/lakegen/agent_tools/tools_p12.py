@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from pydantic import BaseModel, Field
 
@@ -25,6 +26,17 @@ class P12State:
         self.all_candidates: list[str] = []
         self.solr_meta: SolrMetadata = {}
         self.used_keywords: list[str] = []
+        self.keyword_history: list[list[str]] = []
+        self.best_ranks: dict[str, int] = {}
+        self.search_cache: dict[tuple[str, ...], str] = {}
+        self.search_attempts: list[dict[str, object]] = []
+
+
+def _schema_overlap(question: str, metadata: dict) -> int:
+    question_tokens = set(re.findall(r"[a-z0-9]+", question.casefold()))
+    schema = " ".join(map(str, metadata.get("columns.name", []))).casefold()
+    schema_tokens = set(re.findall(r"[a-z0-9]+", schema))
+    return len(question_tokens & schema_tokens)
 
 
 class Phase12ToolsManager:
@@ -63,6 +75,14 @@ class Phase12ToolsManager:
             if not keywords:
                 return "No keywords provided. Search with one or two dataset concepts."
             self.state.used_keywords = keywords
+            key = tuple(keyword.casefold() for keyword in keywords)
+            if key in self.state.search_cache:
+                return (
+                    f"Search skipped: keywords {keywords} were already tried.\n"
+                    + self.state.search_cache[key]
+                )
+            self.state.keyword_history.append(keywords)
+            attempt = len(self.state.keyword_history)
 
             retriever = get_table_retrieval_service(
                 self.solr_client, self.retrieval_config
@@ -93,29 +113,60 @@ class Phase12ToolsManager:
                 )
                 search_mode = "OR fallback"
 
-            candidates: list[str] = []
+            current_candidates: list[str] = []
             for hit in hits:
                 doc = hit.document
                 matched = match_local_csv(doc, self.all_files)
-                if matched is None or matched in candidates:
+                if matched is None or matched in current_candidates:
                     continue
-                candidates.append(matched)
-                self.state.solr_meta[matched] = solr_metadata_from_doc(doc)
-                self.state.solr_meta[matched]["retrieval"] = hit.to_log_dict()
+                current_candidates.append(matched)
+                previous_rank = self.state.best_ranks.get(matched)
+                if previous_rank is None or hit.rank < previous_rank:
+                    self.state.best_ranks[matched] = hit.rank
+                    self.state.solr_meta[matched] = solr_metadata_from_doc(doc)
+                    self.state.solr_meta[matched]["retrieval"] = hit.to_log_dict()
+                    self.state.solr_meta[matched]["best_attempt"] = attempt
+                    self.state.solr_meta[matched]["best_keywords"] = list(keywords)
                 if matched not in self.state.all_candidates:
                     self.state.all_candidates.append(matched)
-                if len(candidates) >= self.retrieval_config.top_k:
+                if len(current_candidates) >= self.retrieval_config.top_k:
                     break
 
-            if not candidates:
-                return f"Keywords used: {keywords}\nNo tables found. Try with fewer or different keywords."
+            self.state.all_candidates.sort(
+                key=lambda name: (
+                    -_schema_overlap(self.question, self.state.solr_meta.get(name, {})),
+                    self.state.best_ranks.get(name, 10**9),
+                    name,
+                )
+            )
+            candidates = self.state.all_candidates[: self.retrieval_config.top_k]
+            self.state.search_attempts.append(
+                {
+                    "attempt": attempt,
+                    "keywords": list(keywords),
+                    "search_mode": search_mode,
+                    "current_candidates": list(current_candidates),
+                    "accumulated_candidates": list(candidates),
+                }
+            )
 
-            return (
-                f"Keywords used: {keywords}\n"
+            if not current_candidates and not candidates:
+                response = (
+                    f"Attempt: {attempt}\nKeywords used: {keywords}\n"
+                    "No tables found. Try with fewer or different keywords."
+                )
+                self.state.search_cache[key] = response
+                return response
+
+            response = (
+                f"Attempt: {attempt}\nKeywords used: {keywords}\n"
                 f"Retriever: {self.retrieval_config.mode}\n"
                 f"Search mode: {search_mode}\n\n"
+                "Candidates accumulated across all attempts (best schema/rank retained):\n"
                 + format_candidate_context(candidates, self.state.solr_meta)
             )
+            self.state.search_cache[key] = response
+            return response
         except Exception as e:
             return f"Error querying Solr: {str(e)}. Try different keywords."
 

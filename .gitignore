@@ -38,6 +38,8 @@ fonti
 coding/
 script.py
 .lakegen_jobs/
+reports
+benchmarks
 
 # Ignore Chainlit-generated runtime assets
 .chainlit/translations/
