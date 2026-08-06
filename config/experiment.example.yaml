@@ -1,0 +1,36 @@
+experiment_id: thesis-baseline-001
+seed: 0
+core: nyc
+model: openai.gpt-oss-120b
+discovery_architecture: unified
+tool_access: agentic
+
+retrieval:
+  mode: keyword
+  top_k: 10
+  alpha: 0.5
+  candidate_multiplier: 5
+  representation_version: metadata-v1
+  embedding_model: bge-m3
+  embedding_base_url: http://localhost:11434
+  vector_field: table_embedding
+  lexical_query_fields: null
+  missing_signal_policy: zero
+  fusion_method: weighted
+  rrf_k: 60
+
+planner_enabled: false
+reviewers:
+  dataset: false
+  plan: false
+  code: false
+  result: false
+max_revision_rounds: 3
+coder_context_level: full
+interaction_mode: human_gated
+gates:
+  keywords: true
+  datasets: true
+  plan: false
+  code: true
+  result: false

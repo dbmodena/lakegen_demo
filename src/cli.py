@@ -17,7 +17,9 @@ uv run python src/cli.py --divided "What are the top 3 districts by student susp
 import argparse
 import sys
 import uuid
+import time
 from pathlib import Path
+import yaml
 
 _SRC_DIR = Path(__file__).resolve().parent
 _ROOT_DIR = _SRC_DIR.parent
@@ -37,9 +39,14 @@ from lakegen.phases import (
     phase4_synthesize,
 )
 from lakegen.core.logger import save_experiment_log
-from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
+from lakegen.core.config import BASE_DIR, LOG_DIR, resolve_portal_tables_dir
 from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.experiment_config import load_experiment_config
+from lakegen.manifest import create_manifest, persist_manifest
+from lakegen.tracing import llm_call_record, summarize_tool_calls
+from lakegen.runner import ExperimentRunner
+from lakegen.experiment_config import InteractionMode
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -53,6 +60,7 @@ COLORS = {
     "reset":   "\033[0m",
     "dim":     "\033[2m",
 }
+_CLI_INTERVENTIONS: list[dict] = []
 
 
 def _c(text: str, color: str) -> str:
@@ -67,14 +75,28 @@ def _header(title: str) -> None:
 
 def _ask_yes_no(prompt: str, default: bool = True) -> bool:
     suffix = "[Y/n]" if default else "[y/N]"
+    started = time.monotonic()
     answer = input(f"{prompt} {suffix}: ").strip().lower()
     if not answer:
-        return default
-    return answer in ("y", "yes", "si", "sì")
+        approved = default
+    else:
+        approved = answer in ("y", "yes", "si", "sì")
+    _CLI_INTERVENTIONS.append({
+        "type": "approval",
+        "approved": approved,
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    })
+    return approved
 
 
 def _ask_input(prompt: str, allow_empty: bool = True) -> str:
+    started = time.monotonic()
     value = input(f"{prompt}: ").strip()
+    _CLI_INTERVENTIONS.append({
+        "type": "hint",
+        "provided": bool(value),
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    })
     if not allow_empty and not value:
         return _ask_input(prompt, allow_empty)
     return value
@@ -96,6 +118,8 @@ def _stream_to_terminal(delta: str) -> None:
 
 
 def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
+    workflow_started = time.monotonic()
+    _CLI_INTERVENTIONS.clear()
     llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
     pm = get_prompt_manager()
@@ -113,11 +137,20 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     keyword_hint = ""
     attempted_keywords = []
     run_id = uuid.uuid4().hex
+    manifest = create_manifest(
+        runtime.experiment,
+        base_dir=BASE_DIR,
+        question=question,
+        run_id=run_id,
+    )
+    persist_manifest(manifest, LOG_DIR / "manifests")
     keywords = []
     selected = []
     solr_meta = {}
     reasoning = ""
     trace = ""
+    phase_seconds = {"discovery": 0.0, "code": 0.0, "result": 0.0}
+    llm_call_counts = {"discovery": 0, "code": 0, "result": 0}
 
     # ── Phase 1 & 2 ────────────
     keyword_retries = 0
@@ -125,6 +158,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         if runtime.use_unified_agent:
             _header("Phase 1 & 2 – Unified Architect & Search")
 
+            phase_started = time.monotonic()
             selected, keywords, solr_meta, reasoning, trace, tok = phase12_agent(
                 query=question,
                 llm=llm,
@@ -137,6 +171,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 stream_callback=_stream_to_terminal,
                 retrieval_config=runtime.retrieval,
             )
+            phase_seconds["discovery"] += time.monotonic() - phase_started
+            llm_call_counts["discovery"] += 1
 
             tokens["p1"] += tok
 
@@ -155,6 +191,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         # ── Phase 1: Generate AND keywords ────────────────────────────
         _header(f"Phase 1 – Keyword Selection (AND logic)")
 
+        phase_started = time.monotonic()
         keywords, raw_content, tok1, reasoning_p1 = phase1_generate_keywords(
             query=question,
             llm=llm,
@@ -163,6 +200,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             portal_name=runtime.portal_name,
             avoid_keywords=attempted_keywords,
         )
+        phase_seconds["discovery"] += time.monotonic() - phase_started
+        llm_call_counts["discovery"] += 1
         tokens["p1"] += tok1
 
         print(f"\n\n{_c('AND Keywords:', 'bold')} {_keyword_list(keywords)}")
@@ -182,6 +221,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             f"({runtime.retrieval.mode})"
         )
 
+        phase_started = time.monotonic()
         selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
             query=question,
             llm=llm,
@@ -195,6 +235,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             stream_callback=_stream_to_terminal,
             retrieval_config=runtime.retrieval,
         )
+        phase_seconds["discovery"] += time.monotonic() - phase_started
+        llm_call_counts["discovery"] += 1
         tokens["p2"] += tok2
 
         # Check if Phase 2 rejected the keywords
@@ -245,6 +287,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     while True:
         _header(f"Phase 3 – Code Generation (attempt {retries + 1}/{MAX_RETRIES})")
 
+        phase_started = time.monotonic()
         phase3_result = phase3_generate_and_execute(
             question,
             selected,
@@ -261,6 +304,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             reasoning_placeholder=None,
             run_dir=run_dir,
         )
+        phase_seconds["code"] += time.monotonic() - phase_started
+        llm_call_counts["code"] += 1
 
         tokens["p3"] += phase3_result.tokens
         final_code = phase3_result.clean_code
@@ -278,6 +323,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             keyword_hint = f"Previous tables rejected by coder: {phase3_result.rejected_reason}"
             if runtime.use_unified_agent:
                 _header("Re-running Phase 1 & 2 (Unified)")
+                phase_started = time.monotonic()
                 selected, keywords, solr_meta, reasoning, trace, tok = phase12_agent(
                     query=question,
                     llm=llm,
@@ -290,10 +336,13 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     stream_callback=_stream_to_terminal,
                     retrieval_config=runtime.retrieval,
                 )
+                phase_seconds["discovery"] += time.monotonic() - phase_started
+                llm_call_counts["discovery"] += 1
                 tokens["p1"] += tok
                 architect_reasoning = reasoning
             else:
                 _header("Re-running Phase 1 – Keyword Selection")
+                phase_started = time.monotonic()
                 keywords, raw_content, tok1, reasoning_p1 = phase1_generate_keywords(
                     query=question,
                     llm=llm,
@@ -302,9 +351,12 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     portal_name=runtime.portal_name,
                     avoid_keywords=attempted_keywords,
                 )
+                phase_seconds["discovery"] += time.monotonic() - phase_started
+                llm_call_counts["discovery"] += 1
                 tokens["p1"] += tok1
 
                 _header("Re-running Phase 2 – Table Search & Selection")
+                phase_started = time.monotonic()
                 selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
                     query=question,
                     llm=llm,
@@ -318,6 +370,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     stream_callback=_stream_to_terminal,
                     retrieval_config=runtime.retrieval,
                 )
+                phase_seconds["discovery"] += time.monotonic() - phase_started
+                llm_call_counts["discovery"] += 1
                 tokens["p2"] += tok2
                 architect_reasoning = reasoning
             print(f"\n{_c('New tables:', 'bold')} {', '.join(selected)}")
@@ -347,7 +401,10 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
     # ── Phase 4 – Synthesis ──────────────────────────────────────────────
     _header("Phase 4 – Answer Synthesis")
+    phase_started = time.monotonic()
     answer, tok4 = phase4_synthesize(question, raw_result, llm, pm)
+    phase_seconds["result"] += time.monotonic() - phase_started
+    llm_call_counts["result"] += 1
     tokens["p4"] = tok4
 
     print(f"\n{_c('Final Answer:', 'bold')}")
@@ -379,8 +436,88 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         error=err if err is not None else "",
         model=runtime.model_name,
         architecture="unified" if runtime.use_unified_agent else "divided",
+        elapsed_seconds=round(time.monotonic() - workflow_started, 3),
+        extra_fields={
+            "MANIFEST_JSON": manifest.model_dump(mode="json"),
+            "RUN_TRACE_JSON": {
+                "discovery": {"keywords": keywords, "selected_datasets": selected},
+                "llm_calls": [
+                    llm_call_record(
+                        "discovery" if phase in {"p1", "p2"} else
+                        "code" if phase == "p3" else "result",
+                        llm_call_counts[
+                            "discovery" if phase in {"p1", "p2"} else
+                            "code" if phase == "p3" else "result"
+                        ],
+                        count,
+                    )
+                    for phase, count in tokens.items()
+                ],
+                "phase_metrics": {
+                    phase: {"latency_seconds": round(seconds, 6)}
+                    for phase, seconds in phase_seconds.items()
+                },
+                "tool_calls": summarize_tool_calls(trace),
+                "retries": retries,
+                "errors": [str(err)] if err else [],
+                "code": final_code,
+                "execution_outcome": {
+                    "succeeded": err is None,
+                    "raw_result": raw_result,
+                },
+                "human_interventions": list(_CLI_INTERVENTIONS),
+                "configuration": manifest.resolved_config,
+            },
+        },
     )
     print(_c("\nExperiment log saved.", "dim"))
+
+
+def resolve_cli_experiment(
+    *,
+    config_path: Path | None = None,
+    core: str | None = None,
+    model: str | None = None,
+    unified: bool | None = None,
+    retrieval_mode: str | None = None,
+    top_k: int | None = None,
+    hybrid_alpha: float | None = None,
+    candidate_multiplier: int | None = None,
+    set_values: list[str] | None = None,
+):
+    """Translate CLI options into the canonical experiment configuration."""
+
+    overrides = {}
+    if config_path is None:
+        # Preserve the historical CLI defaults even when LAKEGEN_* retrieval
+        # environment variables are present; files remain authoritative.
+        overrides.update({
+            "core": SOLR_CORE_OPTIONS[0],
+            "model": MODEL_OPTIONS[0],
+            "discovery_architecture": "unified",
+            "retrieval.mode": RetrievalMode.KEYWORD.value,
+            "retrieval.top_k": 10,
+            "retrieval.alpha": 0.5,
+            "retrieval.candidate_multiplier": 5,
+        })
+    cli_values = {
+        "core": core,
+        "model": model,
+        "discovery_architecture": (
+            "unified" if unified is True else "divided" if unified is False else None
+        ),
+        "retrieval.mode": retrieval_mode,
+        "retrieval.top_k": top_k,
+        "retrieval.alpha": hybrid_alpha,
+        "retrieval.candidate_multiplier": candidate_multiplier,
+    }
+    overrides.update({key: value for key, value in cli_values.items() if value is not None})
+    for raw_override in set_values or []:
+        if "=" not in raw_override:
+            raise ValueError(f"invalid --set {raw_override!r}; expected PATH=VALUE")
+        key, raw_value = raw_override.split("=", 1)
+        overrides[key.strip()] = yaml.safe_load(raw_value)
+    return load_experiment_config(config_path, overrides=overrides)
 
 
 # ── CLI entry point ──────────────────────────────────────────────────────────
@@ -393,31 +530,43 @@ def main() -> None:
     parser.add_argument(
         "--core",
         choices=SOLR_CORE_OPTIONS,
-        default=SOLR_CORE_OPTIONS[0],
+        default=None,
         help=f"Solr core / dataset portal (default: {SOLR_CORE_OPTIONS[0]}).",
     )
     parser.add_argument(
         "--model",
         choices=MODEL_OPTIONS,
-        default=MODEL_OPTIONS[0],
+        default=None,
         help=f"OCI Generative AI model name (default: {MODEL_OPTIONS[0]}).",
     )
     parser.add_argument(
         "--divided",
         dest="unified",
         action="store_false",
-        default=True,
+        default=None,
         help="Use the divided agent (separate Phase 1 & 2) instead of the default unified agent.",
     )
     parser.add_argument(
         "--retrieval-mode",
         choices=[mode.value for mode in RetrievalMode],
-        default=RetrievalMode.KEYWORD,
+        default=None,
         help="Table retriever: keyword BM25, semantic KNN, or hybrid fusion.",
     )
-    parser.add_argument("--top-k", type=int, default=10)
-    parser.add_argument("--hybrid-alpha", type=float, default=0.5)
-    parser.add_argument("--candidate-multiplier", type=int, default=5)
+    parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--hybrid-alpha", type=float, default=None)
+    parser.add_argument("--candidate-multiplier", type=int, default=None)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="YAML or JSON experiment configuration file.",
+    )
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="PATH=VALUE",
+        help="Override one config value (repeatable), e.g. retrieval.top_k=20.",
+    )
     args = parser.parse_args()
 
     nltk_err = bootstrap_nltk_data()
@@ -425,20 +574,38 @@ def main() -> None:
         print(_c(f"NLTK error: {nltk_err}", "red"))
         sys.exit(1)
 
-    runtime = RuntimeSettings(
-        model_name=args.model,
-        solr_core=args.core,
-        csv_dir=resolve_portal_tables_dir(args.core),
-        db_path=BASE_DIR / f"data/blend_{args.core}.db",
-        use_unified_agent=args.unified,
-        retrieval=RetrievalConfig.from_env(
-            mode=args.retrieval_mode,
+    try:
+        experiment = resolve_cli_experiment(
+            config_path=args.config,
+            core=args.core,
+            model=args.model,
+            unified=args.unified,
+            retrieval_mode=args.retrieval_mode,
             top_k=args.top_k,
-            alpha=args.hybrid_alpha,
+            hybrid_alpha=args.hybrid_alpha,
             candidate_multiplier=args.candidate_multiplier,
-        ),
+            set_values=args.set,
+        )
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+
+    runtime = RuntimeSettings(
+        model_name=experiment.model,
+        solr_core=experiment.core,
+        csv_dir=resolve_portal_tables_dir(experiment.core),
+        db_path=BASE_DIR / f"data/blend_{experiment.core}.db",
+        use_unified_agent=experiment.use_unified_agent,
+        retrieval=experiment.retrieval.to_runtime(),
+        experiment=experiment,
     )
 
+    if experiment.interaction_mode == InteractionMode.AUTONOMOUS:
+        result = ExperimentRunner(experiment).run(args.question)
+        if result.answer:
+            print(result.answer)
+        elif result.error:
+            print(_c(result.error, "red"))
+        return
     run_cli_workflow(args.question, runtime)
 
 

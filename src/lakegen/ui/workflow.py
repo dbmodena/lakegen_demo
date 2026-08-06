@@ -1,6 +1,7 @@
 from __future__ import annotations
 import uuid
 import os
+import time
 
 import asyncio
 from dataclasses import dataclass
@@ -40,7 +41,9 @@ from lakegen.core.resources import (
     get_solr,
 )
 from lakegen.core.logger import save_experiment_log
-from lakegen.core.config import BASE_DIR
+from lakegen.core.config import BASE_DIR, LOG_DIR
+from lakegen.manifest import create_manifest, persist_manifest
+from lakegen.tracing import llm_call_record, summarize_tool_calls
 
 from llama_index.core import Settings
 
@@ -103,10 +106,17 @@ async def _ask_choice(
         timeout=24 * 60 * 60,
         raise_on_timeout=False,
     )
+    started = time.monotonic()
     response = await message.send()
     if remove_after_answer:
         await message.remove()
-    return _action_value(response)
+    value = _action_value(response)
+    get_session().human_interventions.append({
+        "type": "approval",
+        "value": value,
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    })
+    return value
 
 
 async def _ask_hint(content: str, *, remove_after_answer: bool = False) -> str:
@@ -115,12 +125,21 @@ async def _ask_hint(content: str, *, remove_after_answer: bool = False) -> str:
         timeout=10 * 60,
         raise_on_timeout=False,
     )
+    started = time.monotonic()
     response = await message.send()
     if remove_after_answer:
         await message.remove()
     if not response:
+        get_session().human_interventions.append({
+            "type": "hint", "provided": False,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+        })
         return ""
     hint = str(response.get("output") or "").strip()
+    get_session().human_interventions.append({
+        "type": "hint", "provided": bool(hint),
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    })
     return "" if hint.lower() in {"", "skip", "none", "no"} else hint
 
 
@@ -151,6 +170,7 @@ async def _generate_keywords(
                 bridge.emit,
                 session.text("phase1.model_reasoning"),
             )
+            phase_started = time.monotonic()
             kws, raw, tok, reasoning = await cl.make_async(phase1_generate_keywords)(
                 session.query,
                 llm,
@@ -161,6 +181,8 @@ async def _generate_keywords(
                 reasoning_placeholder=reasoning_box,
                 avoid_keywords=avoid_kws,
             )
+            session.phase_seconds["discovery"] += time.monotonic() - phase_started
+            session.llm_call_counts["discovery"] += 1
         session.keywords = kws
         session.raw_keywords = raw
         session.tokens["p1"] += tok
@@ -223,6 +245,7 @@ async def _select_tables_once(
         auto_collapse=True,
     ) as step:
         async with StepStreamBridge(step) as bridge:
+            phase_started = time.monotonic()
             result = await cl.make_async(phase2_select_tables)(
                 query=session.query,
                 llm=llm,
@@ -237,6 +260,8 @@ async def _select_tables_once(
                 cancel_check=session.check_cancelled,
                 retrieval_config=session.runtime.retrieval,
             )
+            session.phase_seconds["discovery"] += time.monotonic() - phase_started
+            session.llm_call_counts["discovery"] += 1
 
         sel, cands, smeta, reasoning, trace, tok2 = result
         if apply_phase2_keyword_rejection(
@@ -357,6 +382,7 @@ async def _run_unified_gate(
             auto_collapse=True
         ) as step:
             async with StepStreamBridge(step) as bridge:
+                phase_started = time.monotonic()
                 selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
                     query=session.query,
                     llm=llm,
@@ -370,6 +396,8 @@ async def _run_unified_gate(
                     cancel_check=session.check_cancelled,
                     retrieval_config=session.runtime.retrieval,
                 )
+                session.phase_seconds["discovery"] += time.monotonic() - phase_started
+                session.llm_call_counts["discovery"] += 1
 
             session.tables = selected
             session.keywords = keywords
@@ -443,6 +471,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     bridge.emit,
                     session.text("phase3.model_reasoning"),
                 )
+                phase_started = time.monotonic()
                 phase3_result = await cl.make_async(phase3_generate_and_execute)(
                     session.query,
                     session.tables,
@@ -461,6 +490,8 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     cancel_check=session.check_cancelled,
                     run_dir=session.run_dir,
                 )
+                session.phase_seconds["code"] += time.monotonic() - phase_started
+                session.llm_call_counts["code"] += 1
 
             session.tokens["p3"] += phase3_result.tokens
             final_code = phase3_result.clean_code
@@ -521,12 +552,15 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         raw_result = f"Execution failed after {MAX_RETRIES} attempts. Last error: {error_msg}"
 
     async with cl.Step(name=session.text("phase4.step"), type="llm", default_open=True) as step:
+        phase_started = time.monotonic()
         answer, tok4 = await cl.make_async(phase4_synthesize)(
             session.query,
             raw_result,
             llm,
             pm,
         )
+        session.phase_seconds["result"] += time.monotonic() - phase_started
+        session.llm_call_counts["result"] += 1
         session.tokens["p4"] = tok4
         step.output = answer
 
@@ -584,6 +618,41 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         architecture=(
             "unified" if session.runtime.use_unified_agent else "divided"
         ),
+        extra_fields={
+            "MANIFEST_JSON": session.manifest,
+            "RUN_TRACE_JSON": {
+                "discovery": {
+                    "keywords": session.keywords,
+                    "selected_datasets": session.tables,
+                },
+                "llm_calls": [
+                    llm_call_record(
+                        "discovery" if phase in {"p1", "p2"} else
+                        "code" if phase == "p3" else "result",
+                        session.llm_call_counts[
+                            "discovery" if phase in {"p1", "p2"} else
+                            "code" if phase == "p3" else "result"
+                        ],
+                        count,
+                    )
+                    for phase, count in session.tokens.items()
+                ],
+                "phase_metrics": {
+                    phase: {"latency_seconds": round(seconds, 6)}
+                    for phase, seconds in session.phase_seconds.items()
+                },
+                "tool_calls": summarize_tool_calls(session.full_trace),
+                "retries": retries,
+                "errors": [str(err)] if err else [],
+                "code": full_code_history,
+                "execution_outcome": {
+                    "succeeded": err is None,
+                    "raw_result": raw_result,
+                },
+                "human_interventions": session.human_interventions,
+                "configuration": session.manifest.get("resolved_config", {}),
+            },
+        },
     )
     return ExecutionOutcome(status="done")
 
@@ -592,6 +661,14 @@ async def _run_locked_workflow(question: str) -> None:
     session = get_session()
     runtime = get_runtime_settings()
     session.runtime = runtime
+    manifest = create_manifest(
+        runtime.experiment,
+        base_dir=BASE_DIR,
+        question=question,
+        run_id=session.run_id,
+    )
+    persist_manifest(manifest, LOG_DIR / "manifests")
+    session.manifest = manifest.model_dump(mode="json")
 
     llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)

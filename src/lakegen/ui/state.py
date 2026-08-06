@@ -13,6 +13,12 @@ from lakegen.ui.i18n import t
 from lakegen.core.types import SolrMetadata
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.experiment_config import (
+    DiscoveryArchitecture,
+    ExperimentConfig,
+    InteractionMode,
+    load_experiment_config,
+)
 
 
 MODEL_OPTIONS = [
@@ -38,6 +44,24 @@ class RuntimeSettings:
     db_path: Path = BASE_DIR / "data/blend_nyc.db"
     use_unified_agent: bool = True
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig.from_env)
+    experiment: ExperimentConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.experiment is None:
+            self.experiment = load_experiment_config(overrides={
+                "model": self.model_name,
+                "core": self.solr_core,
+                "discovery_architecture": (
+                    DiscoveryArchitecture.UNIFIED.value
+                    if self.use_unified_agent
+                    else DiscoveryArchitecture.DIVIDED.value
+                ),
+                "interaction_mode": InteractionMode.HUMAN_GATED.value,
+                **{
+                    f"retrieval.{key}": value
+                    for key, value in self.retrieval.__dict__.items()
+                },
+            })
 
     @property
     def portal_name(self) -> str:
@@ -73,13 +97,24 @@ class RuntimeSettings:
         if retrieval_mode not in RETRIEVAL_MODE_OPTIONS:
             retrieval_mode = default.retrieval.mode
         
+        retrieval = RetrievalConfig.from_env(mode=retrieval_mode)
+        experiment = load_experiment_config(overrides={
+            "model": model_name,
+            "core": selected_solr_core,
+            "discovery_architecture": (
+                "unified" if bool(use_unified_agent) else "divided"
+            ),
+            "interaction_mode": "human_gated",
+            **{f"retrieval.{key}": value for key, value in retrieval.__dict__.items()},
+        })
         return cls(
             model_name=model_name,
             solr_core=selected_solr_core,
             csv_dir=resolve_portal_tables_dir(selected_solr_core),
             db_path=BASE_DIR / f"data/blend_{selected_solr_core}.db",
             use_unified_agent=bool(use_unified_agent),
-            retrieval=RetrievalConfig.from_env(mode=retrieval_mode),
+            retrieval=retrieval,
+            experiment=experiment,
         )
 
 
@@ -108,6 +143,14 @@ class LakeGenSession:
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     _cancelled: threading.Event = field(default_factory=threading.Event)
     workflow_task: asyncio.Task | None = None
+    manifest: dict[str, Any] = field(default_factory=dict)
+    human_interventions: list[dict[str, Any]] = field(default_factory=list)
+    phase_seconds: dict[str, float] = field(
+        default_factory=lambda: {"discovery": 0.0, "code": 0.0, "result": 0.0}
+    )
+    llm_call_counts: dict[str, int] = field(
+        default_factory=lambda: {"discovery": 0, "code": 0, "result": 0}
+    )
 
     @property
     def run_dir(self) -> Path:

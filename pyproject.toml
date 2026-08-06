@@ -26,6 +26,7 @@ dependencies = [
     "llama-index-embeddings-ollama>=0.9.0",
     "tabpfn>=8.0.8",
     "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
     "fastapi>=0.115,<1",
     "uvicorn>=0.30,<1",
     "oci>=2.184.0",

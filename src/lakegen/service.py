@@ -9,7 +9,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
 
-from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
+from lakegen.core.config import BASE_DIR, LOG_DIR, resolve_portal_tables_dir
 from lakegen.core.logger import save_experiment_log
 from lakegen.core.resources import (
     capture_retrieval_runs,
@@ -19,11 +19,25 @@ from lakegen.core.resources import (
     get_solr,
     log_retrieval_decision,
 )
-from lakegen.phases import phase12_agent, phase3_generate_and_execute, phase4_synthesize
+from lakegen.phases import (
+    phase1_generate_keywords,
+    phase2_select_tables,
+    phase12_agent,
+    phase3_generate_and_execute,
+    phase4_synthesize,
+)
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.agent_tools.tools_p12 import P12State
+from lakegen.experiment_config import (
+    DiscoveryArchitecture,
+    ExperimentConfig,
+    InteractionMode,
+    load_experiment_config,
+)
+from lakegen.manifest import ExperimentManifest, create_manifest, persist_manifest
+from lakegen.tracing import llm_call_record, summarize_tool_calls
 
 
 MAX_CODE_ATTEMPTS = 3
@@ -77,6 +91,16 @@ class QueryResult:
             "final_answer": "not_run",
         }
     )
+    manifest: dict[str, Any] = field(default_factory=dict)
+    configuration: dict[str, Any] = field(default_factory=dict)
+    discovery: dict[str, Any] = field(default_factory=dict)
+    ranking: list[dict[str, Any]] = field(default_factory=list)
+    llm_calls: list[dict[str, Any]] = field(default_factory=list)
+    phase_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    human_interventions: list[dict[str, Any]] = field(default_factory=list)
+    execution_outcome: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -148,6 +172,10 @@ def make_runtime_settings(
     top_k: int = 10,
     alpha: float = 0.5,
     candidate_multiplier: int = 5,
+    interaction_mode: InteractionMode | str = InteractionMode.AUTONOMOUS,
+    experiment_id: str = "default",
+    seed: int = 0,
+    config: ExperimentConfig | None = None,
 ) -> RuntimeSettings:
     if core not in SOLR_CORE_OPTIONS:
         raise ValueError(
@@ -158,18 +186,37 @@ def make_runtime_settings(
             f"Unknown model {model!r}. Expected one of: {', '.join(MODEL_OPTIONS)}"
         )
 
+    retrieval = (
+        config.retrieval.to_runtime()
+        if config is not None
+        else RetrievalConfig.from_env(
+            mode=retrieval_mode,
+            top_k=top_k,
+            alpha=alpha,
+            candidate_multiplier=candidate_multiplier,
+        )
+    )
+    resolved_config = config or load_experiment_config(overrides={
+        "model": model,
+        "core": core,
+        "discovery_architecture": (
+            DiscoveryArchitecture.UNIFIED.value
+            if use_unified_agent
+            else DiscoveryArchitecture.DIVIDED.value
+        ),
+        "interaction_mode": str(interaction_mode),
+        "experiment_id": experiment_id,
+        "seed": seed,
+        **{f"retrieval.{key}": value for key, value in retrieval.__dict__.items()},
+    })
     return RuntimeSettings(
         model_name=model,
         solr_core=core,
         csv_dir=resolve_portal_tables_dir(core),
         db_path=BASE_DIR / f"data/blend_{core}.db",
         use_unified_agent=use_unified_agent,
-        retrieval=RetrievalConfig.from_env(
-            mode=retrieval_mode,
-            top_k=top_k,
-            alpha=alpha,
-            candidate_multiplier=candidate_multiplier,
-        ),
+        retrieval=retrieval,
+        experiment=resolved_config,
     )
 
 
@@ -178,11 +225,31 @@ def run_question(
     runtime: RuntimeSettings,
     *,
     log_context: Mapping[str, Any] | None = None,
+    manifest: ExperimentManifest | None = None,
 ) -> QueryResult:
     """Run the automatic unified LakeGen workflow for one question."""
 
     started = time.monotonic()
     result = QueryResult(question=question, status="running")
+    experiment = getattr(runtime, "experiment", None)
+    if experiment is None:
+        # Compatibility for lightweight test/third-party RuntimeSettings-like
+        # objects; public constructors still validate models and cores strictly.
+        experiment = ExperimentConfig().model_copy(update={
+            "model": runtime.model_name,
+            "core": runtime.solr_core,
+            "interaction_mode": InteractionMode.AUTONOMOUS,
+        })
+    source_id = log_context.get("SOURCE_ID") if log_context else None
+    manifest = manifest or create_manifest(
+        experiment,
+        base_dir=BASE_DIR,
+        question=question,
+        question_id=source_id,
+    )
+    result.manifest = manifest.model_dump(mode="json")
+    result.configuration = dict(manifest.resolved_config)
+    persist_manifest(manifest, LOG_DIR / "manifests")
     llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
     prompt_manager = get_prompt_manager()
@@ -199,30 +266,91 @@ def run_question(
     hint = ""
     error = ""
     selection_state = P12State()
+    attempted_keywords: list[str] = []
 
     with capture_retrieval_runs(log_context) as retrieval_runs:
         try:
             for table_attempt in range(MAX_TABLE_ATTEMPTS):
-                (
-                    selected,
-                    keywords,
-                    solr_meta,
-                    reasoning,
-                    trace,
-                    architecture_tokens,
-                ) = phase12_agent(
-                    query=question,
-                    llm=llm,
-                    pm=prompt_manager,
-                    all_files=all_files,
-                    solr_client=solr,
-                    csv_dir=runtime.csv_dir,
-                    hint=hint,
-                    portal_name=runtime.portal_name,
-                    retrieval_config=runtime.retrieval,
-                    state=selection_state,
-                )
+                discovery_started = time.monotonic()
+                keywords_rejected = False
+                if experiment.use_unified_agent:
+                    (
+                        selected,
+                        keywords,
+                        solr_meta,
+                        reasoning,
+                        trace,
+                        architecture_tokens,
+                    ) = phase12_agent(
+                        query=question,
+                        llm=llm,
+                        pm=prompt_manager,
+                        all_files=all_files,
+                        solr_client=solr,
+                        csv_dir=runtime.csv_dir,
+                        hint=hint,
+                        portal_name=runtime.portal_name,
+                        retrieval_config=runtime.retrieval,
+                        state=selection_state,
+                    )
+                else:
+                    keywords, raw_keywords, tokens_p1, reasoning_p1 = (
+                        phase1_generate_keywords(
+                            query=question,
+                            llm=llm,
+                            pm=prompt_manager,
+                            hint=hint,
+                            portal_name=runtime.portal_name,
+                            avoid_keywords=attempted_keywords,
+                        )
+                    )
+                    (
+                        selected,
+                        candidates,
+                        solr_meta,
+                        reasoning,
+                        trace,
+                        tokens_p2,
+                    ) = phase2_select_tables(
+                        query=question,
+                        llm=llm,
+                        pm=prompt_manager,
+                        all_files=all_files,
+                        keywords=keywords,
+                        solr_client=solr,
+                        csv_dir=runtime.csv_dir,
+                        hint=hint,
+                        portal_name=runtime.portal_name,
+                        retrieval_config=runtime.retrieval,
+                    )
+                    architecture_tokens = tokens_p1 + tokens_p2
+                    trace = (
+                        f"--- Divided Phase 1 ---\n{reasoning_p1}\n"
+                        f"--- Divided Phase 2 ---\n{trace}"
+                    )
+                    if reasoning.startswith("REJECT_KEYWORDS:"):
+                        attempted_keywords.extend(keywords)
+                        attempted_keywords = list(dict.fromkeys(attempted_keywords))
+                        hint = (
+                            "The previous keywords led to bad tables. "
+                            f"Architect feedback: {reasoning}. "
+                            "Generate completely different keywords."
+                        )
+                        keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
+                        if not keywords_rejected:
+                            selected = candidates[:3] if candidates else all_files[:3]
                 result.tokens["p1_p2"] += architecture_tokens
+                discovery_elapsed = round(time.monotonic() - discovery_started, 6)
+                discovery_metric = result.phase_metrics.setdefault(
+                    "discovery", {"latency_seconds": 0.0, "retries": 0}
+                )
+                discovery_metric["latency_seconds"] = round(
+                    discovery_metric["latency_seconds"] + discovery_elapsed, 6
+                )
+                discovery_metric["retries"] = table_attempt
+                result.llm_calls.append(
+                    llm_call_record("discovery", 1, architecture_tokens)
+                )
                 result.tables = selected
                 result.keywords = keywords
                 result.pipeline_stages["retrieval"] = (
@@ -232,9 +360,12 @@ def run_question(
                 result.pipeline_stages["table_selection"] = (
                     "selected" if selected else "empty"
                 )
+                if keywords_rejected:
+                    continue
 
                 previous_code = ""
                 for code_attempt in range(MAX_CODE_ATTEMPTS):
+                    code_started = time.monotonic()
                     generated = phase3_generate_and_execute(
                         question,
                         selected,
@@ -250,11 +381,26 @@ def run_question(
                         run_dir=run_dir,
                     )
                     result.tokens["p3"] += generated.tokens
+                    code_metric = result.phase_metrics.setdefault(
+                        "code", {"latency_seconds": 0.0, "retries": 0}
+                    )
+                    code_metric["latency_seconds"] = round(
+                        code_metric["latency_seconds"]
+                        + (time.monotonic() - code_started),
+                        6,
+                    )
+                    code_metric["retries"] = code_attempt
+                    result.llm_calls.append(llm_call_record("code", 1, generated.tokens))
                     result.retries += int(code_attempt > 0)
                     previous_code = generated.clean_code or generated.code_raw
                     result.code = previous_code
 
                     if generated.rejected_reason:
+                        result.errors.append({
+                            "phase": "code",
+                            "type": "tables_rejected",
+                            "message": generated.rejected_reason,
+                        })
                         result.pipeline_stages["code_execution"] = "tables_rejected"
                         hint = (
                             "The code generator rejected the previous tables. "
@@ -279,11 +425,21 @@ def run_question(
                             return result
 
                         result.pipeline_stages["code_execution"] = "succeeded"
+                        synthesis_started = time.monotonic()
                         answer, synthesis_tokens = phase4_synthesize(
                             question, generated.raw_result, llm, prompt_manager
                         )
                         result.answer = answer
                         result.tokens["p4"] = synthesis_tokens
+                        result.phase_metrics["result"] = {
+                            "latency_seconds": round(
+                                time.monotonic() - synthesis_started, 6
+                            ),
+                            "retries": 0,
+                        }
+                        result.llm_calls.append(
+                            llm_call_record("result", 1, synthesis_tokens)
+                        )
                         validation = validate_answer(generated.raw_result, answer)
                         result.answer_disposition = validation.disposition.value
                         result.pipeline_stages["final_answer"] = validation.disposition.value
@@ -299,6 +455,11 @@ def run_question(
                         return result
 
                     error = generated.error or "Code execution returned no output."
+                    result.errors.append({
+                        "phase": "code",
+                        "type": "execution_error",
+                        "message": error,
+                    })
                     result.pipeline_stages["code_execution"] = "failed"
                 else:
                     break
@@ -312,6 +473,7 @@ def run_question(
         except Exception as exc:
             result.status = "failed"
             result.error = f"{type(exc).__name__}: {exc}"
+            result.errors.append({"phase": "pipeline", "message": result.error})
             return result
         finally:
             for run in retrieval_runs:
@@ -330,6 +492,44 @@ def run_question(
             except Exception:
                 logger.exception("Could not persist the retrieval selection decision")
             result.elapsed_seconds = round(time.monotonic() - started, 3)
+            result.phase_metrics["total"] = {
+                "latency_seconds": result.elapsed_seconds,
+                "retries": result.retries,
+            }
+            result.discovery = {
+                "outcome": result.pipeline_stages["table_selection"],
+                "keywords": list(keywords),
+                "selected_datasets": list(selected),
+                "reasoning": reasoning,
+            }
+            result.ranking = [
+                {
+                    "resource_id": hit.get("resource_id"),
+                    "rank": hit.get("rank"),
+                    "score": hit.get("score"),
+                }
+                for run in retrieval_runs
+                for hit in run.get("hits", [])
+                if isinstance(hit, dict)
+            ]
+            tool_counts: dict[str, int] = {}
+            for run in retrieval_runs:
+                tool_type = f"retrieval:{run.get('mode', 'unknown')}"
+                tool_counts[tool_type] = tool_counts.get(tool_type, 0) + 1
+            for item in summarize_tool_calls(trace):
+                tool_name = str(item["type"])
+                tool_counts[tool_name] = tool_counts.get(tool_name, 0) + int(item["count"])
+            result.tool_calls = [
+                {"phase": "discovery", "type": tool_type, "count": count}
+                for tool_type, count in sorted(tool_counts.items())
+            ]
+            if result.error and not result.errors:
+                result.errors.append({"phase": "pipeline", "message": result.error})
+            result.execution_outcome = {
+                "status": result.pipeline_stages["code_execution"],
+                "raw_result": result.raw_result,
+                "error": result.error,
+            }
             retrieval = runtime.retrieval
             extra_fields: dict[str, Any] = {
                 "CORE": runtime.solr_core,
@@ -349,6 +549,17 @@ def run_question(
                 "RETRIEVAL_RUNS_JSON": retrieval_runs,
                 "PIPELINE_STAGES_JSON": result.pipeline_stages,
                 "ANSWER_DISPOSITION": result.answer_disposition,
+                "MANIFEST_JSON": result.manifest,
+                "RUN_TRACE_JSON": {
+                    "discovery": result.discovery,
+                    "ranking": result.ranking,
+                    "llm_calls": result.llm_calls,
+                    "phase_metrics": result.phase_metrics,
+                    "tool_calls": result.tool_calls,
+                    "errors": result.errors,
+                    "human_interventions": result.human_interventions,
+                    "execution_outcome": result.execution_outcome,
+                },
             }
             if log_context:
                 extra_fields.update(log_context)

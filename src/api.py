@@ -35,6 +35,12 @@ from lakegen.service import (
 )
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS
 from lakegen.retrieval import RetrievalMode
+from lakegen.experiment_config import (
+    DiscoveryArchitecture,
+    ExperimentConfig,
+    load_experiment_config,
+)
+from lakegen.runner import ExperimentRunner
 
 
 DEFAULT_MODEL = MODEL_OPTIONS[0]
@@ -61,6 +67,11 @@ class QueryRequest(StrictModel):
     top_k: int = Field(default=10, ge=1, le=1000)
     hybrid_alpha: float = Field(default=0.5, ge=0.0, le=1.0)
     candidate_multiplier: int = Field(default=5, ge=1, le=100)
+    discovery_architecture: DiscoveryArchitecture = DiscoveryArchitecture.UNIFIED
+    experiment_id: str = Field(default="default", min_length=1)
+    seed: int = Field(default=0, ge=0)
+    config_path: str | None = None
+    config: dict[str, Any] | None = None
 
     @field_validator("question")
     @classmethod
@@ -82,6 +93,53 @@ _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lakegen-batch"
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 _workflow_lock = threading.Lock()
+
+
+def _resolve_api_config(
+    *,
+    core: str,
+    model: str,
+    retrieval_mode: RetrievalMode | str,
+    top_k: int,
+    hybrid_alpha: float,
+    candidate_multiplier: int,
+    discovery_architecture: DiscoveryArchitecture | str = DiscoveryArchitecture.UNIFIED,
+    experiment_id: str = "default",
+    seed: int = 0,
+    config_path: str | None = None,
+    config_data: dict[str, Any] | None = None,
+    explicit_fields: set[str] | None = None,
+) -> ExperimentConfig:
+    explicit = explicit_fields or {
+        "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
+        "candidate_multiplier", "discovery_architecture", "experiment_id", "seed",
+    }
+    possible = {
+        "core": core,
+        "model": model,
+        "retrieval.mode": retrieval_mode,
+        "retrieval.top_k": top_k,
+        "retrieval.alpha": hybrid_alpha,
+        "retrieval.candidate_multiplier": candidate_multiplier,
+        "discovery_architecture": discovery_architecture,
+        "experiment_id": experiment_id,
+        "seed": seed,
+        "interaction_mode": "autonomous",
+    }
+    aliases = {
+        "retrieval_mode": "retrieval.mode",
+        "top_k": "retrieval.top_k",
+        "hybrid_alpha": "retrieval.alpha",
+        "candidate_multiplier": "retrieval.candidate_multiplier",
+    }
+    override_keys = {aliases.get(name, name) for name in explicit}
+    override_keys.add("interaction_mode")
+    overrides = {key: value for key, value in possible.items() if key in override_keys}
+    return load_experiment_config(
+        config_path,
+        data_override=config_data,
+        overrides=overrides,
+    )
 
 
 def _now() -> str:
@@ -153,16 +211,17 @@ def _update_job(job_id: str, **changes: Any) -> None:
 def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str, Any]) -> None:
     _update_job(job_id, status="running", started_at=_now())
     try:
-        runtime = make_runtime_settings(**settings)
+        config = ExperimentConfig.model_validate(settings["resolved_config"])
+        runner = ExperimentRunner(config)
         nltk_error = bootstrap_nltk_data()
         if nltk_error:
             raise RuntimeError(nltk_error)
 
         for index, source in enumerate(questions):
             with _workflow_lock:
-                query_result = run_question(
+                query_result = runner.run(
                     source["question"],
-                    runtime,
+                    question_id=source["source_id"],
                     log_context={
                         "JOB_ID": job_id,
                         **source["log_fields"],
@@ -203,15 +262,28 @@ def health() -> dict[str, str]:
 @app.post("/v1/query")
 def query_lakegen(request: QueryRequest) -> dict[str, Any]:
     try:
-        runtime = make_runtime_settings(
+        explicit_fields = set(request.model_fields_set)
+        if request.config_path is None and request.config is None:
+            explicit_fields.update({
+                "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
+                "candidate_multiplier", "discovery_architecture", "experiment_id",
+                "seed",
+            })
+        config = _resolve_api_config(
             core=request.core,
             model=request.model,
             retrieval_mode=request.retrieval_mode,
             top_k=request.top_k,
-            alpha=request.hybrid_alpha,
+            hybrid_alpha=request.hybrid_alpha,
             candidate_multiplier=request.candidate_multiplier,
+            discovery_architecture=request.discovery_architecture,
+            experiment_id=request.experiment_id,
+            seed=request.seed,
+            config_path=request.config_path,
+            config_data=request.config,
+            explicit_fields=explicit_fields,
         )
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     nltk_error = bootstrap_nltk_data()
@@ -223,10 +295,11 @@ def query_lakegen(request: QueryRequest) -> dict[str, Any]:
             path="$.question",
             source_data=request.model_dump(mode="json"),
         )
-        return run_question(
+        return ExperimentRunner(config).run(
             request.question,
-            runtime,
             log_context=source.log_fields(),
+            runtime_factory=make_runtime_settings,
+            executor=run_question,
         ).to_dict()
 
 
@@ -245,23 +318,51 @@ def submit_batch(
             )
         ),
     ],
-    core: Annotated[str, Query()] = DEFAULT_CORE,
-    model: Annotated[str, Query()] = DEFAULT_MODEL,
-    retrieval_mode: Annotated[RetrievalMode, Query()] = RetrievalMode.KEYWORD,
-    top_k: Annotated[int, Query(ge=1, le=1000)] = 10,
-    hybrid_alpha: Annotated[float, Query(ge=0.0, le=1.0)] = 0.5,
-    candidate_multiplier: Annotated[int, Query(ge=1, le=100)] = 5,
+    core: Annotated[str | None, Query()] = None,
+    model: Annotated[str | None, Query()] = None,
+    retrieval_mode: Annotated[RetrievalMode | None, Query()] = None,
+    top_k: Annotated[int | None, Query(ge=1, le=1000)] = None,
+    hybrid_alpha: Annotated[float | None, Query(ge=0.0, le=1.0)] = None,
+    candidate_multiplier: Annotated[int | None, Query(ge=1, le=100)] = None,
+    discovery_architecture: Annotated[DiscoveryArchitecture | None, Query()] = None,
+    experiment_id: Annotated[str | None, Query(min_length=1)] = None,
+    seed: Annotated[int | None, Query(ge=0)] = None,
+    config_path: Annotated[str | None, Query()] = None,
 ) -> BatchAccepted:
     try:
-        make_runtime_settings(
-            core=core,
-            model=model,
-            retrieval_mode=retrieval_mode,
-            top_k=top_k,
-            alpha=hybrid_alpha,
-            candidate_multiplier=candidate_multiplier,
+        supplied = {
+            name for name, value in {
+                "core": core,
+                "model": model,
+                "retrieval_mode": retrieval_mode,
+                "top_k": top_k,
+                "hybrid_alpha": hybrid_alpha,
+                "candidate_multiplier": candidate_multiplier,
+                "discovery_architecture": discovery_architecture,
+                "experiment_id": experiment_id,
+                "seed": seed,
+            }.items() if value is not None
+        }
+        if config_path is None:
+            supplied.update({
+                "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
+                "candidate_multiplier", "discovery_architecture", "experiment_id",
+                "seed",
+            })
+        resolved_config = _resolve_api_config(
+            core=core or DEFAULT_CORE,
+            model=model or DEFAULT_MODEL,
+            retrieval_mode=retrieval_mode or RetrievalMode.KEYWORD,
+            top_k=top_k or 10,
+            hybrid_alpha=hybrid_alpha if hybrid_alpha is not None else 0.5,
+            candidate_multiplier=candidate_multiplier or 5,
+            discovery_architecture=discovery_architecture or DiscoveryArchitecture.UNIFIED,
+            experiment_id=experiment_id or "default",
+            seed=seed if seed is not None else 0,
+            config_path=config_path,
+            explicit_fields=supplied,
         )
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     extracted = extract_questions(payload)
@@ -298,12 +399,7 @@ def submit_batch(
         "processed": 0,
         "failed": 0,
         "settings": {
-            "core": core,
-            "model": model,
-            "retrieval_mode": retrieval_mode,
-            "top_k": top_k,
-            "alpha": hybrid_alpha,
-            "candidate_multiplier": candidate_multiplier,
+            "resolved_config": resolved_config.model_dump(mode="json"),
         },
         "results": [],
         "error": "",
