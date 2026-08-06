@@ -35,7 +35,6 @@ def test_default_config_matches_existing_interactive_workflow(monkeypatch):
         "keywords": True,
         "datasets": True,
         "plan": False,
-        "code": True,
         "result": False,
     }
 
@@ -92,6 +91,11 @@ def test_unimplemented_combinations_are_rejected(update):
         ExperimentConfig.model_validate(update)
 
 
+def test_code_gate_is_removed_from_the_schema():
+    with pytest.raises(ValidationError):
+        ExperimentConfig.model_validate({"gates": {"code": True}})
+
+
 def test_manifest_contains_all_experimental_variables_and_is_immutable(tmp_path):
     config = ExperimentConfig(experiment_id="manifest-test", seed=42)
     manifest = create_manifest(
@@ -113,6 +117,7 @@ def test_manifest_contains_all_experimental_variables_and_is_immutable(tmp_path)
     assert stored["representation_version"] == "metadata-v1"
     assert stored["retrieval_parameters"] == config.retrieval.model_dump(mode="json")
     assert stored["resolved_config"] == config.model_dump(mode="json")
+    assert "code" not in stored["resolved_config"]["gates"]
     with pytest.raises(FileExistsError):
         persist_manifest(manifest, tmp_path / "manifests")
     with pytest.raises(ValidationError):
@@ -162,12 +167,7 @@ def test_api_and_ui_translate_settings_to_canonical_config():
     assert ui_runtime.experiment.interaction_mode == "human_gated"
 
 
-def test_api_file_values_are_only_replaced_by_explicit_overrides(tmp_path):
-    path = tmp_path / "api.yaml"
-    path.write_text(
-        "core: bologna\nretrieval:\n  mode: hybrid\n  top_k: 20\n",
-        encoding="utf-8",
-    )
+def test_api_inline_values_are_only_replaced_by_explicit_overrides():
     config = _resolve_api_config(
         core="nyc",
         model="openai.gpt-oss-120b",
@@ -175,7 +175,10 @@ def test_api_file_values_are_only_replaced_by_explicit_overrides(tmp_path):
         top_k=30,
         hybrid_alpha=0.5,
         candidate_multiplier=5,
-        config_path=str(path),
+        config_data={
+            "core": "bologna",
+            "retrieval": {"mode": "hybrid", "top_k": 20},
+        },
         explicit_fields={"top_k"},
     )
 

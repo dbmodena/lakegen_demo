@@ -208,6 +208,25 @@ Per leggere solo lo stato, senza trasferire i risultati già prodotti:
 curl 'http://127.0.0.1:8000/v1/batches/JOB_ID?include_results=false'
 ```
 
+### Configurazione e domande come due file
+
+Per mantenere separati il manifest sperimentale e il dataset di domande, usa
+l'endpoint multipart. Il file di configurazione può essere YAML, YML o JSON;
+il file delle domande deve essere JSON:
+
+```bash
+curl --fail-with-body -X POST \
+  http://127.0.0.1:8000/v1/batches/files \
+  -F 'config=@config/experiment.example.yaml' \
+  -F 'questions=@queries_old/generated_queries_new_york_5.json'
+```
+
+Il server legge esclusivamente il contenuto degli upload: i nomi non possono
+contenere percorsi e non vengono risolti sul filesystem del server. La
+configurazione è validata normalmente e `interaction_mode` viene risolto come
+`autonomous` per l'esecuzione batch. I limiti predefiniti sono 1 MB per la
+configurazione e 25 MB per il file delle domande.
+
 I batch sono eseguiti sequenzialmente. Stato e risultati JSONL vengono salvati in
 `.lakegen_jobs/`, così le risposte già completate restano leggibili dopo un
 riavvio dell'API. L'API va esposta su una rete pubblica solo dopo aver aggiunto un

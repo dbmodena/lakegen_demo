@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Body, FastAPI, HTTPException, Query, status
+from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _SRC_DIR = Path(__file__).resolve().parent
@@ -39,6 +39,7 @@ from lakegen.experiment_config import (
     DiscoveryArchitecture,
     ExperimentConfig,
     load_experiment_config,
+    parse_experiment_config_document,
 )
 from lakegen.runner import ExperimentRunner
 
@@ -46,6 +47,8 @@ from lakegen.runner import ExperimentRunner
 DEFAULT_MODEL = MODEL_OPTIONS[0]
 DEFAULT_CORE = SOLR_CORE_OPTIONS[0]
 MAX_BATCH_QUESTIONS = 10_000
+MAX_CONFIG_UPLOAD_BYTES = 1_000_000
+MAX_QUESTIONS_UPLOAD_BYTES = 25_000_000
 JOB_DIR = BASE_DIR / ".lakegen_jobs"
 
 app = FastAPI(
@@ -70,7 +73,6 @@ class QueryRequest(StrictModel):
     discovery_architecture: DiscoveryArchitecture = DiscoveryArchitecture.UNIFIED
     experiment_id: str = Field(default="default", min_length=1)
     seed: int = Field(default=0, ge=0)
-    config_path: str | None = None
     config: dict[str, Any] | None = None
 
     @field_validator("question")
@@ -106,14 +108,17 @@ def _resolve_api_config(
     discovery_architecture: DiscoveryArchitecture | str = DiscoveryArchitecture.UNIFIED,
     experiment_id: str = "default",
     seed: int = 0,
-    config_path: str | None = None,
     config_data: dict[str, Any] | None = None,
     explicit_fields: set[str] | None = None,
 ) -> ExperimentConfig:
-    explicit = explicit_fields or {
-        "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
-        "candidate_multiplier", "discovery_architecture", "experiment_id", "seed",
-    }
+    explicit = (
+        {
+            "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
+            "candidate_multiplier", "discovery_architecture", "experiment_id", "seed",
+        }
+        if explicit_fields is None
+        else explicit_fields
+    )
     possible = {
         "core": core,
         "model": model,
@@ -136,10 +141,47 @@ def _resolve_api_config(
     override_keys.add("interaction_mode")
     overrides = {key: value for key, value in possible.items() if key in override_keys}
     return load_experiment_config(
-        config_path,
         data_override=config_data,
         overrides=overrides,
     )
+
+
+def _inline_batch_config(payload: Any) -> dict[str, Any] | None:
+    """Read only an inline top-level config from the batch envelope."""
+
+    if not isinstance(payload, dict) or "config" not in payload:
+        return None
+    config = payload["config"]
+    if config is None:
+        return None
+    if not isinstance(config, dict):
+        raise ValueError("batch config must be an inline JSON object")
+    return config
+
+
+def _upload_suffix(upload: UploadFile, allowed: set[str], label: str) -> str:
+    filename = upload.filename or ""
+    if not filename or Path(filename).name != filename or "\\" in filename:
+        raise ValueError(f"{label} filename must not contain a path")
+    suffix = Path(filename).suffix.casefold()
+    if suffix not in allowed:
+        expected = ", ".join(sorted(allowed))
+        raise ValueError(f"{label} must use one of these extensions: {expected}")
+    return suffix
+
+
+async def _read_upload(upload: UploadFile, *, limit: int, label: str) -> bytes:
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await upload.read(64 * 1024):
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{label} exceeds the {limit}-byte upload limit",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _now() -> str:
@@ -263,7 +305,7 @@ def health() -> dict[str, str]:
 def query_lakegen(request: QueryRequest) -> dict[str, Any]:
     try:
         explicit_fields = set(request.model_fields_set)
-        if request.config_path is None and request.config is None:
+        if request.config is None:
             explicit_fields.update({
                 "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
                 "candidate_multiplier", "discovery_architecture", "experiment_id",
@@ -279,11 +321,10 @@ def query_lakegen(request: QueryRequest) -> dict[str, Any]:
             discovery_architecture=request.discovery_architecture,
             experiment_id=request.experiment_id,
             seed=request.seed,
-            config_path=request.config_path,
             config_data=request.config,
             explicit_fields=explicit_fields,
         )
-    except (OSError, ValueError) as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     nltk_error = bootstrap_nltk_data()
@@ -314,7 +355,8 @@ def submit_batch(
         Body(
             description=(
                 "A queries_old-style JSON document, a list of question objects, "
-                "or a simple list of question strings."
+                "a simple list of question strings, or an envelope with an inline "
+                "config object and a questions/queries list."
             )
         ),
     ],
@@ -327,9 +369,9 @@ def submit_batch(
     discovery_architecture: Annotated[DiscoveryArchitecture | None, Query()] = None,
     experiment_id: Annotated[str | None, Query(min_length=1)] = None,
     seed: Annotated[int | None, Query(ge=0)] = None,
-    config_path: Annotated[str | None, Query()] = None,
 ) -> BatchAccepted:
     try:
+        inline_config = _inline_batch_config(payload)
         supplied = {
             name for name, value in {
                 "core": core,
@@ -343,7 +385,7 @@ def submit_batch(
                 "seed": seed,
             }.items() if value is not None
         }
-        if config_path is None:
+        if inline_config is None:
             supplied.update({
                 "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
                 "candidate_multiplier", "discovery_architecture", "experiment_id",
@@ -359,11 +401,17 @@ def submit_batch(
             discovery_architecture=discovery_architecture or DiscoveryArchitecture.UNIFIED,
             experiment_id=experiment_id or "default",
             seed=seed if seed is not None else 0,
-            config_path=config_path,
+            config_data=inline_config,
             explicit_fields=supplied,
         )
-    except (OSError, ValueError) as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return _enqueue_batch(payload, resolved_config)
+
+
+def _enqueue_batch(payload: Any, resolved_config: ExperimentConfig) -> BatchAccepted:
+    """Validate questions and enqueue a batch using an already resolved config."""
 
     extracted = extract_questions(payload)
     if not extracted:
@@ -415,6 +463,70 @@ def submit_batch(
         question_count=len(questions),
         status_url=f"/v1/batches/{job_id}",
     )
+
+
+@app.post(
+    "/v1/batches/files",
+    response_model=BatchAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def submit_batch_files(
+    config: Annotated[
+        UploadFile,
+        File(description="Experiment configuration in YAML or JSON format."),
+    ],
+    questions: Annotated[
+        UploadFile,
+        File(description="Question batch in any JSON shape accepted by /v1/batches."),
+    ],
+) -> BatchAccepted:
+    """Upload configuration and questions as two independent multipart files."""
+
+    try:
+        config_suffix = _upload_suffix(
+            config, {".json", ".yaml", ".yml"}, "config"
+        )
+        _upload_suffix(questions, {".json"}, "questions")
+        config_content = await _read_upload(
+            config,
+            limit=MAX_CONFIG_UPLOAD_BYTES,
+            label="config",
+        )
+        questions_content = await _read_upload(
+            questions,
+            limit=MAX_QUESTIONS_UPLOAD_BYTES,
+            label="questions",
+        )
+        try:
+            config_text = config_content.decode("utf-8")
+            questions_text = questions_content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("uploaded files must be UTF-8 encoded") from exc
+        config_data = parse_experiment_config_document(
+            config_text,
+            suffix=config_suffix,
+        )
+        try:
+            questions_payload = json.loads(questions_text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid questions JSON: {exc}") from exc
+        resolved_config = _resolve_api_config(
+            core=DEFAULT_CORE,
+            model=DEFAULT_MODEL,
+            retrieval_mode=RetrievalMode.KEYWORD,
+            top_k=10,
+            hybrid_alpha=0.5,
+            candidate_multiplier=5,
+            config_data=config_data,
+            explicit_fields=set(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        await config.close()
+        await questions.close()
+
+    return _enqueue_batch(questions_payload, resolved_config)
 
 
 @app.get("/v1/batches/{job_id}")

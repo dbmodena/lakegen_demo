@@ -32,5 +32,4 @@ gates:
   keywords: true
   datasets: true
   plan: false
-  code: true
   result: false

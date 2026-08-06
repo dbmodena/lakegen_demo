@@ -1,5 +1,23 @@
 import src.api as api
+import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
+
+
+class FakeUpload:
+    def __init__(self, filename: str, content: bytes):
+        self.filename = filename
+        self._content = content
+        self._position = 0
+        self.closed = False
+
+    async def read(self, size: int) -> bytes:
+        chunk = self._content[self._position:self._position + size]
+        self._position += len(chunk)
+        return chunk
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 def test_job_persistence_separates_metadata_and_results(tmp_path, monkeypatch):
@@ -30,6 +48,121 @@ def test_query_request_rejects_removed_ollama_url():
         pass
     else:
         raise AssertionError("ollama_url must not remain part of the OCI API")
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/etc/passwd", "../experiment.yaml", "config/experiment.txt"],
+)
+def test_query_request_rejects_all_filesystem_config_paths(path):
+    with pytest.raises(ValidationError):
+        api.QueryRequest(question="One?", config_path=path)
+
+
+def test_api_contract_exposes_only_inline_config():
+    schema = api.app.openapi()
+    properties = schema["components"]["schemas"]["QueryRequest"]["properties"]
+    assert "config" in properties
+    assert "config_path" not in properties
+    multipart = schema["paths"]["/v1/batches/files"]["post"]["requestBody"]["content"]
+    assert "multipart/form-data" in multipart
+
+
+def test_batch_accepts_only_inline_top_level_config():
+    config = api._inline_batch_config({
+        "config": {"core": "bologna", "retrieval": {"mode": "hybrid"}},
+        "questions": ["One?"],
+    })
+    assert config == {"core": "bologna", "retrieval": {"mode": "hybrid"}}
+    resolved = api._resolve_api_config(
+        core=api.DEFAULT_CORE,
+        model=api.DEFAULT_MODEL,
+        retrieval_mode="keyword",
+        top_k=10,
+        hybrid_alpha=0.5,
+        candidate_multiplier=5,
+        config_data=config,
+        explicit_fields=set(),
+    )
+    assert resolved.core == "bologna"
+    assert resolved.retrieval.mode == "hybrid"
+    with pytest.raises(ValueError, match="inline JSON object"):
+        api._inline_batch_config({"config": "/tmp/experiment.yaml", "questions": []})
+
+
+@pytest.mark.asyncio
+async def test_multipart_batch_accepts_config_and_questions_files(tmp_path, monkeypatch):
+    submitted = {}
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(
+        api._executor,
+        "submit",
+        lambda function, *args: submitted.update(function=function, args=args),
+    )
+    config_upload = FakeUpload(
+        "experiment.yaml",
+        b"experiment_id: uploaded-5\ncore: nyc\n"
+        b"discovery_architecture: divided\n"
+        b"retrieval:\n  mode: hybrid\n  top_k: 7\n",
+    )
+    questions_upload = FakeUpload(
+        "questions.json", b'{"questions": ["One?", "Two?"]}'
+    )
+    response = await api.submit_batch_files(config_upload, questions_upload)
+
+    assert response.question_count == 2
+    job = api._jobs[response.job_id]
+    resolved = job["settings"]["resolved_config"]
+    assert resolved["experiment_id"] == "uploaded-5"
+    assert resolved["discovery_architecture"] == "divided"
+    assert resolved["retrieval"]["mode"] == "hybrid"
+    assert resolved["retrieval"]["top_k"] == 7
+    assert resolved["interaction_mode"] == "autonomous"
+    assert submitted["function"] is api._run_batch
+    assert config_upload.closed and questions_upload.closed
+    api._jobs.pop(response.job_id, None)
+
+
+@pytest.mark.parametrize(
+    ("config_name", "questions_name", "expected"),
+    [
+        ("../experiment.yaml", "questions.json", "must not contain a path"),
+        ("experiment.txt", "questions.json", "extensions"),
+        ("experiment.yaml", "questions.yaml", "extensions"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_multipart_batch_rejects_unsafe_or_unsupported_filenames(
+    config_name, questions_name, expected
+):
+    config_upload = FakeUpload(config_name, b"core: nyc")
+    questions_upload = FakeUpload(questions_name, b'{"questions": ["One?"]}')
+
+    with pytest.raises(HTTPException) as raised:
+        await api.submit_batch_files(config_upload, questions_upload)
+    assert raised.value.status_code == 422
+    assert expected in raised.value.detail
+    assert config_upload.closed and questions_upload.closed
+
+
+@pytest.mark.asyncio
+async def test_multipart_batch_rejects_invalid_content_and_uploads_over_limit(
+    monkeypatch,
+):
+    with pytest.raises(HTTPException) as invalid:
+        await api.submit_batch_files(
+            FakeUpload("experiment.yaml", b"gates: ["),
+            FakeUpload("questions.json", b"not-json"),
+        )
+    assert invalid.value.status_code == 422
+
+    monkeypatch.setattr(api, "MAX_CONFIG_UPLOAD_BYTES", 4)
+    with pytest.raises(HTTPException) as too_large:
+        await api.submit_batch_files(
+            FakeUpload("experiment.yaml", b"core: nyc"),
+            FakeUpload("questions.json", b'{"questions": ["One?"]}'),
+        )
+    assert too_large.value.status_code == 413
 
 
 def test_single_query_passes_the_complete_request_to_csv_logging(monkeypatch):

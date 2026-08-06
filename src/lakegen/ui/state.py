@@ -19,6 +19,7 @@ from lakegen.experiment_config import (
     InteractionMode,
     load_experiment_config,
 )
+from lakegen.tracing import HumanInterventionRecorder
 
 
 MODEL_OPTIONS = [
@@ -144,7 +145,9 @@ class LakeGenSession:
     _cancelled: threading.Event = field(default_factory=threading.Event)
     workflow_task: asyncio.Task | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
-    human_interventions: list[dict[str, Any]] = field(default_factory=list)
+    intervention_recorder: HumanInterventionRecorder = field(
+        default_factory=HumanInterventionRecorder
+    )
     phase_seconds: dict[str, float] = field(
         default_factory=lambda: {"discovery": 0.0, "code": 0.0, "result": 0.0}
     )

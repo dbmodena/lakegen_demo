@@ -43,7 +43,12 @@ from lakegen.core.resources import (
 from lakegen.core.logger import save_experiment_log
 from lakegen.core.config import BASE_DIR, LOG_DIR
 from lakegen.manifest import create_manifest, persist_manifest
-from lakegen.tracing import llm_call_record, summarize_tool_calls
+from lakegen.tracing import (
+    HumanGate,
+    PhaseName,
+    build_llm_phase_records,
+    summarize_tool_calls,
+)
 
 from llama_index.core import Settings
 
@@ -95,6 +100,9 @@ async def _ask_choice(
     content: str,
     choices: list[tuple[str, str, str]],
     *,
+    phase: PhaseName,
+    gate: HumanGate,
+    approved_value: str,
     remove_after_answer: bool = False,
 ) -> str:
     message = cl.AskActionMessage(
@@ -111,15 +119,22 @@ async def _ask_choice(
     if remove_after_answer:
         await message.remove()
     value = _action_value(response)
-    get_session().human_interventions.append({
-        "type": "approval",
-        "value": value,
-        "elapsed_seconds": round(time.monotonic() - started, 3),
-    })
+    get_session().intervention_recorder.record_approval(
+        phase=phase,
+        gate=gate,
+        approved=value == approved_value,
+        elapsed_seconds=round(time.monotonic() - started, 3),
+    )
     return value
 
 
-async def _ask_hint(content: str, *, remove_after_answer: bool = False) -> str:
+async def _ask_hint(
+    content: str,
+    *,
+    phase: PhaseName,
+    gate: HumanGate,
+    remove_after_answer: bool = False,
+) -> str:
     message = cl.AskUserMessage(
         content=f"{content}\n\n{t('hint.skip_suffix')}",
         timeout=10 * 60,
@@ -130,16 +145,20 @@ async def _ask_hint(content: str, *, remove_after_answer: bool = False) -> str:
     if remove_after_answer:
         await message.remove()
     if not response:
-        get_session().human_interventions.append({
-            "type": "hint", "provided": False,
-            "elapsed_seconds": round(time.monotonic() - started, 3),
-        })
+        get_session().intervention_recorder.record_hint(
+            phase=phase,
+            gate=gate,
+            provided=False,
+            elapsed_seconds=round(time.monotonic() - started, 3),
+        )
         return ""
     hint = str(response.get("output") or "").strip()
-    get_session().human_interventions.append({
-        "type": "hint", "provided": bool(hint),
-        "elapsed_seconds": round(time.monotonic() - started, 3),
-    })
+    get_session().intervention_recorder.record_hint(
+        phase=phase,
+        gate=gate,
+        provided=bool(hint),
+        elapsed_seconds=round(time.monotonic() - started, 3),
+    )
     return "" if hint.lower() in {"", "skip", "none", "no"} else hint
 
 
@@ -214,6 +233,9 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
                 ("approve_keywords", "approve", session.text("phase1.approve")),
                 ("recalculate_keywords", "recalculate", session.text("phase1.recalculate")),
             ],
+            phase="discovery",
+            gate=HumanGate.KEYWORD_APPROVAL,
+            approved_value="approve",
             remove_after_answer=True,
         )
         if action == "approve":
@@ -223,6 +245,8 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
         session.check_cancelled()
         hint = await _ask_hint(
             session.text("phase1.change_hint"),
+            phase="discovery",
+            gate=HumanGate.KEYWORD_HINT,
             remove_after_answer=True,
         )
         label = session.text("phase1.recalculation")
@@ -341,6 +365,9 @@ async def _run_table_gate(
                 ("approve_tables", "approve", session.text("phase2.approve")),
                 ("recalculate_tables", "recalculate", session.text("phase2.recalculate")),
             ],
+            phase="discovery",
+            gate=HumanGate.DATASET_APPROVAL,
+            approved_value="approve",
             remove_after_answer=True,
         )
 
@@ -354,6 +381,8 @@ async def _run_table_gate(
         session.check_cancelled()
         hint = await _ask_hint(
             session.text("phase2.change_hint"),
+            phase="discovery",
+            gate=HumanGate.DATASET_HINT,
             remove_after_answer=True,
         )
 
@@ -431,6 +460,9 @@ async def _run_unified_gate(
                 ("approve_selection", "approve", "Approve Selection"),
                 ("recalculate_selection", "recalculate", "Recalculate (change hint)"),
             ],
+            phase="discovery",
+            gate=HumanGate.DATASET_APPROVAL,
+            approved_value="approve",
             remove_after_answer=True,
         )
 
@@ -444,6 +476,8 @@ async def _run_unified_gate(
         session.check_cancelled()
         hint = await _ask_hint(
             "What should the agent change? (e.g., use different keywords, or look for different tables)",
+            phase="discovery",
+            gate=HumanGate.DATASET_HINT,
             remove_after_answer=True,
         )
 
@@ -615,9 +649,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         tokens_phase4=session.tokens["p4"],
         error=err if err is not None else "",
         model=session.runtime.model_name,
-        architecture=(
-            "unified" if session.runtime.use_unified_agent else "divided"
-        ),
+        architecture=session.runtime.experiment.architecture_name,
         extra_fields={
             "MANIFEST_JSON": session.manifest,
             "RUN_TRACE_JSON": {
@@ -625,18 +657,14 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     "keywords": session.keywords,
                     "selected_datasets": session.tables,
                 },
-                "llm_calls": [
-                    llm_call_record(
-                        "discovery" if phase in {"p1", "p2"} else
-                        "code" if phase == "p3" else "result",
-                        session.llm_call_counts[
-                            "discovery" if phase in {"p1", "p2"} else
-                            "code" if phase == "p3" else "result"
-                        ],
-                        count,
-                    )
-                    for phase, count in session.tokens.items()
-                ],
+                "llm_calls": build_llm_phase_records(
+                    total_tokens={
+                        "discovery": session.tokens["p1"] + session.tokens["p2"],
+                        "code": session.tokens["p3"],
+                        "result": session.tokens["p4"],
+                    },
+                    phase_invocations=session.llm_call_counts,
+                ),
                 "phase_metrics": {
                     phase: {"latency_seconds": round(seconds, 6)}
                     for phase, seconds in session.phase_seconds.items()
@@ -649,7 +677,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     "succeeded": err is None,
                     "raw_result": raw_result,
                 },
-                "human_interventions": session.human_interventions,
+                "human_interventions": session.intervention_recorder.to_list(),
                 "configuration": session.manifest.get("resolved_config", {}),
             },
         },
@@ -737,6 +765,9 @@ async def _run_locked_workflow(question: str) -> None:
                     ),
                     ("force_execution", "force", session.text("workflow.force_execution")),
                 ],
+                phase="code",
+                gate=HumanGate.FORCE_EXECUTION_CONFIRMATION,
+                approved_value="force",
             )
             if action == "force":
                 session.force_execution = True

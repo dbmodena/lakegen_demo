@@ -37,7 +37,11 @@ from lakegen.experiment_config import (
     load_experiment_config,
 )
 from lakegen.manifest import ExperimentManifest, create_manifest, persist_manifest
-from lakegen.tracing import llm_call_record, summarize_tool_calls
+from lakegen.tracing import (
+    build_llm_phase_records,
+    summarize_final_ranking,
+    summarize_tool_calls,
+)
 
 
 MAX_CODE_ATTEMPTS = 3
@@ -267,6 +271,7 @@ def run_question(
     error = ""
     selection_state = P12State()
     attempted_keywords: list[str] = []
+    phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
 
     with capture_retrieval_runs(log_context) as retrieval_runs:
         try:
@@ -293,6 +298,7 @@ def run_question(
                         retrieval_config=runtime.retrieval,
                         state=selection_state,
                     )
+                    phase_invocation_counts["discovery"] += 1
                 else:
                     keywords, raw_keywords, tokens_p1, reasoning_p1 = (
                         phase1_generate_keywords(
@@ -304,6 +310,7 @@ def run_question(
                             avoid_keywords=attempted_keywords,
                         )
                     )
+                    phase_invocation_counts["discovery"] += 1
                     (
                         selected,
                         candidates,
@@ -323,6 +330,7 @@ def run_question(
                         portal_name=runtime.portal_name,
                         retrieval_config=runtime.retrieval,
                     )
+                    phase_invocation_counts["discovery"] += 1
                     architecture_tokens = tokens_p1 + tokens_p2
                     trace = (
                         f"--- Divided Phase 1 ---\n{reasoning_p1}\n"
@@ -348,9 +356,6 @@ def run_question(
                     discovery_metric["latency_seconds"] + discovery_elapsed, 6
                 )
                 discovery_metric["retries"] = table_attempt
-                result.llm_calls.append(
-                    llm_call_record("discovery", 1, architecture_tokens)
-                )
                 result.tables = selected
                 result.keywords = keywords
                 result.pipeline_stages["retrieval"] = (
@@ -380,6 +385,7 @@ def run_question(
                         previous_code=previous_code,
                         run_dir=run_dir,
                     )
+                    phase_invocation_counts["code"] += 1
                     result.tokens["p3"] += generated.tokens
                     code_metric = result.phase_metrics.setdefault(
                         "code", {"latency_seconds": 0.0, "retries": 0}
@@ -390,7 +396,6 @@ def run_question(
                         6,
                     )
                     code_metric["retries"] = code_attempt
-                    result.llm_calls.append(llm_call_record("code", 1, generated.tokens))
                     result.retries += int(code_attempt > 0)
                     previous_code = generated.clean_code or generated.code_raw
                     result.code = previous_code
@@ -429,6 +434,7 @@ def run_question(
                         answer, synthesis_tokens = phase4_synthesize(
                             question, generated.raw_result, llm, prompt_manager
                         )
+                        phase_invocation_counts["result"] += 1
                         result.answer = answer
                         result.tokens["p4"] = synthesis_tokens
                         result.phase_metrics["result"] = {
@@ -437,9 +443,6 @@ def run_question(
                             ),
                             "retries": 0,
                         }
-                        result.llm_calls.append(
-                            llm_call_record("result", 1, synthesis_tokens)
-                        )
                         validation = validate_answer(generated.raw_result, answer)
                         result.answer_disposition = validation.disposition.value
                         result.pipeline_stages["final_answer"] = validation.disposition.value
@@ -502,16 +505,15 @@ def run_question(
                 "selected_datasets": list(selected),
                 "reasoning": reasoning,
             }
-            result.ranking = [
-                {
-                    "resource_id": hit.get("resource_id"),
-                    "rank": hit.get("rank"),
-                    "score": hit.get("score"),
-                }
-                for run in retrieval_runs
-                for hit in run.get("hits", [])
-                if isinstance(hit, dict)
-            ]
+            result.ranking = summarize_final_ranking(retrieval_runs, selected)
+            result.llm_calls = build_llm_phase_records(
+                total_tokens={
+                    "discovery": result.tokens["p1_p2"],
+                    "code": result.tokens["p3"],
+                    "result": result.tokens["p4"],
+                },
+                phase_invocations=phase_invocation_counts,
+            )
             tool_counts: dict[str, int] = {}
             for run in retrieval_runs:
                 tool_type = f"retrieval:{run.get('mode', 'unknown')}"
@@ -551,6 +553,8 @@ def run_question(
                 "ANSWER_DISPOSITION": result.answer_disposition,
                 "MANIFEST_JSON": result.manifest,
                 "RUN_TRACE_JSON": {
+                    "architecture": experiment.architecture_name,
+                    "configuration": result.configuration,
                     "discovery": result.discovery,
                     "ranking": result.ranking,
                     "llm_calls": result.llm_calls,
@@ -580,8 +584,7 @@ def run_question(
                     error=result.error,
                     csv_filename="api_experiments_log.csv",
                     model=runtime.model_name,
-                    # The non-interactive API currently executes phase12_agent.
-                    architecture="unified",
+                    architecture=experiment.architecture_name,
                     status=result.status,
                     elapsed_seconds=result.elapsed_seconds,
                     extra_fields=extra_fields,

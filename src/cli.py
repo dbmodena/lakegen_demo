@@ -44,7 +44,13 @@ from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.experiment_config import load_experiment_config
 from lakegen.manifest import create_manifest, persist_manifest
-from lakegen.tracing import llm_call_record, summarize_tool_calls
+from lakegen.tracing import (
+    HumanGate,
+    HumanInterventionRecorder,
+    PhaseName,
+    build_llm_phase_records,
+    summarize_tool_calls,
+)
 from lakegen.runner import ExperimentRunner
 from lakegen.experiment_config import InteractionMode
 
@@ -60,7 +66,6 @@ COLORS = {
     "reset":   "\033[0m",
     "dim":     "\033[2m",
 }
-_CLI_INTERVENTIONS: list[dict] = []
 
 
 def _c(text: str, color: str) -> str:
@@ -73,7 +78,14 @@ def _header(title: str) -> None:
     print(f"{'─' * 60}")
 
 
-def _ask_yes_no(prompt: str, default: bool = True) -> bool:
+def _ask_yes_no(
+    prompt: str,
+    default: bool = True,
+    *,
+    recorder: HumanInterventionRecorder,
+    phase: PhaseName,
+    gate: HumanGate,
+) -> bool:
     suffix = "[Y/n]" if default else "[y/N]"
     started = time.monotonic()
     answer = input(f"{prompt} {suffix}: ").strip().lower()
@@ -81,24 +93,39 @@ def _ask_yes_no(prompt: str, default: bool = True) -> bool:
         approved = default
     else:
         approved = answer in ("y", "yes", "si", "sì")
-    _CLI_INTERVENTIONS.append({
-        "type": "approval",
-        "approved": approved,
-        "elapsed_seconds": round(time.monotonic() - started, 3),
-    })
+    recorder.record_approval(
+        phase=phase,
+        gate=gate,
+        approved=approved,
+        elapsed_seconds=round(time.monotonic() - started, 3),
+    )
     return approved
 
 
-def _ask_input(prompt: str, allow_empty: bool = True) -> str:
+def _ask_input(
+    prompt: str,
+    allow_empty: bool = True,
+    *,
+    recorder: HumanInterventionRecorder,
+    phase: PhaseName,
+    gate: HumanGate,
+) -> str:
     started = time.monotonic()
     value = input(f"{prompt}: ").strip()
-    _CLI_INTERVENTIONS.append({
-        "type": "hint",
-        "provided": bool(value),
-        "elapsed_seconds": round(time.monotonic() - started, 3),
-    })
+    recorder.record_hint(
+        phase=phase,
+        gate=gate,
+        provided=bool(value),
+        elapsed_seconds=round(time.monotonic() - started, 3),
+    )
     if not allow_empty and not value:
-        return _ask_input(prompt, allow_empty)
+        return _ask_input(
+            prompt,
+            allow_empty,
+            recorder=recorder,
+            phase=phase,
+            gate=gate,
+        )
     return value
 
 
@@ -119,7 +146,7 @@ def _stream_to_terminal(delta: str) -> None:
 
 def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     workflow_started = time.monotonic()
-    _CLI_INTERVENTIONS.clear()
+    interventions = HumanInterventionRecorder()
     llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
     pm = get_prompt_manager()
@@ -181,10 +208,20 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             print(f"{_c('Reasoning:', 'bold')} {reasoning}")
             print(f"{_c('Tokens:', 'dim')}    {tok}")
 
-            if _ask_yes_no(f"\n{_c('Approve this selection?', 'yellow')}"):
+            if _ask_yes_no(
+                f"\n{_c('Approve this selection?', 'yellow')}",
+                recorder=interventions,
+                phase="discovery",
+                gate=HumanGate.DATASET_APPROVAL,
+            ):
                 break
 
-            keyword_hint = _ask_input("Hint for the agent (or press Enter to retry without hint)")
+            keyword_hint = _ask_input(
+                "Hint for the agent (or press Enter to retry without hint)",
+                recorder=interventions,
+                phase="discovery",
+                gate=HumanGate.DATASET_HINT,
+            )
             continue
 
         # ── Two-phase flow: Keywords → Search + Judge ────────────
@@ -207,12 +244,22 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         print(f"\n\n{_c('AND Keywords:', 'bold')} {_keyword_list(keywords)}")
         print(f"{_c('Tokens:', 'dim')}    {tok1}")
 
-        if _ask_yes_no(f"\n{_c('Approve these keywords?', 'yellow')}"):
+        if _ask_yes_no(
+            f"\n{_c('Approve these keywords?', 'yellow')}",
+            recorder=interventions,
+            phase="discovery",
+            gate=HumanGate.KEYWORD_APPROVAL,
+        ):
             pass  # proceed to Phase 2
         else:
             attempted_keywords.extend(keywords)
             attempted_keywords = list(dict.fromkeys(attempted_keywords))
-            keyword_hint = _ask_input("Hint for keyword selection (or press Enter to retry without hint)")
+            keyword_hint = _ask_input(
+                "Hint for keyword selection (or press Enter to retry without hint)",
+                recorder=interventions,
+                phase="discovery",
+                gate=HumanGate.KEYWORD_HINT,
+            )
             continue
 
         # ── Phase 2: configured retrieval + table judge ──────────────
@@ -263,12 +310,22 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         print(f"{_c('Reasoning:', 'bold')} {reasoning}")
         print(f"{_c('Tokens:', 'dim')}    {tok2}")
 
-        if _ask_yes_no(f"\n{_c('Approve this selection?', 'yellow')}"):
+        if _ask_yes_no(
+            f"\n{_c('Approve this selection?', 'yellow')}",
+            recorder=interventions,
+            phase="discovery",
+            gate=HumanGate.DATASET_APPROVAL,
+        ):
             break
 
         attempted_keywords.extend(keywords)
         attempted_keywords = list(dict.fromkeys(attempted_keywords))
-        keyword_hint = _ask_input("Hint for the agent (or press Enter to retry)")
+        keyword_hint = _ask_input(
+            "Hint for the agent (or press Enter to retry)",
+            recorder=interventions,
+            phase="discovery",
+            gate=HumanGate.DATASET_HINT,
+        )
 
 
 
@@ -314,7 +371,13 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
         if phase3_result.rejected_reason:
             print(_c(f"\n⚠ Tables rejected: {phase3_result.rejected_reason}", "yellow"))
-            if _ask_yes_no("Force execution anyway?", default=False):
+            if _ask_yes_no(
+                "Force execution anyway?",
+                default=False,
+                recorder=interventions,
+                phase="code",
+                gate=HumanGate.FORCE_EXECUTION_CONFIRMATION,
+            ):
                 force_execution = True
                 continue
             # Re-run Phase 1 & 2
@@ -375,7 +438,12 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 tokens["p2"] += tok2
                 architect_reasoning = reasoning
             print(f"\n{_c('New tables:', 'bold')} {', '.join(selected)}")
-            if not _ask_yes_no("Approve?"):
+            if not _ask_yes_no(
+                "Approve?",
+                recorder=interventions,
+                phase="discovery",
+                gate=HumanGate.DATASET_APPROVAL,
+            ):
                 print(_c("Workflow cancelled.", "red"))
                 return
             retries = 0
@@ -435,24 +503,20 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         tokens_phase4=tokens["p4"],
         error=err if err is not None else "",
         model=runtime.model_name,
-        architecture="unified" if runtime.use_unified_agent else "divided",
+        architecture=runtime.experiment.architecture_name,
         elapsed_seconds=round(time.monotonic() - workflow_started, 3),
         extra_fields={
             "MANIFEST_JSON": manifest.model_dump(mode="json"),
             "RUN_TRACE_JSON": {
                 "discovery": {"keywords": keywords, "selected_datasets": selected},
-                "llm_calls": [
-                    llm_call_record(
-                        "discovery" if phase in {"p1", "p2"} else
-                        "code" if phase == "p3" else "result",
-                        llm_call_counts[
-                            "discovery" if phase in {"p1", "p2"} else
-                            "code" if phase == "p3" else "result"
-                        ],
-                        count,
-                    )
-                    for phase, count in tokens.items()
-                ],
+                "llm_calls": build_llm_phase_records(
+                    total_tokens={
+                        "discovery": tokens["p1"] + tokens["p2"],
+                        "code": tokens["p3"],
+                        "result": tokens["p4"],
+                    },
+                    phase_invocations=llm_call_counts,
+                ),
                 "phase_metrics": {
                     phase: {"latency_seconds": round(seconds, 6)}
                     for phase, seconds in phase_seconds.items()
@@ -465,7 +529,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     "succeeded": err is None,
                     "raw_result": raw_result,
                 },
-                "human_interventions": list(_CLI_INTERVENTIONS),
+                "human_interventions": interventions.to_list(),
                 "configuration": manifest.resolved_config,
             },
         },

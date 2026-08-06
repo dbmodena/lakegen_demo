@@ -86,7 +86,6 @@ class GateConfig(FrozenModel):
     keywords: bool = True
     datasets: bool = True
     plan: bool = False
-    code: bool = True
     result: bool = False
 
 
@@ -138,13 +137,19 @@ class ExperimentConfig(FrozenModel):
             raise ValueError("only coder_context_level='full' is implemented")
         if self.gates.plan or self.gates.result:
             raise ValueError("plan and result gates are not implemented")
-        if not self.gates.keywords or not self.gates.datasets or not self.gates.code:
-            raise ValueError("disabling existing keywords/datasets/code gates is not implemented")
+        if not self.gates.keywords or not self.gates.datasets:
+            raise ValueError("disabling existing keywords/datasets gates is not implemented")
         return self
 
     @property
     def use_unified_agent(self) -> bool:
         return self.discovery_architecture == DiscoveryArchitecture.UNIFIED
+
+    @property
+    def architecture_name(self) -> str:
+        """Canonical value used by manifests, traces, and legacy CSV logs."""
+
+        return self.discovery_architecture.value
 
 
 def _deep_merge(base: dict[str, Any], updates: Mapping[str, Any]) -> dict[str, Any]:
@@ -170,6 +175,30 @@ def dotted_overrides(values: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def parse_experiment_config_document(
+    text: str,
+    *,
+    suffix: str,
+) -> dict[str, Any]:
+    """Parse YAML/JSON configuration content without accessing the filesystem."""
+
+    normalized_suffix = suffix.casefold()
+    try:
+        if normalized_suffix == ".json":
+            loaded = json.loads(text)
+        elif normalized_suffix in {".yaml", ".yml"}:
+            loaded = yaml.safe_load(text)
+        else:
+            raise ValueError("experiment config must be a .yaml, .yml, or .json file")
+    except (json.JSONDecodeError, yaml.YAMLError) as exc:
+        raise ValueError(f"invalid experiment config: {exc}") from exc
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, Mapping):
+        raise ValueError("experiment config root must be an object")
+    return dict(loaded)
+
+
 def load_experiment_config(
     path: str | Path | None = None,
     *,
@@ -183,16 +212,7 @@ def load_experiment_config(
     if path is not None:
         config_path = Path(path)
         text = config_path.read_text(encoding="utf-8")
-        if config_path.suffix.casefold() == ".json":
-            loaded = json.loads(text)
-        elif config_path.suffix.casefold() in {".yaml", ".yml"}:
-            loaded = yaml.safe_load(text)
-        else:
-            raise ValueError("experiment config must be a .yaml, .yml, or .json file")
-        if loaded is None:
-            loaded = {}
-        if not isinstance(loaded, Mapping):
-            raise ValueError("experiment config root must be an object")
+        loaded = parse_experiment_config_document(text, suffix=config_path.suffix)
         data = _deep_merge(data, loaded)
     if data_override:
         data = _deep_merge(data, data_override)
