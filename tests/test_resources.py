@@ -90,6 +90,13 @@ def test_get_llm_builds_oci_client(monkeypatch):
         ),
     )
     monkeypatch.setattr(resources, "_LakeGenOCIGenAI", fake_oci_genai)
+    monkeypatch.setattr(
+        resources.tiktoken,
+        "encoding_for_model",
+        lambda _model: type(
+            "OfflineEncoding", (), {"encode": staticmethod(lambda text: list(text))}
+        )(),
+    )
 
     llm, token_counter = resources.get_llm("openai.gpt-oss-120b")
 

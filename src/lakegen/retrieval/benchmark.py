@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import threading
 import uuid
@@ -16,6 +17,7 @@ from typing import Any
 
 from src.client_solr import LocalSolrClient
 from lakegen.retrieval.config import FusionMethod, RetrievalConfig, RetrievalMode
+from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
 from lakegen.retrieval.retrievers import TableRetrievalService
 
@@ -186,6 +188,7 @@ def run_retriever_benchmark(
     alphas: Sequence[float] = (0.25, 0.5, 0.75),
     include_rrf: bool = True,
     k_values: Sequence[int] = (1, 5, 10),
+    embedding_model: EmbeddingModel | None = None,
 ) -> dict[str, Any]:
     """Run exactly one retrieval per case for each explicit experiment config."""
 
@@ -194,7 +197,9 @@ def run_retriever_benchmark(
         base = replace(base, top_k=max(k_values))
     experiments: dict[str, Any] = {}
     for label, config in _experiment_configs(base, modes, alphas, include_rrf):
-        service = TableRetrievalService(solr, config)
+        service = TableRetrievalService(
+            solr, config, embedding_model=embedding_model
+        )
         rows: list[dict[str, Any]] = []
         metric_rows: list[dict[str, float]] = []
         successful_metric_rows: list[dict[str, float]] = []
@@ -352,6 +357,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
     parser.add_argument("--core", default="nyc")
+    parser.add_argument(
+        "--solr-base-url",
+        default=os.environ.get("SOLR_BASE_URL", "http://localhost:8983/solr"),
+        help="Solr base URL (default: SOLR_BASE_URL or localhost)",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--table-dir", type=Path)
     parser.add_argument("--top-k", type=int, default=10)
@@ -373,7 +383,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     cases = load_benchmark_cases(args.input)
     report = run_retriever_benchmark(
-        LocalSolrClient(args.core),
+        LocalSolrClient(args.core, base_url=args.solr_base_url),
         cases,
         base_config=RetrievalConfig(
             top_k=args.top_k,

@@ -9,7 +9,12 @@ from lakegen.retrieval.evaluation import (
     evaluate_ranking,
     mean_metrics,
 )
-from lakegen.retrieval.indexing import SolrEmbeddingIndexer, ensure_vector_schema
+from lakegen.retrieval.indexing import (
+    SolrEmbeddingIndexer,
+    ensure_vector_schema,
+    validate_stored_replacement_schema,
+    validate_vector_schema,
+)
 from lakegen.retrieval.models import RetrievalHit, RetrievalRun
 from lakegen.retrieval.representation import METADATA_V1, represent_table
 from lakegen.retrieval.retrievers import (
@@ -35,6 +40,8 @@ __all__ = [
     "SolrEmbeddingIndexer",
     "TableRetrievalService",
     "ensure_vector_schema",
+    "validate_stored_replacement_schema",
+    "validate_vector_schema",
     "evaluate_ranking",
     "mean_metrics",
     "min_max_normalize",

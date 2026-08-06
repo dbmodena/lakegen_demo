@@ -4,6 +4,7 @@ import csv
 
 import pytest
 
+from index_retrieval import validate_source_coverage
 from src.client_solr import LocalSolrClient
 from lakegen.retrieval import (
     HybridRetriever,
@@ -19,6 +20,7 @@ from lakegen.retrieval import (
     evaluate_ranking,
     min_max_normalize,
     represent_table,
+    validate_stored_replacement_schema,
 )
 from lakegen.retrieval.benchmark import (
     BenchmarkCase,
@@ -226,6 +228,44 @@ def test_hybrid_rrf_is_a_configurable_rank_fusion_baseline():
     assert results[0].score == pytest.approx(1 / 62 + 1 / 61)
 
 
+@pytest.mark.parametrize(
+    ("alpha", "expected_ids", "expected_ranks", "expected_branch"),
+    [
+        (1.0, ["bm25-a", "bm25-b"], [1, 2], "lexical"),
+        (0.0, ["dense-a", "dense-b"], [1, 2], "semantic"),
+    ],
+)
+def test_weighted_hybrid_endpoints_exactly_match_the_selected_branch(
+    alpha, expected_ids, expected_ranks, expected_branch
+):
+    lexical = StubBranch(
+        [hit("bm25-a", 10.0, 1), hit("bm25-b", 9.0, 2), hit("bm25-c", 8.0, 3)]
+    )
+    semantic = StubBranch(
+        [hit("dense-a", 0.9, 1), hit("dense-b", 0.8, 2), hit("dense-c", 0.7, 3)]
+    )
+    config = RetrievalConfig(
+        mode="hybrid",
+        alpha=alpha,
+        fusion_method=FusionMethod.WEIGHTED,
+        candidate_multiplier=4,
+    )
+
+    results = HybridRetriever(lexical, semantic, config).retrieve(
+        "complete question", ["generated", "keywords"], top_k=2
+    )
+
+    assert [item.document["resource_id"] for item in results] == expected_ids
+    assert [item.rank for item in results] == expected_ranks
+    assert len(results) == 2
+    if expected_branch == "lexical":
+        assert lexical.calls == [(["generated", "keywords"], 2)]
+        assert semantic.calls == []
+    else:
+        assert semantic.calls == [("complete question", 2)]
+        assert lexical.calls == []
+
+
 def test_metadata_v1_is_stable_and_includes_requested_table_metadata():
     representation = represent_table(
         {
@@ -236,7 +276,8 @@ def test_metadata_v1_is_stable_and_includes_requested_table_metadata():
                 {"name": "quartiere", "description": "Nome del quartiere"},
                 {"name": "totale", "description": "Numero di incidenti"},
             ],
-        }
+        },
+        "metadata-v1",
     )
 
     assert representation.splitlines() == [
@@ -291,6 +332,50 @@ def test_retriever_only_benchmark_runs_once_per_case_without_pipeline_stages():
     assert keyword["cases"][0]["ranking"][:2] == ["gold", "other"]
     assert "table_selection" not in report
     assert "code_execution" not in report
+
+
+def test_retriever_benchmark_uses_identical_cases_and_top_k_for_all_modes():
+    solr = FakeSolr(
+        select_docs=[{"resource_id": "gold", "score": 2.0}],
+        knn_docs=[{"resource_id": "gold", "score": 0.9}],
+    )
+    cases = [
+        BenchmarkCase("q1", "Complete question one?", ("keyword-one",), ("gold",)),
+        BenchmarkCase("q2", "Complete question two?", ("keyword-two",), ("gold",)),
+    ]
+    embedding = FakeEmbedding()
+
+    report = run_retriever_benchmark(
+        solr,
+        cases,
+        base_config=RetrievalConfig(top_k=3, candidate_multiplier=2),
+        modes=tuple(RetrievalMode),
+        alphas=(0.5,),
+        include_rrf=False,
+        k_values=(1, 3),
+        embedding_model=embedding,
+    )
+
+    assert set(report["experiments"]) == {
+        "keyword",
+        "semantic",
+        "hybrid-weighted-a0.5",
+    }
+    for experiment in report["experiments"].values():
+        assert experiment["config"]["top_k"] == 3
+        assert [case["case_id"] for case in experiment["cases"]] == ["q1", "q2"]
+        assert [case["relevant_table_ids"] for case in experiment["cases"]] == [
+            ["gold"],
+            ["gold"],
+        ]
+        assert "table_selection" not in experiment
+        assert "code_execution" not in experiment
+    assert embedding.queries == [
+        "Complete question one?",
+        "Complete question two?",
+        "Complete question one?",
+        "Complete question two?",
+    ]
 
 
 def test_benchmark_metrics_csv_uses_variable_case_count_and_reuses_job_id(tmp_path):
@@ -364,7 +449,9 @@ def test_embedding_indexer_stores_vector_and_representation_provenance():
     embedding = FakeEmbedding()
     config = RetrievalConfig(embedding_model="test-multilingual")
 
-    summary = SolrEmbeddingIndexer(solr, config, embedding).run(batch_size=4)
+    summary = SolrEmbeddingIndexer(solr, config, embedding).run(
+        batch_size=4, create_schema=True
+    )
 
     assert summary.indexed_documents == 1
     assert summary.vector_dimension == 2
@@ -400,6 +487,103 @@ def test_vector_schema_creation_uses_cosine_and_provenance_fields():
     assert '"name": "embedding_model"' in serialized
 
 
+def test_indexing_dry_run_validates_existing_vector_schema_without_writes():
+    class IncompatibleVectorSolr(FakeIndexSolr):
+        def schema(self):
+            return {
+                "schema": {
+                    "uniqueKey": "resource_id",
+                    "fields": [
+                        {
+                            "name": "table_embedding",
+                            "type": "wrong_vector",
+                            "indexed": True,
+                            "stored": True,
+                        },
+                        {
+                            "name": "representation_version",
+                            "indexed": True,
+                            "stored": True,
+                        },
+                        {
+                            "name": "embedding_model",
+                            "indexed": True,
+                            "stored": True,
+                        },
+                    ],
+                    "fieldTypes": [
+                        {
+                            "name": "wrong_vector",
+                            "vectorDimension": 3,
+                            "similarityFunction": "cosine",
+                        }
+                    ],
+                }
+            }
+
+    solr = IncompatibleVectorSolr()
+    with pytest.raises(RuntimeError, match="dimension=2"):
+        SolrEmbeddingIndexer(
+            solr,
+            RetrievalConfig(embedding_model="test-multilingual"),
+            FakeEmbedding(),
+        ).run(create_schema=True, dry_run=True)
+
+    assert solr.schema_commands == []
+    assert solr.updates == []
+    assert solr.commits == 0
+
+
+def test_indexer_aborts_before_reading_when_indexed_fields_are_not_stored():
+    schema = {
+        "uniqueKey": "resource_id",
+        "fields": [
+            {"name": "resource_id", "indexed": True, "stored": True},
+            {"name": "private_sort", "indexed": True, "stored": False},
+        ],
+        "fieldTypes": [],
+    }
+
+    with pytest.raises(RuntimeError, match="private_sort"):
+        validate_stored_replacement_schema(schema, vector_field="table_embedding")
+
+
+def test_source_reindex_requires_all_ids_and_preserves_every_stored_field():
+    current = [
+        {
+            "resource_id": "table-1",
+            "title": "Incidenti",
+            "stored_provenance": "portal-a",
+            "table_embedding": [0.1, 0.2],
+            "representation_version": "metadata-v1",
+        }
+    ]
+    incomplete_source = [{"resource_id": "table-1", "title": "Incidenti"}]
+
+    with pytest.raises(RuntimeError, match="stored_provenance"):
+        validate_source_coverage(
+            incomplete_source,
+            current,
+            unique_key="resource_id",
+            vector_field="table_embedding",
+        )
+
+    validate_source_coverage(
+        [{**incomplete_source[0], "stored_provenance": "portal-a"}],
+        current,
+        unique_key="resource_id",
+        vector_field="table_embedding",
+    )
+
+
+def test_direct_solr_client_uses_shared_environment_base_url(monkeypatch):
+    monkeypatch.setenv("SOLR_BASE_URL", "http://127.0.0.1:8993/solr")
+
+    client = LocalSolrClient("nyc")
+
+    assert client.base_url == "http://127.0.0.1:8993/solr"
+
+
 def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
     captured = {}
 
@@ -414,6 +598,7 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
                         {
                             "resource_id": "a",
                             "columns.name": ["anno"],
+                            "table_embedding": [0.1, 0.2],
                             "score": 0.7,
                         }
                     ]
@@ -442,6 +627,11 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
     assert captured["params"]["fq"] == [
         'representation_version:"metadata-v1"'
     ]
+    assert "*" not in captured["params"]["fl"]
+    assert "table_embedding" not in captured["params"]["fl"]
+    assert "title" in captured["params"]["fl"]
+    assert "score" in captured["params"]["fl"]
+    assert "table_embedding" not in response["response"]["docs"][0]
     assert response["response"]["docs"][0]["columns"] == [
         {"name": "anno", "description": None}
     ]

@@ -3,9 +3,37 @@ from __future__ import annotations
 from collections.abc import Sequence
 import json
 import math
+import os
 from typing import Any
 
 import requests
+
+
+KNN_METADATA_FIELDS = (
+    "id",
+    "resource_id",
+    "dataset_id",
+    "title",
+    "description",
+    "tags",
+    "columns.name",
+    "columns.description",
+    "columns.type",
+    "schema",
+    "dataset_url",
+    "download_url",
+    "url",
+    "permalink",
+    "link",
+    "owner",
+    "creator",
+    "source",
+    "portal",
+    "provenance",
+    "representation_version",
+    "embedding_model",
+    "score",
+)
 
 
 class LocalSolrClient:
@@ -14,11 +42,14 @@ class LocalSolrClient:
     def __init__(
         self,
         core: str,
-        base_url: str = "http://localhost:8983/solr",
+        base_url: str | None = None,
         timeout: float = 30.0,
     ) -> None:
         self.core = core.strip("/")
-        self.base_url = base_url.rstrip("/")
+        resolved_base_url = base_url or os.environ.get(
+            "SOLR_BASE_URL", "http://localhost:8983/solr"
+        )
+        self.base_url = resolved_base_url.rstrip("/")
         self.timeout = timeout
 
     @property
@@ -143,10 +174,10 @@ class LocalSolrClient:
         request_params: dict[str, Any] = {
             "q": query,
             "rows": rows if rows is not None else top_k,
-            "fl": "*,score",
             "wt": "json",
             **params,
         }
+        request_params["fl"] = ",".join(KNN_METADATA_FIELDS)
         if filters:
             request_params["fq"] = list(filters)
 
@@ -160,7 +191,15 @@ class LocalSolrClient:
             timeout=self.timeout,
         )
         response.raise_for_status()
-        return self._restore_response_docs(response.json())
+        result = self._restore_response_docs(response.json())
+        # Keep a defensive boundary even if a custom Solr handler ignores fl.
+        # Query vectors are large implementation details and must never escape
+        # through retrieval results or experiment logs.
+        docs = result.get("response", {}).get("docs", [])
+        for document in docs:
+            if isinstance(document, dict):
+                document.pop(vector_field, None)
+        return result
 
     def iter_documents(
         self,

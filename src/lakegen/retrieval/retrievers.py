@@ -228,6 +228,16 @@ class HybridRetriever:
         *,
         top_k: int,
     ) -> list[RetrievalHit]:
+        # Weighted fusion has two exact, useful boundary conditions.  Returning
+        # the selected branch directly avoids normalization/tie-breaking from
+        # perturbing its documents, order, scores, ranks, or top_k.  RRF is a
+        # separate rank-fusion baseline and intentionally ignores alpha.
+        if self.config.fusion_method == FusionMethod.WEIGHTED:
+            if self.config.alpha == 1.0:
+                return self.lexical.retrieve(keywords, top_k=top_k)[:top_k]
+            if self.config.alpha == 0.0:
+                return self.semantic.retrieve(question, top_k=top_k)[:top_k]
+
         candidate_count = top_k * self.config.candidate_multiplier
         lexical_hits = self.lexical.retrieve(keywords, top_k=candidate_count)
         semantic_hits = self.semantic.retrieve(question, top_k=candidate_count)

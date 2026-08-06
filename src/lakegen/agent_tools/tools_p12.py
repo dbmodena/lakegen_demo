@@ -58,27 +58,58 @@ class Phase12ToolsManager:
         self.question = question
         self.retrieval_config = retrieval_config or RetrievalConfig()
 
-    def search_solr(self, keywords_str: str) -> str:
+    def _search_cache_key(self, keywords: list[str]) -> tuple[str, ...]:
+        if self.retrieval_config.mode == RetrievalMode.SEMANTIC:
+            return ("semantic-question", self.question.strip().casefold())
+        return (
+            f"{self.retrieval_config.mode.value}-keywords",
+            *sorted({keyword.casefold() for keyword in keywords}),
+        )
+
+    def _search_tool_description(self) -> str:
+        if self.retrieval_config.mode == RetrievalMode.SEMANTIC:
+            return (
+                "Search for relevant tables with semantic KNN retrieval. The complete "
+                "original user question is embedded automatically and exactly once. "
+                "Do not invent or vary keywords; call this tool once with an empty "
+                "string. Returns matching local table names and metadata."
+            )
+        if self.retrieval_config.mode == RetrievalMode.HYBRID:
+            return (
+                "Search for relevant tables with hybrid retrieval. Provide 1-2 "
+                "metadata-oriented keywords in the portal's native language for the "
+                "BM25 branch; the semantic branch automatically embeds the complete "
+                "original user question. Returns matching local table names and metadata."
+            )
+        return (
+            "Search for relevant tables with BM25. Provide 1-2 metadata-oriented "
+            "keywords in the portal's native language. The generated keywords are "
+            "used directly, with strict AND and an automatic OR fallback."
+        )
+
+    def search_solr(self, keywords_str: str = "") -> str:
         """
-        Search for relevant tables in Solr using a space-separated string of keywords.
-        IMPORTANT: Keywords must be written in the native language of the Open Data
-        portal being queried (for example, French for Paris or Italian for Bologna).
-        Search for DATASET CONCEPTS that appear in metadata, not concrete row-filter values.
-        Use ONLY 1-2 essential keywords. In keyword mode the tool tries strict AND first
-        and automatically falls back to broader OR matching when needed. Semantic mode
-        embeds the complete user question; hybrid mode fuses that signal with BM25.
-        Example: use "language interpretation", not row values such as "Mandarin Intake".
-        Returns the top matching table names and their schema descriptions.
+        Search Solr using the retrieval mode configured for this workflow.
+
+        Keyword and hybrid modes consume the supplied metadata keywords. Semantic
+        mode ignores this argument and embeds the complete original user question.
         """
         try:
             keywords = [k.strip() for k in keywords_str.split(" ") if k.strip()]
-            if not keywords:
+            if self.retrieval_config.mode == RetrievalMode.SEMANTIC:
+                keywords = []
+            elif not keywords:
                 return "No keywords provided. Search with one or two dataset concepts."
             self.state.used_keywords = keywords
-            key = tuple(keyword.casefold() for keyword in keywords)
+            key = self._search_cache_key(keywords)
             if key in self.state.search_cache:
+                repeated_signal = (
+                    "the original question"
+                    if self.retrieval_config.mode == RetrievalMode.SEMANTIC
+                    else f"keywords {keywords}"
+                )
                 return (
-                    f"Search skipped: keywords {keywords} were already tried.\n"
+                    f"Search skipped: {repeated_signal} was already tried.\n"
                     + self.state.search_cache[key]
                 )
             self.state.keyword_history.append(keywords)
@@ -87,11 +118,15 @@ class Phase12ToolsManager:
             retriever = get_table_retrieval_service(
                 self.solr_client, self.retrieval_config
             )
+            # Solr candidates must first be mapped and de-duplicated against
+            # local files.  Request a wider ranked list here and apply the
+            # workflow's final top_k only after that mapping below.
+            fetch_k = max(15, self.retrieval_config.top_k)
             hits = retriever.retrieve(
                 question=self.question,
                 keywords=keywords,
-                top_k=self.retrieval_config.top_k,
-                lexical_fetch_k=15,
+                top_k=fetch_k,
+                lexical_fetch_k=fetch_k,
                 q_op="AND",
             )
             search_mode = (
@@ -107,8 +142,8 @@ class Phase12ToolsManager:
                 hits = retriever.retrieve(
                     question=self.question,
                     keywords=keywords,
-                    top_k=self.retrieval_config.top_k,
-                    lexical_fetch_k=15,
+                    top_k=fetch_k,
+                    lexical_fetch_k=fetch_k,
                     q_op="OR",
                 )
                 search_mode = "OR fallback"
@@ -207,7 +242,10 @@ class Phase12ToolsManager:
 
     def get_tools(self) -> list[FunctionTool]:
         return [
-            FunctionTool.from_defaults(fn=self.search_solr),
+            FunctionTool.from_defaults(
+                fn=self.search_solr,
+                description=self._search_tool_description(),
+            ),
             FunctionTool.from_defaults(fn=self.inspect_columns),
             FunctionTool.from_defaults(fn=self.find_schema_matches),
             FunctionTool.from_defaults(fn=self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),

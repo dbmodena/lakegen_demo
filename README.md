@@ -16,9 +16,10 @@ uv run python src/cli.py --retrieval-mode hybrid \
   --top-k 10 --hybrid-alpha 0.5 --candidate-multiplier 5 "question"
 ```
 
-The semantic branch embeds the complete natural-language question. Table
-documents use the versioned `metadata-v1` representation: title, description,
-tags, column names, and column descriptions. The default pretrained
+The semantic branch embeds the complete original natural-language question
+once per workflow question. Table documents use the versioned `metadata-v1`
+representation: title, description, tags, column names, and column
+descriptions. The default pretrained
 multilingual embedding model is `bge-m3`, served locally through Ollama. Keep
 `LAKEGEN_EMBEDDING_MODEL` unchanged across keyword/semantic/hybrid experiment
 runs. These settings are configurable:
@@ -44,14 +45,37 @@ It is deliberately unset by default, so the baseline Solr field configuration
 and BM25 parameters are preserved.
 
 Before using `semantic` or `hybrid`, make the configured embedding model
-available and index every Solr core. `--ensure-schema` creates or validates a
-Solr `DenseVectorField` with cosine similarity, plus the representation/model
-provenance fields. It does not change Lucene's BM25 parameters.
+available and index every document in each Solr core. `--ensure-schema` creates
+or validates a Solr `DenseVectorField` with cosine similarity, plus the
+representation/model provenance fields. It does not change Lucene's BM25
+parameters. KNN responses request an explicit metadata field list and never
+return `table_embedding`.
 
 ```bash
 ollama pull bge-m3
-uv run python index_retrieval.py --core bologna --ensure-schema
+export SOLR_BASE_URL=http://localhost:8983/solr
+
+# Dry-run: no Solr document is changed.
+uv run python index_retrieval.py --core bologna --ensure-schema \
+  --metadata-source backups/bologna-solr-ready-metadata.json
+
+# Apply only after reviewing the dry-run. The source must contain complete,
+# Solr-ready documents reconstructed from the original metadata ingestion.
+uv run python index_retrieval.py --core bologna --ensure-schema \
+  --metadata-source backups/bologna-solr-ready-metadata.json \
+  --backup backups/bologna-before-metadata-v1.json --apply
 ```
+
+The indexing command is a dry-run unless `--apply` is present. Applying an
+update requires both the canonical metadata source and a backup path. Before
+writing, it verifies that source and core contain the same unique keys and that
+no currently stored field would disappear. The fallback read-modify-replace
+path validates the complete schema and aborts if any indexed/non-stored field
+cannot be reconstructed. Do not use `--apply` first against a production core:
+run and review the dry-run on a cloned core, retain the metadata source and
+backup, then apply to the verified target. Rollback consists of restoring the
+backup/source documents and re-running the indexer with the previous explicit
+representation version and embedding model.
 
 Hybrid retrieval independently requests `candidate_multiplier * top_k`
 documents from each branch. With the defaults this is 50 BM25 and 50 semantic
@@ -70,6 +94,16 @@ the branch retrieved it. Non-finite scores are discarded. By default, a table
 missing from one candidate list receives zero for that branch. This is an
 explicit approximation of Pneuma: set `LAKEGEN_MISSING_SIGNAL_POLICY=rescore`
 only when a reliable Solr-specific missing-score resolver has been supplied.
+For weighted fusion, `alpha=1` bypasses fusion and returns the exact BM25
+ranking; `alpha=0` returns the exact semantic ranking. RRF remains a separate
+rank-fusion baseline selected with `LAKEGEN_FUSION_METHOD=rrf`.
+
+The standalone benchmark is retriever-only: it runs the same questions, fixed
+keywords, gold tables, dataset, and `top_k` through BM25, semantic, and hybrid,
+without the agent, reviewer, coder, column resolution, or output validation.
+It shares `SOLR_BASE_URL` with the application (or accepts
+`--solr-base-url`) so downstream pipeline changes cannot alter retrieval
+metrics. Evaluate those stages later as separate end-to-end ablations.
 
 Every retrieval invocation appends the ordered candidate list, raw branch
 scores, normalized scores, ranks, configuration, embedding model, and
@@ -220,7 +254,7 @@ Dense Passage Retrieval."
 
 TARGET guides experimental separation: retrieval rankings are logged and can
 be evaluated independently of LakeGen's later table-selection and generation
-phases. It also motivates keeping `metadata-v1` explicit so later ablations can
+phases. It also motivates keeping representation versions explicit so later ablations can
 compare title-only, title+description, schema, sampled content, and full
 metadata without silently changing the experimental variable.
 
