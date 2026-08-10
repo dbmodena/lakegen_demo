@@ -30,6 +30,7 @@ sys.modules.setdefault("llama_index.embeddings", _embedding_package)
 sys.modules.setdefault("llama_index.embeddings.huggingface", _embedding_module)
 
 from lakegen.ui import workflow
+from src import app as chainlit_app
 
 
 def _session() -> LakeGenSession:
@@ -193,3 +194,89 @@ async def test_workflow_timeout_is_logged_once(monkeypatch):
     assert len(logged) == 1
     assert logged[0]["status"] == "timed_out"
     assert "WorkflowTimedOut" in logged[0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_busy_workflow_is_rejected_without_session_manifest_or_log(monkeypatch):
+    messages = []
+
+    class Message:
+        def __init__(self, *, content):
+            self.content = content
+
+        async def send(self):
+            messages.append(self.content)
+
+    monkeypatch.setattr(workflow.cl, "Message", Message)
+    monkeypatch.setattr(
+        workflow, "get_session", lambda: pytest.fail("active session was accessed")
+    )
+    monkeypatch.setattr(
+        workflow, "create_manifest", lambda *_a, **_k: pytest.fail("manifest created")
+    )
+    monkeypatch.setattr(
+        workflow, "save_experiment_log", lambda **_k: pytest.fail("log created")
+    )
+
+    await workflow.WORKFLOW_LOCK.acquire()
+    try:
+        await workflow.run_lakegen_workflow("Second question?")
+    finally:
+        workflow.WORKFLOW_LOCK.release()
+
+    assert messages == [workflow.t("workflow.locked")]
+
+
+@pytest.mark.asyncio
+async def test_on_message_rejects_before_replacing_active_session(monkeypatch):
+    active_session = _session()
+    messages = []
+
+    class Message:
+        def __init__(self, *, content):
+            self.content = content
+
+        async def send(self):
+            messages.append(self.content)
+
+    monkeypatch.setattr(chainlit_app.cl, "Message", Message)
+    monkeypatch.setattr(chainlit_app, "get_session", lambda: active_session)
+    monkeypatch.setattr(
+        chainlit_app.cl.user_session,
+        "set",
+        lambda *_a, **_k: pytest.fail("active session was replaced"),
+    )
+    monkeypatch.setattr(
+        chainlit_app,
+        "run_lakegen_workflow",
+        lambda *_a, **_k: pytest.fail("second workflow was started"),
+    )
+
+    await workflow.WORKFLOW_LOCK.acquire()
+    try:
+        await chainlit_app.on_message(SimpleNamespace(content="Second question?"))
+    finally:
+        workflow.WORKFLOW_LOCK.release()
+
+    assert messages == [workflow.t("workflow.locked")]
+    assert active_session.finalized is False
+    assert active_session.tokens == {"p1": 0, "p2": 0, "p3": 0, "p4": 0}
+
+
+@pytest.mark.asyncio
+async def test_new_request_is_allowed_after_previous_workflow_finishes(monkeypatch):
+    session = _session()
+    runs = []
+
+    async def complete(question):
+        runs.append(question)
+        return "completed"
+
+    monkeypatch.setattr(workflow, "get_session", lambda: session)
+    monkeypatch.setattr(workflow, "_run_locked_workflow", complete)
+    monkeypatch.setattr(workflow, "_finalize_run", lambda *_a, **_k: None)
+
+    await workflow.run_lakegen_workflow("First question?")
+    await workflow.run_lakegen_workflow("Next question?")
+
+    assert runs == ["First question?", "Next question?"]

@@ -44,10 +44,13 @@ def _mock_successful_tail(monkeypatch, *, generated=None):
     monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
     monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
     monkeypatch.setattr("lakegen.service.get_all_table_files", lambda _path: ["table.csv"])
-    monkeypatch.setattr(
-        "lakegen.service.phase3_generate_and_execute",
-        lambda *_args, **_kwargs: generated,
-    )
+    def phase3(*_args, **kwargs):
+        recorder = kwargs.get("seed_instruction_recorder")
+        if recorder is not None:
+            recorder()
+        return generated
+
+    monkeypatch.setattr("lakegen.service.phase3_generate_and_execute", phase3)
     monkeypatch.setattr(
         "lakegen.service.phase4_synthesize", lambda *_args: ("The answer is 42.", 5)
     )
@@ -97,6 +100,50 @@ def test_csv_architecture_matches_manifest_and_trace(
     assert run_trace["architecture"] == architecture
     trace_config = run_trace["configuration"]
     assert trace_config["discovery_architecture"] == architecture
+    reproducibility = run_trace["reproducibility"]
+    assert reproducibility["instructions_provided_to"] == ["code_generator"]
+    assert reproducibility["generated_code_seed_instruction_provided"] is True
+    assert reproducibility["generated_code_seed_usage_verified"] is False
+    assert reproducibility["seed_applied_to"] == []
+
+
+@pytest.mark.parametrize("failure_point", ["discovery", "before_prompt"])
+def test_seed_instruction_is_not_reported_when_prompt_was_not_built(
+    failure_point, monkeypatch, tmp_path
+):
+    config = ExperimentConfig(interaction_mode="autonomous", seed=19)
+    runtime = _runtime(config, tmp_path)
+    _mock_successful_tail(monkeypatch)
+    if failure_point == "discovery":
+        monkeypatch.setattr(
+            "lakegen.service.phase12_agent",
+            lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("discovery failed")),
+        )
+    else:
+        monkeypatch.setattr(
+            "lakegen.service.phase12_agent",
+            lambda **_kwargs: (
+                ["table.csv"], ["value"], {}, "selected", "trace", 3
+            ),
+        )
+        monkeypatch.setattr(
+            "lakegen.service.phase3_generate_and_execute",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("failed before prompt")
+            ),
+        )
+    logged = {}
+    monkeypatch.setattr(
+        "lakegen.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+    )
+
+    result = run_question("Question?", runtime)
+
+    assert result.status == "failed"
+    telemetry = logged["extra_fields"]["RUN_TRACE_JSON"]["reproducibility"]
+    assert telemetry["instructions_provided_to"] == []
+    assert telemetry["generated_code_seed_instruction_provided"] is False
+    assert telemetry["generated_code_seed_usage_verified"] is False
 
 
 def test_llm_phase_records_are_non_overlapping_for_unified_and_divided():

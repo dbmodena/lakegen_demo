@@ -39,10 +39,14 @@ def test_seed_comes_from_resolved_configuration_and_manifest(tmp_path):
     assert manifest.reproducibility == {
         "configured_seed": 73,
         "effective_seed": 73,
-        "applied_to": [
+        "initialized_components": [
             "python_random_local_generator",
             "numpy_local_generator",
         ],
+        "seed_applied_to": [],
+        "instructions_provided_to": [],
+        "generated_code_seed_instruction_provided": False,
+        "generated_code_seed_usage_verified": False,
         "llm_provider_seed_supported": False,
         "llm_provider_seed_applied": False,
         "deterministic_llm_generation": False,
@@ -71,12 +75,53 @@ def test_coder_receives_effective_seed_without_hardcoded_42(monkeypatch, tmp_pat
     monkeypatch.setattr("lakegen.phases.phase3._detect_tabpfn_intent", lambda _q: "prediction")
     monkeypatch.setattr("lakegen.phases.phase3._tabpfn_enabled", lambda: True)
 
+    instruction_events = []
     code, _tokens = phase3_generate_code(
         "predict", [table.name], [table.name], {}, "", LLM(), PromptManager(),
         tmp_path, seed=73, stream_reasoning=False,
+        seed_instruction_recorder=lambda: instruction_events.append("provided"),
     )
 
     assert code == "print(1)"
     assert "effective seed for this run is 73" in captured["prompt"]
     assert "random_state=73" in captured["prompt"]
     assert "random_state=42" not in captured["prompt"]
+    assert instruction_events == ["provided"]
+
+
+def test_error_before_prompt_does_not_record_seed_instruction(tmp_path):
+    instruction_events = []
+
+    try:
+        phase3_generate_code(
+            "question", ["missing.csv"], [], {}, "", object(), object(),
+            tmp_path,
+            seed=73,
+            seed_instruction_recorder=lambda: instruction_events.append("provided"),
+        )
+    except (FileNotFoundError, AttributeError):
+        pass
+
+    assert instruction_events == []
+
+
+def test_telemetry_distinguishes_instruction_from_verified_usage():
+    context = initialize_reproducibility(73)
+    telemetry = context.telemetry(generated_code_seed_instruction_provided=True)
+
+    assert telemetry["initialized_components"] == [
+        "python_random_local_generator",
+        "numpy_local_generator",
+    ]
+    assert telemetry["seed_applied_to"] == []
+    assert telemetry["instructions_provided_to"] == ["code_generator"]
+    assert telemetry["generated_code_seed_instruction_provided"] is True
+    assert telemetry["generated_code_seed_usage_verified"] is False
+    assert telemetry["deterministic_llm_generation"] is False
+    for value in (
+        telemetry["initialized_components"],
+        telemetry["seed_applied_to"],
+        telemetry["instructions_provided_to"],
+        telemetry["uncontrolled_components"],
+    ):
+        assert len(value) == len(set(value))

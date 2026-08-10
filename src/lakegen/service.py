@@ -275,7 +275,11 @@ def run_question(
     selection_state = P12State()
     attempted_keywords: list[str] = []
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
-    generated_code_instructions_applied = False
+    generated_code_seed_instruction_provided = False
+
+    def record_seed_instruction() -> None:
+        nonlocal generated_code_seed_instruction_provided
+        generated_code_seed_instruction_provided = True
 
     with capture_retrieval_runs(log_context) as retrieval_runs:
         try:
@@ -374,7 +378,6 @@ def run_question(
 
                 previous_code = ""
                 for code_attempt in range(MAX_CODE_ATTEMPTS):
-                    generated_code_instructions_applied = True
                     code_started = time.monotonic()
                     generated = phase3_generate_and_execute(
                         question,
@@ -390,6 +393,7 @@ def run_question(
                         previous_code=previous_code,
                         run_dir=run_dir,
                         seed=reproducibility.effective_seed,
+                        seed_instruction_recorder=record_seed_instruction,
                     )
                     phase_invocation_counts["code"] += 1
                     result.tokens["p3"] += generated.tokens
@@ -562,8 +566,8 @@ def run_question(
                     "architecture": experiment.architecture_name,
                     "configuration": result.configuration,
                     "reproducibility": reproducibility.telemetry(
-                        generated_code_instructions_applied=(
-                            generated_code_instructions_applied
+                        generated_code_seed_instruction_provided=(
+                            generated_code_seed_instruction_provided
                         )
                     ),
                     "discovery": result.discovery,

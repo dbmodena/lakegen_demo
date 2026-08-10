@@ -143,6 +143,21 @@ The Chainlit, CLI, and HTTP API model selector exposes:
 - `openai.gpt-oss-120b` (default)
 - `meta.llama-3.3-70b-instruct`
 
+## Reproducibility seed
+
+The resolved experiment `seed` is available to components that explicitly
+accept it. LakeGen initializes independent Python and NumPy generators for each
+run, without changing process-global random state. These generators are
+reported as initialized, not as controlling the pipeline until a component
+actually receives them.
+
+The code generator prompt includes the effective seed and asks generated code
+to use it for stochastic sampling, splits, and model `random_state` parameters.
+Compliance by generated code is not yet verified or guaranteed. OCI generation
+also remains non-deterministic because the current provider interface does not
+expose a supported seed parameter; a low temperature is not an absolute
+determinism guarantee.
+
 ## Chainlit UI
 
 Start the interactive application without file watching:

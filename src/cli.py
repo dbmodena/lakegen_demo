@@ -149,6 +149,12 @@ def _stream_to_terminal(delta: str) -> None:
 def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     workflow_started = time.monotonic()
     reproducibility = initialize_reproducibility(runtime.experiment.seed)
+    generated_code_seed_instruction_provided = False
+
+    def record_seed_instruction() -> None:
+        nonlocal generated_code_seed_instruction_provided
+        generated_code_seed_instruction_provided = True
+
     interventions = HumanInterventionRecorder()
     llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
@@ -364,6 +370,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             reasoning_placeholder=None,
             run_dir=run_dir,
             seed=reproducibility.effective_seed,
+            seed_instruction_recorder=record_seed_instruction,
         )
         phase_seconds["code"] += time.monotonic() - phase_started
         llm_call_counts["code"] += 1
@@ -536,7 +543,9 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 "human_interventions": interventions.to_list(),
                 "configuration": manifest.resolved_config,
                 "reproducibility": reproducibility.telemetry(
-                    generated_code_instructions_applied=True
+                    generated_code_seed_instruction_provided=(
+                        generated_code_seed_instruction_provided
+                    )
                 ),
             },
         },

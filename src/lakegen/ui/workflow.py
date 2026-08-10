@@ -45,6 +45,7 @@ from lakegen.core.resources import (
 from lakegen.core.logger import save_experiment_log
 from lakegen.core.config import BASE_DIR, LOG_DIR
 from lakegen.manifest import create_manifest, persist_manifest
+from lakegen.reproducibility import initialize_reproducibility
 from lakegen.tracing import (
     HumanGate,
     PhaseName,
@@ -525,6 +526,9 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     cancel_check=session.check_cancelled,
                     run_dir=session.run_dir,
                     seed=session.runtime.experiment.seed,
+                    seed_instruction_recorder=lambda: setattr(
+                        session, "generated_code_seed_instruction_provided", True
+                    ),
                 )
                 session.phase_seconds["code"] += time.monotonic() - phase_started
                 session.llm_call_counts["code"] += 1
@@ -682,17 +686,13 @@ def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None
         },
         "human_interventions": session.intervention_recorder.to_list(),
         "configuration": session.manifest.get("resolved_config", {}),
-        "reproducibility": {
-            **session.manifest.get("reproducibility", {}),
-            "applied_to": [
-                *session.manifest.get("reproducibility", {}).get("applied_to", []),
-                *(
-                    ["generated_code_instructions"]
-                    if session.llm_call_counts["code"] > 0
-                    else []
-                ),
-            ],
-        },
+        "reproducibility": initialize_reproducibility(
+            session.runtime.experiment.seed
+        ).telemetry(
+            generated_code_seed_instruction_provided=(
+                session.generated_code_seed_instruction_provided
+            )
+        ),
     }
     save_experiment_log(
         question=session.query,
@@ -857,6 +857,7 @@ async def run_lakegen_workflow(question: str) -> None:
         await cl.Message(
             content=t("workflow.locked")
         ).send()
+        return
 
     async with WORKFLOW_LOCK:
         session = get_session()

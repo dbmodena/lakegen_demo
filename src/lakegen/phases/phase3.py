@@ -243,6 +243,7 @@ def phase3_generate_code(
     stream_reasoning: bool = True,
     cancel_check: Callable[[], None] | None = None,
     seed: int = 0,
+    seed_instruction_recorder: Callable[[], None] | None = None,
 ):
     MAX_DETAIL_COLS = 25    # columns shown with type info
     MAX_SAMPLE_COLS = 15    # columns shown in sample rows
@@ -396,6 +397,8 @@ def phase3_generate_code(
         ChatMessage(role="system", content=system_prompt),
         ChatMessage(role="user", content=user_prompt),
     ]
+    if seed_instruction_recorder is not None:
+        seed_instruction_recorder()
 
     raw_stream = ""
     structured_reasoning = ""
@@ -514,6 +517,7 @@ def phase3_generate_and_execute(
     cancel_check: Callable[[], None] | None = None,
     run_dir: Path | None = None,
     seed: int = 0,
+    seed_instruction_recorder: Callable[[], None] | None = None,
 ) -> Phase3Result:
     code_raw, tokens = phase3_generate_code(
         query,
@@ -533,6 +537,7 @@ def phase3_generate_and_execute(
         stream_reasoning=stream_reasoning,
         cancel_check=cancel_check,
         seed=seed,
+        seed_instruction_recorder=seed_instruction_recorder,
     )
 
     # Detect generation errors (loop, empty output) before attempting execution

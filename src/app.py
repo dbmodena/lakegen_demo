@@ -43,7 +43,7 @@ from lakegen.ui.state import (  # noqa: E402
 )
 from lakegen.ui.i18n import t  # noqa: E402
 from lakegen.ui.starters import starters_for_core  # noqa: E402
-from lakegen.ui.workflow import run_lakegen_workflow  # noqa: E402
+from lakegen.ui.workflow import WORKFLOW_LOCK, run_lakegen_workflow  # noqa: E402
 
 ensure_project_paths(_SRC_DIR, _ROOT_DIR)
 
@@ -195,6 +195,9 @@ async def on_stop() -> None:
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     try:
+        if WORKFLOW_LOCK.locked():
+            await cl.Message(content=t("workflow.locked")).send()
+            return
         old_session = get_session()
         new_session = LakeGenSession(
             runtime=old_session.runtime,

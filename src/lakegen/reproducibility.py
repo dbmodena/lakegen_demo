@@ -19,18 +19,27 @@ class ReproducibilityContext:
     numpy_rng: np.random.Generator
 
     def telemetry(
-        self, *, generated_code_instructions_applied: bool = False
+        self, *, generated_code_seed_instruction_provided: bool = False
     ) -> dict[str, Any]:
-        applied_to = [
+        initialized_components = [
             "python_random_local_generator",
             "numpy_local_generator",
         ]
-        if generated_code_instructions_applied:
-            applied_to.append("generated_code_instructions")
+        instructions_provided_to = (
+            ["code_generator"]
+            if generated_code_seed_instruction_provided
+            else []
+        )
         return {
             "configured_seed": self.configured_seed,
             "effective_seed": self.effective_seed,
-            "applied_to": applied_to,
+            "initialized_components": initialized_components,
+            "seed_applied_to": [],
+            "instructions_provided_to": instructions_provided_to,
+            "generated_code_seed_instruction_provided": (
+                generated_code_seed_instruction_provided
+            ),
+            "generated_code_seed_usage_verified": False,
             "llm_provider_seed_supported": False,
             "llm_provider_seed_applied": False,
             "deterministic_llm_generation": False,

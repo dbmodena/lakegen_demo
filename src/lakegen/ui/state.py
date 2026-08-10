@@ -166,6 +166,7 @@ class LakeGenSession:
     final_answer: str = ""
     retries: int = 0
     execution_error: str = ""
+    generated_code_seed_instruction_provided: bool = False
 
     @property
     def run_dir(self) -> Path:
