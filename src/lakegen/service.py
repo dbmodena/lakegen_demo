@@ -39,7 +39,11 @@ from lakegen.experiment_config import (
 )
 from lakegen.orchestrated_context import prepare_discovery_context
 from lakegen.phases.orchestrated_discovery import (
+    OrchestratedContextPreparationError,
+    OrchestratedSelectorError,
+    RetrievalRequestProtocolError,
     run_unified_orchestrated_discovery,
+    selector_retry_reason,
     select_from_prepared_context,
 )
 from lakegen.manifest import ExperimentManifest, create_manifest, persist_manifest
@@ -294,7 +298,9 @@ def run_question(
         "agent_direct_tools": [],
         "orchestrator_retrieval_calls": {},
         "empty_context_retries": 0,
+        "request_protocol_error": None,
         "preparation_error": None,
+        "selector_error": None,
     }
 
     def record_seed_instruction() -> None:
@@ -373,14 +379,27 @@ def run_question(
                             all_files=all_files, retrieval_config=runtime.retrieval,
                             hint=hint,
                         )
-                    except Exception as preparation_error:
-                        context_telemetry["preparation_error"] = (
-                            f"{type(preparation_error).__name__}: {preparation_error}"
-                        )
-                        raise RuntimeError(
-                            "orchestrated context preparation failed: "
-                            f"{preparation_error}"
-                        ) from preparation_error
+                    except RetrievalRequestProtocolError as exc:
+                        context_telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
+                        context_telemetry["llm_invocations"] += 1
+                        phase_invocation_counts["discovery"] += 1
+                        raise
+                    except OrchestratedContextPreparationError as exc:
+                        context_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                        context_telemetry["llm_invocations"] += 1
+                        phase_invocation_counts["discovery"] += 1
+                        calls = context_telemetry["orchestrator_retrieval_calls"]
+                        mode = runtime.retrieval.mode.value
+                        calls[mode] = calls.get(mode, 0) + 1
+                        raise
+                    except OrchestratedSelectorError as exc:
+                        context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                        context_telemetry["llm_invocations"] += 2
+                        phase_invocation_counts["discovery"] += 2
+                        calls = context_telemetry["orchestrator_retrieval_calls"]
+                        mode = runtime.retrieval.mode.value
+                        calls[mode] = calls.get(mode, 0) + 1
+                        raise
                     selected = discovery_result.selected_datasets
                     keywords = discovery_result.keywords
                     solr_meta = discovery_result.metadata
@@ -409,8 +428,13 @@ def run_question(
                             all_files=all_files, retrieval_config=runtime.retrieval,
                         )
                     except Exception as preparation_error:
-                        context_telemetry["preparation_error"] = f"{type(preparation_error).__name__}: {preparation_error}"
-                        raise RuntimeError(f"orchestrated context preparation failed: {preparation_error}") from preparation_error
+                        exc = OrchestratedContextPreparationError(str(preparation_error))
+                        context_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                        context_telemetry["llm_invocations"] += 1
+                        calls = context_telemetry["orchestrator_retrieval_calls"]
+                        mode = runtime.retrieval.mode.value
+                        calls[mode] = calls.get(mode, 0) + 1
+                        raise exc from preparation_error
                     candidates = [item.dataset for item in prepared.candidates]
                     if not candidates:
                         selected = []
@@ -419,12 +443,23 @@ def run_question(
                         tokens_p2 = 0
                         keywords_rejected = True
                     else:
-                        selected, reasoning, trace, tokens_p2 = select_from_prepared_context(
-                            query=question, llm=llm, context=prepared,
-                            all_files=all_files, architecture=experiment.discovery_architecture,
-                            hint=hint,
-                        )
+                        try:
+                            selected, reasoning, trace, tokens_p2 = select_from_prepared_context(
+                                query=question, llm=llm, context=prepared,
+                                all_files=all_files, architecture=experiment.discovery_architecture,
+                                hint=hint,
+                            )
+                        except OrchestratedSelectorError as exc:
+                            context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                            context_telemetry["llm_invocations"] += 2
+                            phase_invocation_counts["discovery"] += 1
+                            raise
                         phase_invocation_counts["discovery"] += 1
+                        retry_reason = selector_retry_reason(selected, reasoning)
+                        if retry_reason is not None:
+                            selected = []
+                            reasoning = retry_reason
+                            keywords_rejected = True
                     context_telemetry["llm_invocations"] += 1 + int(bool(candidates))
                     architecture_tokens = tokens_p1 + tokens_p2
                 if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:

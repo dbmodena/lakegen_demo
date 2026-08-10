@@ -57,7 +57,11 @@ from lakegen.runner import ExperimentRunner
 from lakegen.experiment_config import InteractionMode
 from lakegen.orchestrated_context import prepare_discovery_context
 from lakegen.phases.orchestrated_discovery import (
+    OrchestratedContextPreparationError,
+    OrchestratedSelectorError,
+    RetrievalRequestProtocolError,
     run_unified_orchestrated_discovery,
+    selector_retry_reason,
     select_from_prepared_context,
 )
 
@@ -205,8 +209,64 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         "agent_direct_tools": [],
         "orchestrator_retrieval_calls": {},
         "empty_context_retries": 0,
+        "request_protocol_error": None,
         "preparation_error": None,
+        "selector_error": None,
     }
+    final_code = ""
+    raw_result = None
+    answer = ""
+    retries = 0
+    terminal_logged = False
+    phase_reached = "discovery"
+
+    def finalize_cli(status: str, error: str = "") -> None:
+        nonlocal terminal_logged
+        if terminal_logged:
+            return
+        terminal_logged = True
+        if runtime.experiment.tool_access == ToolAccess.AGENTIC:
+            tool_access_telemetry["llm_invocations"] = llm_call_counts["discovery"]
+            tool_access_telemetry["agent_direct_tools"] = [
+                str(item["type"]) for item in summarize_tool_calls(trace)
+            ]
+        save_experiment_log(
+            question=question, code=final_code,
+            result=raw_result if raw_result is not None else "",
+            retries=retries, reasoning=reasoning, tables=selected,
+            raw_keywords="", final_keywords=keywords, debug_raw="",
+            final_result=answer, full_trace=trace,
+            tokens_phase1=tokens["p1"], tokens_phase2=tokens["p2"],
+            tokens_phase3=tokens["p3"], tokens_phase4=tokens["p4"],
+            error=error, model=runtime.model_name,
+            architecture=runtime.experiment.architecture_name,
+            status=status,
+            elapsed_seconds=round(time.monotonic() - workflow_started, 3),
+            extra_fields={
+                "MANIFEST_JSON": manifest.model_dump(mode="json"),
+                "RUN_TRACE_JSON": {
+                    "status": status, "phase_reached": phase_reached,
+                    "discovery": {"keywords": keywords, "selected_datasets": selected},
+                    "tool_access": tool_access_telemetry,
+                    "llm_calls": build_llm_phase_records(
+                        total_tokens={"discovery": tokens["p1"] + tokens["p2"], "code": tokens["p3"], "result": tokens["p4"]},
+                        phase_invocations=llm_call_counts,
+                    ),
+                    "phase_metrics": {
+                        **{phase: {"latency_seconds": round(seconds, 6)} for phase, seconds in phase_seconds.items()},
+                        "total": {"latency_seconds": round(time.monotonic() - workflow_started, 6)},
+                    },
+                    "tool_calls": summarize_tool_calls(trace), "retries": retries,
+                    "errors": [error] if error else [], "code": final_code or None,
+                    "execution_outcome": {"status": status, "raw_result": raw_result, "error": error or None},
+                    "human_interventions": interventions.to_list(),
+                    "configuration": manifest.resolved_config,
+                    "reproducibility": reproducibility.telemetry(
+                        generated_code_seed_instruction_provided=generated_code_seed_instruction_provided
+                    ),
+                },
+            },
+        )
 
     def record_orchestrated(prepared, invocations: int) -> None:
         tool_access_telemetry["llm_invocations"] += invocations
@@ -221,14 +281,30 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         try:
             return prepare_discovery_context(**kwargs)
         except Exception as exc:
-            tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
-            raise
+            wrapped = OrchestratedContextPreparationError(str(exc))
+            tool_access_telemetry["preparation_error"] = f"{type(wrapped).__name__}: {wrapped}"
+            raise wrapped from exc
 
     def run_unified_context(**kwargs):
         try:
             return run_unified_orchestrated_discovery(**kwargs)
-        except Exception as exc:
+        except RetrievalRequestProtocolError as exc:
+            tool_access_telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
+            tool_access_telemetry["llm_invocations"] += 1
+            raise
+        except OrchestratedContextPreparationError as exc:
             tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+            tool_access_telemetry["llm_invocations"] += 1
+            mode = runtime.retrieval.mode.value
+            calls = tool_access_telemetry["orchestrator_retrieval_calls"]
+            calls[mode] = calls.get(mode, 0) + 1
+            raise
+        except OrchestratedSelectorError as exc:
+            tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+            tool_access_telemetry["llm_invocations"] += 2
+            mode = runtime.retrieval.mode.value
+            calls = tool_access_telemetry["orchestrator_retrieval_calls"]
+            calls[mode] = calls.get(mode, 0) + 1
             raise
 
     # ── Phase 1 & 2 ────────────
@@ -239,11 +315,17 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
             phase_started = time.monotonic()
             if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                discovery = run_unified_context(
-                    query=question, llm=llm, solr_client=solr,
-                    all_files=all_files, retrieval_config=runtime.retrieval,
-                    hint=keyword_hint, stream_callback=_stream_to_terminal,
-                )
+                try:
+                    discovery = run_unified_context(
+                        query=question, llm=llm, solr_client=solr,
+                        all_files=all_files, retrieval_config=runtime.retrieval,
+                        hint=keyword_hint, stream_callback=_stream_to_terminal,
+                    )
+                except (RetrievalRequestProtocolError, OrchestratedContextPreparationError, OrchestratedSelectorError) as exc:
+                    phase_seconds["discovery"] += time.monotonic() - phase_started
+                    llm_call_counts["discovery"] = tool_access_telemetry["llm_invocations"]
+                    finalize_cli("failed", f"{type(exc).__name__}: {exc}")
+                    return
                 selected, keywords, solr_meta = (
                     discovery.selected_datasets, discovery.keywords, discovery.metadata
                 )
@@ -276,6 +358,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 tool_access_telemetry["empty_context_retries"] += 1
                 if keyword_retries >= MAX_KEYWORD_RETRIES:
                     print(_c("No datasets found after the configured retries.", "red"))
+                    finalize_cli("failed", reasoning or "Discovery retries exhausted without datasets")
                     return
                 keyword_hint = reasoning
                 continue
@@ -347,20 +430,34 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
         phase_started = time.monotonic()
         if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-            prepared, solr_meta = prepare_context(
-                query=question,
-                keywords=keywords,
-                solr_client=solr,
-                all_files=all_files,
-                retrieval_config=runtime.retrieval,
-            )
+            try:
+                prepared, solr_meta = prepare_context(
+                    query=question, keywords=keywords, solr_client=solr,
+                    all_files=all_files, retrieval_config=runtime.retrieval,
+                )
+            except OrchestratedContextPreparationError as exc:
+                tool_access_telemetry["llm_invocations"] += 1
+                calls = tool_access_telemetry["orchestrator_retrieval_calls"]
+                mode = runtime.retrieval.mode.value
+                calls[mode] = calls.get(mode, 0) + 1
+                phase_seconds["discovery"] += time.monotonic() - phase_started
+                finalize_cli("failed", f"{type(exc).__name__}: {exc}")
+                return
             candidates = [candidate.dataset for candidate in prepared.candidates]
             if candidates:
-                selected, reasoning, trace, tok2 = select_from_prepared_context(
-                    query=question, llm=llm, context=prepared, all_files=all_files,
-                    architecture=runtime.experiment.discovery_architecture,
-                    hint=keyword_hint, stream_callback=_stream_to_terminal,
-                )
+                try:
+                    selected, reasoning, trace, tok2 = select_from_prepared_context(
+                        query=question, llm=llm, context=prepared, all_files=all_files,
+                        architecture=runtime.experiment.discovery_architecture,
+                        hint=keyword_hint, stream_callback=_stream_to_terminal,
+                    )
+                except OrchestratedSelectorError as exc:
+                    tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                    record_orchestrated(prepared, 2)
+                    llm_call_counts["discovery"] += 1
+                    phase_seconds["discovery"] += time.monotonic() - phase_started
+                    finalize_cli("failed", f"{type(exc).__name__}: {exc}")
+                    return
                 selector_calls = 1
             else:
                 selected, reasoning, trace, tok2 = [], "REJECT_KEYWORDS: No datasets found in the prepared context", "", 0
@@ -385,13 +482,26 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         tokens["p2"] += tok2
 
         # Check if Phase 2 rejected the keywords
-        if reasoning.startswith("REJECT_KEYWORDS:"):
+        retry_reason = (
+            selector_retry_reason(selected, reasoning)
+            if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT
+            else (reasoning if reasoning.startswith("REJECT_KEYWORDS:") else None)
+        )
+        if retry_reason is not None:
+            selected = []
+            reasoning = retry_reason
+            if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                tool_access_telemetry["empty_context_retries"] += 1
             reject_reason = reasoning.replace("REJECT_KEYWORDS:", "").strip()
             print(_c(f"\n⚠ Keywords rejected by table judge: {reject_reason}", "yellow"))
             attempted_keywords.extend(keywords)
             attempted_keywords = list(dict.fromkeys(attempted_keywords))
             keyword_retries += 1
             if keyword_retries >= MAX_KEYWORD_RETRIES:
+                if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                    print(_c(f"Max keyword retries ({MAX_KEYWORD_RETRIES}) reached.", "red"))
+                    finalize_cli("failed", reasoning)
+                    return
                 print(_c(f"Max keyword retries ({MAX_KEYWORD_RETRIES}) reached. Using best available.", "red"))
                 selected = candidates[:3] if candidates else all_files[:3]
                 reasoning = f"Fallback after {MAX_KEYWORD_RETRIES} keyword rejections."
@@ -428,6 +538,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
 
     # ── Phase 3 – Code Generation & Execution ────────────────────────
+    phase_reached = "code"
     candidates = selected
     architect_reasoning = reasoning
     force_execution = False
@@ -488,11 +599,17 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 _header("Re-running Phase 1 & 2 (Unified)")
                 phase_started = time.monotonic()
                 if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    discovery = run_unified_context(
-                        query=question, llm=llm, solr_client=solr,
-                        all_files=all_files, retrieval_config=runtime.retrieval,
-                        hint=keyword_hint, stream_callback=_stream_to_terminal,
-                    )
+                    try:
+                        discovery = run_unified_context(
+                            query=question, llm=llm, solr_client=solr,
+                            all_files=all_files, retrieval_config=runtime.retrieval,
+                            hint=keyword_hint, stream_callback=_stream_to_terminal,
+                        )
+                    except (RetrievalRequestProtocolError, OrchestratedContextPreparationError, OrchestratedSelectorError) as exc:
+                        phase_seconds["discovery"] += time.monotonic() - phase_started
+                        llm_call_counts["discovery"] = tool_access_telemetry["llm_invocations"]
+                        finalize_cli("failed", f"{type(exc).__name__}: {exc}")
+                        return
                     selected, keywords, solr_meta = discovery.selected_datasets, discovery.keywords, discovery.metadata
                     reasoning, trace, tok = discovery.reasoning, discovery.trace, discovery.tokens
                     rerun_calls = discovery.llm_invocations
@@ -533,18 +650,32 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 _header("Re-running Phase 2 – Table Search & Selection")
                 phase_started = time.monotonic()
                 if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    prepared, solr_meta = prepare_context(
-                        query=question, keywords=keywords, solr_client=solr,
-                        all_files=all_files, retrieval_config=runtime.retrieval,
-                    )
+                    try:
+                        prepared, solr_meta = prepare_context(
+                            query=question, keywords=keywords, solr_client=solr,
+                            all_files=all_files, retrieval_config=runtime.retrieval,
+                        )
+                    except OrchestratedContextPreparationError as exc:
+                        tool_access_telemetry["llm_invocations"] += 1
+                        calls = tool_access_telemetry["orchestrator_retrieval_calls"]
+                        mode = runtime.retrieval.mode.value
+                        calls[mode] = calls.get(mode, 0) + 1
+                        finalize_cli("failed", f"{type(exc).__name__}: {exc}")
+                        return
                     candidates = [item.dataset for item in prepared.candidates]
                     if candidates:
-                        selected, reasoning, trace, tok2 = select_from_prepared_context(
-                            query=question, llm=llm, context=prepared,
-                            all_files=all_files,
-                            architecture=runtime.experiment.discovery_architecture,
-                            hint=keyword_hint, stream_callback=_stream_to_terminal,
-                        )
+                        try:
+                            selected, reasoning, trace, tok2 = select_from_prepared_context(
+                                query=question, llm=llm, context=prepared,
+                                all_files=all_files,
+                                architecture=runtime.experiment.discovery_architecture,
+                                hint=keyword_hint, stream_callback=_stream_to_terminal,
+                            )
+                        except OrchestratedSelectorError as exc:
+                            tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                            record_orchestrated(prepared, 2)
+                            finalize_cli("failed", f"{type(exc).__name__}: {exc}")
+                            return
                         rerun_selector_calls = 1
                     else:
                         selected, reasoning, trace, tok2 = [], "REJECT_KEYWORDS: No datasets found in the prepared context", "", 0
@@ -569,6 +700,13 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 llm_call_counts["discovery"] += rerun_selector_calls
                 tokens["p2"] += tok2
                 architect_reasoning = reasoning
+            if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                post_retry = selector_retry_reason(selected, reasoning)
+                if post_retry is not None:
+                    selected = []
+                    reasoning = post_retry
+                    finalize_cli("failed", post_retry)
+                    return
             print(f"\n{_c('New tables:', 'bold')} {', '.join(selected)}")
             if not _ask_yes_no(
                 "Approve?",
@@ -577,6 +715,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 gate=HumanGate.DATASET_APPROVAL,
             ):
                 print(_c("Workflow cancelled.", "red"))
+                finalize_cli("cancelled", "Workflow cancelled by user")
                 return
             retries = 0
             error_msg = ""
@@ -600,6 +739,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         raw_result = f"Execution failed after {MAX_RETRIES} attempts. Last error: {error_msg}"
 
     # ── Phase 4 – Synthesis ──────────────────────────────────────────────
+    phase_reached = "result"
     _header("Phase 4 – Answer Synthesis")
     phase_started = time.monotonic()
     answer, tok4 = phase4_synthesize(question, raw_result, llm, pm)
@@ -623,61 +763,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             str(item["type"]) for item in summarize_tool_calls(trace)
         ]
 
-    save_experiment_log(
-        question=question,
-        code=final_code,
-        result=raw_result if raw_result else "",
-        retries=retries,
-        reasoning=architect_reasoning,
-        tables=selected,
-        raw_keywords="",
-        final_keywords=keywords,
-        debug_raw="",
-        final_result=answer,
-        full_trace=trace,
-        tokens_phase1=tokens["p1"],
-        tokens_phase2=tokens["p2"],
-        tokens_phase3=tokens["p3"],
-        tokens_phase4=tokens["p4"],
-        error=err if err is not None else "",
-        model=runtime.model_name,
-        architecture=runtime.experiment.architecture_name,
-        elapsed_seconds=round(time.monotonic() - workflow_started, 3),
-        extra_fields={
-            "MANIFEST_JSON": manifest.model_dump(mode="json"),
-            "RUN_TRACE_JSON": {
-                "discovery": {"keywords": keywords, "selected_datasets": selected},
-                "tool_access": tool_access_telemetry,
-                "llm_calls": build_llm_phase_records(
-                    total_tokens={
-                        "discovery": tokens["p1"] + tokens["p2"],
-                        "code": tokens["p3"],
-                        "result": tokens["p4"],
-                    },
-                    phase_invocations=llm_call_counts,
-                ),
-                "phase_metrics": {
-                    phase: {"latency_seconds": round(seconds, 6)}
-                    for phase, seconds in phase_seconds.items()
-                },
-                "tool_calls": summarize_tool_calls(trace),
-                "retries": retries,
-                "errors": [str(err)] if err else [],
-                "code": final_code,
-                "execution_outcome": {
-                    "succeeded": err is None,
-                    "raw_result": raw_result,
-                },
-                "human_interventions": interventions.to_list(),
-                "configuration": manifest.resolved_config,
-                "reproducibility": reproducibility.telemetry(
-                    generated_code_seed_instruction_provided=(
-                        generated_code_seed_instruction_provided
-                    )
-                ),
-            },
-        },
-    )
+    finalize_cli("completed" if err is None else "failed", str(err or ""))
     print(_c("\nExperiment log saved.", "dim"))
 
 

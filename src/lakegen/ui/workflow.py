@@ -56,7 +56,11 @@ from lakegen.tracing import (
 from lakegen.experiment_config import ToolAccess
 from lakegen.orchestrated_context import prepare_discovery_context
 from lakegen.phases.orchestrated_discovery import (
+    OrchestratedContextPreparationError,
+    OrchestratedSelectorError,
+    RetrievalRequestProtocolError,
     run_unified_orchestrated_discovery,
+    selector_retry_reason,
     select_from_prepared_context,
 )
 
@@ -295,20 +299,29 @@ async def _select_tables_once(
                         solr_client=solr, all_files=all_files,
                         retrieval_config=session.runtime.retrieval,
                     )
-                except Exception as exc:
-                    session.tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                except WorkflowCancelled:
                     raise
+                except Exception as exc:
+                    wrapped = OrchestratedContextPreparationError(str(exc))
+                    session.tool_access_telemetry["preparation_error"] = f"{type(wrapped).__name__}: {wrapped}"
+                    raise wrapped from exc
                 cands = [candidate.dataset for candidate in prepared.candidates]
                 if cands:
-                    sel, reasoning, trace, tok2 = await cl.make_async(
-                        select_from_prepared_context
-                    )(
-                        query=session.query, llm=llm, context=prepared,
-                        all_files=all_files,
-                        architecture=session.runtime.experiment.discovery_architecture,
-                        hint=hint, stream_callback=bridge.emit,
-                        cancel_check=session.check_cancelled,
-                    )
+                    try:
+                        sel, reasoning, trace, tok2 = await cl.make_async(
+                            select_from_prepared_context
+                        )(
+                            query=session.query, llm=llm, context=prepared,
+                            all_files=all_files,
+                            architecture=session.runtime.experiment.discovery_architecture,
+                            hint=hint, stream_callback=bridge.emit,
+                            cancel_check=session.check_cancelled,
+                        )
+                    except WorkflowCancelled:
+                        raise
+                    except OrchestratedSelectorError as exc:
+                        session.tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                        raise
                     selector_calls = 1
                 else:
                     sel, reasoning, trace, tok2 = [], "REJECT_KEYWORDS: No datasets found in the prepared context", "", 0
@@ -316,6 +329,11 @@ async def _select_tables_once(
                     session.tool_access_telemetry["empty_context_retries"] += 1
                 _record_orchestrated_telemetry(session, prepared, 1 + selector_calls)
                 result = (sel, cands, smeta, reasoning, trace, tok2)
+                retry_reason = selector_retry_reason(sel, reasoning)
+                if retry_reason is not None:
+                    result = ([], cands, smeta, retry_reason, trace, tok2)
+                    if cands:
+                        session.tool_access_telemetry["empty_context_retries"] += 1
             else:
                 result = await cl.make_async(phase2_select_tables)(
                     query=session.query,
@@ -473,8 +491,16 @@ async def _run_unified_gate(
                             stream_callback=bridge.emit,
                             cancel_check=session.check_cancelled,
                         )
-                    except Exception as exc:
+                    except WorkflowCancelled:
+                        raise
+                    except RetrievalRequestProtocolError as exc:
+                        session.tool_access_telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
+                        raise
+                    except OrchestratedContextPreparationError as exc:
                         session.tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                        raise
+                    except OrchestratedSelectorError as exc:
+                        session.tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
                         raise
                     selected, keywords, smeta = discovery.selected_datasets, discovery.keywords, discovery.metadata
                     reasoning, trace, tokens = discovery.reasoning, discovery.trace, discovery.tokens
@@ -830,7 +856,9 @@ async def _run_locked_workflow(question: str) -> str:
         "agent_direct_tools": [],
         "orchestrator_retrieval_calls": {},
         "empty_context_retries": 0,
+        "request_protocol_error": None,
         "preparation_error": None,
+        "selector_error": None,
     }
     session.phase = "initialization"
     manifest = create_manifest(
@@ -869,6 +897,8 @@ async def _run_locked_workflow(question: str) -> str:
                 initial_hint=keyword_hint,
             )
             if table_status != "approved":
+                if table_status == "failed":
+                    return "failed"
                 await cl.Message(content=session.text("workflow.cancelled")).send()
                 return "cancelled"
         else:
@@ -882,6 +912,14 @@ async def _run_locked_workflow(question: str) -> str:
                 all_files,
             )
             if table_status == "keywords_rejected":
+                if (
+                    session.runtime.experiment.tool_access
+                    == ToolAccess.ORCHESTRATED_CONTEXT
+                    and session.tool_access_telemetry["empty_context_retries"]
+                    >= MAX_RETRIES
+                ):
+                    session.execution_error = session.fallback_reason
+                    return "failed"
                 keyword_hint = (
                     "The previous keywords led to bad tables. "
                     f"Architect feedback: {session.fallback_reason}. "

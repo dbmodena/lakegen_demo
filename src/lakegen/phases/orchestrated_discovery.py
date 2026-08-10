@@ -19,8 +19,20 @@ from lakegen.orchestrated_context import (
     PreparedDiscoveryContext,
     prepare_discovery_context,
 )
-from lakegen.phases.utils import parse_table_selector_response
 from lakegen.retrieval import RetrievalConfig
+from lakegen.ui.state import WorkflowCancelled
+
+
+class RetrievalRequestProtocolError(ValueError):
+    """The first tool-free turn did not produce a valid retrieval request."""
+
+
+class OrchestratedContextPreparationError(RuntimeError):
+    """The configured retriever or context construction failed."""
+
+
+class OrchestratedSelectorError(RuntimeError):
+    """The tool-free selector invocation or response protocol failed."""
 
 
 class RetrievalRequest(BaseModel):
@@ -70,12 +82,52 @@ class DiscoveryResult(BaseModel):
 def parse_retrieval_request(response: str) -> RetrievalRequest:
     match = re.fullmatch(r"\s*RETRIEVAL_REQUEST:\s*(\{.*\})\s*", response, re.DOTALL)
     if match is None:
-        raise ValueError("invalid RETRIEVAL_REQUEST envelope")
+        raise RetrievalRequestProtocolError("invalid RETRIEVAL_REQUEST envelope")
     try:
         payload = json.loads(match.group(1))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid RETRIEVAL_REQUEST JSON: {exc}") from exc
-    return RetrievalRequest.model_validate(payload)
+        raise RetrievalRequestProtocolError(f"invalid RETRIEVAL_REQUEST JSON: {exc}") from exc
+    try:
+        return RetrievalRequest.model_validate(payload)
+    except ValueError as exc:
+        raise RetrievalRequestProtocolError(str(exc)) from exc
+
+
+def parse_orchestrated_selection(
+    response: str, candidates: list[str]
+) -> tuple[list[str], str]:
+    if response.strip().startswith("REJECT_KEYWORDS"):
+        reason = response.strip()
+        if not reason.startswith("REJECT_KEYWORDS:"):
+            reason = "REJECT_KEYWORDS: " + reason.removeprefix("REJECT_KEYWORDS").strip()
+        return [], reason
+    match = re.fullmatch(r"\s*FINAL_PAYLOAD:\s*(\{.*\})\s*", response, re.DOTALL)
+    if match is None:
+        raise OrchestratedSelectorError("invalid FINAL_PAYLOAD envelope")
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError as exc:
+        raise OrchestratedSelectorError(f"invalid FINAL_PAYLOAD JSON: {exc}") from exc
+    if not isinstance(payload, dict) or set(payload) != {"tables", "reasoning"}:
+        raise OrchestratedSelectorError(
+            "FINAL_PAYLOAD requires exactly string fields 'tables' and 'reasoning'"
+        )
+    if not isinstance(payload["tables"], str) or not isinstance(payload["reasoning"], str):
+        raise OrchestratedSelectorError("FINAL_PAYLOAD fields must be strings")
+    allowed = set(candidates)
+    selected = []
+    for name in (item.strip() for item in payload["tables"].split(",")):
+        if name and name in allowed and name not in selected:
+            selected.append(name)
+    return selected, payload["reasoning"].strip()
+
+
+def selector_retry_reason(selected: list[str], reasoning: str) -> str | None:
+    if selected and not reasoning.startswith("REJECT_KEYWORDS"):
+        return None
+    if reasoning.startswith("REJECT_KEYWORDS"):
+        return reasoning
+    return "REJECT_KEYWORDS: The orchestrated selector returned no valid datasets"
 
 
 def _run_tool_free_turn(
@@ -129,13 +181,20 @@ def select_from_prepared_context(
 ) -> tuple[list[str], str, str, int]:
     """Divided architecture's second, distinct tool-free agent."""
     system, user = _selector_prompts(context, hint)
-    response, stream, tokens = _run_tool_free_turn(
-        llm=llm, system_prompt=system, user_prompt=user,
-        agent_name="divided_context_selector", stream_callback=stream_callback,
-        cancel_check=cancel_check,
-    )
+    try:
+        response, stream, tokens = _run_tool_free_turn(
+            llm=llm, system_prompt=system, user_prompt=user,
+            agent_name="divided_context_selector", stream_callback=stream_callback,
+            cancel_check=cancel_check,
+        )
+    except WorkflowCancelled:
+        raise
+    except Exception as exc:
+        if isinstance(exc, OrchestratedSelectorError):
+            raise
+        raise OrchestratedSelectorError(str(exc)) from exc
     candidates = [item.dataset for item in context.candidates]
-    selected, reasoning = parse_table_selector_response(response, all_files, candidates)
+    selected, reasoning = parse_orchestrated_selection(response, candidates)
     return selected, reasoning, "--- Divided Orchestrated Selector ---\n" + stream, tokens
 
 
@@ -154,16 +213,29 @@ def run_unified_orchestrated_discovery(
     first_user = f"Question: {query}\nFormulate the metadata retrieval request."
     if hint:
         first_user += f"\nPrevious-attempt constraint: {hint}"
-    request_text, first_trace, first_tokens = _run_tool_free_turn(
-        llm=llm, system_prompt=system, user_prompt=first_user,
-        agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
-        cancel_check=cancel_check,
-    )
-    request = parse_retrieval_request(request_text)
-    prepared, metadata = prepare_discovery_context(
-        query=query, keywords=request.keywords, solr_client=solr_client,
-        all_files=all_files, retrieval_config=retrieval_config,
-    )
+    try:
+        request_text, first_trace, first_tokens = _run_tool_free_turn(
+            llm=llm, system_prompt=system, user_prompt=first_user,
+            agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
+            cancel_check=cancel_check,
+        )
+        request = parse_retrieval_request(request_text)
+    except WorkflowCancelled:
+        raise
+    except Exception as exc:
+        if isinstance(exc, RetrievalRequestProtocolError):
+            raise
+        raise RetrievalRequestProtocolError(str(exc)) from exc
+    try:
+        prepared, metadata = prepare_discovery_context(
+            query=query, keywords=request.keywords, solr_client=solr_client,
+            all_files=all_files, retrieval_config=retrieval_config,
+        )
+        prepared.stable_json()
+    except WorkflowCancelled:
+        raise
+    except Exception as exc:
+        raise OrchestratedContextPreparationError(str(exc)) from exc
     candidates = [item.dataset for item in prepared.candidates]
     if not candidates:
         reason = "REJECT_KEYWORDS: No datasets found in the prepared context"
@@ -179,17 +251,26 @@ def run_unified_orchestrated_discovery(
         ChatMessage(role=MessageRole.USER, content=first_user),
         ChatMessage(role=MessageRole.ASSISTANT, content=request_text),
     ]
-    final_text, second_trace, second_tokens = _run_tool_free_turn(
-        llm=llm, system_prompt=system, user_prompt=second_user,
-        agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
-        cancel_check=cancel_check, chat_history=history,
-    )
-    selected, reasoning = parse_table_selector_response(final_text, all_files, candidates)
+    try:
+        final_text, second_trace, second_tokens = _run_tool_free_turn(
+            llm=llm, system_prompt=system, user_prompt=second_user,
+            agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
+            cancel_check=cancel_check, chat_history=history,
+        )
+        selected, reasoning = parse_orchestrated_selection(final_text, candidates)
+    except WorkflowCancelled:
+        raise
+    except Exception as exc:
+        if isinstance(exc, OrchestratedSelectorError):
+            raise
+        raise OrchestratedSelectorError(str(exc)) from exc
+    retry_reason = selector_retry_reason(selected, reasoning)
     return DiscoveryResult(
         selected_datasets=selected, candidates=candidates, keywords=request.keywords,
-        metadata=metadata, reasoning=reasoning,
+        metadata=metadata,
         trace=("--- Unified Orchestrated Turn 1 ---\n" + first_trace
                + "\n--- Unified Orchestrated Turn 2 ---\n" + second_trace),
         tokens=first_tokens + second_tokens, llm_invocations=2, agent_count=1,
-        prepared_context=prepared,
+        retry_keywords=retry_reason is not None, retry_reason=retry_reason,
+        reasoning=retry_reason or reasoning, prepared_context=prepared,
     )

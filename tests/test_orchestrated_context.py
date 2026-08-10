@@ -10,6 +10,9 @@ from lakegen.orchestrated_context import (
 )
 from lakegen.phases.orchestrated_discovery import (
     DiscoveryResult,
+    OrchestratedContextPreparationError,
+    OrchestratedSelectorError,
+    RetrievalRequestProtocolError,
     parse_retrieval_request,
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
@@ -208,6 +211,116 @@ def test_unified_empty_context_skips_second_turn(monkeypatch):
     assert len(calls) == 1
     assert result.retry_keywords is True
     assert result.selected_datasets == []
+
+
+@pytest.mark.parametrize(
+    "selector_response",
+    [
+        "REJECT_KEYWORDS: candidates are irrelevant",
+        'FINAL_PAYLOAD: {"tables":"not-in-context.csv","reasoning":"none"}',
+    ],
+)
+def test_unified_selector_without_valid_datasets_requests_retry(
+    selector_response, monkeypatch
+):
+    responses = iter([
+        'RETRIEVAL_REQUEST: {"keywords":["roads"]}', selector_response,
+    ])
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **_kwargs: (next(responses), "", 1),
+    )
+    prepared = PreparedDiscoveryContext(
+        query="q", retrieval_mode="keyword",
+        candidates=[PreparedCandidate(
+            retrieval_rank=1, prepared_position=1, dataset="table.csv",
+            scores={}, missing_signals=[], metadata={},
+        )], retrieved_hit_count=1, prepared_candidate_count=1,
+    )
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        lambda **_kwargs: (prepared, {}),
+    )
+    result = run_unified_orchestrated_discovery(
+        query="q", llm=object(), solr_client=object(),
+        all_files=["table.csv"], retrieval_config=RetrievalConfig(),
+    )
+    assert result.selected_datasets == []
+    assert result.retry_keywords is True
+    assert result.retry_reason.startswith("REJECT_KEYWORDS:")
+
+
+def test_unified_errors_are_typed_by_stage(monkeypatch):
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **_kwargs: ("bad request", "", 1),
+    )
+    with pytest.raises(RetrievalRequestProtocolError):
+        run_unified_orchestrated_discovery(
+            query="q", llm=object(), solr_client=object(), all_files=[],
+            retrieval_config=RetrievalConfig(),
+        )
+
+    responses = iter(['RETRIEVAL_REQUEST: {"keywords":["x"]}'])
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **_kwargs: (next(responses), "", 1),
+    )
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("solr failed")),
+    )
+    with pytest.raises(OrchestratedContextPreparationError):
+        run_unified_orchestrated_discovery(
+            query="q", llm=object(), solr_client=object(), all_files=[],
+            retrieval_config=RetrievalConfig(),
+        )
+
+
+def test_cli_unified_empty_retries_write_exactly_one_terminal_log(monkeypatch, tmp_path):
+    import src.cli as cli
+
+    config = ExperimentConfig(
+        discovery_architecture="unified", tool_access="orchestrated_context"
+    )
+    runtime = SimpleNamespace(
+        experiment=config, model_name=config.model, solr_core=config.core,
+        csv_dir=tmp_path, portal_name="NYC", retrieval=RetrievalConfig(),
+        use_unified_agent=True,
+    )
+    empty = PreparedDiscoveryContext(
+        query="q", retrieval_mode="keyword", candidates=[],
+        retrieved_hit_count=0, prepared_candidate_count=0,
+    )
+    monkeypatch.setattr(cli, "get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr(cli, "get_solr", lambda _core: object())
+    monkeypatch.setattr(cli, "get_prompt_manager", object)
+    monkeypatch.setattr(cli, "get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr(cli, "persist_manifest", lambda *_args: None)
+    monkeypatch.setattr(
+        cli, "run_unified_orchestrated_discovery",
+        lambda **_kwargs: DiscoveryResult(
+            selected_datasets=[], candidates=[], keywords=["x"], metadata={},
+            reasoning="REJECT_KEYWORDS: empty", trace="", tokens=1,
+            llm_invocations=1, agent_count=1, retry_keywords=True,
+            retry_reason="REJECT_KEYWORDS: empty", prepared_context=empty,
+        ),
+    )
+    monkeypatch.setattr(
+        cli, "phase3_generate_and_execute",
+        lambda *_a, **_kw: (_ for _ in ()).throw(AssertionError("phase3 reached")),
+    )
+    logs = []
+    monkeypatch.setattr(cli, "save_experiment_log", lambda **kwargs: logs.append(kwargs))
+
+    cli.run_cli_workflow("q", runtime)
+
+    assert len(logs) == 1
+    assert logs[0]["status"] == "failed"
+    run_trace = logs[0]["extra_fields"]["RUN_TRACE_JSON"]
+    assert run_trace["phase_reached"] == "discovery"
+    assert run_trace["tool_access"]["empty_context_retries"] == 3
+    assert run_trace["tool_access"]["orchestrator_retrieval_calls"] == {"keyword": 3}
 
 
 @pytest.mark.parametrize("architecture", ["unified", "divided"])
