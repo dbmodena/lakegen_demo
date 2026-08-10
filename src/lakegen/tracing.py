@@ -12,6 +12,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PhaseName = Literal["discovery", "code", "result"]
 
+_EMPTY_HINT_VALUES = {"", "skip", "none", "no"}
+
+
+def normalize_hint(value: Any) -> str:
+    """Return the usable hint without retaining ignored sentinel values."""
+
+    hint = str(value or "").strip()
+    return "" if hint.casefold() in _EMPTY_HINT_VALUES else hint
+
 
 class TelemetryModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)

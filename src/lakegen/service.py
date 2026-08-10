@@ -228,6 +228,7 @@ def run_question(
     question: str,
     runtime: RuntimeSettings,
     *,
+    question_id: str | int | None = None,
     log_context: Mapping[str, Any] | None = None,
     manifest: ExperimentManifest | None = None,
 ) -> QueryResult:
@@ -249,7 +250,7 @@ def run_question(
         experiment,
         base_dir=BASE_DIR,
         question=question,
-        question_id=source_id,
+        question_id=question_id if question_id is not None else source_id,
     )
     result.manifest = manifest.model_dump(mode="json")
     result.configuration = dict(manifest.resolved_config)

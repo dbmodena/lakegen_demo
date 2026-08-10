@@ -14,7 +14,9 @@ from lakegen.tracing import (
     HumanInterventionRecorder,
     build_llm_phase_records,
     summarize_final_ranking,
+    normalize_hint,
 )
+from lakegen.runner import ExperimentRunner
 
 
 def _runtime(config, tmp_path):
@@ -247,6 +249,108 @@ def test_chainlit_sessions_do_not_share_intervention_recorders():
 
     assert len(first.intervention_recorder.to_list()) == 1
     assert second.intervention_recorder.to_list() == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "normalized", "provided"),
+    [
+        ("use parks", "use parks", True),
+        ("", "", False),
+        ("   ", "", False),
+        ("skip", "", False),
+        ("none", "", False),
+        ("no", "", False),
+        ("SKIP", "", False),
+        ("NoNe", "", False),
+        ("NO", "", False),
+    ],
+)
+def test_hint_normalization_drives_cli_telemetry(
+    raw, normalized, provided, monkeypatch
+):
+    monkeypatch.setattr(builtins, "input", lambda _prompt: raw)
+    recorder = HumanInterventionRecorder()
+
+    value = _ask_input(
+        "Hint",
+        recorder=recorder,
+        phase="discovery",
+        gate=HumanGate.DATASET_HINT,
+    )
+
+    assert normalize_hint(raw) == normalized
+    assert value == normalized
+    assert recorder.to_list()[0]["provided"] is provided
+
+
+def test_runner_passes_explicit_question_id_to_executor(tmp_path):
+    config = ExperimentConfig(interaction_mode="autonomous")
+    captured = {}
+
+    def executor(question, runtime, *, question_id, log_context):
+        captured.update(question_id=question_id, log_context=log_context)
+        return SimpleNamespace()
+
+    ExperimentRunner(config).run(
+        "Same?",
+        question_id="explicit-2",
+        log_context={"SOURCE_ID": "fallback-1"},
+        runtime_factory=lambda **_kwargs: object(),
+        executor=executor,
+    )
+
+    assert captured == {
+        "question_id": "explicit-2",
+        "log_context": {"SOURCE_ID": "fallback-1"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("question_id", "context", "expected"),
+    [
+        ("explicit", {"SOURCE_ID": "fallback"}, "explicit"),
+        (None, {"SOURCE_ID": "fallback"}, "fallback"),
+    ],
+)
+def test_service_manifest_question_id_precedence(
+    question_id, context, expected, monkeypatch, tmp_path
+):
+    config = ExperimentConfig(interaction_mode="autonomous")
+    runtime = _runtime(config, tmp_path)
+    _mock_successful_tail(monkeypatch)
+    monkeypatch.setattr(
+        "lakegen.service.phase12_agent",
+        lambda **_kwargs: (["table.csv"], ["value"], {}, "selected", "trace", 3),
+    )
+    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+
+    result = run_question(
+        "Same?", runtime, question_id=question_id, log_context=context
+    )
+
+    assert result.manifest["question_id"] == expected
+
+
+def test_question_without_id_is_deterministic_and_distinct_explicit_ids(
+    monkeypatch, tmp_path
+):
+    config = ExperimentConfig(interaction_mode="autonomous")
+    runtime = _runtime(config, tmp_path)
+    _mock_successful_tail(monkeypatch)
+    monkeypatch.setattr(
+        "lakegen.service.phase12_agent",
+        lambda **_kwargs: (["table.csv"], ["value"], {}, "selected", "trace", 3),
+    )
+    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+
+    generated_a = run_question("Same?", runtime).manifest["question_id"]
+    generated_b = run_question("Same?", runtime).manifest["question_id"]
+    explicit_a = run_question("Same?", runtime, question_id="a").manifest["question_id"]
+    explicit_b = run_question("Same?", runtime, question_id="b").manifest["question_id"]
+
+    assert generated_a == generated_b
+    assert explicit_a == "a"
+    assert explicit_b == "b"
 
 
 @pytest.mark.parametrize("mode", ["keyword", "semantic", "hybrid"])

@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import uuid
 import asyncio
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,10 @@ class WorkflowCancelled(Exception):
     """Raised when the user clicks Stop in the UI."""
 
 
+class WorkflowTimedOut(Exception):
+    """Raised when a Chainlit interaction expires without an answer."""
+
+
 @dataclass
 class LakeGenSession:
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings.default)
@@ -154,6 +159,13 @@ class LakeGenSession:
     llm_call_counts: dict[str, int] = field(
         default_factory=lambda: {"discovery": 0, "code": 0, "result": 0}
     )
+    started_at: float = field(default_factory=time.monotonic)
+    finalized: bool = False
+    final_code: str = ""
+    raw_result: Any = None
+    final_answer: str = ""
+    retries: int = 0
+    execution_error: str = ""
 
     @property
     def run_dir(self) -> Path:

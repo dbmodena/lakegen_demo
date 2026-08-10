@@ -158,16 +158,16 @@ answer is displayed.
 
 ## HTTP API
 
-Avvia l'API in locale:
+Start the API locally:
 
 ```bash
 uv run uvicorn src.api:app --host 127.0.0.1 --port 8000
 ```
 
-La documentazione OpenAPI interattiva è disponibile su
+Interactive OpenAPI documentation is available at
 `http://127.0.0.1:8000/docs`.
 
-### Domanda singola
+### Single question
 
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/query \
@@ -183,11 +183,11 @@ curl -X POST http://127.0.0.1:8000/v1/query \
   }'
 ```
 
-### File JSON di domande
+### Question JSON file
 
-L'endpoint batch accetta direttamente il contenuto dei file in `queries_old`,
-oltre ai formati più semplici `[{"question": "..."}]` e
-`{"questions": ["...", "..."]}`.
+The batch endpoint directly accepts the contents of files in `queries_old`, as
+well as the simpler `[{"question": "..."}]` and
+`{"questions": ["...", "..."]}` formats.
 
 ```bash
 curl -X POST \
@@ -196,23 +196,23 @@ curl -X POST \
   --data-binary @queries_old/generated_queries_new_york.json
 ```
 
-La risposta contiene un `job_id`. Controlla avanzamento e risultati con:
+The response contains a `job_id`. Check progress and results with:
 
 ```bash
 curl http://127.0.0.1:8000/v1/batches/JOB_ID
 ```
 
-Per leggere solo lo stato, senza trasferire i risultati già prodotti:
+To read only the status without transferring results produced so far:
 
 ```bash
 curl 'http://127.0.0.1:8000/v1/batches/JOB_ID?include_results=false'
 ```
 
-### Configurazione e domande come due file
+### Configuration and questions as separate files
 
-Per mantenere separati il manifest sperimentale e il dataset di domande, usa
-l'endpoint multipart. Il file di configurazione può essere YAML, YML o JSON;
-il file delle domande deve essere JSON:
+Use the multipart endpoint to keep the experiment manifest separate from the
+question dataset. The configuration file may be YAML, YML, or JSON; the
+question file must be JSON:
 
 ```bash
 curl --fail-with-body -X POST \
@@ -221,25 +221,23 @@ curl --fail-with-body -X POST \
   -F 'questions=@queries_old/generated_queries_new_york_5.json'
 ```
 
-Il server legge esclusivamente il contenuto degli upload: i nomi non possono
-contenere percorsi e non vengono risolti sul filesystem del server. La
-configurazione è validata normalmente e `interaction_mode` viene risolto come
-`autonomous` per l'esecuzione batch. I limiti predefiniti sono 1 MB per la
-configurazione e 25 MB per il file delle domande.
+The server reads upload contents only: filenames cannot contain paths and are
+never resolved against the server filesystem. Configuration is validated as
+usual, and `interaction_mode` is resolved to `autonomous` for batch execution.
+The default limits are 1 MB for configuration and 25 MB for questions.
 
-I batch sono eseguiti sequenzialmente. Stato e risultati JSONL vengono salvati in
-`.lakegen_jobs/`, così le risposte già completate restano leggibili dopo un
-riavvio dell'API. L'API va esposta su una rete pubblica solo dopo aver aggiunto un
-livello di autenticazione e limiti di traffico.
+Batches run sequentially. Their status and JSONL results are saved under
+`.lakegen_jobs/`, so completed responses remain readable after an API restart.
+Add authentication and traffic limits before exposing the API to a public
+network.
 
-Il riepilogo CSV delle esecuzioni API viene scritto in
-`logs/api_experiments_log.csv`; include il contesto del job e della sorgente,
-tutti i campi della domanda JSON (sia in `SOURCE_JSON` sia in colonne
-`SOURCE_*`), configurazione e ranking del retrieval, codice, output completi,
-token, stato e durata. CLI e Chainlit continuano a usare
-`logs/experiments_log.csv`. I ranking restano anche in
-`logs/retrieval_rankings.jsonl` per compatibilità con gli strumenti di
-valutazione esistenti.
+The CSV summary of API runs is written to `logs/api_experiments_log.csv`. It
+includes job and source context, every field from the question JSON (both in
+`SOURCE_JSON` and in `SOURCE_*` columns), configuration, retrieval rankings,
+complete code and output, token counts, status, and duration. The CLI and
+Chainlit continue to use `logs/experiments_log.csv`. Rankings are also kept in
+`logs/retrieval_rankings.jsonl` for compatibility with existing evaluation
+tools.
 
 ## Methodological references
 

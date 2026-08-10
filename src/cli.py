@@ -5,7 +5,7 @@ Basic example (using the default model and core)
 uv run python src/cli.py "What are the top 3 districts by student suspensions?"
 
 Using a specific core:
-uv run python src/cli.py --core bologna "Quali sono le zone più inquinate?"
+uv run python src/cli.py --core bologna "Which areas are the most polluted?"
 
 Using a specific core and model
 uv run python src/cli.py --core nyc --model openai.gpt-oss-120b "How many parks are there?"
@@ -50,6 +50,7 @@ from lakegen.tracing import (
     PhaseName,
     build_llm_phase_records,
     summarize_tool_calls,
+    normalize_hint,
 )
 from lakegen.runner import ExperimentRunner
 from lakegen.experiment_config import InteractionMode
@@ -111,7 +112,7 @@ def _ask_input(
     gate: HumanGate,
 ) -> str:
     started = time.monotonic()
-    value = input(f"{prompt}: ").strip()
+    value = normalize_hint(input(f"{prompt}: "))
     recorder.record_hint(
         phase=phase,
         gate=gate,

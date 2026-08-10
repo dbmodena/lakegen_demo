@@ -71,5 +71,6 @@ class ExperimentRunner:
         return executor(
             question,
             runtime,
+            question_id=question_id,
             log_context=log_context,
         )

@@ -8,6 +8,7 @@ from lakegen.phases.phase3 import (
     _detect_tabpfn_intent,
     _exact_column_labels,
     _execute_code,
+    _tabpfn_enabled,
 )
 
 
@@ -81,6 +82,14 @@ def test_generated_code_preflight_rewrites_column_contexts_and_validates_require
 def test_historical_trend_does_not_trigger_tabpfn_forecasting():
     assert _detect_tabpfn_intent("Show the allocation trend over time") is None
     assert _detect_tabpfn_intent("Forecast allocation for next year") == "forecasting"
+
+
+def test_tabpfn_is_disabled_by_default_and_can_be_enabled(monkeypatch):
+    monkeypatch.delenv("LAKEGEN_ENABLE_TABPFN", raising=False)
+    assert _tabpfn_enabled() is False
+
+    monkeypatch.setenv("LAKEGEN_ENABLE_TABPFN", "true")
+    assert _tabpfn_enabled() is True
 
 
 def test_code_generator_schema_uses_exact_file_columns_not_solr_field_aliases():

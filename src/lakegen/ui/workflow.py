@@ -2,6 +2,7 @@ from __future__ import annotations
 import uuid
 import os
 import time
+import logging
 
 import asyncio
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from lakegen.ui.i18n import t
 from lakegen.ui.state import (
     LakeGenSession,
     WorkflowCancelled,
+    WorkflowTimedOut,
     apply_phase2_keyword_rejection,
     get_runtime_settings,
     get_session,
@@ -48,6 +50,7 @@ from lakegen.tracing import (
     PhaseName,
     build_llm_phase_records,
     summarize_tool_calls,
+    normalize_hint,
 )
 
 from llama_index.core import Settings
@@ -56,6 +59,7 @@ Settings.embed_model = "local:BAAI/bge-small-en-v1.5"
 
 WORKFLOW_LOCK = asyncio.Lock()
 MAX_RETRIES = 3
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -118,6 +122,8 @@ async def _ask_choice(
     response = await message.send()
     if remove_after_answer:
         await message.remove()
+    if response is None:
+        raise WorkflowTimedOut(f"Interaction timed out at {gate.value}")
     value = _action_value(response)
     get_session().intervention_recorder.record_approval(
         phase=phase,
@@ -144,22 +150,16 @@ async def _ask_hint(
     response = await message.send()
     if remove_after_answer:
         await message.remove()
-    if not response:
-        get_session().intervention_recorder.record_hint(
-            phase=phase,
-            gate=gate,
-            provided=False,
-            elapsed_seconds=round(time.monotonic() - started, 3),
-        )
-        return ""
-    hint = str(response.get("output") or "").strip()
+    if response is None:
+        raise WorkflowTimedOut(f"Interaction timed out at {gate.value}")
+    hint = normalize_hint(response.get("output") or "")
     get_session().intervention_recorder.record_hint(
         phase=phase,
         gate=gate,
         provided=bool(hint),
         elapsed_seconds=round(time.monotonic() - started, 3),
     )
-    return "" if hint.lower() in {"", "skip", "none", "no"} else hint
+    return hint
 
 
 def _keyword_list(keywords: list[str]) -> str:
@@ -483,6 +483,7 @@ async def _run_unified_gate(
 
 
 async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
+    session.phase = "code"
     retries = 0
     error_msg = ""
     final_code = ""
@@ -586,6 +587,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         raw_result = f"Execution failed after {MAX_RETRIES} attempts. Last error: {error_msg}"
 
     async with cl.Step(name=session.text("phase4.step"), type="llm", default_open=True) as step:
+        session.phase = "result"
         phase_started = time.monotonic()
         answer, tok4 = await cl.make_async(phase4_synthesize)(
             session.query,
@@ -630,65 +632,85 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         else:
             code_history_parts.append("Status: Success\n")
     full_code_history = "\n".join(code_history_parts)
+    session.final_code = full_code_history
+    session.raw_result = raw_result
+    session.final_answer = answer
+    session.retries = retries
+    session.execution_error = str(err or "")
+    return ExecutionOutcome(status="done")
 
+
+def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None:
+    """Persist exactly one terminal Chainlit record for the current run."""
+
+    if session.finalized:
+        return
+    session.finalized = True
+    safe_error = str(error or session.execution_error).replace("\n", " ")[:500]
+    elapsed = round(time.monotonic() - session.started_at, 3)
+    trace = {
+        "status": status,
+        "phase_reached": session.phase,
+        "discovery": {
+            "keywords": list(session.keywords),
+            "selected_datasets": list(session.tables),
+        },
+        "llm_calls": build_llm_phase_records(
+            total_tokens={
+                "discovery": session.tokens["p1"] + session.tokens["p2"],
+                "code": session.tokens["p3"],
+                "result": session.tokens["p4"],
+            },
+            phase_invocations=session.llm_call_counts,
+        ),
+        "phase_metrics": {
+            **{
+                phase: {"latency_seconds": round(seconds, 6)}
+                for phase, seconds in session.phase_seconds.items()
+            },
+            "total": {"latency_seconds": elapsed},
+        },
+        "tool_calls": summarize_tool_calls(session.full_trace),
+        "retries": session.retries,
+        "errors": [safe_error] if safe_error else [],
+        "code": session.final_code or None,
+        "execution_outcome": {
+            "status": status,
+            "raw_result": session.raw_result,
+            "error": safe_error or None,
+        },
+        "human_interventions": session.intervention_recorder.to_list(),
+        "configuration": session.manifest.get("resolved_config", {}),
+    }
     save_experiment_log(
         question=session.query,
-        code=full_code_history,
-        result=raw_result if raw_result else "",
-        retries=retries,
+        code=session.final_code,
+        result=session.raw_result if session.raw_result is not None else "",
+        retries=session.retries,
         reasoning=session.architect_reasoning,
         tables=session.tables,
         raw_keywords=session.raw_keywords,
         final_keywords=session.keywords,
-        debug_raw="",
-        final_result=answer,
+        final_result=session.final_answer,
         full_trace=session.full_trace,
         tokens_phase1=session.tokens["p1"],
         tokens_phase2=session.tokens["p2"],
         tokens_phase3=session.tokens["p3"],
         tokens_phase4=session.tokens["p4"],
-        error=err if err is not None else "",
+        error=safe_error,
         model=session.runtime.model_name,
         architecture=session.runtime.experiment.architecture_name,
-        extra_fields={
-            "MANIFEST_JSON": session.manifest,
-            "RUN_TRACE_JSON": {
-                "discovery": {
-                    "keywords": session.keywords,
-                    "selected_datasets": session.tables,
-                },
-                "llm_calls": build_llm_phase_records(
-                    total_tokens={
-                        "discovery": session.tokens["p1"] + session.tokens["p2"],
-                        "code": session.tokens["p3"],
-                        "result": session.tokens["p4"],
-                    },
-                    phase_invocations=session.llm_call_counts,
-                ),
-                "phase_metrics": {
-                    phase: {"latency_seconds": round(seconds, 6)}
-                    for phase, seconds in session.phase_seconds.items()
-                },
-                "tool_calls": summarize_tool_calls(session.full_trace),
-                "retries": retries,
-                "errors": [str(err)] if err else [],
-                "code": full_code_history,
-                "execution_outcome": {
-                    "succeeded": err is None,
-                    "raw_result": raw_result,
-                },
-                "human_interventions": session.intervention_recorder.to_list(),
-                "configuration": session.manifest.get("resolved_config", {}),
-            },
-        },
+        status=status,
+        elapsed_seconds=elapsed,
+        extra_fields={"MANIFEST_JSON": session.manifest, "RUN_TRACE_JSON": trace},
     )
-    return ExecutionOutcome(status="done")
 
 
-async def _run_locked_workflow(question: str) -> None:
+async def _run_locked_workflow(question: str) -> str:
     session = get_session()
     runtime = get_runtime_settings()
     session.runtime = runtime
+    session.phase = "initialization"
     manifest = create_manifest(
         runtime.experiment,
         base_dir=BASE_DIR,
@@ -703,15 +725,17 @@ async def _run_locked_workflow(question: str) -> None:
     pm = get_prompt_manager()
     all_files = get_all_table_files(runtime.csv_dir)
     if not all_files:
+        session.execution_error = f"No local tables found in {runtime.csv_dir}"
         await cl.Message(
             content=(
                 "No CSV or Parquet files were found in "
                 f"`{runtime.csv_dir}`."
             )
         ).send()
-        return
+        return "failed"
 
     keyword_hint = ""
+    session.phase = "discovery"
     while True:
         if session.runtime.use_unified_agent:
             table_status = await _run_unified_gate(
@@ -724,7 +748,7 @@ async def _run_locked_workflow(question: str) -> None:
             )
             if table_status != "approved":
                 await cl.Message(content=session.text("workflow.cancelled")).send()
-                return
+                return "cancelled"
         else:
             # ── Two-phase flow: Phase 1 (keywords) → Phase 2 (search + judge) ──
             await _run_keyword_gate(session, llm, pm, keyword_hint)
@@ -744,13 +768,13 @@ async def _run_locked_workflow(question: str) -> None:
                 continue
             if table_status != "approved":
                 await cl.Message(content=session.text("workflow.cancelled")).send()
-                return
+                return "cancelled"
 
         session.force_execution = False
         while True:
             outcome = await _run_execution(session, llm, pm)
             if outcome.status == "done":
-                return
+                return "completed"
 
             action = await _ask_choice(
                 session.text(
@@ -786,7 +810,7 @@ async def _run_locked_workflow(question: str) -> None:
                 )
                 if table_status != "approved":
                     await cl.Message(content=session.text("workflow.cancelled")).send()
-                    return
+                    return "cancelled"
             else:
                 table_status = await _run_table_gate(
                     session,
@@ -805,7 +829,7 @@ async def _run_locked_workflow(question: str) -> None:
                     break
                 if table_status != "approved":
                     await cl.Message(content=session.text("workflow.cancelled")).send()
-                    return
+                    return "cancelled"
 
         # If we broke out due to keywords_rejected, loop back to Phase 1
         if keyword_hint:
@@ -823,7 +847,23 @@ async def run_lakegen_workflow(question: str) -> None:
         ).send()
 
     async with WORKFLOW_LOCK:
+        session = get_session()
+        status = "failed"
+        error = ""
         try:
-            await _run_locked_workflow(question.strip())
-        except WorkflowCancelled:
+            status = await _run_locked_workflow(question.strip())
+        except WorkflowTimedOut as exc:
+            status = "timed_out"
+            error = f"{type(exc).__name__}: {exc}"
+        except (asyncio.CancelledError, WorkflowCancelled):
+            status = "cancelled"
             raise
+        except Exception as exc:
+            status = "failed"
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            try:
+                _finalize_run(session, status, error)
+            except Exception:
+                logger.exception("Could not persist the Chainlit experiment record")

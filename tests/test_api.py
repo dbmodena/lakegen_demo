@@ -172,10 +172,11 @@ def test_single_query_passes_the_complete_request_to_csv_logging(monkeypatch):
         def to_dict(self):
             return {"status": "completed"}
 
-    def fake_run_question(question, runtime, *, log_context):
+    def fake_run_question(question, runtime, *, question_id, log_context):
         captured.update(
             question=question,
             runtime=runtime,
+            question_id=question_id,
             log_context=log_context,
         )
         return Result()
@@ -196,6 +197,31 @@ def test_single_query_passes_the_complete_request_to_csv_logging(monkeypatch):
     assert response == {"status": "completed"}
     assert captured["question"] == "Where are the parks?"
     assert captured["runtime"] is runtime
+    assert captured["question_id"] is None
     assert captured["log_context"]["SOURCE_PATH"] == "$.question"
     assert captured["log_context"]["SOURCE_RETRIEVAL_MODE"] == "hybrid"
     assert captured["log_context"]["SOURCE_TOP_K"] == 25
+
+
+@pytest.mark.asyncio
+async def test_multipart_batch_propagates_question_file_id(tmp_path, monkeypatch):
+    submitted = {}
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(
+        api._executor,
+        "submit",
+        lambda function, *args: submitted.update(function=function, args=args),
+    )
+
+    response = await api.submit_batch_files(
+        FakeUpload("experiment.yaml", b"core: nyc\n"),
+        FakeUpload(
+            "questions.json",
+            b'{"questions": [{"id": "file-q-7", "question": "Same?"}]}',
+        ),
+    )
+
+    questions = submitted["args"][1]
+    assert questions[0]["source_id"] == "file-q-7"
+    assert questions[0]["log_fields"]["SOURCE_ID"] == "file-q-7"
+    api._jobs.pop(response.job_id, None)

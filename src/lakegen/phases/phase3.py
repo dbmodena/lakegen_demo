@@ -93,6 +93,16 @@ _TABPFN_INTENT_KEYWORDS = {
 }
 
 
+def _tabpfn_enabled() -> bool:
+    """Return whether generated analyses may use the optional TabPFN stack."""
+    return os.getenv("LAKEGEN_ENABLE_TABPFN", "").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _detect_tabpfn_intent(query: str) -> str | None:
     """Return the most specific multilingual TabPFN intent found in a query."""
     normalized_query = query.casefold()
@@ -285,9 +295,17 @@ def phase3_generate_code(
                                 arch_reasoning=reasoning,
                                 tables_info=tables_info)
 
-    # --- TabPFN intent routing and task-specific hint injection ---
+    # --- Optional TabPFN intent routing and task-specific hint injection ---
     tabpfn_intent = _detect_tabpfn_intent(query)
-    if tabpfn_intent:
+    if tabpfn_intent and not _tabpfn_enabled():
+        user_prompt += (
+            "\n\n[OPTIONAL ML BACKEND DISABLED]\n"
+            "TabPFN is not installed in this environment. Do not import `tabpfn` or "
+            "`torch`. Prefer deterministic Pandas analysis when it answers the "
+            "question; otherwise use an appropriate scikit-learn estimator and "
+            "clearly report its validation limits.\n"
+        )
+    elif tabpfn_intent:
         common_hint = (
             f"\n\n[TABPFN REQUIREMENT — {tabpfn_intent.upper()}]\n"
             f"The detected task is `{tabpfn_intent}`. You MUST use the `tabpfn` library "

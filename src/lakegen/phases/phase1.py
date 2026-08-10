@@ -151,7 +151,7 @@ def phase1_generate_keywords(
                         loop_detected = True
                         if reasoning_placeholder is not None:
                             reasoning_placeholder.markdown(
-                                structured_reasoning + "\n\n⚠️ **[Phase 1] Attenzione: Rilevato loop di ripetizione nel ragionamento del modello! Lo stream è stato interrotto per evitare blocchi.**"
+                                structured_reasoning + "\n\n⚠️ **[Phase 1] Warning: A repetition loop was detected in the model reasoning. The stream was stopped to prevent it from hanging.**"
                             )
                         break
                 # ──────────────────────────────────────────────────────────
@@ -229,6 +229,6 @@ def phase1_generate_keywords(
         extracted = wordnet_keywords[:3]
 
     if loop_detected:
-        reasoning_content += "\n\n⚠️ **[Phase 1] Attenzione: Rilevato loop di ripetizione nel ragionamento del modello! Lo stream è stato interrotto ed è stato attivato il fallback sulle keyword WordNet.**"
+        reasoning_content += "\n\n⚠️ **[Phase 1] Warning: A repetition loop was detected in the model reasoning. The stream was stopped and the WordNet keyword fallback was activated.**"
 
     return extracted, raw_content, tokens, reasoning_content

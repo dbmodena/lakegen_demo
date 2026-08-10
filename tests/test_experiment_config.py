@@ -199,13 +199,18 @@ def test_autonomous_runner_never_calls_input(monkeypatch):
     result = ExperimentRunner(config).run(
         "Question?",
         runtime_factory=lambda **_kwargs: runtime,
-        executor=lambda question, actual_runtime, *, log_context: {
+        executor=lambda question, actual_runtime, *, question_id, log_context: {
             "question": question,
             "runtime": actual_runtime,
+            "question_id": question_id,
         },
     )
 
-    assert result == {"question": "Question?", "runtime": runtime}
+    assert result == {
+        "question": "Question?",
+        "runtime": runtime,
+        "question_id": None,
+    }
 
 
 def test_divided_autonomous_runner_executes_real_separate_phases(monkeypatch, tmp_path):
