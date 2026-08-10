@@ -22,7 +22,8 @@ from src.client_solr import LocalSolrClient
 class PreparedCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    rank: int
+    retrieval_rank: int
+    prepared_position: int
     dataset: str
     scores: dict[str, Any]
     missing_signals: list[str]
@@ -35,8 +36,8 @@ class PreparedDiscoveryContext(BaseModel):
     query: str
     retrieval_mode: str
     candidates: list[PreparedCandidate]
-    total_candidates_before_limit: int
-    total_candidates_after_limit: int
+    retrieved_hit_count: int
+    prepared_candidate_count: int
 
     def stable_json(self) -> str:
         return json.dumps(
@@ -88,7 +89,8 @@ def prepare_discovery_context(
             if hit_log.get(key) is None
         ]
         candidates.append(PreparedCandidate(
-            rank=len(candidates) + 1,
+            retrieval_rank=hit.rank,
+            prepared_position=len(candidates) + 1,
             dataset=dataset,
             scores=scores,
             missing_signals=missing,
@@ -101,7 +103,7 @@ def prepare_discovery_context(
         query=query,
         retrieval_mode=retrieval_config.mode.value,
         candidates=candidates,
-        total_candidates_before_limit=len(hits),
-        total_candidates_after_limit=len(candidates),
+        retrieved_hit_count=len(hits),
+        prepared_candidate_count=len(candidates),
     )
     return context, metadata_by_dataset

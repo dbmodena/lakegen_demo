@@ -30,6 +30,7 @@ def run_agent_workflow(
     tool_retriever: Any | None = None,
     max_iterations: int = 10,
     max_repeats: int = 3,
+    chat_history: list | None = None,
 ) -> str:
     """
     Run a LlamaIndex FunctionAgent and safely yield events/handle stalls.
@@ -50,6 +51,7 @@ def run_agent_workflow(
 
         handler = explorer.run(
             user_msg=user_prompt,
+            chat_history=chat_history,
             max_iterations=max_iterations,
         )
 

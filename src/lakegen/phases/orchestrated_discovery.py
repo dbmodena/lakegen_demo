@@ -1,50 +1,90 @@
-"""Tool-free dataset selection over orchestrator-prepared context."""
+"""Typed, tool-free discovery paths using orchestrator-prepared retrieval context."""
 
 from __future__ import annotations
 
 import io
+import json
+import re
+from typing import Any
 
 from llama_index.core import Settings
-from llama_index.core.llms import LLM
+from llama_index.core.llms import ChatMessage, MessageRole, LLM
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lakegen.agents.agent_runner import run_agent_workflow
 from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
-from lakegen.core.types import StreamCallback
+from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.experiment_config import DiscoveryArchitecture
-from lakegen.orchestrated_context import PreparedDiscoveryContext
+from lakegen.orchestrated_context import (
+    PreparedDiscoveryContext,
+    prepare_discovery_context,
+)
 from lakegen.phases.utils import parse_table_selector_response
+from lakegen.retrieval import RetrievalConfig
 
 
-def select_from_prepared_context(
-    *,
-    query: str,
-    llm: LLM,
-    context: PreparedDiscoveryContext,
-    all_files: list[str],
-    architecture: DiscoveryArchitecture,
-    hint: str = "",
-    stream_callback: StreamCallback | None = None,
-    cancel_check=None,
-) -> tuple[list[str], str, str, int]:
-    """Ask an agent with an empty tool set to select only supplied candidates."""
+class RetrievalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    keywords: list[str] = Field(min_length=1, max_length=8)
 
-    context_json = context.stable_json()
-    system_prompt = (
-        "You are a dataset selection agent. You have no tools and must reason only "
-        "from the prepared JSON context supplied by the orchestrator. Never search, "
-        "inspect files, or invent metadata. Return exactly FINAL_PAYLOAD: followed by "
-        "a JSON object with string fields 'tables' (comma-separated exact dataset "
-        "names) and 'reasoning'. Select no dataset outside the context. "
-        f"Discovery architecture: {architecture.value}."
-    )
-    user_prompt = (
-        f"Prepared discovery context:\n{context_json}\n"
-        + (f"Previous-attempt constraint: {hint}\n" if hint else "")
-        + "Choose the minimal set of datasets needed to answer the question."
-    )
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def normalize_keywords(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            raise ValueError("keywords must be a list")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("each keyword must be a string")
+            keyword = " ".join(item.split())
+            if not keyword:
+                continue
+            if len(keyword) > 100:
+                raise ValueError("keywords must be at most 100 characters")
+            identity = keyword.casefold()
+            if identity not in seen:
+                seen.add(identity)
+                normalized.append(keyword)
+        if not normalized:
+            raise ValueError("at least one non-empty keyword is required")
+        return normalized
+
+
+class DiscoveryResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    selected_datasets: list[str]
+    candidates: list[str]
+    keywords: list[str]
+    metadata: SolrMetadata
+    reasoning: str
+    trace: str
+    tokens: int = Field(ge=0)
+    llm_invocations: int = Field(ge=0)
+    agent_count: int = Field(ge=1)
+    retry_keywords: bool = False
+    retry_reason: str | None = None
+    prepared_context: PreparedDiscoveryContext | None = None
+
+
+def parse_retrieval_request(response: str) -> RetrievalRequest:
+    match = re.fullmatch(r"\s*RETRIEVAL_REQUEST:\s*(\{.*\})\s*", response, re.DOTALL)
+    if match is None:
+        raise ValueError("invalid RETRIEVAL_REQUEST envelope")
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid RETRIEVAL_REQUEST JSON: {exc}") from exc
+    return RetrievalRequest.model_validate(payload)
+
+
+def _run_tool_free_turn(
+    *, llm: LLM, system_prompt: str, user_prompt: str, agent_name: str,
+    stream_callback: StreamCallback | None = None, cancel_check=None,
+    chat_history: list[ChatMessage] | None = None,
+) -> tuple[str, str, int]:
     token_counter = next(
-        (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")),
-        None,
+        (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")), None
     )
     if token_counter:
         token_counter.reset_counts()
@@ -57,27 +97,99 @@ def select_from_prepared_context(
             stream_callback(delta)
 
     response = run_agent_workflow(
-        llm=llm,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        agent_name=f"{architecture.value}_context_selector",
-        emit_stream=emit,
-        cancel_check=cancel_check,
-        tools=[],
-        max_iterations=1,
-        max_repeats=1,
-    )
-    trace = "--- Orchestrated Context Discovery ---\n" + stream.getvalue()
-    stream.close()
-    candidate_names = [item.dataset for item in context.candidates]
-    selected, reasoning = parse_table_selector_response(
-        response, all_files, candidate_names
+        llm=llm, system_prompt=system_prompt, user_prompt=user_prompt,
+        agent_name=agent_name, emit_stream=emit, cancel_check=cancel_check,
+        tools=[], chat_history=chat_history, max_iterations=1, max_repeats=1,
     )
     tokens = 0
     if token_counter:
-        tokens = (
-            token_counter.prompt_llm_token_count
-            + token_counter.completion_llm_token_count
-        )
+        tokens = token_counter.prompt_llm_token_count + token_counter.completion_llm_token_count
         token_counter.reset_counts()
-    return selected, reasoning, trace, max(tokens, get_llm_token_usage(llm))
+    trace = stream.getvalue()
+    stream.close()
+    return response, trace, max(tokens, get_llm_token_usage(llm))
+
+
+def _selector_prompts(context: PreparedDiscoveryContext, hint: str) -> tuple[str, str]:
+    system = (
+        "You are a dataset selection agent with no tools. Reason only from the "
+        "orchestrator context. Return exactly FINAL_PAYLOAD: followed by JSON with "
+        "string fields 'tables' and 'reasoning'. Never invent datasets or metadata."
+    )
+    user = f"Prepared discovery context:\n{context.stable_json()}\n"
+    if hint:
+        user += f"Previous-attempt constraint: {hint}\n"
+    return system, user + "Select the minimal sufficient dataset set."
+
+
+def select_from_prepared_context(
+    *, query: str, llm: LLM, context: PreparedDiscoveryContext,
+    all_files: list[str], architecture: DiscoveryArchitecture, hint: str = "",
+    stream_callback: StreamCallback | None = None, cancel_check=None,
+) -> tuple[list[str], str, str, int]:
+    """Divided architecture's second, distinct tool-free agent."""
+    system, user = _selector_prompts(context, hint)
+    response, stream, tokens = _run_tool_free_turn(
+        llm=llm, system_prompt=system, user_prompt=user,
+        agent_name="divided_context_selector", stream_callback=stream_callback,
+        cancel_check=cancel_check,
+    )
+    candidates = [item.dataset for item in context.candidates]
+    selected, reasoning = parse_table_selector_response(response, all_files, candidates)
+    return selected, reasoning, "--- Divided Orchestrated Selector ---\n" + stream, tokens
+
+
+def run_unified_orchestrated_discovery(
+    *, query: str, llm: LLM, solr_client, all_files: list[str],
+    retrieval_config: RetrievalConfig, hint: str = "",
+    stream_callback: StreamCallback | None = None, cancel_check=None,
+) -> DiscoveryResult:
+    """Run two turns of one logical tool-free agent with explicit chat history."""
+    system = (
+        "You are the unified LakeGen discovery agent. You have no tools. First request "
+        "retrieval using exactly RETRIEVAL_REQUEST: {\"keywords\":[...]}. Do not choose "
+        "core, retrieval mode, or parameters. After context arrives, return exactly "
+        "FINAL_PAYLOAD: {\"tables\":\"comma-separated exact names\",\"reasoning\":\"...\"}."
+    )
+    first_user = f"Question: {query}\nFormulate the metadata retrieval request."
+    if hint:
+        first_user += f"\nPrevious-attempt constraint: {hint}"
+    request_text, first_trace, first_tokens = _run_tool_free_turn(
+        llm=llm, system_prompt=system, user_prompt=first_user,
+        agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
+        cancel_check=cancel_check,
+    )
+    request = parse_retrieval_request(request_text)
+    prepared, metadata = prepare_discovery_context(
+        query=query, keywords=request.keywords, solr_client=solr_client,
+        all_files=all_files, retrieval_config=retrieval_config,
+    )
+    candidates = [item.dataset for item in prepared.candidates]
+    if not candidates:
+        reason = "REJECT_KEYWORDS: No datasets found in the prepared context"
+        return DiscoveryResult(
+            selected_datasets=[], candidates=[], keywords=request.keywords,
+            metadata=metadata, reasoning=reason,
+            trace="--- Unified Orchestrated Turn 1 ---\n" + first_trace,
+            tokens=first_tokens, llm_invocations=1, agent_count=1,
+            retry_keywords=True, retry_reason=reason, prepared_context=prepared,
+        )
+    second_user = "Orchestrator-prepared context:\n" + prepared.stable_json()
+    history = [
+        ChatMessage(role=MessageRole.USER, content=first_user),
+        ChatMessage(role=MessageRole.ASSISTANT, content=request_text),
+    ]
+    final_text, second_trace, second_tokens = _run_tool_free_turn(
+        llm=llm, system_prompt=system, user_prompt=second_user,
+        agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
+        cancel_check=cancel_check, chat_history=history,
+    )
+    selected, reasoning = parse_table_selector_response(final_text, all_files, candidates)
+    return DiscoveryResult(
+        selected_datasets=selected, candidates=candidates, keywords=request.keywords,
+        metadata=metadata, reasoning=reasoning,
+        trace=("--- Unified Orchestrated Turn 1 ---\n" + first_trace
+               + "\n--- Unified Orchestrated Turn 2 ---\n" + second_trace),
+        tokens=first_tokens + second_tokens, llm_invocations=2, agent_count=1,
+        prepared_context=prepared,
+    )

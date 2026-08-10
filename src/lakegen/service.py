@@ -38,7 +38,10 @@ from lakegen.experiment_config import (
     load_experiment_config,
 )
 from lakegen.orchestrated_context import prepare_discovery_context
-from lakegen.phases.orchestrated_discovery import select_from_prepared_context
+from lakegen.phases.orchestrated_discovery import (
+    run_unified_orchestrated_discovery,
+    select_from_prepared_context,
+)
 from lakegen.manifest import ExperimentManifest, create_manifest, persist_manifest
 from lakegen.reproducibility import initialize_reproducibility
 from lakegen.tracing import (
@@ -282,11 +285,15 @@ def run_question(
     context_telemetry: dict[str, Any] = {
         "configured_tool_access": experiment.tool_access.value,
         "execution_path": experiment.tool_access.value,
+        "discovery_architecture": experiment.discovery_architecture.value,
+        "agent_count": 1 if experiment.use_unified_agent else 2,
+        "llm_invocations": 0,
         "retrieval_mode": runtime.retrieval.mode.value,
         "prepared_candidate_count": 0,
         "prepared_context_utf8_bytes": 0,
         "agent_direct_tools": [],
-        "orchestrator_retrieval_calls": [],
+        "orchestrator_retrieval_calls": {},
+        "empty_context_retries": 0,
         "preparation_error": None,
     }
 
@@ -299,67 +306,10 @@ def run_question(
             for table_attempt in range(MAX_TABLE_ATTEMPTS):
                 discovery_started = time.monotonic()
                 keywords_rejected = False
-                if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    try:
-                        keywords, _raw_keywords, tokens_p1, reasoning_p1 = (
-                            phase1_generate_keywords(
-                                query=question,
-                                llm=llm,
-                                pm=prompt_manager,
-                                hint=hint,
-                                portal_name=runtime.portal_name,
-                                avoid_keywords=attempted_keywords,
-                            )
-                        )
-                        phase_invocation_counts["discovery"] += 1
-                        prepared, solr_meta = prepare_discovery_context(
-                            query=question,
-                            keywords=keywords,
-                            solr_client=solr,
-                            all_files=all_files,
-                            retrieval_config=runtime.retrieval,
-                        )
-                        serialized_context = prepared.stable_json()
-                        context_telemetry.update({
-                            "prepared_candidate_count": (
-                                prepared.total_candidates_after_limit
-                            ),
-                            "prepared_candidates_before_limit": (
-                                prepared.total_candidates_before_limit
-                            ),
-                            "prepared_context_utf8_bytes": len(
-                                serialized_context.encode("utf-8")
-                            ),
-                            "orchestrator_retrieval_calls": [
-                                f"retrieval:{runtime.retrieval.mode.value}"
-                            ],
-                            "preparation_error": None,
-                        })
-                    except Exception as preparation_error:
-                        context_telemetry["preparation_error"] = (
-                            f"{type(preparation_error).__name__}: {preparation_error}"
-                        )
-                        raise RuntimeError(
-                            "orchestrated context preparation failed: "
-                            f"{preparation_error}"
-                        ) from preparation_error
-                    selected, reasoning, trace, tokens_p2 = (
-                        select_from_prepared_context(
-                            query=question,
-                            llm=llm,
-                            context=prepared,
-                            all_files=all_files,
-                            architecture=experiment.discovery_architecture,
-                            hint=hint,
-                        )
-                    )
-                    phase_invocation_counts["discovery"] += 1
-                    architecture_tokens = tokens_p1 + tokens_p2
-                    trace = (
-                        f"--- Orchestrated Keyword Preparation ---\n{reasoning_p1}\n"
-                        f"{trace}"
-                    )
-                elif experiment.use_unified_agent:
+                if (
+                    experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED
+                    and experiment.tool_access == ToolAccess.AGENTIC
+                ):
                     (
                         selected,
                         keywords,
@@ -380,7 +330,11 @@ def run_question(
                         state=selection_state,
                     )
                     phase_invocation_counts["discovery"] += 1
-                else:
+                    context_telemetry["llm_invocations"] += 1
+                elif (
+                    experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED
+                    and experiment.tool_access == ToolAccess.AGENTIC
+                ):
                     keywords, raw_keywords, tokens_p1, reasoning_p1 = (
                         phase1_generate_keywords(
                             query=question,
@@ -393,41 +347,102 @@ def run_question(
                     )
                     phase_invocation_counts["discovery"] += 1
                     (
-                        selected,
-                        candidates,
-                        solr_meta,
-                        reasoning,
-                        trace,
-                        tokens_p2,
+                        selected, candidates, solr_meta, reasoning, trace, tokens_p2,
                     ) = phase2_select_tables(
-                        query=question,
-                        llm=llm,
-                        pm=prompt_manager,
-                        all_files=all_files,
-                        keywords=keywords,
-                        solr_client=solr,
-                        csv_dir=runtime.csv_dir,
-                        hint=hint,
+                        query=question, llm=llm, pm=prompt_manager,
+                        all_files=all_files, keywords=keywords, solr_client=solr,
+                        csv_dir=runtime.csv_dir, hint=hint,
                         portal_name=runtime.portal_name,
                         retrieval_config=runtime.retrieval,
                     )
                     phase_invocation_counts["discovery"] += 1
+                    context_telemetry["llm_invocations"] += 2
                     architecture_tokens = tokens_p1 + tokens_p2
-                    trace = (
-                        f"--- Divided Phase 1 ---\n{reasoning_p1}\n"
-                        f"--- Divided Phase 2 ---\n{trace}"
-                    )
+                    trace = f"--- Divided Phase 1 ---\n{reasoning_p1}\n--- Divided Phase 2 ---\n{trace}"
                     if reasoning.startswith("REJECT_KEYWORDS:"):
                         attempted_keywords.extend(keywords)
                         attempted_keywords = list(dict.fromkeys(attempted_keywords))
-                        hint = (
-                            "The previous keywords led to bad tables. "
-                            f"Architect feedback: {reasoning}. "
-                            "Generate completely different keywords."
-                        )
+                        hint = f"The previous keywords led to bad tables. Architect feedback: {reasoning}. Generate completely different keywords."
                         keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
                         if not keywords_rejected:
                             selected = candidates[:3] if candidates else all_files[:3]
+                elif experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED:
+                    try:
+                        discovery_result = run_unified_orchestrated_discovery(
+                            query=question, llm=llm, solr_client=solr,
+                            all_files=all_files, retrieval_config=runtime.retrieval,
+                            hint=hint,
+                        )
+                    except Exception as preparation_error:
+                        context_telemetry["preparation_error"] = (
+                            f"{type(preparation_error).__name__}: {preparation_error}"
+                        )
+                        raise RuntimeError(
+                            "orchestrated context preparation failed: "
+                            f"{preparation_error}"
+                        ) from preparation_error
+                    selected = discovery_result.selected_datasets
+                    keywords = discovery_result.keywords
+                    solr_meta = discovery_result.metadata
+                    reasoning = discovery_result.reasoning
+                    trace = discovery_result.trace
+                    architecture_tokens = discovery_result.tokens
+                    phase_invocation_counts["discovery"] += discovery_result.llm_invocations
+                    context_telemetry["llm_invocations"] += discovery_result.llm_invocations
+                    prepared = discovery_result.prepared_context
+                    keywords_rejected = discovery_result.retry_keywords
+                else:
+                    keywords, _raw_keywords, tokens_p1, reasoning_p1 = (
+                        phase1_generate_keywords(
+                            query=question,
+                            llm=llm,
+                            pm=prompt_manager,
+                            hint=hint,
+                            portal_name=runtime.portal_name,
+                            avoid_keywords=attempted_keywords,
+                        )
+                    )
+                    phase_invocation_counts["discovery"] += 1
+                    try:
+                        prepared, solr_meta = prepare_discovery_context(
+                            query=question, keywords=keywords, solr_client=solr,
+                            all_files=all_files, retrieval_config=runtime.retrieval,
+                        )
+                    except Exception as preparation_error:
+                        context_telemetry["preparation_error"] = f"{type(preparation_error).__name__}: {preparation_error}"
+                        raise RuntimeError(f"orchestrated context preparation failed: {preparation_error}") from preparation_error
+                    candidates = [item.dataset for item in prepared.candidates]
+                    if not candidates:
+                        selected = []
+                        reasoning = "REJECT_KEYWORDS: No datasets found in the prepared context"
+                        trace = "--- Divided Orchestrated Retrieval ---\nNo datasets found."
+                        tokens_p2 = 0
+                        keywords_rejected = True
+                    else:
+                        selected, reasoning, trace, tokens_p2 = select_from_prepared_context(
+                            query=question, llm=llm, context=prepared,
+                            all_files=all_files, architecture=experiment.discovery_architecture,
+                            hint=hint,
+                        )
+                        phase_invocation_counts["discovery"] += 1
+                    context_telemetry["llm_invocations"] += 1 + int(bool(candidates))
+                    architecture_tokens = tokens_p1 + tokens_p2
+                if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                    calls = context_telemetry["orchestrator_retrieval_calls"]
+                    mode = runtime.retrieval.mode.value
+                    calls[mode] = calls.get(mode, 0) + 1
+                    if prepared is not None:
+                        context_telemetry.update({
+                            "prepared_candidate_count": prepared.prepared_candidate_count,
+                            "retrieved_hit_count": prepared.retrieved_hit_count,
+                            "prepared_context_utf8_bytes": len(prepared.stable_json().encode("utf-8")),
+                            "preparation_error": None,
+                        })
+                    if keywords_rejected:
+                        attempted_keywords.extend(keywords)
+                        attempted_keywords = list(dict.fromkeys(attempted_keywords))
+                        context_telemetry["empty_context_retries"] += 1
+                        hint = f"The previous keywords returned no datasets. Generate different keywords. Attempted: {attempted_keywords}"
                 result.tokens["p1_p2"] += architecture_tokens
                 discovery_elapsed = round(time.monotonic() - discovery_started, 6)
                 discovery_metric = result.phase_metrics.setdefault(
@@ -625,12 +640,18 @@ def run_question(
                 if item["actor"] == "agent"
             ]
             if experiment.tool_access != ToolAccess.ORCHESTRATED_CONTEXT:
-                context_telemetry["orchestrator_retrieval_calls"] = [
-                    item["type"]
-                    for item in result.tool_calls
-                    if item["actor"] == "orchestrator"
-                    and str(item["type"]).startswith("retrieval:")
-                ]
+                orchestrator_calls: dict[str, int] = {}
+                for item in result.tool_calls:
+                    if item["actor"] != "orchestrator":
+                        continue
+                    tool_type = str(item["type"])
+                    if not tool_type.startswith("retrieval:"):
+                        continue
+                    mode = tool_type.split(":", 1)[1]
+                    orchestrator_calls[mode] = (
+                        orchestrator_calls.get(mode, 0) + int(item["count"])
+                    )
+                context_telemetry["orchestrator_retrieval_calls"] = orchestrator_calls
             if result.error and not result.errors:
                 result.errors.append({"phase": "pipeline", "message": result.error})
             result.execution_outcome = {

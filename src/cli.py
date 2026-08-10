@@ -56,7 +56,10 @@ from lakegen.tracing import (
 from lakegen.runner import ExperimentRunner
 from lakegen.experiment_config import InteractionMode
 from lakegen.orchestrated_context import prepare_discovery_context
-from lakegen.phases.orchestrated_discovery import select_from_prepared_context
+from lakegen.phases.orchestrated_discovery import (
+    run_unified_orchestrated_discovery,
+    select_from_prepared_context,
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -189,6 +192,44 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     trace = ""
     phase_seconds = {"discovery": 0.0, "code": 0.0, "result": 0.0}
     llm_call_counts = {"discovery": 0, "code": 0, "result": 0}
+    tool_access_telemetry = {
+        "configured_tool_access": runtime.experiment.tool_access.value,
+        "execution_path": runtime.experiment.tool_access.value,
+        "discovery_architecture": runtime.experiment.discovery_architecture.value,
+        "agent_count": 1 if runtime.use_unified_agent else 2,
+        "llm_invocations": 0,
+        "retrieval_mode": runtime.retrieval.mode.value,
+        "prepared_candidate_count": 0,
+        "retrieved_hit_count": 0,
+        "prepared_context_utf8_bytes": 0,
+        "agent_direct_tools": [],
+        "orchestrator_retrieval_calls": {},
+        "empty_context_retries": 0,
+        "preparation_error": None,
+    }
+
+    def record_orchestrated(prepared, invocations: int) -> None:
+        tool_access_telemetry["llm_invocations"] += invocations
+        mode = runtime.retrieval.mode.value
+        calls = tool_access_telemetry["orchestrator_retrieval_calls"]
+        calls[mode] = calls.get(mode, 0) + 1
+        tool_access_telemetry["prepared_candidate_count"] = prepared.prepared_candidate_count
+        tool_access_telemetry["retrieved_hit_count"] = prepared.retrieved_hit_count
+        tool_access_telemetry["prepared_context_utf8_bytes"] = len(prepared.stable_json().encode("utf-8"))
+
+    def prepare_context(**kwargs):
+        try:
+            return prepare_discovery_context(**kwargs)
+        except Exception as exc:
+            tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+            raise
+
+    def run_unified_context(**kwargs):
+        try:
+            return run_unified_orchestrated_discovery(**kwargs)
+        except Exception as exc:
+            tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+            raise
 
     # ── Phase 1 & 2 ────────────
     keyword_retries = 0
@@ -198,30 +239,17 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
             phase_started = time.monotonic()
             if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                keywords, _raw, tok1, _reasoning1 = phase1_generate_keywords(
-                    query=question,
-                    llm=llm,
-                    pm=pm,
-                    hint=keyword_hint,
-                    portal_name=runtime.portal_name,
+                discovery = run_unified_context(
+                    query=question, llm=llm, solr_client=solr,
+                    all_files=all_files, retrieval_config=runtime.retrieval,
+                    hint=keyword_hint, stream_callback=_stream_to_terminal,
                 )
-                prepared, solr_meta = prepare_discovery_context(
-                    query=question,
-                    keywords=keywords,
-                    solr_client=solr,
-                    all_files=all_files,
-                    retrieval_config=runtime.retrieval,
+                selected, keywords, solr_meta = (
+                    discovery.selected_datasets, discovery.keywords, discovery.metadata
                 )
-                selected, reasoning, trace, tok2 = select_from_prepared_context(
-                    query=question,
-                    llm=llm,
-                    context=prepared,
-                    all_files=all_files,
-                    architecture=runtime.experiment.discovery_architecture,
-                    hint=keyword_hint,
-                    stream_callback=_stream_to_terminal,
-                )
-                tok = tok1 + tok2
+                reasoning, trace, tok = discovery.reasoning, discovery.trace, discovery.tokens
+                actual_discovery_calls = discovery.llm_invocations
+                record_orchestrated(discovery.prepared_context, discovery.llm_invocations)
             else:
                 selected, keywords, solr_meta, reasoning, trace, tok = phase12_agent(
                     query=question,
@@ -235,10 +263,22 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     stream_callback=_stream_to_terminal,
                     retrieval_config=runtime.retrieval,
                 )
+                actual_discovery_calls = 1
             phase_seconds["discovery"] += time.monotonic() - phase_started
-            llm_call_counts["discovery"] += 1
+            llm_call_counts["discovery"] += actual_discovery_calls
 
             tokens["p1"] += tok
+
+            if not selected:
+                attempted_keywords.extend(keywords)
+                attempted_keywords = list(dict.fromkeys(attempted_keywords))
+                keyword_retries += 1
+                tool_access_telemetry["empty_context_retries"] += 1
+                if keyword_retries >= MAX_KEYWORD_RETRIES:
+                    print(_c("No datasets found after the configured retries.", "red"))
+                    return
+                keyword_hint = reasoning
+                continue
 
             print(f"\n\n{_c('Keywords:', 'bold')} {_keyword_list(keywords)}")
             print(f"{_c('Tables:', 'bold')}   {', '.join(selected) if selected else '(none)'}")
@@ -307,7 +347,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
 
         phase_started = time.monotonic()
         if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-            prepared, solr_meta = prepare_discovery_context(
+            prepared, solr_meta = prepare_context(
                 query=question,
                 keywords=keywords,
                 solr_client=solr,
@@ -315,15 +355,17 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 retrieval_config=runtime.retrieval,
             )
             candidates = [candidate.dataset for candidate in prepared.candidates]
-            selected, reasoning, trace, tok2 = select_from_prepared_context(
-                query=question,
-                llm=llm,
-                context=prepared,
-                all_files=all_files,
-                architecture=runtime.experiment.discovery_architecture,
-                hint=keyword_hint,
-                stream_callback=_stream_to_terminal,
-            )
+            if candidates:
+                selected, reasoning, trace, tok2 = select_from_prepared_context(
+                    query=question, llm=llm, context=prepared, all_files=all_files,
+                    architecture=runtime.experiment.discovery_architecture,
+                    hint=keyword_hint, stream_callback=_stream_to_terminal,
+                )
+                selector_calls = 1
+            else:
+                selected, reasoning, trace, tok2 = [], "REJECT_KEYWORDS: No datasets found in the prepared context", "", 0
+                selector_calls = 0
+            record_orchestrated(prepared, 1 + selector_calls)
         else:
             selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
                 query=question,
@@ -339,7 +381,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 retrieval_config=runtime.retrieval,
             )
         phase_seconds["discovery"] += time.monotonic() - phase_started
-        llm_call_counts["discovery"] += 1
+        llm_call_counts["discovery"] += selector_calls if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT else 1
         tokens["p2"] += tok2
 
         # Check if Phase 2 rejected the keywords
@@ -446,22 +488,15 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 _header("Re-running Phase 1 & 2 (Unified)")
                 phase_started = time.monotonic()
                 if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    keywords, _raw, tok1, _why = phase1_generate_keywords(
-                        query=question, llm=llm, pm=pm, hint=keyword_hint,
-                        portal_name=runtime.portal_name,
-                        avoid_keywords=attempted_keywords,
-                    )
-                    prepared, solr_meta = prepare_discovery_context(
-                        query=question, keywords=keywords, solr_client=solr,
+                    discovery = run_unified_context(
+                        query=question, llm=llm, solr_client=solr,
                         all_files=all_files, retrieval_config=runtime.retrieval,
-                    )
-                    selected, reasoning, trace, tok2 = select_from_prepared_context(
-                        query=question, llm=llm, context=prepared,
-                        all_files=all_files,
-                        architecture=runtime.experiment.discovery_architecture,
                         hint=keyword_hint, stream_callback=_stream_to_terminal,
                     )
-                    tok = tok1 + tok2
+                    selected, keywords, solr_meta = discovery.selected_datasets, discovery.keywords, discovery.metadata
+                    reasoning, trace, tok = discovery.reasoning, discovery.trace, discovery.tokens
+                    rerun_calls = discovery.llm_invocations
+                    record_orchestrated(discovery.prepared_context, discovery.llm_invocations)
                 else:
                     selected, keywords, solr_meta, reasoning, trace, tok = phase12_agent(
                         query=question,
@@ -475,8 +510,9 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                         stream_callback=_stream_to_terminal,
                         retrieval_config=runtime.retrieval,
                     )
+                    rerun_calls = 1
                 phase_seconds["discovery"] += time.monotonic() - phase_started
-                llm_call_counts["discovery"] += 1
+                llm_call_counts["discovery"] += rerun_calls
                 tokens["p1"] += tok
                 architect_reasoning = reasoning
             else:
@@ -497,17 +533,23 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 _header("Re-running Phase 2 – Table Search & Selection")
                 phase_started = time.monotonic()
                 if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    prepared, solr_meta = prepare_discovery_context(
+                    prepared, solr_meta = prepare_context(
                         query=question, keywords=keywords, solr_client=solr,
                         all_files=all_files, retrieval_config=runtime.retrieval,
                     )
                     candidates = [item.dataset for item in prepared.candidates]
-                    selected, reasoning, trace, tok2 = select_from_prepared_context(
-                        query=question, llm=llm, context=prepared,
-                        all_files=all_files,
-                        architecture=runtime.experiment.discovery_architecture,
-                        hint=keyword_hint, stream_callback=_stream_to_terminal,
-                    )
+                    if candidates:
+                        selected, reasoning, trace, tok2 = select_from_prepared_context(
+                            query=question, llm=llm, context=prepared,
+                            all_files=all_files,
+                            architecture=runtime.experiment.discovery_architecture,
+                            hint=keyword_hint, stream_callback=_stream_to_terminal,
+                        )
+                        rerun_selector_calls = 1
+                    else:
+                        selected, reasoning, trace, tok2 = [], "REJECT_KEYWORDS: No datasets found in the prepared context", "", 0
+                        rerun_selector_calls = 0
+                    record_orchestrated(prepared, 1 + rerun_selector_calls)
                 else:
                     selected, candidates, solr_meta, reasoning, trace, tok2 = phase2_select_tables(
                         query=question,
@@ -522,8 +564,9 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                         stream_callback=_stream_to_terminal,
                         retrieval_config=runtime.retrieval,
                     )
+                    rerun_selector_calls = 1
                 phase_seconds["discovery"] += time.monotonic() - phase_started
-                llm_call_counts["discovery"] += 1
+                llm_call_counts["discovery"] += rerun_selector_calls
                 tokens["p2"] += tok2
                 architect_reasoning = reasoning
             print(f"\n{_c('New tables:', 'bold')} {', '.join(selected)}")
@@ -574,6 +617,12 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     print(f"  Tokens:    P1={tokens['p1']}  P2={tokens['p2']}  P3={tokens['p3']}  P4={tokens['p4']}")
     print(f"  Total:     {sum(tokens.values())}")
 
+    if runtime.experiment.tool_access == ToolAccess.AGENTIC:
+        tool_access_telemetry["llm_invocations"] = llm_call_counts["discovery"]
+        tool_access_telemetry["agent_direct_tools"] = [
+            str(item["type"]) for item in summarize_tool_calls(trace)
+        ]
+
     save_experiment_log(
         question=question,
         code=final_code,
@@ -598,6 +647,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             "MANIFEST_JSON": manifest.model_dump(mode="json"),
             "RUN_TRACE_JSON": {
                 "discovery": {"keywords": keywords, "selected_datasets": selected},
+                "tool_access": tool_access_telemetry,
                 "llm_calls": build_llm_phase_records(
                     total_tokens={
                         "discovery": tokens["p1"] + tokens["p2"],
@@ -641,7 +691,6 @@ def resolve_cli_experiment(
     top_k: int | None = None,
     hybrid_alpha: float | None = None,
     candidate_multiplier: int | None = None,
-    tool_access: str | None = None,
     set_values: list[str] | None = None,
 ):
     """Translate CLI options into the canonical experiment configuration."""
@@ -669,7 +718,6 @@ def resolve_cli_experiment(
         "retrieval.top_k": top_k,
         "retrieval.alpha": hybrid_alpha,
         "retrieval.candidate_multiplier": candidate_multiplier,
-        "tool_access": tool_access,
     }
     overrides.update({key: value for key, value in cli_values.items() if value is not None})
     for raw_override in set_values or []:
@@ -716,12 +764,6 @@ def main() -> None:
     parser.add_argument("--hybrid-alpha", type=float, default=None)
     parser.add_argument("--candidate-multiplier", type=int, default=None)
     parser.add_argument(
-        "--tool-access",
-        choices=[mode.value for mode in ToolAccess],
-        default=None,
-        help="Discovery tool access: agentic or orchestrator-prepared context.",
-    )
-    parser.add_argument(
         "--config",
         type=Path,
         help="YAML or JSON experiment configuration file.",
@@ -750,7 +792,6 @@ def main() -> None:
             top_k=args.top_k,
             hybrid_alpha=args.hybrid_alpha,
             candidate_multiplier=args.candidate_multiplier,
-            tool_access=args.tool_access,
             set_values=args.set,
         )
     except (OSError, ValueError) as exc:

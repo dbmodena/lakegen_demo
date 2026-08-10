@@ -18,7 +18,6 @@ from lakegen.experiment_config import (
     DiscoveryArchitecture,
     ExperimentConfig,
     InteractionMode,
-    ToolAccess,
     load_experiment_config,
 )
 from lakegen.tracing import HumanInterventionRecorder
@@ -108,9 +107,6 @@ class RuntimeSettings:
                 "unified" if bool(use_unified_agent) else "divided"
             ),
             "interaction_mode": "human_gated",
-            "tool_access": str(
-                settings.get("tool_access") or ToolAccess.AGENTIC.value
-            ),
             **{f"retrieval.{key}": value for key, value in retrieval.__dict__.items()},
         })
         return cls(
@@ -171,6 +167,7 @@ class LakeGenSession:
     retries: int = 0
     execution_error: str = ""
     generated_code_seed_instruction_provided: bool = False
+    tool_access_telemetry: dict[str, Any] = field(default_factory=dict)
 
     @property
     def run_dir(self) -> Path:

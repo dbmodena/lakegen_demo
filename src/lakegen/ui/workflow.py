@@ -55,7 +55,10 @@ from lakegen.tracing import (
 )
 from lakegen.experiment_config import ToolAccess
 from lakegen.orchestrated_context import prepare_discovery_context
-from lakegen.phases.orchestrated_discovery import select_from_prepared_context
+from lakegen.phases.orchestrated_discovery import (
+    run_unified_orchestrated_discovery,
+    select_from_prepared_context,
+)
 
 from llama_index.core import Settings
 
@@ -70,6 +73,17 @@ logger = logging.getLogger(__name__)
 class ExecutionOutcome:
     status: str
     reason: str = ""
+
+
+def _record_orchestrated_telemetry(session: LakeGenSession, prepared, invocations: int) -> None:
+    telemetry = session.tool_access_telemetry
+    telemetry["llm_invocations"] += invocations
+    mode = session.runtime.retrieval.mode.value
+    calls = telemetry["orchestrator_retrieval_calls"]
+    calls[mode] = calls.get(mode, 0) + 1
+    telemetry["prepared_candidate_count"] = prepared.prepared_candidate_count
+    telemetry["retrieved_hit_count"] = prepared.retrieved_hit_count
+    telemetry["prepared_context_utf8_bytes"] = len(prepared.stable_json().encode("utf-8"))
 
 
 def _fenced_text(content: str) -> str:
@@ -275,26 +289,32 @@ async def _select_tables_once(
         async with StepStreamBridge(step) as bridge:
             phase_started = time.monotonic()
             if session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                prepared, smeta = await cl.make_async(prepare_discovery_context)(
-                    query=session.query,
-                    keywords=session.keywords,
-                    solr_client=solr,
-                    all_files=all_files,
-                    retrieval_config=session.runtime.retrieval,
-                )
-                sel, reasoning, trace, tok2 = await cl.make_async(
-                    select_from_prepared_context
-                )(
-                    query=session.query,
-                    llm=llm,
-                    context=prepared,
-                    all_files=all_files,
-                    architecture=session.runtime.experiment.discovery_architecture,
-                    hint=hint,
-                    stream_callback=bridge.emit,
-                    cancel_check=session.check_cancelled,
-                )
+                try:
+                    prepared, smeta = await cl.make_async(prepare_discovery_context)(
+                        query=session.query, keywords=session.keywords,
+                        solr_client=solr, all_files=all_files,
+                        retrieval_config=session.runtime.retrieval,
+                    )
+                except Exception as exc:
+                    session.tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                    raise
                 cands = [candidate.dataset for candidate in prepared.candidates]
+                if cands:
+                    sel, reasoning, trace, tok2 = await cl.make_async(
+                        select_from_prepared_context
+                    )(
+                        query=session.query, llm=llm, context=prepared,
+                        all_files=all_files,
+                        architecture=session.runtime.experiment.discovery_architecture,
+                        hint=hint, stream_callback=bridge.emit,
+                        cancel_check=session.check_cancelled,
+                    )
+                    selector_calls = 1
+                else:
+                    sel, reasoning, trace, tok2 = [], "REJECT_KEYWORDS: No datasets found in the prepared context", "", 0
+                    selector_calls = 0
+                    session.tool_access_telemetry["empty_context_retries"] += 1
+                _record_orchestrated_telemetry(session, prepared, 1 + selector_calls)
                 result = (sel, cands, smeta, reasoning, trace, tok2)
             else:
                 result = await cl.make_async(phase2_select_tables)(
@@ -312,7 +332,11 @@ async def _select_tables_once(
                     retrieval_config=session.runtime.retrieval,
                 )
             session.phase_seconds["discovery"] += time.monotonic() - phase_started
-            session.llm_call_counts["discovery"] += 1
+            session.llm_call_counts["discovery"] += (
+                selector_calls
+                if session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT
+                else 1
+            )
 
         sel, cands, smeta, reasoning, trace, tok2 = result
         if apply_phase2_keyword_rejection(
@@ -428,6 +452,7 @@ async def _run_unified_gate(
 ) -> str:
     hint = initial_hint
     first = True
+    empty_context_retries = 0
 
     while True:
         session.check_cancelled()
@@ -440,35 +465,23 @@ async def _run_unified_gate(
             async with StepStreamBridge(step) as bridge:
                 phase_started = time.monotonic()
                 if session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    keywords, _raw, tok1, _keyword_reasoning = await cl.make_async(
-                        phase1_generate_keywords
-                    )(
-                        query=session.query,
-                        llm=llm,
-                        pm=pm,
-                        hint=hint,
-                        portal_name=session.runtime.portal_name,
+                    try:
+                        discovery = await cl.make_async(run_unified_orchestrated_discovery)(
+                            query=session.query, llm=llm, solr_client=solr,
+                            all_files=all_files,
+                            retrieval_config=session.runtime.retrieval, hint=hint,
+                            stream_callback=bridge.emit,
+                            cancel_check=session.check_cancelled,
+                        )
+                    except Exception as exc:
+                        session.tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                        raise
+                    selected, keywords, smeta = discovery.selected_datasets, discovery.keywords, discovery.metadata
+                    reasoning, trace, tokens = discovery.reasoning, discovery.trace, discovery.tokens
+                    unified_calls = discovery.llm_invocations
+                    _record_orchestrated_telemetry(
+                        session, discovery.prepared_context, discovery.llm_invocations
                     )
-                    prepared, smeta = await cl.make_async(prepare_discovery_context)(
-                        query=session.query,
-                        keywords=keywords,
-                        solr_client=solr,
-                        all_files=all_files,
-                        retrieval_config=session.runtime.retrieval,
-                    )
-                    selected, reasoning, trace, tok2 = await cl.make_async(
-                        select_from_prepared_context
-                    )(
-                        query=session.query,
-                        llm=llm,
-                        context=prepared,
-                        all_files=all_files,
-                        architecture=session.runtime.experiment.discovery_architecture,
-                        hint=hint,
-                        stream_callback=bridge.emit,
-                        cancel_check=session.check_cancelled,
-                    )
-                    tokens = tok1 + tok2
                 else:
                     selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
                         query=session.query,
@@ -483,8 +496,9 @@ async def _run_unified_gate(
                         cancel_check=session.check_cancelled,
                         retrieval_config=session.runtime.retrieval,
                     )
+                    unified_calls = 1
                 session.phase_seconds["discovery"] += time.monotonic() - phase_started
-                session.llm_call_counts["discovery"] += 1
+                session.llm_call_counts["discovery"] += unified_calls
 
             session.tables = selected
             session.keywords = keywords
@@ -506,6 +520,19 @@ async def _run_unified_gate(
                 f"***Full agent activity log:***\n\n"
                 f"{trace}\n\n"
             )
+
+        if (
+            session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT
+            and not selected
+        ):
+            empty_context_retries += 1
+            session.tool_access_telemetry["empty_context_retries"] += 1
+            if empty_context_retries >= MAX_RETRIES:
+                session.execution_error = reasoning
+                return "failed"
+            hint = reasoning
+            first = False
+            continue
 
         first = False
 
@@ -710,6 +737,16 @@ def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None
     session.finalized = True
     safe_error = str(error or session.execution_error).replace("\n", " ")[:500]
     elapsed = round(time.monotonic() - session.started_at, 3)
+    if session.runtime.experiment.tool_access == ToolAccess.AGENTIC:
+        session.tool_access_telemetry.setdefault(
+            "configured_tool_access", ToolAccess.AGENTIC.value
+        )
+        session.tool_access_telemetry["llm_invocations"] = (
+            session.llm_call_counts["discovery"]
+        )
+        session.tool_access_telemetry["agent_direct_tools"] = [
+            str(item["type"]) for item in summarize_tool_calls(session.full_trace)
+        ]
     trace = {
         "status": status,
         "phase_reached": session.phase,
@@ -717,6 +754,7 @@ def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None
             "keywords": list(session.keywords),
             "selected_datasets": list(session.tables),
         },
+        "tool_access": session.tool_access_telemetry,
         "llm_calls": build_llm_phase_records(
             total_tokens={
                 "discovery": session.tokens["p1"] + session.tokens["p2"],
@@ -779,6 +817,21 @@ async def _run_locked_workflow(question: str) -> str:
     session = get_session()
     runtime = get_runtime_settings()
     session.runtime = runtime
+    session.tool_access_telemetry = {
+        "configured_tool_access": runtime.experiment.tool_access.value,
+        "execution_path": runtime.experiment.tool_access.value,
+        "discovery_architecture": runtime.experiment.discovery_architecture.value,
+        "agent_count": 1 if runtime.use_unified_agent else 2,
+        "llm_invocations": 0,
+        "retrieval_mode": runtime.retrieval.mode.value,
+        "prepared_candidate_count": 0,
+        "retrieved_hit_count": 0,
+        "prepared_context_utf8_bytes": 0,
+        "agent_direct_tools": [],
+        "orchestrator_retrieval_calls": {},
+        "empty_context_retries": 0,
+        "preparation_error": None,
+    }
     session.phase = "initialization"
     manifest = create_manifest(
         runtime.experiment,

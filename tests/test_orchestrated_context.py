@@ -3,8 +3,17 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.experiment_config import DiscoveryArchitecture
-from lakegen.orchestrated_context import prepare_discovery_context
-from lakegen.phases.orchestrated_discovery import select_from_prepared_context
+from lakegen.orchestrated_context import (
+    PreparedCandidate,
+    PreparedDiscoveryContext,
+    prepare_discovery_context,
+)
+from lakegen.phases.orchestrated_discovery import (
+    DiscoveryResult,
+    parse_retrieval_request,
+    run_unified_orchestrated_discovery,
+    select_from_prepared_context,
+)
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.models import RetrievalHit
 from lakegen.experiment_config import ExperimentConfig
@@ -64,8 +73,9 @@ def test_preparer_forwards_existing_retrieval_config_and_preserves_order(
     assert calls[1]["keywords"] == ["alpha"]
     assert calls[1]["top_k"] == 2
     assert [item.dataset for item in context.candidates] == ["b.csv", "a.csv"]
-    assert context.total_candidates_before_limit == 2
-    assert context.total_candidates_after_limit == 2
+    assert context.retrieved_hit_count == 2
+    assert context.prepared_candidate_count == 2
+    assert [item.retrieval_rank for item in context.candidates] == [1, 2]
     assert metadata["b.csv"]["title"] == "Second"
     assert context.stable_json() == context.stable_json()
 
@@ -130,6 +140,76 @@ def test_preparation_error_is_explicit_without_agentic_fallback(monkeypatch):
         )
 
 
+def test_retrieval_request_is_strict_and_normalizes_keywords():
+    request = parse_retrieval_request(
+        'RETRIEVAL_REQUEST: {"keywords":[" road   safety ","", "ROAD SAFETY","crashes"]}'
+    )
+    assert request.keywords == ["road safety", "crashes"]
+    for malformed in ("hello", 'RETRIEVAL_REQUEST: {"keywords":[]}',
+                      'RETRIEVAL_REQUEST: {"keywords":[1]}'):
+        with pytest.raises(ValueError):
+            parse_retrieval_request(malformed)
+
+
+def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monkeypatch):
+    calls = []
+    responses = iter([
+        'RETRIEVAL_REQUEST: {"keywords":["roads"]}',
+        'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
+    ])
+
+    def fake_turn(**kwargs):
+        calls.append(kwargs)
+        return next(responses), "trace", 3
+
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn", fake_turn
+    )
+    prepared = PreparedDiscoveryContext(
+        query="question", retrieval_mode="keyword",
+        candidates=[PreparedCandidate(
+            retrieval_rank=1, prepared_position=1, dataset="table.csv",
+            scores={"score": 1.0}, missing_signals=[], metadata={},
+        )], retrieved_hit_count=1, prepared_candidate_count=1,
+    )
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        lambda **_kwargs: (prepared, {"table.csv": {}}),
+    )
+    result = run_unified_orchestrated_discovery(
+        query="question", llm=object(), solr_client=object(),
+        all_files=["table.csv"], retrieval_config=RetrievalConfig(),
+    )
+    assert result.agent_count == 1 and result.llm_invocations == 2
+    assert calls[0]["agent_name"] == calls[1]["agent_name"]
+    history = calls[1]["chat_history"]
+    assert len(history) == 2
+    assert "RETRIEVAL_REQUEST" in history[1].content
+
+
+def test_unified_empty_context_skips_second_turn(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **kwargs: (calls.append(kwargs) or ('RETRIEVAL_REQUEST: {"keywords":["x"]}', "", 1)),
+    )
+    prepared = PreparedDiscoveryContext(
+        query="q", retrieval_mode="keyword", candidates=[],
+        retrieved_hit_count=0, prepared_candidate_count=0,
+    )
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        lambda **_kwargs: (prepared, {}),
+    )
+    result = run_unified_orchestrated_discovery(
+        query="q", llm=object(), solr_client=object(), all_files=[],
+        retrieval_config=RetrievalConfig(),
+    )
+    assert len(calls) == 1
+    assert result.retry_keywords is True
+    assert result.selected_datasets == []
+
+
 @pytest.mark.parametrize("architecture", ["unified", "divided"])
 def test_service_dispatches_to_orchestrated_path_and_traces_actor(
     architecture, monkeypatch, tmp_path
@@ -162,10 +242,12 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
         "lakegen.service.phase1_generate_keywords",
         lambda **_kwargs: (["value"], "raw", 1, "keywords"),
     )
-    candidate = SimpleNamespace(dataset="table.csv")
-    prepared = SimpleNamespace(
-        candidates=[candidate], total_candidates_after_limit=1,
-        total_candidates_before_limit=1, stable_json=lambda: '{"candidate":1}',
+    prepared = PreparedDiscoveryContext(
+        query="question", retrieval_mode="keyword",
+        candidates=[PreparedCandidate(
+            retrieval_rank=1, prepared_position=1, dataset="table.csv",
+            scores={}, missing_signals=[], metadata={},
+        )], prepared_candidate_count=1, retrieved_hit_count=1,
     )
     monkeypatch.setattr(
         "lakegen.service.prepare_discovery_context", lambda **_kwargs: (prepared, {})
@@ -173,6 +255,15 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
     monkeypatch.setattr(
         "lakegen.service.select_from_prepared_context",
         lambda **_kwargs: (["table.csv"], "selected", "trace", 2),
+    )
+    monkeypatch.setattr(
+        "lakegen.service.run_unified_orchestrated_discovery",
+        lambda **_kwargs: DiscoveryResult(
+            selected_datasets=["table.csv"], candidates=["table.csv"],
+            keywords=["value"], metadata={}, reasoning="selected", trace="trace",
+            tokens=3, llm_invocations=2, agent_count=1,
+            prepared_context=prepared,
+        ),
     )
     generated = SimpleNamespace(
         tokens=1, clean_code="print(42)", code_raw="print(42)",
@@ -196,4 +287,61 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
     assert trace["tool_access"]["execution_path"] == "orchestrated_context"
     assert trace["tool_access"]["prepared_candidate_count"] == 1
     assert trace["tool_access"]["agent_direct_tools"] == []
-    assert trace["tool_access"]["orchestrator_retrieval_calls"] == ["retrieval:keyword"]
+    assert trace["tool_access"]["orchestrator_retrieval_calls"] == {"keyword": 1}
+
+
+def test_empty_unified_context_retries_and_never_reaches_phase3(
+    monkeypatch, tmp_path
+):
+    config = ExperimentConfig(
+        discovery_architecture="unified", tool_access="orchestrated_context",
+        interaction_mode="autonomous",
+    )
+    (tmp_path / "table.csv").write_text("value\n42\n", encoding="utf-8")
+    runtime = SimpleNamespace(
+        model_name=config.model, solr_core=config.core, csv_dir=tmp_path,
+        portal_name="NYC", retrieval=RetrievalConfig(), experiment=config,
+    )
+    empty = PreparedDiscoveryContext(
+        query="question", retrieval_mode="keyword", candidates=[],
+        retrieved_hit_count=0, prepared_candidate_count=0,
+    )
+    calls = {"discovery": 0}
+
+    def empty_discovery(**_kwargs):
+        calls["discovery"] += 1
+        return DiscoveryResult(
+            selected_datasets=[], candidates=[], keywords=[f"try-{calls['discovery']}"],
+            metadata={}, reasoning="REJECT_KEYWORDS: No datasets found in the prepared context",
+            trace="", tokens=1, llm_invocations=1, agent_count=1,
+            retry_keywords=True, retry_reason="empty", prepared_context=empty,
+        )
+
+    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.service.get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr("lakegen.service.persist_manifest", lambda *_args: None)
+    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.service.run_unified_orchestrated_discovery", empty_discovery)
+    monkeypatch.setattr(
+        "lakegen.service.phase1_generate_keywords",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unified used phase1")),
+    )
+    monkeypatch.setattr(
+        "lakegen.service.phase3_generate_and_execute",
+        lambda *_a, **_kw: (_ for _ in ()).throw(AssertionError("empty reached phase3")),
+    )
+    logged = {}
+    monkeypatch.setattr(
+        "lakegen.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+    )
+
+    result = run_question("question", runtime)
+
+    assert result.status == "failed"
+    assert calls["discovery"] == 3
+    telemetry = logged["extra_fields"]["RUN_TRACE_JSON"]["tool_access"]
+    assert telemetry["empty_context_retries"] == 3
+    assert telemetry["orchestrator_retrieval_calls"] == {"keyword": 3}
+    assert telemetry["llm_invocations"] == 3
