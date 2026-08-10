@@ -14,6 +14,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pydantic import ConfigDict, BaseModel
 
 from lakegen.experiment_config import ExperimentConfig
+from lakegen.reproducibility import initialize_reproducibility
 
 
 _SECRET_KEY = re.compile(
@@ -86,6 +87,7 @@ class ExperimentManifest(BaseModel):
     representation_version: str
     retrieval_parameters: dict[str, Any]
     resolved_config: dict[str, Any]
+    reproducibility: dict[str, Any]
 
 
 def create_manifest(
@@ -114,6 +116,7 @@ def create_manifest(
         representation_version=config.retrieval.representation_version,
         retrieval_parameters=retrieval,
         resolved_config=resolved,
+        reproducibility=initialize_reproducibility(config.seed).telemetry(),
     )
 
 

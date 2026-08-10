@@ -44,6 +44,7 @@ from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.experiment_config import load_experiment_config
 from lakegen.manifest import create_manifest, persist_manifest
+from lakegen.reproducibility import initialize_reproducibility
 from lakegen.tracing import (
     HumanGate,
     HumanInterventionRecorder,
@@ -147,6 +148,7 @@ def _stream_to_terminal(delta: str) -> None:
 
 def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     workflow_started = time.monotonic()
+    reproducibility = initialize_reproducibility(runtime.experiment.seed)
     interventions = HumanInterventionRecorder()
     llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
@@ -361,6 +363,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             stream_placeholder=None,
             reasoning_placeholder=None,
             run_dir=run_dir,
+            seed=reproducibility.effective_seed,
         )
         phase_seconds["code"] += time.monotonic() - phase_started
         llm_call_counts["code"] += 1
@@ -532,6 +535,9 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 },
                 "human_interventions": interventions.to_list(),
                 "configuration": manifest.resolved_config,
+                "reproducibility": reproducibility.telemetry(
+                    generated_code_instructions_applied=True
+                ),
             },
         },
     )

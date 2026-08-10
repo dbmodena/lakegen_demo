@@ -37,6 +37,7 @@ from lakegen.experiment_config import (
     load_experiment_config,
 )
 from lakegen.manifest import ExperimentManifest, create_manifest, persist_manifest
+from lakegen.reproducibility import initialize_reproducibility
 from lakegen.tracing import (
     build_llm_phase_records,
     summarize_final_ranking,
@@ -246,6 +247,7 @@ def run_question(
             "interaction_mode": InteractionMode.AUTONOMOUS,
         })
     source_id = log_context.get("SOURCE_ID") if log_context else None
+    reproducibility = initialize_reproducibility(experiment.seed)
     manifest = manifest or create_manifest(
         experiment,
         base_dir=BASE_DIR,
@@ -273,6 +275,7 @@ def run_question(
     selection_state = P12State()
     attempted_keywords: list[str] = []
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
+    generated_code_instructions_applied = False
 
     with capture_retrieval_runs(log_context) as retrieval_runs:
         try:
@@ -371,6 +374,7 @@ def run_question(
 
                 previous_code = ""
                 for code_attempt in range(MAX_CODE_ATTEMPTS):
+                    generated_code_instructions_applied = True
                     code_started = time.monotonic()
                     generated = phase3_generate_and_execute(
                         question,
@@ -385,6 +389,7 @@ def run_question(
                         error_msg=error,
                         previous_code=previous_code,
                         run_dir=run_dir,
+                        seed=reproducibility.effective_seed,
                     )
                     phase_invocation_counts["code"] += 1
                     result.tokens["p3"] += generated.tokens
@@ -556,6 +561,11 @@ def run_question(
                 "RUN_TRACE_JSON": {
                     "architecture": experiment.architecture_name,
                     "configuration": result.configuration,
+                    "reproducibility": reproducibility.telemetry(
+                        generated_code_instructions_applied=(
+                            generated_code_instructions_applied
+                        )
+                    ),
                     "discovery": result.discovery,
                     "ranking": result.ranking,
                     "llm_calls": result.llm_calls,

@@ -524,6 +524,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     reasoning_placeholder=reasoning_box,
                     cancel_check=session.check_cancelled,
                     run_dir=session.run_dir,
+                    seed=session.runtime.experiment.seed,
                 )
                 session.phase_seconds["code"] += time.monotonic() - phase_started
                 session.llm_call_counts["code"] += 1
@@ -681,6 +682,17 @@ def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None
         },
         "human_interventions": session.intervention_recorder.to_list(),
         "configuration": session.manifest.get("resolved_config", {}),
+        "reproducibility": {
+            **session.manifest.get("reproducibility", {}),
+            "applied_to": [
+                *session.manifest.get("reproducibility", {}).get("applied_to", []),
+                *(
+                    ["generated_code_instructions"]
+                    if session.llm_call_counts["code"] > 0
+                    else []
+                ),
+            ],
+        },
     }
     save_experiment_log(
         question=session.query,

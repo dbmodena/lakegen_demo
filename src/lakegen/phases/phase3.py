@@ -242,6 +242,7 @@ def phase3_generate_code(
     reasoning_placeholder=None,
     stream_reasoning: bool = True,
     cancel_check: Callable[[], None] | None = None,
+    seed: int = 0,
 ):
     MAX_DETAIL_COLS = 25    # columns shown with type info
     MAX_SAMPLE_COLS = 15    # columns shown in sample rows
@@ -295,6 +296,15 @@ def phase3_generate_code(
                                 arch_reasoning=reasoning,
                                 tables_info=tables_info)
 
+    user_prompt += (
+        "\n\n[REPRODUCIBILITY]\n"
+        f"The effective seed for this run is {seed}. Use exactly this value for "
+        "every stochastic operation that accepts a seed (including pandas "
+        "sampling, train/test split, cross-validation splitters, and model "
+        "random_state parameters). Do not add a seed to deterministic operations. "
+        "Do not use another fixed seed.\n"
+    )
+
     # --- Optional TabPFN intent routing and task-specific hint injection ---
     tabpfn_intent = _detect_tabpfn_intent(query)
     if tabpfn_intent and not _tabpfn_enabled():
@@ -322,7 +332,7 @@ def phase3_generate_code(
             "2. TEMPORAL ALIGNMENT & FALLBACK: If merging on absolute dates (YYYY-MM-DD) results in 0 rows (e.g., due to different years like 2024 vs 2026), DO NOT fail. Fall back to merge the datasets by seasonal/weekly profiles: group both datasets by day of week (e.g., `.dt.dayofweek` or `.dt.strftime('%A')`) and/or hour/month, then merge on these profile keys.\n"
             "3. PREDICTIONS VS AVERAGES: When showing aggregated predictions (e.g. average monthly accidents per borough), DO NOT feed the average of features to the model (i.e. model.predict(X_mean)). Instead, feed the actual raw samples (X) to the model to get individual predictions, and then calculate the average of those predictions (e.g. y_pred = model.predict(X) and then calculate averages grouped by borough/district).\n"
             "4. FUTURE FORECASTS (DUPLICATION AVOIDANCE): When preparing a DataFrame for future predictions (e.g. forecasting the values of the next year for each district), make sure you only have one row per unique entity (e.g. use `.drop_duplicates()` on the district/neighborhood column). Otherwise, you will generate duplicate predictions for the same entity and sum/aggregate them incorrectly.\n"
-            "5. TABPFN DATA LIMITS (CUDA OOM AVOIDANCE): TabPFN models are strictly designed for small-to-medium datasets (up to 10,000 samples). If the prepared training dataset (X) exceeds 10,000 rows, you MUST downsample it to exactly 10,000 rows (or fewer) using `df = df.sample(n=min(10000, len(df)), random_state=42)` and aligning X and y accordingly. This is critical to prevent CUDA Out of Memory errors.\n"
+            f"5. TABPFN DATA LIMITS (CUDA OOM AVOIDANCE): TabPFN models are strictly designed for small-to-medium datasets (up to 10,000 samples). If the prepared training dataset (X) exceeds 10,000 rows, you MUST downsample it to exactly 10,000 rows (or fewer) using `df = df.sample(n=min(10000, len(df)), random_state={seed})` and aligning X and y accordingly. This is critical to prevent CUDA Out of Memory errors.\n"
             "6. STRING-NUMERIC CLEANING: For columns containing mixed text/units and numbers (e.g. 'Strade 30 km/h o inferiore'), DO NOT use simple pd.to_numeric() with errors='coerce' directly because this turns all values into NaN. Instead, you MUST clean them by extracting the digits using regular expressions (e.g., `.str.extract(r'(\\d+)')`) before converting to numeric, ensuring features do not become constant.\n"
             "7. DATA SPLITTING: Use a reproducible 80/20 train/test split. For classification, pass `stratify=y` whenever every class has enough examples. If rows share the same entity or coordinates, use a group-aware split so duplicates cannot appear in both train and test.\n"
             "8. SMALL-DATA EVALUATION: When computationally feasible, supplement the holdout metric with at most 3-fold cross-validation. Use stratified folds for classification and group-aware folds when duplicate entities or coordinates exist. If cross-validation is not feasible, print that limitation instead of inventing a score.\n"
@@ -503,6 +513,7 @@ def phase3_generate_and_execute(
     stream_reasoning: bool = True,
     cancel_check: Callable[[], None] | None = None,
     run_dir: Path | None = None,
+    seed: int = 0,
 ) -> Phase3Result:
     code_raw, tokens = phase3_generate_code(
         query,
@@ -521,6 +532,7 @@ def phase3_generate_and_execute(
         reasoning_placeholder=reasoning_placeholder,
         stream_reasoning=stream_reasoning,
         cancel_check=cancel_check,
+        seed=seed,
     )
 
     # Detect generation errors (loop, empty output) before attempting execution
