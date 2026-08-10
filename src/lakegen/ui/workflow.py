@@ -53,6 +53,9 @@ from lakegen.tracing import (
     summarize_tool_calls,
     normalize_hint,
 )
+from lakegen.experiment_config import ToolAccess
+from lakegen.orchestrated_context import prepare_discovery_context
+from lakegen.phases.orchestrated_discovery import select_from_prepared_context
 
 from llama_index.core import Settings
 
@@ -271,20 +274,43 @@ async def _select_tables_once(
     ) as step:
         async with StepStreamBridge(step) as bridge:
             phase_started = time.monotonic()
-            result = await cl.make_async(phase2_select_tables)(
-                query=session.query,
-                llm=llm,
-                pm=pm,
-                all_files=all_files,
-                keywords=session.keywords,
-                solr_client=solr,
-                csv_dir=session.runtime.csv_dir,
-                hint=hint,
-                portal_name=session.runtime.portal_name,
-                stream_callback=bridge.emit,
-                cancel_check=session.check_cancelled,
-                retrieval_config=session.runtime.retrieval,
-            )
+            if session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                prepared, smeta = await cl.make_async(prepare_discovery_context)(
+                    query=session.query,
+                    keywords=session.keywords,
+                    solr_client=solr,
+                    all_files=all_files,
+                    retrieval_config=session.runtime.retrieval,
+                )
+                sel, reasoning, trace, tok2 = await cl.make_async(
+                    select_from_prepared_context
+                )(
+                    query=session.query,
+                    llm=llm,
+                    context=prepared,
+                    all_files=all_files,
+                    architecture=session.runtime.experiment.discovery_architecture,
+                    hint=hint,
+                    stream_callback=bridge.emit,
+                    cancel_check=session.check_cancelled,
+                )
+                cands = [candidate.dataset for candidate in prepared.candidates]
+                result = (sel, cands, smeta, reasoning, trace, tok2)
+            else:
+                result = await cl.make_async(phase2_select_tables)(
+                    query=session.query,
+                    llm=llm,
+                    pm=pm,
+                    all_files=all_files,
+                    keywords=session.keywords,
+                    solr_client=solr,
+                    csv_dir=session.runtime.csv_dir,
+                    hint=hint,
+                    portal_name=session.runtime.portal_name,
+                    stream_callback=bridge.emit,
+                    cancel_check=session.check_cancelled,
+                    retrieval_config=session.runtime.retrieval,
+                )
             session.phase_seconds["discovery"] += time.monotonic() - phase_started
             session.llm_call_counts["discovery"] += 1
 
@@ -413,19 +439,50 @@ async def _run_unified_gate(
         ) as step:
             async with StepStreamBridge(step) as bridge:
                 phase_started = time.monotonic()
-                selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
-                    query=session.query,
-                    llm=llm,
-                    pm=pm,
-                    all_files=all_files,
-                    solr_client=solr,
-                    csv_dir=session.runtime.csv_dir,
-                    hint=hint,
-                    portal_name=session.runtime.portal_name,
-                    stream_callback=bridge.emit,
-                    cancel_check=session.check_cancelled,
-                    retrieval_config=session.runtime.retrieval,
-                )
+                if session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                    keywords, _raw, tok1, _keyword_reasoning = await cl.make_async(
+                        phase1_generate_keywords
+                    )(
+                        query=session.query,
+                        llm=llm,
+                        pm=pm,
+                        hint=hint,
+                        portal_name=session.runtime.portal_name,
+                    )
+                    prepared, smeta = await cl.make_async(prepare_discovery_context)(
+                        query=session.query,
+                        keywords=keywords,
+                        solr_client=solr,
+                        all_files=all_files,
+                        retrieval_config=session.runtime.retrieval,
+                    )
+                    selected, reasoning, trace, tok2 = await cl.make_async(
+                        select_from_prepared_context
+                    )(
+                        query=session.query,
+                        llm=llm,
+                        context=prepared,
+                        all_files=all_files,
+                        architecture=session.runtime.experiment.discovery_architecture,
+                        hint=hint,
+                        stream_callback=bridge.emit,
+                        cancel_check=session.check_cancelled,
+                    )
+                    tokens = tok1 + tok2
+                else:
+                    selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
+                        query=session.query,
+                        llm=llm,
+                        pm=pm,
+                        all_files=all_files,
+                        solr_client=solr,
+                        csv_dir=session.runtime.csv_dir,
+                        hint=hint,
+                        portal_name=session.runtime.portal_name,
+                        stream_callback=bridge.emit,
+                        cancel_check=session.check_cancelled,
+                        retrieval_config=session.runtime.retrieval,
+                    )
                 session.phase_seconds["discovery"] += time.monotonic() - phase_started
                 session.llm_call_counts["discovery"] += 1
 

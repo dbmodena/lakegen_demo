@@ -120,8 +120,6 @@ class ExperimentConfig(FrozenModel):
             raise ValueError(f"unsupported core {self.core!r}")
         if self.model not in SUPPORTED_MODELS:
             raise ValueError(f"unsupported model {self.model!r}")
-        if self.tool_access != ToolAccess.AGENTIC:
-            raise ValueError("tool_access='orchestrated_context' is not implemented")
         if self.planner_enabled:
             raise ValueError("planner_enabled=true is not implemented")
         enabled_reviewers = [

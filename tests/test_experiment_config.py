@@ -78,7 +78,6 @@ def test_yaml_json_and_cli_overrides_resolve_identically(tmp_path):
 @pytest.mark.parametrize(
     "update",
     [
-        {"tool_access": "orchestrated_context"},
         {"planner_enabled": True},
         {"reviewers": {"dataset": True}},
         {"max_revision_rounds": 4},
@@ -89,6 +88,15 @@ def test_yaml_json_and_cli_overrides_resolve_identically(tmp_path):
 def test_unimplemented_combinations_are_rejected(update):
     with pytest.raises(ValidationError):
         ExperimentConfig.model_validate(update)
+
+
+def test_orchestrated_context_is_supported_and_unknown_tool_access_is_rejected():
+    assert (
+        ExperimentConfig(tool_access="orchestrated_context").tool_access
+        == "orchestrated_context"
+    )
+    with pytest.raises(ValidationError):
+        ExperimentConfig(tool_access="not-a-mode")
 
 
 def test_code_gate_is_removed_from_the_schema():

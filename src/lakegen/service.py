@@ -34,8 +34,11 @@ from lakegen.experiment_config import (
     DiscoveryArchitecture,
     ExperimentConfig,
     InteractionMode,
+    ToolAccess,
     load_experiment_config,
 )
+from lakegen.orchestrated_context import prepare_discovery_context
+from lakegen.phases.orchestrated_discovery import select_from_prepared_context
 from lakegen.manifest import ExperimentManifest, create_manifest, persist_manifest
 from lakegen.reproducibility import initialize_reproducibility
 from lakegen.tracing import (
@@ -276,6 +279,16 @@ def run_question(
     attempted_keywords: list[str] = []
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
     generated_code_seed_instruction_provided = False
+    context_telemetry: dict[str, Any] = {
+        "configured_tool_access": experiment.tool_access.value,
+        "execution_path": experiment.tool_access.value,
+        "retrieval_mode": runtime.retrieval.mode.value,
+        "prepared_candidate_count": 0,
+        "prepared_context_utf8_bytes": 0,
+        "agent_direct_tools": [],
+        "orchestrator_retrieval_calls": [],
+        "preparation_error": None,
+    }
 
     def record_seed_instruction() -> None:
         nonlocal generated_code_seed_instruction_provided
@@ -286,7 +299,67 @@ def run_question(
             for table_attempt in range(MAX_TABLE_ATTEMPTS):
                 discovery_started = time.monotonic()
                 keywords_rejected = False
-                if experiment.use_unified_agent:
+                if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                    try:
+                        keywords, _raw_keywords, tokens_p1, reasoning_p1 = (
+                            phase1_generate_keywords(
+                                query=question,
+                                llm=llm,
+                                pm=prompt_manager,
+                                hint=hint,
+                                portal_name=runtime.portal_name,
+                                avoid_keywords=attempted_keywords,
+                            )
+                        )
+                        phase_invocation_counts["discovery"] += 1
+                        prepared, solr_meta = prepare_discovery_context(
+                            query=question,
+                            keywords=keywords,
+                            solr_client=solr,
+                            all_files=all_files,
+                            retrieval_config=runtime.retrieval,
+                        )
+                        serialized_context = prepared.stable_json()
+                        context_telemetry.update({
+                            "prepared_candidate_count": (
+                                prepared.total_candidates_after_limit
+                            ),
+                            "prepared_candidates_before_limit": (
+                                prepared.total_candidates_before_limit
+                            ),
+                            "prepared_context_utf8_bytes": len(
+                                serialized_context.encode("utf-8")
+                            ),
+                            "orchestrator_retrieval_calls": [
+                                f"retrieval:{runtime.retrieval.mode.value}"
+                            ],
+                            "preparation_error": None,
+                        })
+                    except Exception as preparation_error:
+                        context_telemetry["preparation_error"] = (
+                            f"{type(preparation_error).__name__}: {preparation_error}"
+                        )
+                        raise RuntimeError(
+                            "orchestrated context preparation failed: "
+                            f"{preparation_error}"
+                        ) from preparation_error
+                    selected, reasoning, trace, tokens_p2 = (
+                        select_from_prepared_context(
+                            query=question,
+                            llm=llm,
+                            context=prepared,
+                            all_files=all_files,
+                            architecture=experiment.discovery_architecture,
+                            hint=hint,
+                        )
+                    )
+                    phase_invocation_counts["discovery"] += 1
+                    architecture_tokens = tokens_p1 + tokens_p2
+                    trace = (
+                        f"--- Orchestrated Keyword Preparation ---\n{reasoning_p1}\n"
+                        f"{trace}"
+                    )
+                elif experiment.use_unified_agent:
                     (
                         selected,
                         keywords,
@@ -531,10 +604,33 @@ def run_question(
             for item in summarize_tool_calls(trace):
                 tool_name = str(item["type"])
                 tool_counts[tool_name] = tool_counts.get(tool_name, 0) + int(item["count"])
-            result.tool_calls = [
-                {"phase": "discovery", "type": tool_type, "count": count}
-                for tool_type, count in sorted(tool_counts.items())
+            result.tool_calls = []
+            for tool_type, count in sorted(tool_counts.items()):
+                is_retrieval = tool_type.startswith("retrieval:")
+                if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                    actor = "orchestrator" if is_retrieval else "agent"
+                elif experiment.use_unified_agent:
+                    actor = "agent"
+                else:
+                    actor = "orchestrator" if is_retrieval else "agent"
+                result.tool_calls.append({
+                    "phase": "discovery",
+                    "type": tool_type,
+                    "count": count,
+                    "actor": actor,
+                })
+            context_telemetry["agent_direct_tools"] = [
+                item["type"]
+                for item in result.tool_calls
+                if item["actor"] == "agent"
             ]
+            if experiment.tool_access != ToolAccess.ORCHESTRATED_CONTEXT:
+                context_telemetry["orchestrator_retrieval_calls"] = [
+                    item["type"]
+                    for item in result.tool_calls
+                    if item["actor"] == "orchestrator"
+                    and str(item["type"]).startswith("retrieval:")
+                ]
             if result.error and not result.errors:
                 result.errors.append({"phase": "pipeline", "message": result.error})
             result.execution_outcome = {
@@ -564,6 +660,7 @@ def run_question(
                 "MANIFEST_JSON": result.manifest,
                 "RUN_TRACE_JSON": {
                     "architecture": experiment.architecture_name,
+                    "tool_access": context_telemetry,
                     "configuration": result.configuration,
                     "reproducibility": reproducibility.telemetry(
                         generated_code_seed_instruction_provided=(

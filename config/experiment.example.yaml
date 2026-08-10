@@ -23,7 +23,8 @@ discovery_architecture: unified
 # How the agent accesses tools:
 #   - agentic: the agent invokes tools directly (the only active option)
 #   - orchestrated_context: the orchestrator would prepare the context
-#     [NOT IMPLEMENTED YET: validation rejects this configuration]
+# agentic lets discovery agents call their tools directly; orchestrated_context
+# performs retrieval first and gives the discovery agent a stable, tool-free JSON context.
 tool_access: agentic
 
 retrieval:

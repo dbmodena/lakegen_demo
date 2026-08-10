@@ -38,6 +38,7 @@ from lakegen.retrieval import RetrievalMode
 from lakegen.experiment_config import (
     DiscoveryArchitecture,
     ExperimentConfig,
+    ToolAccess,
     load_experiment_config,
     parse_experiment_config_document,
 )
@@ -71,6 +72,7 @@ class QueryRequest(StrictModel):
     hybrid_alpha: float = Field(default=0.5, ge=0.0, le=1.0)
     candidate_multiplier: int = Field(default=5, ge=1, le=100)
     discovery_architecture: DiscoveryArchitecture = DiscoveryArchitecture.UNIFIED
+    tool_access: ToolAccess = ToolAccess.AGENTIC
     experiment_id: str = Field(default="default", min_length=1)
     seed: int = Field(default=0, ge=0)
     config: dict[str, Any] | None = None
@@ -106,6 +108,7 @@ def _resolve_api_config(
     hybrid_alpha: float,
     candidate_multiplier: int,
     discovery_architecture: DiscoveryArchitecture | str = DiscoveryArchitecture.UNIFIED,
+    tool_access: ToolAccess | str = ToolAccess.AGENTIC,
     experiment_id: str = "default",
     seed: int = 0,
     config_data: dict[str, Any] | None = None,
@@ -114,7 +117,7 @@ def _resolve_api_config(
     explicit = (
         {
             "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
-            "candidate_multiplier", "discovery_architecture", "experiment_id", "seed",
+            "candidate_multiplier", "discovery_architecture", "tool_access", "experiment_id", "seed",
         }
         if explicit_fields is None
         else explicit_fields
@@ -127,6 +130,7 @@ def _resolve_api_config(
         "retrieval.alpha": hybrid_alpha,
         "retrieval.candidate_multiplier": candidate_multiplier,
         "discovery_architecture": discovery_architecture,
+        "tool_access": tool_access,
         "experiment_id": experiment_id,
         "seed": seed,
         "interaction_mode": "autonomous",
@@ -308,7 +312,7 @@ def query_lakegen(request: QueryRequest) -> dict[str, Any]:
         if request.config is None:
             explicit_fields.update({
                 "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
-                "candidate_multiplier", "discovery_architecture", "experiment_id",
+                "candidate_multiplier", "discovery_architecture", "tool_access", "experiment_id",
                 "seed",
             })
         config = _resolve_api_config(
@@ -319,6 +323,7 @@ def query_lakegen(request: QueryRequest) -> dict[str, Any]:
             hybrid_alpha=request.hybrid_alpha,
             candidate_multiplier=request.candidate_multiplier,
             discovery_architecture=request.discovery_architecture,
+            tool_access=request.tool_access,
             experiment_id=request.experiment_id,
             seed=request.seed,
             config_data=request.config,
@@ -367,6 +372,7 @@ def submit_batch(
     hybrid_alpha: Annotated[float | None, Query(ge=0.0, le=1.0)] = None,
     candidate_multiplier: Annotated[int | None, Query(ge=1, le=100)] = None,
     discovery_architecture: Annotated[DiscoveryArchitecture | None, Query()] = None,
+    tool_access: Annotated[ToolAccess | None, Query()] = None,
     experiment_id: Annotated[str | None, Query(min_length=1)] = None,
     seed: Annotated[int | None, Query(ge=0)] = None,
 ) -> BatchAccepted:
@@ -381,6 +387,7 @@ def submit_batch(
                 "hybrid_alpha": hybrid_alpha,
                 "candidate_multiplier": candidate_multiplier,
                 "discovery_architecture": discovery_architecture,
+                "tool_access": tool_access,
                 "experiment_id": experiment_id,
                 "seed": seed,
             }.items() if value is not None
@@ -388,7 +395,7 @@ def submit_batch(
         if inline_config is None:
             supplied.update({
                 "core", "model", "retrieval_mode", "top_k", "hybrid_alpha",
-                "candidate_multiplier", "discovery_architecture", "experiment_id",
+                "candidate_multiplier", "discovery_architecture", "tool_access", "experiment_id",
                 "seed",
             })
         resolved_config = _resolve_api_config(
@@ -399,6 +406,7 @@ def submit_batch(
             hybrid_alpha=hybrid_alpha if hybrid_alpha is not None else 0.5,
             candidate_multiplier=candidate_multiplier or 5,
             discovery_architecture=discovery_architecture or DiscoveryArchitecture.UNIFIED,
+            tool_access=tool_access or ToolAccess.AGENTIC,
             experiment_id=experiment_id or "default",
             seed=seed if seed is not None else 0,
             config_data=inline_config,
