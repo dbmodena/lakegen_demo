@@ -30,6 +30,7 @@ from lakegen.retrieval.benchmark import (
 from lakegen.retrieval.embeddings import (
     EmbeddingGenerationError,
     OllamaMultilingualEmbedding,
+    _normalize_query,
     _validate,
 )
 
@@ -96,6 +97,21 @@ def test_embedding_validation_rejects_zero_norm_vector():
         _validate([0.0, 0.0])
 
 
+def test_embedding_validation_rejects_unexpected_dimension_and_implausible_norm():
+    with pytest.raises(ValueError, match="dimension 2; expected 3"):
+        _validate([0.25, 0.75], expected_dimension=3)
+    with pytest.raises(ValueError, match="implausible vector norm"):
+        _validate([2.0, 0.0], max_norm=1.0)
+
+
+def test_query_normalization_is_conservative_and_rejects_oversized_input():
+    assert _normalize_query("  full\u2011width\x00  ２０２４\nNYC  ") == (
+        "full‐width 2024 NYC"
+    )
+    with pytest.raises(EmbeddingGenerationError, match="character limit of 3"):
+        _normalize_query("four", max_chars=3)
+
+
 def test_query_embedding_retries_transient_provider_failure():
     class FlakyModel:
         def __init__(self):
@@ -109,9 +125,13 @@ def test_query_embedding_retries_transient_provider_failure():
 
     embedding = OllamaMultilingualEmbedding.__new__(OllamaMultilingualEmbedding)
     embedding._model = FlakyModel()
+    embedding.retry_delays = (0.25, 1.0)
+    delays = []
+    embedding._sleep = delays.append
 
     assert embedding.encode_query("valid question") == [0.25, 0.75]
     assert embedding._model.calls == 3
+    assert delays == [0.25, 1.0]
 
 
 def test_query_embedding_reports_provider_failure_after_three_attempts():
@@ -125,11 +145,33 @@ def test_query_embedding_reports_provider_failure_after_three_attempts():
 
     embedding = OllamaMultilingualEmbedding.__new__(OllamaMultilingualEmbedding)
     embedding._model = BrokenModel()
+    embedding.retry_delays = (0.0, 0.0)
+    embedding._sleep = lambda _delay: None
 
     with pytest.raises(EmbeddingGenerationError) as error:
         embedding.encode_query("valid question")
     assert embedding._model.calls == 3
     assert "after 3 attempts" in str(error.value)
+    assert "RuntimeError: unsupported value: NaN" in str(error.value)
+
+
+def test_query_embedding_normalizes_input_and_checks_known_model_dimension():
+    class RecordingModel:
+        def __init__(self):
+            self.queries = []
+
+        def get_query_embedding(self, text):
+            self.queries.append(text)
+            return [0.25, 0.75]
+
+    embedding = OllamaMultilingualEmbedding.__new__(OllamaMultilingualEmbedding)
+    embedding._model = RecordingModel()
+    embedding.expected_dimension = 3
+    embedding.retry_delays = ()
+
+    with pytest.raises(EmbeddingGenerationError, match="dimension 2; expected 3"):
+        embedding.encode_query("  NYC\x00  permits\n")
+    assert embedding._model.queries == ["NYC permits"]
 
 
 def test_keyword_retrieval_uses_phase1_keywords_and_preserves_default_solr_fields():
