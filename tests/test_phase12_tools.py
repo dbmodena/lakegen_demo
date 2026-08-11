@@ -1,3 +1,5 @@
+import pytest
+
 from lakegen.agent_tools import tools_p12
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
 from lakegen.retrieval import (
@@ -21,7 +23,7 @@ def _hit(resource_id, rank, columns):
     )
 
 
-def test_unified_search_accumulates_attempts_retains_best_rank_and_skips_duplicates(
+def test_unified_search_runs_once_and_reuses_the_same_candidates(
     monkeypatch, tmp_path
 ):
     calls = []
@@ -51,15 +53,15 @@ def test_unified_search_accumulates_attempts_retains_best_rank_and_skips_duplica
     repeated = manager.search_solr("bandwidth")
 
     assert "generic.parquet" in first
-    assert "gold.parquet" in second and "generic.parquet" in second
-    assert second.index("gold.parquet") < second.index("generic.parquet")
-    assert state.best_ranks == {"generic.parquet": 1, "gold.parquet": 3}
-    assert len(state.search_attempts) == 2
+    assert second.startswith("Search skipped: the configured retrieval")
+    assert "generic.parquet" in second
+    assert state.best_ranks == {"generic.parquet": 1}
+    assert len(state.search_attempts) == 1
     assert repeated.startswith("Search skipped")
-    assert calls == [["school"], ["bandwidth"]]
+    assert calls == [["school"]]
 
 
-def test_semantic_search_caches_by_original_question_and_does_not_request_keywords(
+def test_configured_search_contract_is_mode_neutral_while_semantic_uses_question(
     monkeypatch, tmp_path
 ):
     calls = []
@@ -89,10 +91,10 @@ def test_semantic_search_caches_by_original_question_and_does_not_request_keywor
     description = manager.get_tools()[0].metadata.description
 
     assert "gold.parquet" in first
-    assert repeated.startswith("Search skipped: the original question")
+    assert repeated.startswith("Search skipped: the configured retrieval")
     assert calls == [("Which school has the highest bandwidth?", [], 15)]
-    assert state.used_keywords == []
-    assert "Do not invent or vary keywords" in description
+    assert state.used_keywords == ["invented", "keyword"]
+    assert "Provide 1-2 concise dataset concepts" in description
 
 
 def test_semantic_embedding_failure_is_labeled_and_not_retried_by_agent(
@@ -122,10 +124,55 @@ def test_semantic_embedding_failure_is_labeled_and_not_retried_by_agent(
     first = manager.search_solr("school")
     repeated = manager.search_solr("different keywords")
 
-    assert first.startswith("Error generating the semantic embedding")
-    assert "different keywords will not help" in first
-    assert repeated.startswith("Semantic search skipped")
+    assert first.startswith("Error generating the configured retrieval representation")
+    assert "must not be repeated" in first
+    assert repeated.startswith("Configured retrieval skipped")
     assert calls == [1]
+
+
+def test_search_tool_description_is_identical_for_all_retrieval_modes(tmp_path):
+    descriptions = []
+    for mode in RetrievalMode:
+        manager = Phase12ToolsManager(
+            P12State(), object(), [], tmp_path,
+            question="Which tables are relevant?",
+            retrieval_config=RetrievalConfig(mode=mode),
+        )
+        descriptions.append(manager.get_tools()[0].metadata.description)
+
+    assert len(set(descriptions)) == 1
+    assert "Provide 1-2 concise dataset concepts" in descriptions[0]
+
+
+@pytest.mark.parametrize("mode", list(RetrievalMode))
+def test_search_tool_allows_one_call_in_every_retrieval_mode(
+    mode, monkeypatch, tmp_path
+):
+    calls = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            calls.append(kwargs)
+            return [_hit("table", 1, ["value"])]
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+    )
+    manager = Phase12ToolsManager(
+        P12State(), object(), ["table.parquet"], tmp_path,
+        question="Count road incidents",
+        retrieval_config=RetrievalConfig(mode=mode),
+    )
+
+    first = manager.search_solr("road incidents")
+    second = manager.search_solr("traffic crashes")
+
+    assert "table.parquet" in first
+    assert second.startswith("Search skipped: the configured retrieval")
+    assert len(calls) == 1
+    assert calls[0]["question"] == "Count road incidents"
+    expected_concepts = [] if mode == RetrievalMode.SEMANTIC else ["road", "incidents"]
+    assert calls[0]["keywords"] == expected_concepts
 
 
 def test_inspect_columns_allows_two_attempts_but_reads_file_once(

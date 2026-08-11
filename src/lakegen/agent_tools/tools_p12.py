@@ -70,67 +70,46 @@ class Phase12ToolsManager:
         self.retrieval_config = retrieval_config or RetrievalConfig()
 
     def _search_cache_key(self, keywords: list[str]) -> tuple[str, ...]:
-        if self.retrieval_config.mode == RetrievalMode.SEMANTIC:
-            return ("semantic-question", self.question.strip().casefold())
-        return (
-            f"{self.retrieval_config.mode.value}-keywords",
-            *sorted({keyword.casefold() for keyword in keywords}),
-        )
+        # The agent-facing contract allows one retrieval request regardless of
+        # the configured strategy.  Mode-specific use of the concepts remains
+        # internal to the retriever.
+        return ("configured-retrieval",)
 
     def _search_tool_description(self) -> str:
-        if self.retrieval_config.mode == RetrievalMode.SEMANTIC:
-            return (
-                "Search for relevant tables with semantic KNN retrieval. The complete "
-                "original user question is embedded automatically and exactly once. "
-                "Do not invent or vary keywords; call this tool once with an empty "
-                "string. Returns matching local table names and metadata."
-            )
-        if self.retrieval_config.mode == RetrievalMode.HYBRID:
-            return (
-                "Search for relevant tables with hybrid retrieval. Provide 1-2 "
-                "metadata-oriented keywords in the portal's native language for the "
-                "BM25 branch; the semantic branch automatically embeds the complete "
-                "original user question. Returns matching local table names and metadata."
-            )
         return (
-            "Search for relevant tables with BM25. Provide 1-2 metadata-oriented "
-            "keywords in the portal's native language. The generated keywords are "
-            "used directly, with strict AND and an automatic OR fallback."
+            "Search for relevant tables using the retrieval strategy configured by "
+            "the experiment. Provide 1-2 concise dataset concepts in the portal's "
+            "native language. The tool applies the original question and the "
+            "configured retrieval parameters automatically. Call the tool once and "
+            "evaluate only the returned candidates."
         )
 
-    def search_solr(self, keywords_str: str = "") -> str:
-        """
-        Search Solr using the retrieval mode configured for this workflow.
-
-        Keyword and hybrid modes consume the supplied metadata keywords. Semantic
-        mode ignores this argument and embeds the complete original user question.
-        """
+    def search_solr(self, concepts_str: str = "") -> str:
+        """Search for relevant tables using one or two dataset concepts."""
         try:
-            keywords = [k.strip() for k in keywords_str.split(" ") if k.strip()]
+            supplied_concepts = [
+                item.strip() for item in concepts_str.split(" ") if item.strip()
+            ]
+            keywords = list(supplied_concepts)
             if self.retrieval_config.mode == RetrievalMode.SEMANTIC:
                 keywords = []
             elif not keywords:
-                return "No keywords provided. Search with one or two dataset concepts."
-            self.state.used_keywords = keywords
+                return "No concepts provided. Search with one or two dataset concepts."
             if (
                 self.retrieval_config.mode != RetrievalMode.KEYWORD
                 and self.state.semantic_failure is not None
             ):
                 return (
-                    "Semantic search skipped: embedding generation already failed "
-                    "for the original question. " + self.state.semantic_failure
+                    "Configured retrieval skipped: representation generation already "
+                    "failed for this request. " + self.state.semantic_failure
                 )
             key = self._search_cache_key(keywords)
             if key in self.state.search_cache:
-                repeated_signal = (
-                    "the original question"
-                    if self.retrieval_config.mode == RetrievalMode.SEMANTIC
-                    else f"keywords {keywords}"
-                )
                 return (
-                    f"Search skipped: {repeated_signal} was already tried.\n"
+                    "Search skipped: the configured retrieval was already run.\n"
                     + self.state.search_cache[key]
                 )
+            self.state.used_keywords = supplied_concepts
             self.state.keyword_history.append(keywords)
             attempt = len(self.state.keyword_history)
 
@@ -206,16 +185,14 @@ class Phase12ToolsManager:
 
             if not current_candidates and not candidates:
                 response = (
-                    f"Attempt: {attempt}\nKeywords used: {keywords}\n"
-                    "No tables found. Try with fewer or different keywords."
+                    f"Attempt: {attempt}\nConcepts supplied: {self.state.used_keywords}\n"
+                    "No tables found. Evaluate the empty candidate set."
                 )
                 self.state.search_cache[key] = response
                 return response
 
             response = (
-                f"Attempt: {attempt}\nKeywords used: {keywords}\n"
-                f"Retriever: {self.retrieval_config.mode}\n"
-                f"Search mode: {search_mode}\n\n"
+                f"Attempt: {attempt}\nConcepts supplied: {self.state.used_keywords}\n\n"
                 "Candidates accumulated across all attempts (best schema/rank retained):\n"
                 + format_candidate_context(candidates, self.state.solr_meta)
             )
@@ -228,9 +205,8 @@ class Phase12ToolsManager:
                 detail = f"{detail}: {cause}"
             self.state.semantic_failure = detail
             return (
-                "Error generating the semantic embedding: "
-                f"{detail}. Retrying with different keywords will not help because "
-                "semantic mode embeds the original question."
+                "Error generating the configured retrieval representation: "
+                f"{detail}. The retrieval request has finished and must not be repeated."
             )
         except Exception as exc:
             return f"Error querying Solr: {exc}."

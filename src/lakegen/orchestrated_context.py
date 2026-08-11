@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from lakegen.core.resources import get_table_retrieval_service
 from lakegen.core.types import SolrMetadata
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc
-from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.retrieval import RetrievalConfig
 from src.client_solr import LocalSolrClient
 
 
@@ -40,8 +40,46 @@ class PreparedDiscoveryContext(BaseModel):
     prepared_candidate_count: int
 
     def stable_json(self) -> str:
+        """Serialize the complete technical context for telemetry and logs."""
         return json.dumps(
             self.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    def agent_payload(self) -> dict[str, Any]:
+        """Return a stable, mode-neutral view containing no retrieval signals."""
+        candidates: list[dict[str, Any]] = []
+        for item in self.candidates:
+            metadata = item.metadata
+            names = list(metadata.get("columns.name", []) or [])
+            descriptions = list(metadata.get("columns.description", []) or [])
+            types = list(metadata.get("columns.type", []) or [])
+            columns = []
+            for index, name in enumerate(names):
+                column: dict[str, Any] = {"name": name}
+                if index < len(descriptions) and descriptions[index]:
+                    column["description"] = descriptions[index]
+                if index < len(types) and types[index]:
+                    column["type"] = types[index]
+                columns.append(column)
+            candidates.append({
+                "position": item.prepared_position,
+                "dataset": item.dataset,
+                "metadata": {
+                    "title": metadata.get("title", ""),
+                    "description": metadata.get("description", ""),
+                    "tags": list(metadata.get("tags", []) or []),
+                    "columns": columns,
+                },
+            })
+        return {"query": self.query, "candidates": candidates}
+
+    def agent_json(self) -> str:
+        """Serialize only the mode-neutral context shown to an agent."""
+        return json.dumps(
+            self.agent_payload(),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),

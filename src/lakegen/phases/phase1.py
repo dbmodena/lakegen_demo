@@ -209,13 +209,13 @@ def phase1_generate_keywords(
         if part.strip()
     )
 
-    keywords_match = re.search(r"<keywords>\s*(.*?)\s*</keywords>", raw_stream, re.IGNORECASE | re.DOTALL)
+    keywords_match = re.search(r"<concepts>\s*(.*?)\s*</concepts>", raw_stream, re.IGNORECASE | re.DOTALL)
     if keywords_match:
         raw_content = keywords_match.group(1).strip().lower()
     else:
         raw_content = re.sub(r"<reasoning>.*?</reasoning>", "", visible_content, flags=re.IGNORECASE | re.DOTALL).strip().lower()
         if not raw_content:
-            fallback_match = re.search(r"keywords?[:\s]+(.*)", raw_stream, flags=re.IGNORECASE | re.DOTALL)
+            fallback_match = re.search(r"concepts?[:\s]+(.*)", raw_stream, flags=re.IGNORECASE | re.DOTALL)
             raw_content = fallback_match.group(1).strip().lower() if fallback_match else raw_stream.strip().lower()
 
     model_keywords = re.findall(r"(?u)\b[\w-]+\b", raw_content)

@@ -1,3 +1,5 @@
+import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +23,7 @@ from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.models import RetrievalHit
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.service import run_question
+from prompts.prompt_manager import PromptManager
 
 
 @pytest.mark.parametrize(
@@ -83,6 +86,91 @@ def test_preparer_forwards_existing_retrieval_config_and_preserves_order(
     assert context.stable_json() == context.stable_json()
 
 
+def test_agent_facing_context_has_one_mode_neutral_schema_and_telemetry_keeps_signals():
+    contexts = []
+    for mode in RetrievalMode:
+        context = PreparedDiscoveryContext(
+            query="question",
+            retrieval_mode=mode.value,
+            candidates=[PreparedCandidate(
+                retrieval_rank=1,
+                prepared_position=1,
+                dataset="table.csv",
+                scores={
+                    "score": 0.9,
+                    "lexical_score": 2.0,
+                    "semantic_score": 0.8,
+                },
+                missing_signals=["example_signal"],
+                metadata={
+                    "title": "Table",
+                    "description": "Description",
+                    "tags": ["tag"],
+                    "columns.name": ["value"],
+                    "columns.description": ["Measured value"],
+                    "columns.type": ["number"],
+                    "retrieval": {"semantic_score": 0.8},
+                },
+            )],
+            retrieved_hit_count=1,
+            prepared_candidate_count=1,
+        )
+        agent_payload = json.loads(context.agent_json())
+        technical_payload = json.loads(context.stable_json())
+        contexts.append(agent_payload)
+
+        assert set(agent_payload) == {"query", "candidates"}
+        assert set(agent_payload["candidates"][0]) == {
+            "position", "dataset", "metadata"
+        }
+        assert set(agent_payload["candidates"][0]["metadata"]) == {
+            "title", "description", "tags", "columns"
+        }
+        serialized_agent = context.agent_json()
+        for hidden in (
+            "retrieval_mode", "lexical_score", "semantic_score",
+            "missing_signals", "retrieval_rank", "scores", "retrieval",
+        ):
+            assert hidden not in serialized_agent
+
+        assert technical_payload["retrieval_mode"] == mode.value
+        candidate = technical_payload["candidates"][0]
+        assert candidate["scores"]["lexical_score"] == 2.0
+        assert candidate["scores"]["semantic_score"] == 0.8
+        assert candidate["missing_signals"] == ["example_signal"]
+
+    assert contexts[0] == contexts[1] == contexts[2]
+
+
+def test_rendered_discovery_prompts_are_mode_neutral():
+    prompt_manager = PromptManager()
+    rendered = [
+        prompt_manager.render(
+            "unified_architect", "system_prompt", portal_name="NYC", hint=""
+        ),
+        prompt_manager.render(
+            "unified_architect", "user_prompt", question="Count road incidents"
+        ),
+        prompt_manager.render("keyword_generator", "system_prompt"),
+        prompt_manager.render(
+            "keyword_generator", "user_prompt",
+            portal_name="NYC", question="Count road incidents",
+            raw_keywords_str="road incidents", avoid_keywords_str="",
+            keyword_hint="",
+        ),
+        prompt_manager.render(
+            "data_architect", "system_prompt", portal_name="NYC", hint=""
+        ),
+        prompt_manager.render(
+            "data_architect", "user_prompt",
+            question="Count road incidents", keywords_str="road incidents",
+            enriched_candidates_info="table.csv", table_hint="",
+        ),
+    ]
+    forbidden = re.compile(r"\b(keyword|semantic|hybrid|bm25|knn)\b", re.IGNORECASE)
+    assert all(forbidden.search(prompt) is None for prompt in rendered)
+
+
 def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
     hit = RetrievalHit(
         document={"resource_id": "table", "title": "Table", "columns": []},
@@ -122,6 +210,9 @@ def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
 
     assert observed["tools"] == []
     assert "table.csv" in observed["user_prompt"]
+    forbidden = re.compile(r"\b(keyword|semantic|hybrid|bm25|knn)\b", re.IGNORECASE)
+    assert forbidden.search(observed["system_prompt"]) is None
+    assert forbidden.search(observed["user_prompt"]) is None
     assert selected == ["table.csv"]
     assert reasoning == "best"
 
@@ -143,13 +234,14 @@ def test_preparation_error_is_explicit_without_agentic_fallback(monkeypatch):
         )
 
 
-def test_retrieval_request_is_strict_and_normalizes_keywords():
+def test_retrieval_request_is_strict_and_normalizes_concepts():
     request = parse_retrieval_request(
-        'RETRIEVAL_REQUEST: {"keywords":[" road   safety ","", "ROAD SAFETY","crashes"]}'
+        'RETRIEVAL_REQUEST: {"concepts":[" road   safety ","", "ROAD SAFETY","crashes"]}'
     )
+    assert request.concepts == ["road safety", "crashes"]
     assert request.keywords == ["road safety", "crashes"]
-    for malformed in ("hello", 'RETRIEVAL_REQUEST: {"keywords":[]}',
-                      'RETRIEVAL_REQUEST: {"keywords":[1]}'):
+    for malformed in ("hello", 'RETRIEVAL_REQUEST: {"concepts":[]}',
+                      'RETRIEVAL_REQUEST: {"concepts":[1]}'):
         with pytest.raises(ValueError):
             parse_retrieval_request(malformed)
 
@@ -157,7 +249,7 @@ def test_retrieval_request_is_strict_and_normalizes_keywords():
 def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monkeypatch):
     calls = []
     responses = iter([
-        'RETRIEVAL_REQUEST: {"keywords":["roads"]}',
+        'RETRIEVAL_REQUEST: {"concepts":["roads"]}',
         'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
     ])
 
@@ -188,13 +280,17 @@ def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monke
     history = calls[1]["chat_history"]
     assert len(history) == 2
     assert "RETRIEVAL_REQUEST" in history[1].content
+    forbidden = re.compile(r"\b(keyword|semantic|hybrid|bm25|knn)\b", re.IGNORECASE)
+    for call in calls:
+        assert forbidden.search(call["system_prompt"]) is None
+        assert forbidden.search(call["user_prompt"]) is None
 
 
 def test_unified_empty_context_skips_second_turn(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
-        lambda **kwargs: (calls.append(kwargs) or ('RETRIEVAL_REQUEST: {"keywords":["x"]}', "", 1)),
+        lambda **kwargs: (calls.append(kwargs) or ('RETRIEVAL_REQUEST: {"concepts":["x"]}', "", 1)),
     )
     prepared = PreparedDiscoveryContext(
         query="q", retrieval_mode="keyword", candidates=[],
@@ -224,7 +320,7 @@ def test_unified_selector_without_valid_datasets_requests_retry(
     selector_response, monkeypatch
 ):
     responses = iter([
-        'RETRIEVAL_REQUEST: {"keywords":["roads"]}', selector_response,
+        'RETRIEVAL_REQUEST: {"concepts":["roads"]}', selector_response,
     ])
     monkeypatch.setattr(
         "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
@@ -261,7 +357,7 @@ def test_unified_errors_are_typed_by_stage(monkeypatch):
             retrieval_config=RetrievalConfig(),
         )
 
-    responses = iter(['RETRIEVAL_REQUEST: {"keywords":["x"]}'])
+    responses = iter(['RETRIEVAL_REQUEST: {"concepts":["x"]}'])
     monkeypatch.setattr(
         "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
         lambda **_kwargs: (next(responses), "", 1),

@@ -37,30 +37,35 @@ class OrchestratedSelectorError(RuntimeError):
 
 class RetrievalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    keywords: list[str] = Field(min_length=1, max_length=8)
+    concepts: list[str] = Field(min_length=1, max_length=2)
 
-    @field_validator("keywords", mode="before")
+    @field_validator("concepts", mode="before")
     @classmethod
-    def normalize_keywords(cls, value: Any) -> list[str]:
+    def normalize_concepts(cls, value: Any) -> list[str]:
         if not isinstance(value, list):
-            raise ValueError("keywords must be a list")
+            raise ValueError("concepts must be a list")
         normalized: list[str] = []
         seen: set[str] = set()
         for item in value:
             if not isinstance(item, str):
-                raise ValueError("each keyword must be a string")
-            keyword = " ".join(item.split())
-            if not keyword:
+                raise ValueError("each concept must be a string")
+            concept = " ".join(item.split())
+            if not concept:
                 continue
-            if len(keyword) > 100:
-                raise ValueError("keywords must be at most 100 characters")
-            identity = keyword.casefold()
+            if len(concept) > 100:
+                raise ValueError("concepts must be at most 100 characters")
+            identity = concept.casefold()
             if identity not in seen:
                 seen.add(identity)
-                normalized.append(keyword)
+                normalized.append(concept)
         if not normalized:
-            raise ValueError("at least one non-empty keyword is required")
+            raise ValueError("at least one non-empty concept is required")
         return normalized
+
+    @property
+    def keywords(self) -> list[str]:
+        """Internal compatibility name used by existing retriever calls."""
+        return list(self.concepts)
 
 
 class DiscoveryResult(BaseModel):
@@ -168,7 +173,7 @@ def _selector_prompts(context: PreparedDiscoveryContext, hint: str) -> tuple[str
         "orchestrator context. Return exactly FINAL_PAYLOAD: followed by JSON with "
         "string fields 'tables' and 'reasoning'. Never invent datasets or metadata."
     )
-    user = f"Prepared discovery context:\n{context.stable_json()}\n"
+    user = f"Prepared discovery context:\n{context.agent_json()}\n"
     if hint:
         user += f"Previous-attempt constraint: {hint}\n"
     return system, user + "Select the minimal sufficient dataset set."
@@ -206,8 +211,9 @@ def run_unified_orchestrated_discovery(
     """Run two turns of one logical tool-free agent with explicit chat history."""
     system = (
         "You are the unified LakeGen discovery agent. You have no tools. First request "
-        "retrieval using exactly RETRIEVAL_REQUEST: {\"keywords\":[...]}. Do not choose "
-        "core, retrieval mode, or parameters. After context arrives, return exactly "
+        "retrieval using exactly RETRIEVAL_REQUEST: {\"concepts\":[...]}, containing "
+        "one or two concise dataset concepts. Do not choose system parameters. After "
+        "context arrives, return exactly "
         "FINAL_PAYLOAD: {\"tables\":\"comma-separated exact names\",\"reasoning\":\"...\"}."
     )
     first_user = f"Question: {query}\nFormulate the metadata retrieval request."
@@ -231,7 +237,7 @@ def run_unified_orchestrated_discovery(
             query=query, keywords=request.keywords, solr_client=solr_client,
             all_files=all_files, retrieval_config=retrieval_config,
         )
-        prepared.stable_json()
+        prepared.agent_json()
     except WorkflowCancelled:
         raise
     except Exception as exc:
@@ -246,7 +252,7 @@ def run_unified_orchestrated_discovery(
             tokens=first_tokens, llm_invocations=1, agent_count=1,
             retry_keywords=True, retry_reason=reason, prepared_context=prepared,
         )
-    second_user = "Orchestrator-prepared context:\n" + prepared.stable_json()
+    second_user = "Orchestrator-prepared context:\n" + prepared.agent_json()
     history = [
         ChatMessage(role=MessageRole.USER, content=first_user),
         ChatMessage(role=MessageRole.ASSISTANT, content=request_text),
