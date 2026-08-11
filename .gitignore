@@ -24,16 +24,15 @@ __pycache__/
 htmlcov/
 
 # ========================
-# 4. Specific Project Files (LakeGen)
+# 4. Specific Project Files
 # ========================
-# Ignore heavy CSVs and databases
 data/
 *.zip
 data
 logs
 queries_old
 queries
-fonti
+benchmark
 
 # Ignore dynamically generated Python code by the agent
 coding/

@@ -21,7 +21,7 @@ from typing import Any
 
 
 DEFAULT_INPUT = Path("queries/generated_queries_nyc.json")
-DEFAULT_OUTPUT = Path("queries/100q_nyc.json")
+DEFAULT_OUTPUT = Path("benchmark/100q_nyc.json")
 
 
 def _records(payload: Any) -> list[dict[str, Any]]:

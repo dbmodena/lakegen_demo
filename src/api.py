@@ -34,7 +34,11 @@ from lakegen.service import (
     make_runtime_settings,
     run_question,
 )
-from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS
+from lakegen.ui.state import (
+    MODEL_OPTIONS,
+    SOLR_CORE_OPTIONS,
+    SOLR_CORE_PORTAL_NAMES,
+)
 from lakegen.retrieval import RetrievalMode
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
@@ -53,6 +57,7 @@ MAX_BATCH_QUESTIONS = 10_000
 MAX_CONFIG_UPLOAD_BYTES = 1_000_000
 MAX_QUESTIONS_UPLOAD_BYTES = 25_000_000
 JOB_DIR = BASE_DIR / ".lakegen_jobs"
+BENCHMARK_DIR = BASE_DIR / "benchmark"
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -161,6 +166,30 @@ def _inline_batch_config(payload: Any) -> dict[str, Any] | None:
     if not isinstance(config, dict):
         raise ValueError("batch config must be an inline JSON object")
     return config
+
+
+def _benchmark_file(name: str) -> Path:
+    """Return an application-owned benchmark JSON file without path traversal."""
+
+    filename = Path(name).name
+    if filename != name or Path(filename).suffix.casefold() != ".json":
+        raise HTTPException(
+            status_code=404,
+            detail="Benchmark must be the name of a JSON file in the benchmark catalog.",
+        )
+    path = BENCHMARK_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Benchmark not found.")
+    return path
+
+
+def _load_benchmark(name: str) -> Any:
+    path = _benchmark_file(name)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        logger.error("Invalid benchmark JSON in %s", path.name)
+        raise HTTPException(status_code=500, detail="Benchmark JSON is invalid.") from exc
 
 
 def _upload_suffix(upload: UploadFile, allowed: set[str], label: str) -> str:
@@ -326,6 +355,13 @@ def _append_batch_table_metrics(
         core=str(resolved["core"]),
         source_path=questions[0]["source_path"],
         source_job_ids={label: job_id},
+        model=str(resolved.get("model") or ""),
+        architecture=str(resolved.get("discovery_architecture") or ""),
+        portal_name=str(
+            resolved.get("portal_name")
+            or SOLR_CORE_PORTAL_NAMES.get(str(resolved["core"]), resolved["core"])
+        ),
+        source_id=str(questions[0].get("source_id") or ""),
     )
     return True
 
@@ -535,6 +571,69 @@ def submit_batch(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    return _enqueue_batch(payload, resolved_config)
+
+
+@app.get("/v1/benchmarks")
+def list_benchmarks() -> dict[str, list[str]]:
+    """List the JSON benchmark inputs bundled with this LakeGen instance."""
+
+    if not BENCHMARK_DIR.is_dir():
+        return {"benchmarks": []}
+    return {"benchmarks": sorted(path.name for path in BENCHMARK_DIR.glob("*.json"))}
+
+
+@app.post(
+    "/v1/benchmarks/{benchmark_name}/batches",
+    response_model=BatchAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def submit_benchmark_batch(
+    benchmark_name: str,
+    core: Annotated[str | None, Query()] = None,
+    model: Annotated[str | None, Query()] = None,
+    retrieval_mode: Annotated[RetrievalMode | None, Query()] = None,
+    top_k: Annotated[int | None, Query(ge=1, le=1000)] = None,
+    hybrid_alpha: Annotated[float | None, Query(ge=0.0, le=1.0)] = None,
+    candidate_multiplier: Annotated[int | None, Query(ge=1, le=100)] = None,
+    discovery_architecture: Annotated[DiscoveryArchitecture | None, Query()] = None,
+    experiment_id: Annotated[str | None, Query(min_length=1)] = None,
+    seed: Annotated[int | None, Query(ge=0)] = None,
+) -> BatchAccepted:
+    """Queue one catalog benchmark while retaining every query metadata field."""
+
+    payload = _load_benchmark(benchmark_name)
+    try:
+        supplied = {
+            name for name, value in {
+                "core": core,
+                "model": model,
+                "retrieval_mode": retrieval_mode,
+                "top_k": top_k,
+                "hybrid_alpha": hybrid_alpha,
+                "candidate_multiplier": candidate_multiplier,
+                "discovery_architecture": discovery_architecture,
+                "experiment_id": experiment_id,
+                "seed": seed,
+            }.items() if value is not None
+        }
+        resolved_config = _resolve_api_config(
+            core=core or DEFAULT_CORE,
+            model=model or DEFAULT_MODEL,
+            retrieval_mode=retrieval_mode or RetrievalMode.KEYWORD,
+            top_k=top_k or 10,
+            hybrid_alpha=hybrid_alpha if hybrid_alpha is not None else 0.5,
+            candidate_multiplier=candidate_multiplier or 5,
+            discovery_architecture=(
+                discovery_architecture or DiscoveryArchitecture.UNIFIED
+            ),
+            experiment_id=experiment_id or f"benchmark-{Path(benchmark_name).stem}",
+            seed=seed if seed is not None else 0,
+            config_data=_inline_batch_config(payload),
+            explicit_fields=supplied | {"experiment_id"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _enqueue_batch(payload, resolved_config)
 
 

@@ -70,6 +70,14 @@ def read_table(
     raise ValueError(f"Unsupported table format: {table_path.suffix or '<none>'}")
 
 
+def table_row_count(path: str | Path) -> int | None:
+    """Return an inexpensive exact row count when the file format provides one."""
+    table_path = Path(path)
+    if table_path.suffix.casefold() in PARQUET_SUFFIXES:
+        return pq.ParquetFile(table_path).metadata.num_rows
+    return None
+
+
 def iter_table_chunks(
     path: str | Path,
     *,

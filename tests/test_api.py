@@ -22,6 +22,45 @@ class FakeUpload:
         self.closed = True
 
 
+def test_benchmark_catalog_queues_its_complete_case_metadata(tmp_path, monkeypatch):
+    benchmark = tmp_path / "sample.json"
+    benchmark.write_text(
+        json.dumps({
+            "cases": [{
+                "id": "case-1",
+                "question": "Which table contains parks?",
+                "keywords": ["parks"],
+                "relevant_table_ids": ["parks-123"],
+                "reference_code": "SELECT 1",
+            }]
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api, "BENCHMARK_DIR", tmp_path)
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(api._executor, "submit", lambda *_args: None)
+
+    assert api.list_benchmarks() == {"benchmarks": ["sample.json"]}
+    accepted = api.submit_benchmark_batch("sample.json", core="nyc")
+    job = api._jobs[accepted.job_id]
+
+    assert accepted.question_count == 1
+    assert job["settings"]["resolved_config"]["experiment_id"] == "benchmark-sample"
+    assert job["settings"]["resolved_config"]["core"] == "nyc"
+    stored = api._load_questions(accepted.job_id)[0]
+    assert stored["log_fields"]["SOURCE_RELEVANT_TABLE_IDS"] == ["parks-123"]
+    assert stored["log_fields"]["SOURCE_REFERENCE_CODE"] == "SELECT 1"
+    api._jobs.pop(accepted.job_id, None)
+
+
+def test_benchmark_catalog_rejects_paths_outside_its_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "BENCHMARK_DIR", tmp_path)
+
+    with pytest.raises(HTTPException) as raised:
+        api._load_benchmark("../outside.json")
+    assert raised.value.status_code == 404
+
+
 def test_job_persistence_separates_metadata_and_results(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "JOB_DIR", tmp_path)
     job_id = "a" * 32
@@ -313,11 +352,17 @@ def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatc
         row = next(csv.DictReader(input_file))
     assert row["JOB_ID"] == "job-1"
     assert row["BENCHMARK_TYPE"] == "batch-table-selection"
+    assert row["EXPERIMENT_ID"] == "architecture-test"
+    assert row["RETRIEVAL_MODE"] == "keyword"
+    assert row["HYBRID_ALPHA"] == "0.5"
+    assert row["STATUS"] == "completed"
     assert row["QUESTION_COUNT"] == "2"
     assert row["RECALL_AT_1"] == "0.25"
     assert row["MRR"] == "0.75"
     cases = json.loads(row["CASE_METRICS_JSON"])
     assert cases[0]["relevant_table_ids"] == ["gold-a", "gold-b"]
+    assert cases[0]["question"] == "One?"
+    assert cases[0]["ranking"] == ["gold-a", "other", "gold-b"]
 
 
 def test_batch_metrics_skip_legacy_questions_without_gold_tables(tmp_path, monkeypatch):

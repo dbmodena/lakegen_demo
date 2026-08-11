@@ -198,7 +198,22 @@ curl -X POST http://127.0.0.1:8000/v1/query \
   }'
 ```
 
-### Question JSON file
+### Benchmark catalog
+
+Metric-ready samples live in `benchmark/`. List the bundled samples and queue
+one directly; the API retains each case's gold tables, keywords, reference
+code, and other metadata in the batch logs.
+
+```bash
+curl http://127.0.0.1:8000/v1/benchmarks
+curl -X POST \
+  'http://127.0.0.1:8000/v1/benchmarks/100q_nyc.json/batches?core=nyc'
+```
+
+Run `uv run python extract_query_sample.py` to regenerate the default sample
+at `benchmark/100q_nyc.json`.
+
+### Uploaded question JSON file
 
 The batch endpoint directly accepts the contents of files in `queries_old`, as
 well as the simpler `[{"question": "..."}]` and

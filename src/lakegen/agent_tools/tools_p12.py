@@ -8,11 +8,19 @@ from llama_index.core import VectorStoreIndex
 from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 
 from lakegen.core.types import SolrMetadata
-from lakegen.agent_tools.tools_p2 import _inspect_columns, _find_schema_matches
+from lakegen.agent_tools.tools_p2 import (
+    MAX_INSPECTIONS_PER_FILE,
+    _find_schema_matches,
+    _inspect_columns,
+)
 from src.client_solr import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
 from lakegen.core.resources import get_table_retrieval_service
-from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.retrieval import (
+    EmbeddingGenerationError,
+    RetrievalConfig,
+    RetrievalMode,
+)
 
 
 class ConfirmUnifiedSelectionSchema(BaseModel):
@@ -30,6 +38,9 @@ class P12State:
         self.best_ranks: dict[str, int] = {}
         self.search_cache: dict[tuple[str, ...], str] = {}
         self.search_attempts: list[dict[str, object]] = []
+        self.semantic_failure: str | None = None
+        self.inspection_cache: dict[str, str] = {}
+        self.inspection_counts: dict[str, int] = {}
 
 
 def _schema_overlap(question: str, metadata: dict) -> int:
@@ -101,6 +112,14 @@ class Phase12ToolsManager:
             elif not keywords:
                 return "No keywords provided. Search with one or two dataset concepts."
             self.state.used_keywords = keywords
+            if (
+                self.retrieval_config.mode != RetrievalMode.KEYWORD
+                and self.state.semantic_failure is not None
+            ):
+                return (
+                    "Semantic search skipped: embedding generation already failed "
+                    "for the original question. " + self.state.semantic_failure
+                )
             key = self._search_cache_key(keywords)
             if key in self.state.search_cache:
                 repeated_signal = (
@@ -202,14 +221,26 @@ class Phase12ToolsManager:
             )
             self.state.search_cache[key] = response
             return response
-        except Exception as e:
-            return f"Error querying Solr: {str(e)}. Try different keywords."
+        except EmbeddingGenerationError as exc:
+            detail = str(exc)
+            cause = exc.__cause__
+            if cause is not None:
+                detail = f"{detail}: {cause}"
+            self.state.semantic_failure = detail
+            return (
+                "Error generating the semantic embedding: "
+                f"{detail}. Retrying with different keywords will not help because "
+                "semantic mode embeds the original question."
+            )
+        except Exception as exc:
+            return f"Error querying Solr: {exc}."
 
     def inspect_columns(self, file_name: str | None = None, filename: str | None = None) -> str:
         """
         Returns a compact profile for one table in the active dataset.
-        Shows row count, full-file min/max coverage for temporal columns, column
-        types, and sample values for low-cardinality categorical columns.
+        Shows row count, bounded min/max coverage for temporal columns, column
+        types, and sample values for low-cardinality categorical columns. At
+        most two requests per file are useful; repeated requests use a cache.
         If the question has a date or time range, compare it with the reported
         temporal coverage before selecting the table.
         Use this only after identifying a valid table file with search_solr.
@@ -217,7 +248,23 @@ class Phase12ToolsManager:
         name = file_name or filename
         if not name:
             return "Error: file_name or filename parameter is required."
-        return _inspect_columns(self.csv_dir, name)
+        name = name.strip()
+        key = name.casefold()
+        count = self.state.inspection_counts.get(key, 0) + 1
+        self.state.inspection_counts[key] = count
+        if count > MAX_INSPECTIONS_PER_FILE:
+            return (
+                f"Inspection skipped: {name} has already been inspected "
+                f"{MAX_INSPECTIONS_PER_FILE} times. Use the cached schema and "
+                "continue with confirm_unified_selection."
+            )
+        if key not in self.state.inspection_cache:
+            self.state.inspection_cache[key] = _inspect_columns(self.csv_dir, name)
+            return self.state.inspection_cache[key]
+        return (
+            f"Cached inspection (attempt {count}/{MAX_INSPECTIONS_PER_FILE}):\n"
+            + self.state.inspection_cache[key]
+        )
 
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
         """

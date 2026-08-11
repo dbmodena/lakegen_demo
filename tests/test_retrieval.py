@@ -27,6 +27,11 @@ from lakegen.retrieval.benchmark import (
     append_benchmark_metrics_log,
     run_retriever_benchmark,
 )
+from lakegen.retrieval.embeddings import (
+    EmbeddingGenerationError,
+    OllamaMultilingualEmbedding,
+    _validate,
+)
 
 
 class FakeSolr:
@@ -84,6 +89,47 @@ def test_min_max_normalization_handles_empty_constant_and_non_finite_scores():
     assert min_max_normalize({"a": 4.0, "b": 4.0}) == {"a": 1.0, "b": 1.0}
     assert min_max_normalize({"a": 2.0, "b": 4.0}) == {"a": 0.0, "b": 1.0}
     assert min_max_normalize({"bad": math.nan, "also_bad": math.inf}) == {}
+
+
+def test_embedding_validation_rejects_zero_norm_vector():
+    with pytest.raises(ValueError, match="zero-norm"):
+        _validate([0.0, 0.0])
+
+
+def test_query_embedding_retries_transient_provider_failure():
+    class FlakyModel:
+        def __init__(self):
+            self.calls = 0
+
+        def get_query_embedding(self, _text):
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError("temporary NaN response")
+            return [0.25, 0.75]
+
+    embedding = OllamaMultilingualEmbedding.__new__(OllamaMultilingualEmbedding)
+    embedding._model = FlakyModel()
+
+    assert embedding.encode_query("valid question") == [0.25, 0.75]
+    assert embedding._model.calls == 3
+
+
+def test_query_embedding_reports_provider_failure_after_three_attempts():
+    class BrokenModel:
+        def __init__(self):
+            self.calls = 0
+
+        def get_query_embedding(self, _text):
+            self.calls += 1
+            raise RuntimeError("unsupported value: NaN")
+
+    embedding = OllamaMultilingualEmbedding.__new__(OllamaMultilingualEmbedding)
+    embedding._model = BrokenModel()
+
+    with pytest.raises(EmbeddingGenerationError) as error:
+        embedding.encode_query("valid question")
+    assert embedding._model.calls == 3
+    assert "after 3 attempts" in str(error.value)
 
 
 def test_keyword_retrieval_uses_phase1_keywords_and_preserves_default_solr_fields():
@@ -405,12 +451,53 @@ def test_benchmark_metrics_csv_uses_variable_case_count_and_reuses_job_id(tmp_pa
         row = next(csv.DictReader(input_file))
     assert row["RUN_ID"] == "run-variable"
     assert row["JOB_ID"] == "existing-job-id"
+    assert row["EXPERIMENT_ID"] == "keyword"
+    assert row["RETRIEVAL_MODE"] == "keyword"
+    assert row["HYBRID_ALPHA"] == "0.5"
+    assert row["EMBEDDING_BASE_URL"] == "http://localhost:11434"
+    assert row["VECTOR_FIELD"] == "table_embedding"
+    assert row["MISSING_SIGNAL_POLICY"] == "zero"
     assert row["QUESTION_COUNT"] == "3"
     assert row["HIT_AT_1"] == "1.0"
     assert row["RECALL_AT_10"] == "1.0"
     assert row["MRR"] == "1.0"
     assert len(json.loads(row["CASE_METRICS_JSON"])) == 3
     assert "FULL_TRACE" not in row
+
+
+def test_benchmark_log_evolves_legacy_header_without_backfilling_old_rows(tmp_path):
+    path = tmp_path / "retrieval_benchmarks_log.csv"
+    path.write_text(
+        "ID,TIMESTAMP,MODE,ALPHA\n1,old,keyword,0.5\n",
+        encoding="utf-8",
+    )
+    report = run_retriever_benchmark(
+        FakeSolr(select_docs=[{"resource_id": "gold", "score": 1.0}]),
+        [BenchmarkCase("q1", "Question?", ("gold",), ("gold",))],
+        base_config=RetrievalConfig(top_k=10),
+        modes=(RetrievalMode.KEYWORD,),
+    )
+
+    append_benchmark_metrics_log(
+        report,
+        path,
+        run_id="new-run",
+        core="nyc",
+        source_path="questions.json",
+        source_job_ids={"keyword": "new-job"},
+        model="model-name",
+        architecture="unified",
+        portal_name="NYC Open Data",
+    )
+
+    with path.open(newline="", encoding="utf-8") as input_file:
+        rows = list(csv.DictReader(input_file))
+    assert rows[0]["MODE"] == "keyword"
+    assert rows[0]["RETRIEVAL_MODE"] == ""
+    assert rows[1]["RETRIEVAL_MODE"] == "keyword"
+    assert rows[1]["MODEL"] == "model-name"
+    assert rows[1]["ARCHITECTURE"] == "unified"
+    assert rows[1]["PORTAL_NAME"] == "NYC Open Data"
 
 
 class FakeIndexSolr:

@@ -25,23 +25,31 @@ from lakegen.retrieval.retrievers import TableRetrievalService
 BENCHMARK_LOG_COLUMNS = [
     "ID",
     "TIMESTAMP",
-    "RUN_ID",
     "JOB_ID",
-    "CORE",
     "SOURCE_PATH",
+    "SOURCE_ID",
+    "MODEL",
+    "ARCHITECTURE",
+    "CORE",
+    "PORTAL_NAME",
+    "STATUS",
     "BENCHMARK_TYPE",
-    "EXPERIMENT",
+    "EXPERIMENT_ID",
     "QUESTION_COUNT",
     "SUCCESSFUL_QUERIES",
     "FAILED_QUERIES",
-    "MODE",
-    "FUSION_METHOD",
-    "ALPHA",
-    "RRF_K",
+    "RETRIEVAL_MODE",
     "TOP_K",
+    "HYBRID_ALPHA",
     "CANDIDATE_MULTIPLIER",
     "REPRESENTATION_VERSION",
     "EMBEDDING_MODEL",
+    "EMBEDDING_BASE_URL",
+    "VECTOR_FIELD",
+    "LEXICAL_QUERY_FIELDS",
+    "MISSING_SIGNAL_POLICY",
+    "FUSION_METHOD",
+    "RRF_K",
     "HIT_AT_1",
     "HIT_AT_5",
     "HIT_AT_10",
@@ -54,6 +62,12 @@ BENCHMARK_LOG_COLUMNS = [
     "NDCG_AT_10",
     "MEAN_METRICS_JSON",
     "CASE_METRICS_JSON",
+    # Compatibility aliases retained for older consumers. New analysis should
+    # use the API-aligned names above.
+    "RUN_ID",
+    "EXPERIMENT",
+    "MODE",
+    "ALPHA",
 ]
 _BENCHMARK_LOG_LOCK = threading.Lock()
 
@@ -274,8 +288,12 @@ def append_benchmark_metrics_log(
     core: str,
     source_path: str,
     source_job_ids: dict[str, str] | None = None,
+    model: str = "",
+    architecture: str = "",
+    portal_name: str = "",
+    source_id: str = "",
 ) -> None:
-    """Append one compact aggregate CSV row per retriever experiment."""
+    """Append API-aligned aggregate rows, preserving legacy CSV aliases."""
 
     source_job_ids = source_job_ids or {}
     rows: list[dict[str, Any]] = []
@@ -286,7 +304,9 @@ def append_benchmark_metrics_log(
         case_metrics = [
             {
                 "case_id": case["case_id"],
+                "question": case.get("question", ""),
                 "relevant_table_ids": case["relevant_table_ids"],
+                "ranking": case.get("ranking", []),
                 "metrics": case["metrics"],
                 "error": case.get("error", ""),
             }
@@ -295,23 +315,35 @@ def append_benchmark_metrics_log(
         rows.append(
             {
                 "TIMESTAMP": timestamp,
-                "RUN_ID": run_id,
                 "JOB_ID": source_job_ids.get(label, ""),
-                "CORE": core,
                 "SOURCE_PATH": source_path,
+                "SOURCE_ID": source_id,
+                "MODEL": model,
+                "ARCHITECTURE": architecture,
+                "CORE": core,
+                "PORTAL_NAME": portal_name,
+                "STATUS": (
+                    "completed"
+                    if experiment["failed_case_count"] == 0
+                    else "partial"
+                ),
                 "BENCHMARK_TYPE": report.get("benchmark_type", "retriever-only"),
-                "EXPERIMENT": label,
+                "EXPERIMENT_ID": label,
                 "QUESTION_COUNT": len(case_metrics),
                 "SUCCESSFUL_QUERIES": experiment["successful_case_count"],
                 "FAILED_QUERIES": experiment["failed_case_count"],
-                "MODE": config["mode"],
-                "FUSION_METHOD": config["fusion_method"],
-                "ALPHA": config["alpha"],
-                "RRF_K": config["rrf_k"],
+                "RETRIEVAL_MODE": config["mode"],
                 "TOP_K": config["top_k"],
+                "HYBRID_ALPHA": config["alpha"],
                 "CANDIDATE_MULTIPLIER": config["candidate_multiplier"],
                 "REPRESENTATION_VERSION": config["representation_version"],
                 "EMBEDDING_MODEL": config["embedding_model"],
+                "EMBEDDING_BASE_URL": config.get("embedding_base_url", ""),
+                "VECTOR_FIELD": config.get("vector_field", ""),
+                "LEXICAL_QUERY_FIELDS": config.get("lexical_query_fields") or "",
+                "MISSING_SIGNAL_POLICY": config.get("missing_signal_policy", ""),
+                "FUSION_METHOD": config["fusion_method"],
+                "RRF_K": config["rrf_k"],
                 "HIT_AT_1": metrics.get("Hit@1", ""),
                 "HIT_AT_5": metrics.get("Hit@5", ""),
                 "HIT_AT_10": metrics.get("Hit@10", ""),
@@ -324,6 +356,10 @@ def append_benchmark_metrics_log(
                 "NDCG_AT_10": metrics.get("nDCG@10", ""),
                 "MEAN_METRICS_JSON": json.dumps(metrics, ensure_ascii=False),
                 "CASE_METRICS_JSON": json.dumps(case_metrics, ensure_ascii=False),
+                "RUN_ID": run_id,
+                "EXPERIMENT": label,
+                "MODE": config["mode"],
+                "ALPHA": config["alpha"],
             }
         )
 
@@ -331,19 +367,38 @@ def append_benchmark_metrics_log(
     with _BENCHMARK_LOG_LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
         existing_rows: list[dict[str, Any]] = []
+        existing_columns: list[str] = []
         if path.is_file():
             with path.open(newline="", encoding="utf-8") as input_file:
-                existing_rows = list(csv.DictReader(input_file))
+                reader = csv.DictReader(input_file)
+                existing_columns = list(reader.fieldnames or [])
+                existing_rows = list(reader)
         numeric_ids = [
             int(row["ID"])
             for row in existing_rows
             if str(row.get("ID", "")).isdigit()
         ]
         next_id = max(numeric_ids, default=0) + 1
+        fieldnames = list(BENCHMARK_LOG_COLUMNS)
+        if path.is_file():
+            fieldnames = list(dict.fromkeys([*existing_columns, *fieldnames]))
+            if fieldnames != existing_columns:
+                temporary_path = path.with_suffix(path.suffix + ".tmp")
+                with temporary_path.open(
+                    "w", newline="", encoding="utf-8"
+                ) as migrated_file:
+                    migrated_writer = csv.DictWriter(
+                        migrated_file,
+                        fieldnames=fieldnames,
+                        extrasaction="ignore",
+                    )
+                    migrated_writer.writeheader()
+                    migrated_writer.writerows(existing_rows)
+                os.replace(temporary_path, path)
         is_new = not path.is_file()
         with path.open("a", newline="", encoding="utf-8") as output_file:
             writer = csv.DictWriter(
-                output_file, fieldnames=BENCHMARK_LOG_COLUMNS, extrasaction="ignore"
+                output_file, fieldnames=fieldnames, extrasaction="ignore"
             )
             if is_new:
                 writer.writeheader()

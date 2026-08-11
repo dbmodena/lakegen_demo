@@ -10,6 +10,10 @@ from typing import Protocol
 from llama_index.embeddings.ollama import OllamaEmbedding
 
 
+class EmbeddingGenerationError(RuntimeError):
+    """Raised when the embedding provider cannot produce a usable vector."""
+
+
 class EmbeddingModel(Protocol):
     model_name: str
 
@@ -22,6 +26,8 @@ def _validate(vector: Sequence[float]) -> list[float]:
     result = [float(value) for value in vector]
     if not result or any(not math.isfinite(value) for value in result):
         raise ValueError("Embedding model returned an empty or non-finite vector")
+    if math.sqrt(sum(value * value for value in result)) == 0.0:
+        raise ValueError("Embedding model returned a zero-norm vector")
     return result
 
 
@@ -48,8 +54,19 @@ class OllamaMultilingualEmbedding:
 
     def encode_query(self, text: str) -> list[float]:
         if not text.strip():
-            raise ValueError("Semantic retrieval requires a non-blank question")
-        return _validate(self._model.get_query_embedding(text))
+            raise EmbeddingGenerationError(
+                "Semantic retrieval requires a non-blank question"
+            )
+        last_error: Exception | None = None
+        for _attempt in range(3):
+            try:
+                return _validate(self._model.get_query_embedding(text))
+            except Exception as exc:
+                last_error = exc
+        raise EmbeddingGenerationError(
+            "The embedding service failed to produce a valid query vector "
+            "after 3 attempts"
+        ) from last_error
 
     def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:

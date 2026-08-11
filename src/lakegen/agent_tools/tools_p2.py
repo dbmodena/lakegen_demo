@@ -1,6 +1,7 @@
 import sys
 import json
 import re
+from functools import lru_cache
 import pandas as pd
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -8,7 +9,7 @@ from llama_index.core.tools import FunctionTool
 from valentine import valentine_match
 from valentine.algorithms import ComaPy
 
-from lakegen.core.table_io import iter_table_chunks, read_table
+from lakegen.core.table_io import iter_table_chunks, read_table, table_row_count
 
 try:
     try:
@@ -34,6 +35,8 @@ MAX_JOINABILITY_MATCHES = 5
 JOINABILITY_SAMPLE_ROWS = 5000
 MAX_TEMPORAL_PROFILE_COLUMNS = 4
 PROFILE_CHUNK_ROWS = 100_000
+MAX_TEMPORAL_PROFILE_ROWS = 500_000
+MAX_INSPECTIONS_PER_FILE = 2
 
 _TEMPORAL_COLUMN_PATTERN = re.compile(
     r"(^|_)(date|datetime|timestamp|time|year)($|_)",
@@ -68,13 +71,17 @@ def _table_path(table_dir: Path, file_name: str) -> Path:
     return Path(table_dir) / file_name.strip()
 
 
-def _temporal_profile(path: Path, columns: list[str]) -> tuple[int, list[str]]:
-    """Return row count and compact full-file coverage for likely temporal columns."""
+def _temporal_profile(path: Path, columns: list[str]) -> tuple[str, list[str]]:
+    """Return row count and bounded coverage for likely temporal columns."""
     temporal_columns = [
         col for col in columns if _TEMPORAL_COLUMN_PATTERN.search(str(col))
     ][:MAX_TEMPORAL_PROFILE_COLUMNS]
+    exact_rows = table_row_count(path)
+    if not temporal_columns and exact_rows is not None:
+        return f"{exact_rows:,}", []
+
     usecols = temporal_columns or columns[:1]
-    total_rows = 0
+    profiled_rows = 0
     stats = {
         col: {"valid": 0, "min": None, "max": None}
         for col in temporal_columns
@@ -85,7 +92,12 @@ def _temporal_profile(path: Path, columns: list[str]) -> tuple[int, list[str]]:
         columns=usecols,
         chunk_rows=PROFILE_CHUNK_ROWS,
     ):
-        total_rows += len(chunk)
+        remaining = MAX_TEMPORAL_PROFILE_ROWS - profiled_rows
+        if remaining <= 0:
+            break
+        if len(chunk) > remaining:
+            chunk = chunk.head(remaining)
+        profiled_rows += len(chunk)
         for col in temporal_columns:
             series = chunk[col]
             col_stats = stats[col]
@@ -111,14 +123,16 @@ def _temporal_profile(path: Path, columns: list[str]) -> tuple[int, list[str]]:
                 col_stats["min"] = chunk_min
             if col_stats["max"] is None or chunk_max > col_stats["max"]:
                 col_stats["max"] = chunk_max
+        if profiled_rows >= MAX_TEMPORAL_PROFILE_ROWS:
+            break
 
     coverage_lines = []
     for col, col_stats in stats.items():
         if not col_stats["valid"]:
             continue
         unavailable_pct = (
-            (total_rows - col_stats["valid"]) / total_rows * 100
-            if total_rows
+            (profiled_rows - col_stats["valid"]) / profiled_rows * 100
+            if profiled_rows
             else 0.0
         )
         min_value = col_stats["min"]
@@ -131,11 +145,30 @@ def _temporal_profile(path: Path, columns: list[str]) -> tuple[int, list[str]]:
             f"(missing/unparseable {unavailable_pct:.1f}%)"
         )
 
-    return total_rows, coverage_lines
+    if exact_rows is not None:
+        row_label = f"{exact_rows:,}"
+    elif profiled_rows >= MAX_TEMPORAL_PROFILE_ROWS:
+        row_label = f"at least {profiled_rows:,}"
+    else:
+        row_label = f"{profiled_rows:,}"
+    if temporal_columns and (
+        exact_rows is None or profiled_rows < exact_rows
+    ):
+        coverage_lines.insert(
+            0, f"- sampled first {profiled_rows:,} rows (bounded profile)"
+        )
+    return row_label, coverage_lines
 
 
-def _inspect_columns(table_dir: Path, file_name: str) -> str:
-    path = _table_path(table_dir, file_name)
+@lru_cache(maxsize=256)
+def _inspect_columns_cached(
+    table_dir: str,
+    file_name: str,
+    _file_size: int,
+    _modified_ns: int,
+) -> str:
+    """Inspect one immutable file version and reuse the result across workflows."""
+    path = _table_path(Path(table_dir), file_name)
     if not path.exists():
         return f"Error: File missing in active dataset: {file_name}"
 
@@ -143,7 +176,7 @@ def _inspect_columns(table_dir: Path, file_name: str) -> str:
         df = read_table(path, nrows=MAX_SCHEMA_SAMPLE_ROWS)
         schema_info = []
         columns = list(df.columns)
-        total_rows, temporal_coverage = _temporal_profile(path, columns)
+        row_label, temporal_coverage = _temporal_profile(path, columns)
 
         for col in columns[:MAX_SCHEMA_COLUMNS]:
             dtype = str(df[col].dtype)
@@ -163,7 +196,7 @@ def _inspect_columns(table_dir: Path, file_name: str) -> str:
                 f"- ... {len(columns) - MAX_SCHEMA_COLUMNS} more columns omitted"
             )
 
-        header_lines = [f"Schema for {file_name}:", f"Rows: {total_rows:,}"]
+        header_lines = [f"Schema for {file_name}:", f"Rows: {row_label}"]
         if temporal_coverage:
             header_lines.extend(["Temporal coverage:", *temporal_coverage])
         header_lines.append(
@@ -173,6 +206,22 @@ def _inspect_columns(table_dir: Path, file_name: str) -> str:
         return _compact_tool_output(output)
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+def _inspect_columns(table_dir: Path, file_name: str) -> str:
+    path = _table_path(table_dir, file_name)
+    if not path.exists():
+        return f"Error: File missing in active dataset: {file_name}"
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        return f"Error: {exc}"
+    return _inspect_columns_cached(
+        str(Path(table_dir).resolve()),
+        file_name.strip(),
+        stat.st_size,
+        stat.st_mtime_ns,
+    )
 
 
 def _preview_data(table_dir: Path, file_name: str, n_rows: int = 3) -> str:
@@ -394,15 +443,34 @@ class Phase2JudgeToolsManager:
     def __init__(self, candidates: list[str], csv_dir: Path):
         self.candidates = candidates
         self.csv_dir = Path(csv_dir)
+        self._inspection_cache: dict[str, str] = {}
+        self._inspection_counts: dict[str, int] = {}
 
     def inspect_columns(self, file_name: str) -> str:
         """
         Returns a compact profile for one table in the active dataset.
-        Shows row count, full-file min/max coverage for temporal columns, column
-        types, and sample values for low-cardinality categorical columns.
+        Shows row count, bounded min/max coverage for temporal columns, column
+        types, and sample values for low-cardinality categorical columns. A
+        repeated request may reuse the cached result.
         Use this to understand what data a table contains.
         """
-        return _inspect_columns(self.csv_dir, file_name)
+        name = file_name.strip()
+        key = name.casefold()
+        count = self._inspection_counts.get(key, 0) + 1
+        self._inspection_counts[key] = count
+        if count > MAX_INSPECTIONS_PER_FILE:
+            return (
+                f"Inspection skipped: {name} has already been inspected "
+                f"{MAX_INSPECTIONS_PER_FILE} times. Use the cached schema and "
+                "continue with table selection."
+            )
+        if key not in self._inspection_cache:
+            self._inspection_cache[key] = _inspect_columns(self.csv_dir, name)
+            return self._inspection_cache[key]
+        return (
+            f"Cached inspection (attempt {count}/{MAX_INSPECTIONS_PER_FILE}):\n"
+            + self._inspection_cache[key]
+        )
 
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
         """
