@@ -27,7 +27,6 @@ BENCHMARK_LOG_COLUMNS = [
     "TIMESTAMP",
     "JOB_ID",
     "SOURCE_PATH",
-    "SOURCE_ID",
     "MODEL",
     "ARCHITECTURE",
     "CORE",
@@ -60,14 +59,6 @@ BENCHMARK_LOG_COLUMNS = [
     "NDCG_AT_1",
     "NDCG_AT_5",
     "NDCG_AT_10",
-    "MEAN_METRICS_JSON",
-    "CASE_METRICS_JSON",
-    # Compatibility aliases retained for older consumers. New analysis should
-    # use the API-aligned names above.
-    "RUN_ID",
-    "EXPERIMENT",
-    "MODE",
-    "ALPHA",
 ]
 _BENCHMARK_LOG_LOCK = threading.Lock()
 
@@ -291,7 +282,6 @@ def append_benchmark_metrics_log(
     model: str = "",
     architecture: str = "",
     portal_name: str = "",
-    source_id: str = "",
 ) -> None:
     """Append API-aligned aggregate rows, preserving legacy CSV aliases."""
 
@@ -301,23 +291,12 @@ def append_benchmark_metrics_log(
     for label, experiment in report.get("experiments", {}).items():
         config = experiment["config"]
         metrics = experiment["mean_metrics"]
-        case_metrics = [
-            {
-                "case_id": case["case_id"],
-                "question": case.get("question", ""),
-                "relevant_table_ids": case["relevant_table_ids"],
-                "ranking": case.get("ranking", []),
-                "metrics": case["metrics"],
-                "error": case.get("error", ""),
-            }
-            for case in experiment["cases"]
-        ]
+        question_count = len(experiment["cases"])
         rows.append(
             {
                 "TIMESTAMP": timestamp,
-                "JOB_ID": source_job_ids.get(label, ""),
+                "JOB_ID": source_job_ids.get(label, "") or run_id,
                 "SOURCE_PATH": source_path,
-                "SOURCE_ID": source_id,
                 "MODEL": model,
                 "ARCHITECTURE": architecture,
                 "CORE": core,
@@ -329,7 +308,7 @@ def append_benchmark_metrics_log(
                 ),
                 "BENCHMARK_TYPE": report.get("benchmark_type", "retriever-only"),
                 "EXPERIMENT_ID": label,
-                "QUESTION_COUNT": len(case_metrics),
+                "QUESTION_COUNT": question_count,
                 "SUCCESSFUL_QUERIES": experiment["successful_case_count"],
                 "FAILED_QUERIES": experiment["failed_case_count"],
                 "RETRIEVAL_MODE": config["mode"],
@@ -354,12 +333,6 @@ def append_benchmark_metrics_log(
                 "NDCG_AT_1": metrics.get("nDCG@1", ""),
                 "NDCG_AT_5": metrics.get("nDCG@5", ""),
                 "NDCG_AT_10": metrics.get("nDCG@10", ""),
-                "MEAN_METRICS_JSON": json.dumps(metrics, ensure_ascii=False),
-                "CASE_METRICS_JSON": json.dumps(case_metrics, ensure_ascii=False),
-                "RUN_ID": run_id,
-                "EXPERIMENT": label,
-                "MODE": config["mode"],
-                "ALPHA": config["alpha"],
             }
         )
 
@@ -381,7 +354,21 @@ def append_benchmark_metrics_log(
         next_id = max(numeric_ids, default=0) + 1
         fieldnames = list(BENCHMARK_LOG_COLUMNS)
         if path.is_file():
-            fieldnames = list(dict.fromkeys([*existing_columns, *fieldnames]))
+            migrated_rows = []
+            for existing in existing_rows:
+                migrated = dict(existing)
+                migrated["JOB_ID"] = migrated.get("JOB_ID") or migrated.get("RUN_ID", "")
+                migrated["EXPERIMENT_ID"] = (
+                    migrated.get("EXPERIMENT_ID") or migrated.get("EXPERIMENT", "")
+                )
+                migrated["RETRIEVAL_MODE"] = (
+                    migrated.get("RETRIEVAL_MODE") or migrated.get("MODE", "")
+                )
+                migrated["HYBRID_ALPHA"] = (
+                    migrated.get("HYBRID_ALPHA") or migrated.get("ALPHA", "")
+                )
+                migrated_rows.append(migrated)
+            existing_rows = migrated_rows
             if fieldnames != existing_columns:
                 temporary_path = path.with_suffix(path.suffix + ".tmp")
                 with temporary_path.open(

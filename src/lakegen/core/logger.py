@@ -2,6 +2,7 @@ import os
 import csv
 import datetime
 import json
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Mapping
@@ -19,21 +20,45 @@ CSV_LOG_COLUMNS = [
 ]
 
 API_CSV_LOG_COLUMNS = [
-    "ID", "TIMESTAMP", "JOB_ID", "SOURCE_PATH", "SOURCE_ID", "MODEL",
+    "ID", "TIMESTAMP", "JOB_ID", "SOURCE_PATH", "SOURCE_ID",
+    "EXECUTION_ATTEMPT", "IS_FINAL_ATTEMPT", "EXPERIMENT_ID", "MANIFEST_ID", "MODEL",
     "ARCHITECTURE", "CORE", "PORTAL_NAME", "STATUS", "QUESTION",
-    "SOURCE_JSON", "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL",
+    "TABLES_SELECTED", "KEYWORDS_FINAL", "SOURCE_RELEVANT_TABLE_IDS",
     "RETRIEVAL_MODE", "TOP_K", "HYBRID_ALPHA", "CANDIDATE_MULTIPLIER",
     "REPRESENTATION_VERSION", "EMBEDDING_MODEL", "EMBEDDING_BASE_URL",
     "VECTOR_FIELD", "LEXICAL_QUERY_FIELDS", "MISSING_SIGNAL_POLICY",
     "FUSION_METHOD", "RRF_K",
-    "RETRIEVAL_RUNS_JSON", "PIPELINE_STAGES_JSON", "ANSWER_DISPOSITION",
-    "RETRIES", "SUCCESS", "REASONING",
-    "DEBUG_RAW", "LLM_THINKING", "AGENT_THINKING", "CODE", "RAW_RESULT",
-    "FINAL_RESULT", "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3",
+    "PIPELINE_STAGES_JSON", "ANSWER_DISPOSITION", "RETRIES", "SUCCESS",
+    "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3",
     "TOKENS_PHASE4", "TOKENS_PHASE5", "ELAPSED_SECONDS", "ERROR",
+    "HIT_AT_1", "HIT_AT_5", "HIT_AT_10", "RECALL_AT_1", "RECALL_AT_5",
+    "RECALL_AT_10", "MRR", "NDCG_AT_1", "NDCG_AT_5", "NDCG_AT_10",
 ]
 
+API_CSV_EXCLUDED_COLUMNS = (
+    "FULL_TRACE", "SOURCE_JSON", "KEYWORDS_RAW", "REASONING", "DEBUG_RAW",
+    "RAW_RESULT", "FINAL_RESULT", "RETRIEVAL_RUNS_JSON", "LLM_THINKING",
+    "AGENT_THINKING", "CODE", "MANIFEST_JSON", "RUN_TRACE_JSON",
+    "SOURCE_CODE", "SOURCE_RESPONSE", "SOURCE_JUDGE_FEEDBACK",
+    "SOURCE_TABLES", "SOURCE_REFERENCE_CODE", "SOURCE_REFERENCE_RESULT",
+    "SOURCE_EXPECTED_RESULT_DESCRIPTION",
+)
+
 _CSV_LOCK = threading.Lock()
+
+
+def _raise_csv_field_limit() -> None:
+    """Allow intentionally lossless API log fields to be read back safely."""
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit //= 10
+
+
+_raise_csv_field_limit()
 
 
 def _csv_value(value: Any) -> Any:
@@ -56,6 +81,10 @@ def _ensure_csv_columns(
 ) -> list[str]:
     """Evolve a CSV schema, adding fields and removing explicitly private ones."""
 
+    excluded = set(excluded_columns)
+    required_columns = [
+        column for column in required_columns if column not in excluded
+    ]
     if not os.path.exists(csv_path):
         return required_columns
 
@@ -64,7 +93,6 @@ def _ensure_csv_columns(
         existing_columns = list(reader.fieldnames or [])
         rows = list(reader)
 
-    excluded = set(excluded_columns)
     retained_columns = [
         column for column in existing_columns if column not in excluded
     ]
@@ -107,7 +135,7 @@ def save_experiment_log(
     llm_thinking: str = "", 
     agent_thinking: str = "", 
     error: str = "",
-    csv_filename: str = "experiments_log.csv",
+    csv_filename: str = "api_experiments_log.csv",
     model: str = "",
     architecture: str = "",
     status: str = "",
@@ -155,6 +183,8 @@ def save_experiment_log(
     is_api_log = csv_filename == "api_experiments_log.csv"
     row: dict[str, Any] = {
         "TIMESTAMP":       timestamp,
+        "EXECUTION_ATTEMPT": 1,
+        "IS_FINAL_ATTEMPT": True,
         "MODEL":           model,
         "ARCHITECTURE":    architecture,
         "STATUS":          status,
@@ -191,14 +221,20 @@ def save_experiment_log(
         row.update({str(key): _csv_value(value) for key, value in extra_fields.items()})
 
     base_columns = API_CSV_LOG_COLUMNS if is_api_log else CSV_LOG_COLUMNS
-    extra_columns = list(extra_fields) if extra_fields else []
+    extra_columns = (
+        [column for column in (extra_fields or {}) if column in API_CSV_LOG_COLUMNS]
+        if is_api_log
+        else list(extra_fields or {})
+    )
     required_columns = list(dict.fromkeys([*base_columns, *extra_columns]))
     with _CSV_LOCK:
         is_new_file = not os.path.exists(csv_path)
         fieldnames = _ensure_csv_columns(
             csv_path,
             required_columns,
-            excluded_columns=("FULL_TRACE",),
+            excluded_columns=(
+                API_CSV_EXCLUDED_COLUMNS if is_api_log else ("FULL_TRACE",)
+            ),
         )
 
         next_id = 1

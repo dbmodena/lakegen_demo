@@ -83,6 +83,7 @@ class RetrievalRunLogger:
 
     def __call__(self, run: RetrievalRun) -> None:
         payload: dict[str, Any] = run.to_log_dict()
+        payload["event_type"] = "retrieval_run"
         self.log_payload(payload)
 
     def log_payload(self, payload: Mapping[str, Any]) -> None:

@@ -449,7 +449,6 @@ def test_benchmark_metrics_csv_uses_variable_case_count_and_reuses_job_id(tmp_pa
 
     with path.open(newline="", encoding="utf-8") as input_file:
         row = next(csv.DictReader(input_file))
-    assert row["RUN_ID"] == "run-variable"
     assert row["JOB_ID"] == "existing-job-id"
     assert row["EXPERIMENT_ID"] == "keyword"
     assert row["RETRIEVAL_MODE"] == "keyword"
@@ -461,7 +460,8 @@ def test_benchmark_metrics_csv_uses_variable_case_count_and_reuses_job_id(tmp_pa
     assert row["HIT_AT_1"] == "1.0"
     assert row["RECALL_AT_10"] == "1.0"
     assert row["MRR"] == "1.0"
-    assert len(json.loads(row["CASE_METRICS_JSON"])) == 3
+    assert "CASE_METRICS_JSON" not in row
+    assert "MEAN_METRICS_JSON" not in row
     assert "FULL_TRACE" not in row
 
 
@@ -492,8 +492,9 @@ def test_benchmark_log_evolves_legacy_header_without_backfilling_old_rows(tmp_pa
 
     with path.open(newline="", encoding="utf-8") as input_file:
         rows = list(csv.DictReader(input_file))
-    assert rows[0]["MODE"] == "keyword"
-    assert rows[0]["RETRIEVAL_MODE"] == ""
+    assert "MODE" not in rows[0]
+    assert rows[0]["RETRIEVAL_MODE"] == "keyword"
+    assert rows[0]["HYBRID_ALPHA"] == "0.5"
     assert rows[1]["RETRIEVAL_MODE"] == "keyword"
     assert rows[1]["MODEL"] == "model-name"
     assert rows[1]["ARCHITECTURE"] == "unified"

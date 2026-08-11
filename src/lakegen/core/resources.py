@@ -441,6 +441,8 @@ def _log_and_capture_retrieval_run(run: RetrievalRun) -> None:
     run.job_id = context.get("JOB_ID")
     run.source_path = context.get("SOURCE_PATH")
     run.source_id = context.get("SOURCE_ID")
+    run.execution_attempt = context.get("EXECUTION_ATTEMPT")
+    run.experiment_id = context.get("EXPERIMENT_ID")
     run.retrieval_attempt = attempt
     get_retrieval_run_logger()(run)
     captured = _retrieval_capture.get()
@@ -463,11 +465,13 @@ def log_retrieval_decision(
     context = dict(context or {})
     get_retrieval_run_logger().log_payload(
         {
-            "event": "table_selection",
+            "event_type": "table_selection",
             "question": question,
             "job_id": context.get("JOB_ID"),
             "source_path": context.get("SOURCE_PATH"),
             "source_id": context.get("SOURCE_ID"),
+            "execution_attempt": context.get("EXECUTION_ATTEMPT"),
+            "experiment_id": context.get("EXPERIMENT_ID"),
             "mode": mode,
             "keywords": list(keywords),
             "retrieval_attempt": retrieval_attempt,

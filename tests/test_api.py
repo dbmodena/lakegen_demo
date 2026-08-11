@@ -102,8 +102,8 @@ def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
         def __init__(self, _config):
             pass
 
-        def run(self, question, **_kwargs):
-            calls.append(question)
+        def run(self, question, **kwargs):
+            calls.append((question, kwargs["log_context"]))
             return FakeResult()
 
     monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
@@ -132,7 +132,10 @@ def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
 
     api._run_batch(job_id, questions, {"resolved_config": {}})
 
-    assert calls == ["Two?"]
+    assert calls == [(
+        "Two?",
+        {"JOB_ID": job_id, "EXECUTION_ATTEMPT": 1, "IS_FINAL_ATTEMPT": True},
+    )]
     assert api._jobs[job_id]["processed"] == 2
     assert len(api._jobs[job_id]["results"]) == 2
     assert api._jobs[job_id]["status"] == "completed"
@@ -359,10 +362,7 @@ def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatc
     assert row["QUESTION_COUNT"] == "2"
     assert row["RECALL_AT_1"] == "0.25"
     assert row["MRR"] == "0.75"
-    cases = json.loads(row["CASE_METRICS_JSON"])
-    assert cases[0]["relevant_table_ids"] == ["gold-a", "gold-b"]
-    assert cases[0]["question"] == "One?"
-    assert cases[0]["ranking"] == ["gold-a", "other", "gold-b"]
+    assert "CASE_METRICS_JSON" not in row
 
 
 def test_batch_metrics_skip_legacy_questions_without_gold_tables(tmp_path, monkeypatch):

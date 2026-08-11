@@ -27,7 +27,7 @@ from lakegen.phases import (
     phase4_synthesize,
 )
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
-from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.retrieval import RetrievalConfig, RetrievalMode, evaluate_ranking
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.experiment_config import (
@@ -308,7 +308,11 @@ def run_question(
         nonlocal generated_code_seed_instruction_provided
         generated_code_seed_instruction_provided = True
 
-    with capture_retrieval_runs(log_context) as retrieval_runs:
+    retrieval_log_context = {
+        **dict(log_context or {}),
+        "EXPERIMENT_ID": experiment.experiment_id,
+    }
+    with capture_retrieval_runs(retrieval_log_context) as retrieval_runs:
         try:
             for table_attempt in range(MAX_TABLE_ATTEMPTS):
                 discovery_started = time.monotonic()
@@ -628,7 +632,7 @@ def run_question(
                     question=question,
                     selected_tables=selected,
                     reason=reasoning or error,
-                    context=log_context,
+                    context=retrieval_log_context,
                     mode=runtime.retrieval.mode.value,
                     keywords=keywords,
                     retrieval_attempt=len(selection_state.search_attempts),
@@ -704,6 +708,8 @@ def run_question(
             }
             retrieval = runtime.retrieval
             extra_fields: dict[str, Any] = {
+                "EXPERIMENT_ID": experiment.experiment_id,
+                "MANIFEST_ID": manifest.run_id,
                 "CORE": runtime.solr_core,
                 "PORTAL_NAME": runtime.portal_name,
                 "RETRIEVAL_MODE": retrieval.mode.value,
@@ -743,6 +749,25 @@ def run_question(
             }
             if log_context:
                 extra_fields.update(log_context)
+            gold_tables = extra_fields.get("SOURCE_RELEVANT_TABLE_IDS")
+            if isinstance(gold_tables, list) and gold_tables:
+                ranking = [
+                    re.sub(r"\.(?:parquet|pq|csv)$", "", table, flags=re.I)
+                    for table in selected
+                ]
+                metrics = evaluate_ranking(ranking, gold_tables, k_values=(1, 5, 10))
+                extra_fields.update({
+                    "HIT_AT_1": metrics["Hit@1"],
+                    "HIT_AT_5": metrics["Hit@5"],
+                    "HIT_AT_10": metrics["Hit@10"],
+                    "RECALL_AT_1": metrics["Recall@1"],
+                    "RECALL_AT_5": metrics["Recall@5"],
+                    "RECALL_AT_10": metrics["Recall@10"],
+                    "MRR": metrics["MRR"],
+                    "NDCG_AT_1": metrics["nDCG@1"],
+                    "NDCG_AT_5": metrics["nDCG@5"],
+                    "NDCG_AT_10": metrics["nDCG@10"],
+                })
             try:
                 save_experiment_log(
                     question=question,

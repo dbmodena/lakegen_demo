@@ -67,6 +67,8 @@ class RetrievalRun:
     job_id: str | None = None
     source_path: str | None = None
     source_id: str | int | None = None
+    execution_attempt: int | None = None
+    experiment_id: str | None = None
     retrieval_attempt: int | None = None
     hits: list[RetrievalHit] = field(default_factory=list)
 

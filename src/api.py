@@ -361,7 +361,6 @@ def _append_batch_table_metrics(
             resolved.get("portal_name")
             or SOLR_CORE_PORTAL_NAMES.get(str(resolved["core"]), resolved["core"])
         ),
-        source_id=str(questions[0].get("source_id") or ""),
     )
     return True
 
@@ -402,9 +401,23 @@ def _update_job(job_id: str, **changes: Any) -> None:
 def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str, Any]) -> None:
     with _jobs_lock:
         current = _jobs[job_id]
-        start_index = len(current.get("results", []))
+        existing_results = list(current.get("results", []))
         started_at = current.get("started_at") or _now()
-    _update_job(job_id, status="running", started_at=started_at, processed=start_index)
+    attempts: dict[str, int] = {}
+    for entry in existing_results:
+        source_key = str(entry.get("source_id"))
+        attempts[source_key] = attempts.get(source_key, 0) + 1
+    completed_source_ids = set(attempts)
+    pending_questions = [
+        source for source in questions
+        if str(source.get("source_id")) not in completed_source_ids
+    ]
+    _update_job(
+        job_id,
+        status="running",
+        started_at=started_at,
+        processed=len(completed_source_ids),
+    )
     try:
         config = ExperimentConfig.model_validate(settings["resolved_config"])
         runner = ExperimentRunner(config)
@@ -412,13 +425,17 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
         if nltk_error:
             raise RuntimeError(nltk_error)
 
-        for index, source in enumerate(questions[start_index:], start=start_index):
+        for source in pending_questions:
+            source_key = str(source.get("source_id"))
+            execution_attempt = attempts.get(source_key, 0) + 1
             with _workflow_lock:
                 query_result = runner.run(
                     source["question"],
                     question_id=source["source_id"],
                     log_context={
                         "JOB_ID": job_id,
+                        "EXECUTION_ATTEMPT": execution_attempt,
+                        "IS_FINAL_ATTEMPT": True,
                         **source["log_fields"],
                     },
                 ).to_dict()
@@ -432,7 +449,8 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
             with _jobs_lock:
                 job = _jobs[job_id]
                 job["results"].append(entry)
-                job["processed"] = index + 1
+                completed_source_ids.add(source_key)
+                job["processed"] = len(completed_source_ids)
                 if query_result["status"] != "completed":
                     job["failed"] += 1
                 job["updated_at"] = _now()
@@ -717,10 +735,14 @@ def _recover_incomplete_jobs() -> list[str]:
                 continue
             job = _snapshot_job(job_id) or metadata
             results = job.get("results", [])
-            job["processed"] = len(results)
+            unique_results = {
+                str(entry.get("source_id")): entry for entry in results
+            }
+            job["results"] = list(unique_results.values())
+            job["processed"] = len(unique_results)
             job["failed"] = sum(
                 entry.get("result", {}).get("status") != "completed"
-                for entry in results
+                for entry in unique_results.values()
             )
             job["status"] = "queued"
             job["updated_at"] = _now()

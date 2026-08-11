@@ -55,7 +55,7 @@ def test_existing_csv_gains_model_and_architecture_columns(tmp_path, monkeypatch
     assert rows[1]["ARCHITECTURE"] == "unified"
 
 
-def test_api_log_keeps_full_outputs_and_dynamic_json_fields(tmp_path, monkeypatch):
+def test_api_log_keeps_analytical_fields_and_excludes_large_payloads(tmp_path, monkeypatch):
     monkeypatch.setattr(experiment_logger, "LOG_DIR", tmp_path)
     long_result = "x" * 700
 
@@ -80,13 +80,13 @@ def test_api_log_keeps_full_outputs_and_dynamic_json_fields(tmp_path, monkeypatc
     ) as csv_file:
         row = next(csv.DictReader(csv_file))
 
-    assert row["RAW_RESULT"] == long_result
-    assert row["CODE"] == "print('complete')"
+    assert "RAW_RESULT" not in row
+    assert "CODE" not in row
+    assert "RETRIEVAL_RUNS_JSON" not in row
+    assert "SOURCE_TABLES" not in row
     assert row["STATUS"] == "completed"
     assert row["ELAPSED_SECONDS"] == "1.25"
-    assert row["SOURCE_DIFFICULTY"] == "easy"
-    assert json.loads(row["SOURCE_TABLES"]) == [{"name": "Table_0"}]
-    assert json.loads(row["RETRIEVAL_RUNS_JSON"])[0]["mode"] == "keyword"
+    assert "SOURCE_DIFFICULTY" not in row
 
 
 def test_full_trace_is_written_to_text_but_never_to_api_csv(tmp_path, monkeypatch):
@@ -137,3 +137,26 @@ def test_existing_api_csv_drops_legacy_full_trace_column(tmp_path, monkeypatch):
 
     assert "FULL_TRACE" not in reader.fieldnames
     assert [row["QUESTION"] for row in rows] == ["Old question?", "New question?"]
+
+
+def test_existing_api_csv_with_large_field_can_evolve_schema(tmp_path, monkeypatch):
+    monkeypatch.setattr(experiment_logger, "LOG_DIR", tmp_path)
+    csv_path = tmp_path / "api_experiments_log.csv"
+    large_trace = "x" * 200_000
+    with csv_path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=["ID", "AGENT_THINKING"])
+        writer.writeheader()
+        writer.writerow({"ID": 1, "AGENT_THINKING": large_trace})
+
+    experiment_logger.save_experiment_log(
+        question="New question?",
+        code="print('ok')",
+        result="ok",
+        retries=0,
+        csv_filename="api_experiments_log.csv",
+    )
+
+    with csv_path.open(newline="", encoding="utf-8") as csv_file:
+        rows = list(csv.DictReader(csv_file))
+    assert "AGENT_THINKING" not in rows[0]
+    assert rows[1]["QUESTION"] == "New question?"
