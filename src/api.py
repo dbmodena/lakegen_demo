@@ -8,6 +8,7 @@ Run locally with::
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import threading
 import uuid
@@ -35,6 +36,8 @@ from lakegen.service import (
 )
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS
 from lakegen.retrieval import RetrievalMode
+from lakegen.retrieval.benchmark import append_benchmark_metrics_log
+from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
 from lakegen.experiment_config import (
     DiscoveryArchitecture,
     ExperimentConfig,
@@ -50,6 +53,7 @@ MAX_BATCH_QUESTIONS = 10_000
 MAX_CONFIG_UPLOAD_BYTES = 1_000_000
 MAX_QUESTIONS_UPLOAD_BYTES = 25_000_000
 JOB_DIR = BASE_DIR / ".lakegen_jobs"
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="LakeGen API",
@@ -196,6 +200,10 @@ def _results_path(job_id: str) -> Path:
     return JOB_DIR / f"{job_id}.results.jsonl"
 
 
+def _questions_path(job_id: str) -> Path:
+    return JOB_DIR / f"{job_id}.questions.json"
+
+
 def _valid_job_id(job_id: str) -> bool:
     return len(job_id) == 32 and all(character in "0123456789abcdef" for character in job_id)
 
@@ -211,10 +219,115 @@ def _persist_job(job: dict[str, Any]) -> None:
     temporary.replace(target)
 
 
+def _persist_questions(job_id: str, questions: list[dict[str, Any]]) -> None:
+    """Persist the immutable batch input used to resume interrupted jobs."""
+
+    JOB_DIR.mkdir(parents=True, exist_ok=True)
+    target = _questions_path(job_id)
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(questions, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    temporary.replace(target)
+
+
+def _load_questions(job_id: str) -> list[dict[str, Any]] | None:
+    if not _valid_job_id(job_id):
+        return None
+    path = _questions_path(job_id)
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, list) else None
+
+
 def _append_result(job_id: str, result: dict[str, Any]) -> None:
     JOB_DIR.mkdir(parents=True, exist_ok=True)
     with _results_path(job_id).open("a", encoding="utf-8") as output:
         output.write(json.dumps(result, ensure_ascii=False) + "\n")
+
+
+def _table_id(value: Any) -> str:
+    """Normalize a selected table filename to the gold resource identifier."""
+
+    name = Path(str(value)).name
+    suffix = Path(name).suffix.casefold()
+    return Path(name).stem if suffix in {".csv", ".parquet", ".pq"} else name
+
+
+def _append_batch_table_metrics(
+    job_id: str,
+    questions: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    settings: dict[str, Any],
+) -> bool:
+    """Log end-to-end table-selection metrics for metric-ready batches.
+
+    A batch is metric-ready only when every question supplies non-empty
+    ``relevant_table_ids`` metadata.  Older query documents are skipped rather
+    than producing partial or misleading aggregate metrics.
+    """
+
+    if not questions or len(questions) != len(results):
+        return False
+
+    case_rows: list[dict[str, Any]] = []
+    metric_rows: list[dict[str, float]] = []
+    successful_metric_rows: list[dict[str, float]] = []
+    for source, entry in zip(questions, results, strict=True):
+        gold = source.get("log_fields", {}).get("SOURCE_RELEVANT_TABLE_IDS")
+        if not isinstance(gold, list) or not gold:
+            return False
+        relevant = list(dict.fromkeys(_table_id(value) for value in gold))
+        result = entry.get("result", {})
+        ranking = list(
+            dict.fromkeys(_table_id(value) for value in result.get("tables", []))
+        )
+        metrics = evaluate_ranking(ranking, relevant, k_values=(1, 5, 10))
+        metric_rows.append(metrics)
+        error = str(result.get("error") or "")
+        if not error:
+            successful_metric_rows.append(metrics)
+        case_rows.append({
+            "case_id": str(source.get("source_id") or source.get("source_path")),
+            "question": source["question"],
+            "relevant_table_ids": relevant,
+            "ranking": ranking,
+            "metrics": metrics,
+            "error": error,
+        })
+
+    resolved = settings["resolved_config"]
+    retrieval = resolved["retrieval"]
+    label = str(resolved.get("experiment_id") or "batch")
+    report = {
+        "benchmark_type": "batch-table-selection",
+        "created_at": _now(),
+        "case_count": len(case_rows),
+        "experiments": {
+            label: {
+                "config": {
+                    **retrieval,
+                    "mode": retrieval["mode"],
+                    "fusion_method": retrieval["fusion_method"],
+                },
+                "mean_metrics": mean_metrics(metric_rows),
+                "mean_metrics_successful_queries": mean_metrics(successful_metric_rows),
+                "successful_case_count": len(successful_metric_rows),
+                "failed_case_count": len(case_rows) - len(successful_metric_rows),
+                "cases": case_rows,
+            }
+        },
+    }
+    append_benchmark_metrics_log(
+        report,
+        BASE_DIR / "logs" / "retrieval_benchmarks_log.csv",
+        run_id=job_id,
+        core=str(resolved["core"]),
+        source_path=questions[0]["source_path"],
+        source_job_ids={label: job_id},
+    )
+    return True
 
 
 def _snapshot_job(job_id: str, *, include_results: bool = True) -> dict[str, Any] | None:
@@ -251,7 +364,11 @@ def _update_job(job_id: str, **changes: Any) -> None:
 
 
 def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str, Any]) -> None:
-    _update_job(job_id, status="running", started_at=_now())
+    with _jobs_lock:
+        current = _jobs[job_id]
+        start_index = len(current.get("results", []))
+        started_at = current.get("started_at") or _now()
+    _update_job(job_id, status="running", started_at=started_at, processed=start_index)
     try:
         config = ExperimentConfig.model_validate(settings["resolved_config"])
         runner = ExperimentRunner(config)
@@ -259,7 +376,7 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
         if nltk_error:
             raise RuntimeError(nltk_error)
 
-        for index, source in enumerate(questions):
+        for index, source in enumerate(questions[start_index:], start=start_index):
             with _workflow_lock:
                 query_result = runner.run(
                     source["question"],
@@ -286,6 +403,17 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
                 snapshot = json.loads(json.dumps(job))
             _persist_job(snapshot)
 
+        with _jobs_lock:
+            completed_results = json.loads(json.dumps(_jobs[job_id]["results"]))
+            metrics_logged = bool(_jobs[job_id].get("metrics_logged"))
+        if not metrics_logged:
+            try:
+                if _append_batch_table_metrics(
+                    job_id, questions, completed_results, settings
+                ):
+                    _update_job(job_id, metrics_logged=True)
+            except Exception:
+                logger.exception("Could not persist batch table-selection metrics")
         _update_job(job_id, status="completed", finished_at=_now())
     except Exception as exc:
         _update_job(
@@ -446,6 +574,7 @@ def _enqueue_batch(payload: Any, resolved_config: ExperimentConfig) -> BatchAcce
         "question_count": len(questions),
         "processed": 0,
         "failed": 0,
+        "metrics_logged": False,
         "settings": {
             "resolved_config": resolved_config.model_dump(mode="json"),
         },
@@ -454,6 +583,7 @@ def _enqueue_batch(payload: Any, resolved_config: ExperimentConfig) -> BatchAcce
     }
     with _jobs_lock:
         _jobs[job_id] = job
+    _persist_questions(job_id, questions)
     _persist_job(job)
     _executor.submit(_run_batch, job_id, questions, job["settings"])
 
@@ -463,6 +593,51 @@ def _enqueue_batch(payload: Any, resolved_config: ExperimentConfig) -> BatchAcce
         question_count=len(questions),
         status_url=f"/v1/batches/{job_id}",
     )
+
+
+def _recover_incomplete_jobs() -> list[str]:
+    """Resume persisted queued/running jobs from their last durable result."""
+
+    if not JOB_DIR.is_dir():
+        return []
+    recovered: list[str] = []
+    for path in sorted(JOB_DIR.glob("*.json")):
+        job_id = path.stem
+        if not _valid_job_id(job_id):
+            continue
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+            if metadata.get("status") not in {"queued", "running"}:
+                continue
+            questions = _load_questions(job_id)
+            if not questions:
+                logger.warning(
+                    "Cannot resume job %s because its question checkpoint is missing",
+                    job_id,
+                )
+                continue
+            job = _snapshot_job(job_id) or metadata
+            results = job.get("results", [])
+            job["processed"] = len(results)
+            job["failed"] = sum(
+                entry.get("result", {}).get("status") != "completed"
+                for entry in results
+            )
+            job["status"] = "queued"
+            job["updated_at"] = _now()
+            with _jobs_lock:
+                _jobs[job_id] = job
+            _persist_job(job)
+            _executor.submit(_run_batch, job_id, questions, job["settings"])
+            recovered.append(job_id)
+        except Exception:
+            logger.exception("Could not recover batch job %s", job_id)
+    return recovered
+
+
+@app.on_event("startup")
+def recover_incomplete_jobs() -> None:
+    _recover_incomplete_jobs()
 
 
 @app.post(

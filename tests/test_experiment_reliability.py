@@ -95,6 +95,12 @@ def test_csv_architecture_matches_manifest_and_trace(
 
     assert result.status == "completed"
     assert logged["architecture"] == architecture
+    if architecture == "unified":
+        assert logged["tokens_phase1"] == 3
+        assert logged["tokens_phase2"] == 0
+    else:
+        assert logged["tokens_phase1"] == 1
+        assert logged["tokens_phase2"] == 2
     assert result.manifest["resolved_config"]["discovery_architecture"] == architecture
     run_trace = logged["extra_fields"]["RUN_TRACE_JSON"]
     assert run_trace["architecture"] == architecture

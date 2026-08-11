@@ -124,6 +124,25 @@ def test_gpt_oss_provider_is_registered():
     assert isinstance(resources.PROVIDERS["meta"], resources._OCIGenericProvider)
 
 
+def test_oci_stream_drops_unsupported_think_option(monkeypatch):
+    captured = {}
+
+    def fake_stream_chat(_self, messages, **kwargs):
+        captured.update(messages=messages, kwargs=kwargs)
+        return iter(())
+
+    monkeypatch.setattr(resources.OCIGenAI, "stream_chat", fake_stream_chat)
+    llm = resources._LakeGenOCIGenAI.model_construct(
+        model=resources.OPENAI_GPT_OSS_MODEL
+    )
+
+    assert list(llm.stream_chat(["message"], think=True, request_id="run-1")) == []
+    assert captured == {
+        "messages": ["message"],
+        "kwargs": {"request_id": "run-1"},
+    }
+
+
 def test_generic_stream_tool_call_fragments_are_accumulated():
     accumulated = []
 

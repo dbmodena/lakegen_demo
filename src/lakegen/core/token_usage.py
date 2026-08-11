@@ -6,6 +6,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+import tiktoken
+
 
 _TOTAL_KEYS = ("total_tokens", "totalTokens")
 _PROMPT_KEYS = ("prompt_tokens", "promptTokens", "input_tokens", "inputTokens")
@@ -119,3 +121,26 @@ def reset_llm_token_usage(llm: Any) -> None:
 
 def get_llm_token_usage(llm: Any) -> int:
     return _non_negative_int(getattr(llm, "token_usage_total", 0))
+
+
+def estimate_tokens(*values: Any) -> int:
+    """Estimate request/response tokens when the provider omits usage metadata.
+
+    OCI does not consistently include usage on agent tool-call responses.  The
+    estimate is deliberately centralized so those calls are still accounted
+    for instead of silently being logged as zero.
+    """
+
+    encoding = tiktoken.get_encoding("cl100k_base")
+    text_parts: list[str] = []
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            text_parts.append(value)
+            continue
+        try:
+            text_parts.append(json.dumps(value, default=str, ensure_ascii=False))
+        except (TypeError, ValueError):
+            text_parts.append(str(value))
+    return len(encoding.encode("\n".join(text_parts)))

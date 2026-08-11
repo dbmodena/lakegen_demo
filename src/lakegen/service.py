@@ -247,6 +247,7 @@ def run_question(
 
     started = time.monotonic()
     result = QueryResult(question=question, status="running")
+    discovery_phase_tokens = {"p1": 0, "p2": 0}
     experiment = getattr(runtime, "experiment", None)
     if experiment is None:
         # Compatibility for lightweight test/third-party RuntimeSettings-like
@@ -479,6 +480,13 @@ def run_question(
                         context_telemetry["empty_context_retries"] += 1
                         hint = f"The previous keywords returned no datasets. Generate different keywords. Attempted: {attempted_keywords}"
                 result.tokens["p1_p2"] += architecture_tokens
+                if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:
+                    discovery_phase_tokens["p1"] += tokens_p1
+                    discovery_phase_tokens["p2"] += tokens_p2
+                else:
+                    # A unified agent owns both logical phases, so its usage is
+                    # intentionally kept together in the Phase 1 log column.
+                    discovery_phase_tokens["p1"] += architecture_tokens
                 discovery_elapsed = round(time.monotonic() - discovery_started, 6)
                 discovery_metric = result.phase_metrics.setdefault(
                     "discovery", {"latency_seconds": 0.0, "retries": 0}
@@ -746,7 +754,8 @@ def run_question(
                     final_keywords=keywords,
                     final_result=result.answer,
                     full_trace=trace,
-                    tokens_phase1=result.tokens["p1_p2"],
+                    tokens_phase1=discovery_phase_tokens["p1"],
+                    tokens_phase2=discovery_phase_tokens["p2"],
                     tokens_phase3=result.tokens["p3"],
                     tokens_phase4=result.tokens["p4"],
                     error=result.error,

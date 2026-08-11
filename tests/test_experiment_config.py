@@ -268,7 +268,10 @@ def test_divided_autonomous_runner_executes_real_separate_phases(monkeypatch, tm
         "lakegen.service.phase4_synthesize", lambda *_args: ("The answer is 42.", 5)
     )
     monkeypatch.setattr("lakegen.service.persist_manifest", lambda *_args: tmp_path)
-    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+    logged = {}
+    monkeypatch.setattr(
+        "lakegen.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+    )
     monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question("Question?", runtime)
@@ -276,6 +279,8 @@ def test_divided_autonomous_runner_executes_real_separate_phases(monkeypatch, tm
     assert result.status == "completed"
     assert result.tables == ["table.csv"]
     assert result.tokens == {"p1_p2": 5, "p3": 4, "p4": 5}
+    assert logged["tokens_phase1"] == 2
+    assert logged["tokens_phase2"] == 3
     assert {call["phase"] for call in result.llm_calls} == {
         "discovery", "code", "result"
     }

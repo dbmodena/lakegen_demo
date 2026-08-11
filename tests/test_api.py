@@ -1,4 +1,6 @@
 import src.api as api
+import csv
+import json
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -33,6 +35,69 @@ def test_job_persistence_separates_metadata_and_results(tmp_path, monkeypatch):
     assert with_results["results"][0]["question"] == "One?"
     assert "results" not in without_results
     assert "results" not in api._job_path(job_id).read_text(encoding="utf-8")
+
+
+def test_batch_question_checkpoint_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    job_id = "b" * 32
+    questions = [{"question": "One?", "source_id": "q1"}]
+
+    api._persist_questions(job_id, questions)
+
+    assert api._load_questions(job_id) == questions
+
+
+def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(api, "ExperimentConfig", type("Config", (), {
+        "model_validate": staticmethod(lambda _settings: object())
+    }))
+    calls = []
+
+    class FakeResult:
+        def to_dict(self):
+            return {"status": "completed", "error": "", "tables": []}
+
+    class FakeRunner:
+        def __init__(self, _config):
+            pass
+
+        def run(self, question, **_kwargs):
+            calls.append(question)
+            return FakeResult()
+
+    monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
+    monkeypatch.setattr(api, "_append_batch_table_metrics", lambda *_args: False)
+    job_id = "c" * 32
+    first = {
+        "question": "One?",
+        "source_path": "$.cases[0].question",
+        "source_id": "q1",
+        "result": {"status": "completed", "error": "", "tables": []},
+    }
+    questions = [
+        {"question": "One?", "source_path": "$.cases[0].question", "source_id": "q1", "log_fields": {}},
+        {"question": "Two?", "source_path": "$.cases[1].question", "source_id": "q2", "log_fields": {}},
+    ]
+    api._jobs[job_id] = {
+        "job_id": job_id,
+        "status": "running",
+        "started_at": "start",
+        "updated_at": "start",
+        "processed": 1,
+        "failed": 0,
+        "metrics_logged": False,
+        "results": [first],
+    }
+
+    api._run_batch(job_id, questions, {"resolved_config": {}})
+
+    assert calls == ["Two?"]
+    assert api._jobs[job_id]["processed"] == 2
+    assert len(api._jobs[job_id]["results"]) == 2
+    assert api._jobs[job_id]["status"] == "completed"
+    api._jobs.pop(job_id, None)
 
 
 def test_invalid_job_id_cannot_be_used_as_a_path(tmp_path, monkeypatch):
@@ -201,6 +266,73 @@ def test_single_query_passes_the_complete_request_to_csv_logging(monkeypatch):
     assert captured["log_context"]["SOURCE_PATH"] == "$.question"
     assert captured["log_context"]["SOURCE_RETRIEVAL_MODE"] == "hybrid"
     assert captured["log_context"]["SOURCE_TOP_K"] == 25
+
+
+def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "BASE_DIR", tmp_path)
+    questions = [
+        {
+            "question": "One?",
+            "source_path": "$.cases[0].question",
+            "source_id": "q1",
+            "log_fields": {"SOURCE_RELEVANT_TABLE_IDS": ["gold-a", "gold-b"]},
+        },
+        {
+            "question": "Two?",
+            "source_path": "$.cases[1].question",
+            "source_id": "q2",
+            "log_fields": {"SOURCE_RELEVANT_TABLE_IDS": ["gold-c"]},
+        },
+    ]
+    results = [
+        {"result": {"tables": ["gold-a.parquet", "other.parquet", "gold-b.parquet"], "error": ""}},
+        {"result": {"tables": ["other.parquet", "gold-c.parquet"], "error": ""}},
+    ]
+    settings = {
+        "resolved_config": {
+            "experiment_id": "architecture-test",
+            "core": "nyc",
+            "retrieval": {
+                "mode": "keyword",
+                "fusion_method": "weighted",
+                "alpha": 0.5,
+                "rrf_k": 60,
+                "top_k": 10,
+                "candidate_multiplier": 5,
+                "representation_version": "metadata-v1",
+                "embedding_model": "bge-m3",
+            },
+        }
+    }
+
+    assert api._append_batch_table_metrics("job-1", questions, results, settings)
+
+    with (tmp_path / "logs" / "retrieval_benchmarks_log.csv").open(
+        newline="", encoding="utf-8"
+    ) as input_file:
+        row = next(csv.DictReader(input_file))
+    assert row["JOB_ID"] == "job-1"
+    assert row["BENCHMARK_TYPE"] == "batch-table-selection"
+    assert row["QUESTION_COUNT"] == "2"
+    assert row["RECALL_AT_1"] == "0.25"
+    assert row["MRR"] == "0.75"
+    cases = json.loads(row["CASE_METRICS_JSON"])
+    assert cases[0]["relevant_table_ids"] == ["gold-a", "gold-b"]
+
+
+def test_batch_metrics_skip_legacy_questions_without_gold_tables(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "BASE_DIR", tmp_path)
+    questions = [{
+        "question": "Legacy?",
+        "source_path": "$.questions[0]",
+        "source_id": 0,
+        "log_fields": {},
+    }]
+
+    assert not api._append_batch_table_metrics(
+        "job-legacy", questions, [{"result": {"tables": ["table.parquet"]}}], {}
+    )
+    assert not (tmp_path / "logs" / "retrieval_benchmarks_log.csv").exists()
 
 
 @pytest.mark.asyncio

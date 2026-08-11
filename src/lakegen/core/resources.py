@@ -22,7 +22,7 @@ from llama_index.llms.oci_genai.utils import CHAT_MODELS, PROVIDERS, XAIProvider
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.core.table_io import list_table_files
-from lakegen.core.token_usage import extract_total_tokens
+from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
 from lakegen.core.config import LOG_DIR
 from lakegen.retrieval import RetrievalConfig, RetrievalRunLogger, TableRetrievalService
 from lakegen.retrieval.models import RetrievalRun
@@ -226,28 +226,37 @@ class _LakeGenOCIGenAI(OCIGenAI):
         response = super().chat(messages, **kwargs)
         total = self._record_token_usage(response.raw)
         if not total:
-            self._record_token_usage(response.message.additional_kwargs)
+            total = self._record_token_usage(response.message.additional_kwargs)
+        if not total:
+            self._token_usage_total += estimate_tokens(
+                messages, kwargs, getattr(response.message, "content", "")
+            )
         return response
 
     def stream_chat(self, messages, **kwargs):
+        # ``think`` is an Ollama-specific request option.  Phase 1 and Phase 3
+        # use it to request a separate reasoning stream when the backend
+        # supports that feature, but OCI rejects unknown request parameters.
+        # OCI may still return reasoning fields on its own, so only remove the
+        # unsupported request option and continue processing the response.
+        kwargs.pop("think", None)
         stream = super().stream_chat(messages, **kwargs)
-        if self.model not in GENERIC_CHAT_MODELS:
-            return stream
-
         def generate():
             accumulated_tool_calls: list[dict[str, Any]] = []
             recorded_for_request = 0
+            response_parts: list[str] = []
             for chunk in stream:
+                response_parts.append(str(getattr(chunk, "delta", "") or ""))
                 raw = chunk.raw if isinstance(chunk.raw, dict) else {}
                 raw_data = raw.get("data", "")
                 event_data = {}
                 if raw_data:
                     try:
                         event_data = json.loads(raw_data)
-                        _merge_generic_stream_tool_calls(
-                            accumulated_tool_calls,
-                            event_data,
-                        )
+                        if self.model in GENERIC_CHAT_MODELS:
+                            _merge_generic_stream_tool_calls(
+                                accumulated_tool_calls, event_data
+                            )
                     except json.JSONDecodeError:
                         pass
                 usage_total = extract_total_tokens(event_data)
@@ -257,13 +266,20 @@ class _LakeGenOCIGenAI(OCIGenAI):
                     chunk.message.additional_kwargs["usage"] = {
                         "total_tokens": usage_total
                     }
-                if event_data.get("finishReason") == "tool_calls":
+                if (
+                    self.model in GENERIC_CHAT_MODELS
+                    and event_data.get("finishReason") == "tool_calls"
+                ):
                     finalized = _finalized_stream_tool_calls(
                         accumulated_tool_calls
                     )
                     if finalized:
                         chunk.message.additional_kwargs["tool_calls"] = finalized
                 yield chunk
+            if recorded_for_request == 0:
+                self._token_usage_total += estimate_tokens(
+                    messages, kwargs, "".join(response_parts)
+                )
 
         return generate()
 

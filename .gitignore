@@ -32,6 +32,7 @@ data/
 data
 logs
 queries_old
+queries
 fonti
 
 # Ignore dynamically generated Python code by the agent
