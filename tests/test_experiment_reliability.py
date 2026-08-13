@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.experiment_config import ExperimentConfig
-from lakegen.retrieval import RetrievalConfig
+from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalRun
 from lakegen.service import run_question
 from lakegen.ui.state import LakeGenSession
 from src.cli import _ask_input, _ask_yes_no
@@ -14,6 +14,7 @@ from lakegen.tracing import (
     HumanInterventionRecorder,
     build_llm_phase_records,
     summarize_final_ranking,
+    summarize_tool_calls,
     normalize_hint,
 )
 from lakegen.runner import ExperimentRunner
@@ -111,6 +112,103 @@ def test_csv_architecture_matches_manifest_and_trace(
     assert reproducibility["generated_code_seed_instruction_provided"] is True
     assert reproducibility["generated_code_seed_usage_verified"] is False
     assert reproducibility["seed_applied_to"] == []
+
+
+def test_agentic_retrieval_telemetry_keeps_hits_scores_and_job_context(
+    monkeypatch, tmp_path
+):
+    config = ExperimentConfig(
+        interaction_mode="autonomous",
+        retrieval={"mode": "semantic"},
+    )
+    runtime = _runtime(config, tmp_path)
+    runtime.retrieval = config.retrieval.to_runtime()
+    _mock_successful_tail(monkeypatch)
+    persisted_runs = []
+    monkeypatch.setattr(
+        "lakegen.core.resources.get_retrieval_run_logger",
+        lambda: persisted_runs.append,
+    )
+
+    def phase12(**kwargs):
+        kwargs["retrieval_observer"](RetrievalRun(
+            mode="semantic",
+            question="Question?",
+            keywords=[],
+            top_k=10,
+            representation_version="metadata-v1",
+            embedding_model="bge-m3",
+            hits=[RetrievalHit(
+                document={
+                    "resource_id": "table",
+                    "dataset_id": "table",
+                    "title": "Table",
+                },
+                score=0.91,
+                rank=1,
+                semantic_score=0.91,
+                semantic_rank=1,
+            )],
+        ))
+        return ["table.csv"], ["table"], {}, "selected", "trace", 3
+
+    monkeypatch.setattr("lakegen.service.phase12_agent", phase12)
+    logged = {}
+    monkeypatch.setattr(
+        "lakegen.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+    )
+
+    result = run_question(
+        "Question?",
+        runtime,
+        log_context={
+            "JOB_ID": "job-1",
+            "SOURCE_PATH": "$.cases[0].question",
+            "SOURCE_ID": "case-1",
+            "EXECUTION_ATTEMPT": 1,
+        },
+    )
+
+    assert result.pipeline_stages["retrieval"] == "hit"
+    assert result.ranking == [{
+        "attempt": 1,
+        "mode": "semantic",
+        "resource_id": "table",
+        "rank": 1,
+        "score": 0.91,
+        "selected": True,
+    }]
+    runs = logged["extra_fields"]["RETRIEVAL_RUNS_JSON"]
+    assert len(runs) == 1
+    assert runs[0]["job_id"] == "job-1"
+    assert runs[0]["source_id"] == "case-1"
+    assert runs[0]["retrieval_attempt"] == 1
+    assert runs[0]["hits"][0]["semantic_score"] == 0.91
+    assert runs[0]["hits"][0]["semantic_rank"] == 1
+    assert persisted_runs[0].job_id == "job-1"
+    assert persisted_runs[0].source_path == "$.cases[0].question"
+    assert {
+        (item["type"], item["count"], item["actor"])
+        for item in result.tool_calls
+    } >= {("retrieval:semantic", 1, "agent")}
+
+
+def test_tool_telemetry_counts_calls_without_counting_results_twice():
+    trace = """
+**Phase 2 tool #1: Run tool**
+- Tool: `search_solr`
+**Phase 2 tool #1 result**
+- Tool: `search_solr`
+**Phase 2 tool #2: Inspect columns**
+- Tool: `inspect_columns`
+**Phase 2 tool #2 result**
+- Tool: `inspect_columns`
+"""
+
+    assert summarize_tool_calls(trace) == [
+        {"phase": "discovery", "type": "inspect_columns", "count": 1},
+        {"phase": "discovery", "type": "search_solr", "count": 1},
+    ]
 
 
 @pytest.mark.parametrize("failure_point", ["discovery", "before_prompt"])

@@ -18,6 +18,7 @@ from lakegen.core.resources import (
     get_prompt_manager,
     get_solr,
     log_retrieval_decision,
+    make_retrieval_run_observer,
 )
 from lakegen.phases import (
     phase1_generate_keywords,
@@ -313,6 +314,10 @@ def run_question(
         "EXPERIMENT_ID": experiment.experiment_id,
     }
     with capture_retrieval_runs(retrieval_log_context) as retrieval_runs:
+        agentic_retrieval_observer = make_retrieval_run_observer(
+            retrieval_log_context,
+            retrieval_runs,
+        )
         try:
             for table_attempt in range(MAX_TABLE_ATTEMPTS):
                 discovery_started = time.monotonic()
@@ -339,6 +344,7 @@ def run_question(
                         portal_name=runtime.portal_name,
                         retrieval_config=runtime.retrieval,
                         state=selection_state,
+                        retrieval_observer=agentic_retrieval_observer,
                     )
                     phase_invocation_counts["discovery"] += 1
                     context_telemetry["llm_invocations"] += 1

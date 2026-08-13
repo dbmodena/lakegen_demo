@@ -1,6 +1,7 @@
 import json
 import re
 from pathlib import Path
+from typing import Callable
 from pydantic import BaseModel, Field
 
 from llama_index.core.tools import FunctionTool
@@ -19,6 +20,7 @@ from lakegen.core.resources import get_table_retrieval_service
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalConfig,
+    RetrievalRun,
     RetrievalMode,
 )
 
@@ -61,6 +63,7 @@ class Phase12ToolsManager:
         csv_dir: Path,
         question: str = "",
         retrieval_config: RetrievalConfig | None = None,
+        retrieval_observer: Callable[[RetrievalRun], None] | None = None,
     ):
         self.state = state
         self.solr_client = solr_client
@@ -68,6 +71,7 @@ class Phase12ToolsManager:
         self.csv_dir = Path(csv_dir)
         self.question = question
         self.retrieval_config = retrieval_config or RetrievalConfig()
+        self.retrieval_observer = retrieval_observer
 
     def _search_cache_key(self, keywords: list[str]) -> tuple[str, ...]:
         # The agent-facing contract allows one retrieval request regardless of
@@ -113,9 +117,17 @@ class Phase12ToolsManager:
             self.state.keyword_history.append(keywords)
             attempt = len(self.state.keyword_history)
 
-            retriever = get_table_retrieval_service(
-                self.solr_client, self.retrieval_config
-            )
+            if self.retrieval_observer is None:
+                retriever = get_table_retrieval_service(
+                    self.solr_client,
+                    self.retrieval_config,
+                )
+            else:
+                retriever = get_table_retrieval_service(
+                    self.solr_client,
+                    self.retrieval_config,
+                    observer=self.retrieval_observer,
+                )
             # Solr candidates must first be mapped and de-duplicated against
             # local files.  Request a wider ranked list here and apply the
             # workflow's final top_k only after that mapping below.
@@ -282,6 +294,7 @@ def make_p12_tools(
     csv_dir: Path,
     question: str = "",
     retrieval_config: RetrievalConfig | None = None,
+    retrieval_observer: Callable[[RetrievalRun], None] | None = None,
 ):
     """
     Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
@@ -294,5 +307,6 @@ def make_p12_tools(
         csv_dir,
         question=question,
         retrieval_config=retrieval_config,
+        retrieval_observer=retrieval_observer,
     )
     return manager.get_tools()

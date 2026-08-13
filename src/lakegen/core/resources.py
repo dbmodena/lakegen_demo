@@ -6,7 +6,8 @@ from functools import lru_cache
 import json
 import os
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Union
+from threading import Lock
+from typing import Any, Callable, Mapping, Optional, Sequence, Union
 import uuid
 
 import oci
@@ -452,6 +453,39 @@ def _log_and_capture_retrieval_run(run: RetrievalRun) -> None:
         captured.append(payload)
 
 
+def make_retrieval_run_observer(
+    context: Mapping[str, Any] | None,
+    captured: list[dict[str, Any]],
+) -> Callable[[RetrievalRun], None]:
+    """Build a thread-safe observer with explicit workflow context.
+
+    Agent tools may run in a worker context where ``ContextVar`` values are not
+    propagated.  Binding the context and destination here keeps agentic
+    retrieval telemetry attached to the correct job without changing retrieval.
+    """
+
+    bound_context = dict(context or {})
+    lock = Lock()
+    attempt = 0
+
+    def observe(run: RetrievalRun) -> None:
+        nonlocal attempt
+        with lock:
+            attempt += 1
+            run.job_id = bound_context.get("JOB_ID")
+            run.source_path = bound_context.get("SOURCE_PATH")
+            run.source_id = bound_context.get("SOURCE_ID")
+            run.execution_attempt = bound_context.get("EXECUTION_ATTEMPT")
+            run.experiment_id = bound_context.get("EXPERIMENT_ID")
+            run.retrieval_attempt = attempt
+            get_retrieval_run_logger()(run)
+            payload = run.to_log_dict()
+            payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+            captured.append(payload)
+
+    return observe
+
+
 def log_retrieval_decision(
     *,
     question: str,
@@ -485,11 +519,13 @@ def log_retrieval_decision(
 def get_table_retrieval_service(
     solr: LocalSolrClient,
     config: RetrievalConfig,
+    *,
+    observer: Callable[[RetrievalRun], None] | None = None,
 ) -> TableRetrievalService:
     return TableRetrievalService(
         solr,
         config,
-        observer=_log_and_capture_retrieval_run,
+        observer=observer or _log_and_capture_retrieval_run,
     )
 
 

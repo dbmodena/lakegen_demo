@@ -34,6 +34,7 @@ from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.agent_tools.tools_p12 import P12State, make_p12_tools
 from lakegen.retrieval import RetrievalConfig
+from lakegen.retrieval.models import RetrievalRun
 
 def phase12_agent(
     query: str,
@@ -48,6 +49,7 @@ def phase12_agent(
     cancel_check: Callable[[], None] | None = None,
     retrieval_config: RetrievalConfig | None = None,
     state: P12State | None = None,
+    retrieval_observer: Callable[[RetrievalRun], None] | None = None,
 ) -> tuple[list[str], list[str], SolrMetadata, str, str, int]:
 
     state = state or P12State()
@@ -58,6 +60,7 @@ def phase12_agent(
         csv_dir,
         question=query,
         retrieval_config=retrieval_config,
+        retrieval_observer=retrieval_observer,
     )
 
     system_prompt = pm.render(

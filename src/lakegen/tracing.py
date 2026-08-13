@@ -116,12 +116,22 @@ _TOOL_PATTERNS = (
     re.compile(r"tool_name=['\"]([\w.-]+)['\"]"),
 )
 
+_FORMATTED_TOOL_CALL_PATTERN = re.compile(
+    r"\*\*Phase 2 tool #\d+:.*?\*\*\s*\n- Tool:\s*`([^`]+)`",
+    re.MULTILINE,
+)
+
 
 def summarize_tool_calls(trace: str) -> list[dict[str, object]]:
     counts: dict[str, int] = {}
-    for pattern in _TOOL_PATTERNS:
-        for name in pattern.findall(trace or ""):
+    formatted_calls = _FORMATTED_TOOL_CALL_PATTERN.findall(trace or "")
+    if formatted_calls:
+        for name in formatted_calls:
             counts[name] = counts.get(name, 0) + 1
+    else:
+        for pattern in _TOOL_PATTERNS:
+            for name in pattern.findall(trace or ""):
+                counts[name] = counts.get(name, 0) + 1
     return [
         {"phase": "discovery", "type": name, "count": count}
         for name, count in sorted(counts.items())

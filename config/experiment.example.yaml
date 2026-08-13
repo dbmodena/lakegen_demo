@@ -1,6 +1,6 @@
 # Free-form experiment identifier. It is stored in manifests and logs so runs
 # can be distinguished and reproduced. It must not be empty.
-experiment_id: thesis-baseline-002.1
+experiment_id: thesis-baseline-002.2
 
 # Experiment seed (integer >= 0), recorded to make runs comparable.
 seed: 0
