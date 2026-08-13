@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from functools import lru_cache
+import hashlib
+import logging
 import math
 import time
 from typing import Callable, Protocol
@@ -27,6 +29,11 @@ class EmbeddingModel(Protocol):
 DEFAULT_QUERY_MAX_CHARS = 8192
 DEFAULT_RETRY_DELAYS = (0.25, 1.0)
 KNOWN_MODEL_DIMENSIONS = {"bge-m3": 1024}
+QUERY_NON_FINITE_FALLBACK_PREFIX = (
+    "Represent this question for dataset retrieval. "
+)
+EMBEDDING_HEALTH_CHECK_QUERY = "LakeGen dataset retrieval health check."
+logger = logging.getLogger(__name__)
 
 
 def _normalize_query(text: str, *, max_chars: int = DEFAULT_QUERY_MAX_CHARS) -> str:
@@ -72,6 +79,25 @@ def _validate(
             f"Embedding model returned an implausible vector norm ({norm:.6g})"
         )
     return result
+
+
+def _is_non_finite_provider_failure(exc: Exception) -> bool:
+    """Identify deterministic provider failures caused by invalid float output."""
+
+    messages: list[str] = []
+    current: BaseException | None = exc
+    while current is not None:
+        messages.append(str(current).casefold())
+        current = current.__cause__
+    detail = " ".join(messages)
+    return any(
+        marker in detail
+        for marker in (
+            "unsupported value: nan",
+            "non-finite vector",
+            "zero-norm vector",
+        )
+    )
 
 
 class OllamaMultilingualEmbedding:
@@ -123,21 +149,68 @@ class OllamaMultilingualEmbedding:
         retry_delays = getattr(self, "retry_delays", DEFAULT_RETRY_DELAYS)
         expected_dimension = getattr(self, "expected_dimension", None)
         sleeper = getattr(self, "_sleep", time.sleep)
+        started = time.monotonic()
+        attempt_count = 0
         last_error: Exception | None = None
-        attempts = len(retry_delays) + 1
-        for attempt in range(attempts):
-            try:
-                return _validate(
-                    self._model.get_query_embedding(normalized),
-                    expected_dimension=expected_dimension,
+
+        def attempt(candidate: str) -> list[float] | None:
+            nonlocal attempt_count, last_error
+            for attempt_index in range(len(retry_delays) + 1):
+                attempt_count += 1
+                try:
+                    return _validate(
+                        self._model.get_query_embedding(candidate),
+                        expected_dimension=expected_dimension,
+                    )
+                except Exception as exc:
+                    last_error = exc
+                    # Repeating identical text cannot repair deterministic NaN
+                    # output from the model. Let the caller switch to the
+                    # semantically equivalent retrieval-prefixed query.
+                    if _is_non_finite_provider_failure(exc):
+                        break
+                    if attempt_index < len(retry_delays):
+                        sleeper(retry_delays[attempt_index])
+            return None
+
+        vector = attempt(normalized)
+        if vector is not None:
+            return vector
+
+        used_fallback = bool(
+            last_error is not None
+            and _is_non_finite_provider_failure(last_error)
+        )
+        if used_fallback:
+            vector = attempt(QUERY_NON_FINITE_FALLBACK_PREFIX + normalized)
+            if vector is not None:
+                logger.warning(
+                    "Recovered non-finite query embedding: model=%s "
+                    "attempts=%d duration_seconds=%.6f query_sha256=%s",
+                    getattr(self, "model_name", "unknown"),
+                    attempt_count,
+                    time.monotonic() - started,
+                    hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
                 )
-            except Exception as exc:
-                last_error = exc
-                if attempt < len(retry_delays):
-                    sleeper(retry_delays[attempt])
+                return vector
+
+        duration = time.monotonic() - started
+        logger.error(
+            "Query embedding failed: model=%s base_url=%s attempts=%d "
+            "duration_seconds=%.6f fallback=%s error_type=%s error=%s",
+            getattr(self, "model_name", "unknown"),
+            getattr(self, "base_url", "unknown"),
+            attempt_count,
+            duration,
+            used_fallback,
+            type(last_error).__name__,
+            last_error,
+        )
         raise EmbeddingGenerationError(
             "The embedding service failed to produce a valid query vector "
-            f"after {attempts} attempts; last error: "
+            f"for model {getattr(self, 'model_name', 'unknown')!r} after "
+            f"{attempt_count} attempts in {duration:.3f}s "
+            f"(non-finite fallback used: {used_fallback}); last error: "
             f"{type(last_error).__name__}: {last_error}"
         ) from last_error
 
@@ -159,3 +232,17 @@ def get_embedding_model(
     base_url: str,
 ) -> OllamaMultilingualEmbedding:
     return OllamaMultilingualEmbedding(model_name=model_name, base_url=base_url)
+
+
+def check_embedding_health(model_name: str, base_url: str) -> dict[str, object]:
+    """Verify provider availability and vector validity before a semantic batch."""
+
+    started = time.monotonic()
+    model = get_embedding_model(model_name, base_url)
+    vector = model.encode_query(EMBEDDING_HEALTH_CHECK_QUERY)
+    return {
+        "model": model_name,
+        "base_url": base_url,
+        "dimension": len(vector),
+        "duration_seconds": round(time.monotonic() - started, 6),
+    }

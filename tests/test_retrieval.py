@@ -134,7 +134,30 @@ def test_query_embedding_retries_transient_provider_failure():
     assert delays == [0.25, 1.0]
 
 
-def test_query_embedding_reports_provider_failure_after_three_attempts():
+def test_query_embedding_uses_retrieval_prefix_after_deterministic_nan():
+    class NanSensitiveModel:
+        def __init__(self):
+            self.queries = []
+
+        def get_query_embedding(self, text):
+            self.queries.append(text)
+            if text.startswith("Represent this question for dataset retrieval. "):
+                return [0.25, 0.75]
+            raise RuntimeError("unsupported value: NaN")
+
+    embedding = OllamaMultilingualEmbedding.__new__(OllamaMultilingualEmbedding)
+    embedding._model = NanSensitiveModel()
+    embedding.retry_delays = (0.0, 0.0)
+    embedding._sleep = lambda _delay: None
+
+    assert embedding.encode_query("valid question") == [0.25, 0.75]
+    assert embedding._model.queries == [
+        "valid question",
+        "Represent this question for dataset retrieval. valid question",
+    ]
+
+
+def test_query_embedding_reports_provider_failure_after_nan_fallback():
     class BrokenModel:
         def __init__(self):
             self.calls = 0
@@ -150,9 +173,31 @@ def test_query_embedding_reports_provider_failure_after_three_attempts():
 
     with pytest.raises(EmbeddingGenerationError) as error:
         embedding.encode_query("valid question")
+    assert embedding._model.calls == 2
+    assert "after 2 attempts" in str(error.value)
+    assert "non-finite fallback used: True" in str(error.value)
+    assert "RuntimeError: unsupported value: NaN" in str(error.value)
+
+
+def test_query_embedding_still_retries_transient_non_nan_failure():
+    class BrokenModel:
+        def __init__(self):
+            self.calls = 0
+
+        def get_query_embedding(self, _text):
+            self.calls += 1
+            raise RuntimeError("connection reset")
+
+    embedding = OllamaMultilingualEmbedding.__new__(OllamaMultilingualEmbedding)
+    embedding._model = BrokenModel()
+    embedding.retry_delays = (0.0, 0.0)
+    embedding._sleep = lambda _delay: None
+
+    with pytest.raises(EmbeddingGenerationError) as error:
+        embedding.encode_query("valid question")
     assert embedding._model.calls == 3
     assert "after 3 attempts" in str(error.value)
-    assert "RuntimeError: unsupported value: NaN" in str(error.value)
+    assert "non-finite fallback used: False" in str(error.value)
 
 
 def test_query_embedding_normalizes_input_and_checks_known_model_dimension():

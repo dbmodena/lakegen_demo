@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 import math
+import time
 from typing import Any
 
 from src.client_solr import LocalSolrClient
@@ -361,30 +362,70 @@ class TableRetrievalService:
         q_op: str = "AND",
     ) -> list[RetrievalHit]:
         requested_k = top_k or self.config.top_k
-        if self.config.mode == RetrievalMode.KEYWORD:
-            fetch_k = max(lexical_fetch_k or requested_k, requested_k)
-            hits = self.keyword.retrieve(
-                keywords,
-                top_k=fetch_k,
-                q_op=q_op,
-            )[:requested_k]
-            for rank, hit in enumerate(hits, 1):
-                hit.rank = rank
-                hit.lexical_rank = rank
-        elif self.config.mode == RetrievalMode.SEMANTIC:
-            assert self.semantic is not None
-            hits = self.semantic.retrieve(question, top_k=requested_k)
-        else:
-            assert self.hybrid is not None
-            hits = self.hybrid.retrieve(question, keywords, top_k=requested_k)
+        started = time.monotonic()
+        try:
+            if self.config.mode == RetrievalMode.KEYWORD:
+                fetch_k = max(lexical_fetch_k or requested_k, requested_k)
+                hits = self.keyword.retrieve(
+                    keywords,
+                    top_k=fetch_k,
+                    q_op=q_op,
+                )[:requested_k]
+                for rank, hit in enumerate(hits, 1):
+                    hit.rank = rank
+                    hit.lexical_rank = rank
+            elif self.config.mode == RetrievalMode.SEMANTIC:
+                assert self.semantic is not None
+                hits = self.semantic.retrieve(question, top_k=requested_k)
+            else:
+                assert self.hybrid is not None
+                hits = self.hybrid.retrieve(question, keywords, top_k=requested_k)
+        except Exception as exc:
+            run = self._run_record(
+                question=question,
+                keywords=keywords,
+                requested_k=requested_k,
+                hits=[],
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+                duration_seconds=time.monotonic() - started,
+            )
+            if self.observer is not None:
+                self.observer(run)
+            raise
 
-        run = RetrievalRun(
+        run = self._run_record(
+            question=question,
+            keywords=keywords,
+            requested_k=requested_k,
+            hits=hits,
+            duration_seconds=time.monotonic() - started,
+        )
+        if self.observer is not None:
+            self.observer(run)
+        return hits
+
+    def _run_record(
+        self,
+        *,
+        question: str,
+        keywords: Sequence[str],
+        requested_k: int,
+        hits: list[RetrievalHit],
+        status: str = "succeeded",
+        error: str = "",
+        duration_seconds: float,
+    ) -> RetrievalRun:
+        return RetrievalRun(
             mode=self.config.mode,
             question=question,
             keywords=list(keywords),
             top_k=requested_k,
             representation_version=self.config.representation_version,
             embedding_model=self.config.embedding_model,
+            status=status,
+            error=error,
+            duration_seconds=round(duration_seconds, 6),
             lexical_query_fields=self.config.lexical_query_fields,
             alpha=self.config.alpha if self.config.mode == RetrievalMode.HYBRID else None,
             candidate_multiplier=(
@@ -410,6 +451,3 @@ class TableRetrievalService:
             ),
             hits=hits,
         )
-        if self.observer is not None:
-            self.observer(run)
-        return hits

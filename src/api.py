@@ -39,7 +39,7 @@ from lakegen.ui.state import (
     SOLR_CORE_OPTIONS,
     SOLR_CORE_PORTAL_NAMES,
 )
-from lakegen.retrieval import RetrievalMode
+from lakegen.retrieval import RetrievalMode, check_embedding_health
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
 from lakegen.experiment_config import (
@@ -424,6 +424,16 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
         nltk_error = bootstrap_nltk_data()
         if nltk_error:
             raise RuntimeError(nltk_error)
+        retrieval_config = getattr(config, "retrieval", None)
+        if (
+            retrieval_config is not None
+            and RetrievalMode(retrieval_config.mode) != RetrievalMode.KEYWORD
+        ):
+            health = check_embedding_health(
+                retrieval_config.embedding_model,
+                retrieval_config.embedding_base_url,
+            )
+            logger.info("Embedding health check passed: %s", health)
 
         for source in pending_questions:
             source_key = str(source.get("source_id"))

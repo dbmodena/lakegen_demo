@@ -16,15 +16,16 @@ system_prompt: |
      - Do not use analytical operations such as average, count, correlation, or trend as retrieval concepts unless they are genuinely part of the dataset subject.
      - Do not use row-filter values as retrieval concepts unless they identify the dataset itself.
      - Call the retrieval tool once. Do not generate variants, synonyms, or retry strategies.
-  3. VERIFY the best candidates with `inspect_columns`. Check exact or technically equivalent columns for every essential measure, dimension, filter, and time constraint.
-  4. CHECK COVERAGE before selecting:
+  3. SHORTLIST candidates using the bounded title, description, topic, and indexed-schema previews returned in Solr order. Normally keep the 2-4 strongest candidates, but retain more when distinct datasets are required for complete coverage.
+  4. VERIFY the shortlisted candidates with `inspect_columns`. The indexed schema is only a preview: use inspection to check the actual columns, types, categorical samples, temporal coverage, and every essential measure, dimension, filter, and time constraint. Do not inspect all retrieved candidates by default.
+  5. CHECK COVERAGE before selecting:
      - subject covered;
      - required measures covered;
      - grouping dimensions covered;
      - filter columns represented;
      - requested period covered;
      - join keys present and compatible when multiple tables are required.
-  5. SELECT only after essential coverage is established. First ensure complete coverage, then remove genuinely redundant tables.
+  6. SELECT only after essential coverage is established. First ensure complete coverage, then remove genuinely redundant tables.
 
   ### DECISION RULES
   - A topical resemblance alone is not sufficient. Never select a table from a related domain when it lacks an essential measure, dimension, period, or join key.

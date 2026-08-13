@@ -77,7 +77,9 @@ class Phase12ToolsManager:
             "the experiment. Provide 1-2 concise dataset concepts in the portal's "
             "native language. The tool applies the original question and the "
             "configured retrieval parameters automatically. Call the tool once and "
-            "evaluate only the returned candidates."
+            "evaluate only the returned candidates. Use the bounded metadata and "
+            "schema previews to shortlist the strongest candidates, then verify "
+            "them with inspect_columns before selecting tables."
         )
 
     def search_solr(self, concepts_str: str = "") -> str:
@@ -193,7 +195,7 @@ class Phase12ToolsManager:
 
             response = (
                 f"Attempt: {attempt}\nConcepts supplied: {self.state.used_keywords}\n\n"
-                "Candidates accumulated across all attempts (best schema/rank retained):\n"
+                "Candidates in Solr order after local-file mapping:\n"
                 + format_candidate_context(candidates, self.state.solr_meta)
             )
             self.state.search_cache[key] = response
@@ -220,6 +222,8 @@ class Phase12ToolsManager:
         If the question has a date or time range, compare it with the reported
         temporal coverage before selecting the table.
         Use this only after identifying a valid table file with search_solr.
+        Normally inspect the 2-4 strongest candidates from the bounded metadata
+        preview instead of inspecting every retrieved table.
         """
         name = file_name or filename
         if not name:

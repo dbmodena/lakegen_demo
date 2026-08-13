@@ -58,6 +58,9 @@ class RetrievalRun:
     top_k: int
     representation_version: str
     embedding_model: str
+    status: str = "succeeded"
+    error: str = ""
+    duration_seconds: float | None = None
     lexical_query_fields: str | None = None
     alpha: float | None = None
     candidate_multiplier: int | None = None

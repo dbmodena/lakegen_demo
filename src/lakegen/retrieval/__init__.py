@@ -9,7 +9,10 @@ from lakegen.retrieval.evaluation import (
     evaluate_ranking,
     mean_metrics,
 )
-from lakegen.retrieval.embeddings import EmbeddingGenerationError
+from lakegen.retrieval.embeddings import (
+    EmbeddingGenerationError,
+    check_embedding_health,
+)
 from lakegen.retrieval.indexing import (
     SolrEmbeddingIndexer,
     ensure_vector_schema,
@@ -30,6 +33,7 @@ __all__ = [
     "HybridRetriever",
     "FusionMethod",
     "EmbeddingGenerationError",
+    "check_embedding_health",
     "KeywordRetriever",
     "METADATA_V1",
     "MissingSignalPolicy",

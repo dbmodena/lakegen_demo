@@ -23,6 +23,56 @@ def _hit(resource_id, rank, columns):
     )
 
 
+def test_search_returns_bounded_schema_preview_in_solr_order(
+    monkeypatch, tmp_path
+):
+    columns = [
+        {
+            "name": f"column_{index}",
+            "type": "string",
+            "description": f"Description for column {index}",
+        }
+        for index in range(15)
+    ]
+
+    class FakeService:
+        def retrieve(self, **_kwargs):
+            return [
+                RetrievalHit(
+                    document={
+                        "resource_id": "wide-table",
+                        "title": "Wide table",
+                        "description": "A useful dataset description.",
+                        "tags": ["schools", "connectivity"],
+                        "columns": columns,
+                    },
+                    score=1.0,
+                    rank=1,
+                    semantic_rank=1,
+                )
+            ]
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+    )
+    manager = Phase12ToolsManager(
+        P12State(), object(), ["wide-table.parquet"], tmp_path,
+        question="School connectivity",
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.SEMANTIC, top_k=10),
+    )
+
+    result = manager.search_solr("schools")
+
+    assert "Candidates in Solr order" in result
+    assert "Candidate 1 (Solr rank 1)" in result
+    assert "Description: A useful dataset description." in result
+    assert "Indexed schema preview: 12 of 15 columns" in result
+    assert "column_0 [string]" in result
+    assert "column_11 [string]" in result
+    assert "column_12" not in result
+    assert "3 additional columns omitted" in result
+
+
 def test_unified_search_runs_once_and_reuses_the_same_candidates(
     monkeypatch, tmp_path
 ):
