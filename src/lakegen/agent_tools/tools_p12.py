@@ -1,5 +1,4 @@
 import json
-import re
 from pathlib import Path
 from typing import Callable
 from pydantic import BaseModel, Field
@@ -43,13 +42,6 @@ class P12State:
         self.semantic_failure: str | None = None
         self.inspection_cache: dict[str, str] = {}
         self.inspection_counts: dict[str, int] = {}
-
-
-def _schema_overlap(question: str, metadata: dict) -> int:
-    question_tokens = set(re.findall(r"[a-z0-9]+", question.casefold()))
-    schema = " ".join(map(str, metadata.get("columns.name", []))).casefold()
-    schema_tokens = set(re.findall(r"[a-z0-9]+", schema))
-    return len(question_tokens & schema_tokens)
 
 
 class Phase12ToolsManager:
@@ -177,13 +169,9 @@ class Phase12ToolsManager:
                 if len(current_candidates) >= self.retrieval_config.top_k:
                     break
 
-            self.state.all_candidates.sort(
-                key=lambda name: (
-                    -_schema_overlap(self.question, self.state.solr_meta.get(name, {})),
-                    self.state.best_ranks.get(name, 10**9),
-                    name,
-                )
-            )
+            # Preserve the retriever/Solr order after local-file mapping and
+            # de-duplication.  The configured top_k is the only final cutoff;
+            # no workflow-level schema heuristic re-ranks the candidates.
             candidates = self.state.all_candidates[: self.retrieval_config.top_k]
             self.state.search_attempts.append(
                 {

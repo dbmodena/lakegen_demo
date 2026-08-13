@@ -235,3 +235,41 @@ def test_solr_candidates_are_mapped_and_deduplicated_before_final_top_k(
     assert state.all_candidates == ["local-a.parquet", "local-b.parquet"]
     assert "local-a.parquet" in result and "local-b.parquet" in result
     assert "local-c.parquet" not in result
+
+
+def test_solr_candidate_order_is_preserved_without_schema_reranking(
+    monkeypatch, tmp_path
+):
+    class FakeService:
+        def retrieve(self, **_kwargs):
+            return [
+                _hit("solr-first", 1, ["unrelated"]),
+                _hit("schema-match", 2, ["requested", "measure"]),
+                _hit("solr-third", 3, ["other"]),
+            ]
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+    )
+    state = P12State()
+    manager = Phase12ToolsManager(
+        state,
+        object(),
+        [
+            "solr-first.parquet",
+            "schema-match.parquet",
+            "solr-third.parquet",
+        ],
+        tmp_path,
+        question="requested measure",
+        retrieval_config=RetrievalConfig(top_k=2),
+    )
+
+    result = manager.search_solr("requested")
+
+    assert state.all_candidates == [
+        "solr-first.parquet",
+        "schema-match.parquet",
+    ]
+    assert result.index("solr-first.parquet") < result.index("schema-match.parquet")
+    assert "solr-third.parquet" not in result
