@@ -31,7 +31,7 @@ from lakegen.ui.state import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
-from lakegen.agent_tools.tools_p2 import make_p2_judge_tools
+from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 
 from lakegen.phases.utils import (
     format_candidate_context,
@@ -61,9 +61,7 @@ def _solr_and_search(
             question=query,
             keywords=keywords,
             top_k=config.top_k,
-            # Preserve the baseline's 15 fetched BM25 documents while still
-            # returning top_k=10 table candidates.
-            lexical_fetch_k=15,
+            lexical_fetch_k=max(15, config.top_k),
             q_op="AND",
         )
         print(
@@ -151,7 +149,13 @@ def phase2_select_tables(
         return [], [], {}, no_result_msg, trace, 0
 
     # ── Step 3: Prepare agent with judge-only tools (no search_solr) ──
-    agent_tools = make_p2_judge_tools(candidates, csv_dir)
+    tools_manager = Phase2JudgeToolsManager(
+        candidates,
+        csv_dir,
+        question=query,
+        metadata=solr_meta,
+    )
+    agent_tools = tools_manager.get_tools()
 
     system_prompt = pm.render(
         "data_architect",
@@ -168,7 +172,10 @@ def phase2_select_tables(
         token_counter.reset_counts()
     reset_llm_token_usage(llm)
 
-    candidate_context = format_candidate_context(candidates, solr_meta)
+    candidate_context = format_candidate_context(
+        tools_manager.visible_candidates(),
+        solr_meta,
+    )
     agent_prompt = pm.render(
         "data_architect",
         "user_prompt",
@@ -192,11 +199,13 @@ def phase2_select_tables(
     dispatcher = get_dispatcher()
     dispatcher.add_event_handler(thinking_capture)
 
-    candidates_summary = ", ".join(f"`{c}`" for c in candidates)
+    visible_candidates = tools_manager.visible_candidates()
+    candidates_summary = ", ".join(f"`{c}`" for c in visible_candidates)
     emit_stream(
         "\n**Phase 2 – Table Judge agent started**\n"
         f"- Keywords from Phase 1: `{' '.join(keywords)}`\n"
-        f"- {config.mode} retrieval returned {len(candidates)} candidates: "
+        f"- {config.mode} retrieval built a pool of {len(candidates)} candidates; "
+        f"showing {len(visible_candidates)} initially: "
         f"{candidates_summary}\n"
         "- Agent inspecting and judging tables below.\n"
     )
@@ -217,17 +226,18 @@ def phase2_select_tables(
             max_repeats=3,
         )
     except Phase2AgentStall as stall_err:
+        inspected_fallback = tools_manager.inspected_candidates()[:2]
         fallback_payload = {
-            "tables": ", ".join(candidates[:2]),
+            "tables": ", ".join(inspected_fallback),
             "reasoning": (
                 f"Phase 2 loop guard triggered: {stall_err}. "
-                "Fallback to top Solr candidates."
+                "Fallback restricted to inspected candidates."
             ),
         }
         emit_stream(
             "\n\n**Phase 2 loop guard triggered**\n"
             f"- Reason: `{str(stall_err)}`\n"
-            "- Action: using the top Solr candidates as a fallback.\n"
+            "- Action: using only inspected candidates as a fallback.\n"
         )
         agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
     except WorkflowCancelled:
@@ -239,8 +249,9 @@ def phase2_select_tables(
         else:
             reason = f"Agent error: {err_msg[:120]}. Fallback to top 2."
 
+        inspected_fallback = tools_manager.inspected_candidates()[:2]
         fallback_payload = {
-            "tables": ", ".join(candidates[:2]),
+            "tables": ", ".join(inspected_fallback),
             "reasoning": reason,
         }
         emit_stream(f"\n[phase2 agent error] {str(agent_err)[:160]}\n")

@@ -2,6 +2,7 @@ import pytest
 
 from lakegen.agent_tools import tools_p12
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
+from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalConfig,
@@ -236,6 +237,8 @@ def test_inspect_columns_allows_two_attempts_but_reads_file_once(
 
     monkeypatch.setattr(tools_p12, "_inspect_columns", fake_inspect)
     state = P12State()
+    state.all_candidates = ["table.parquet"]
+    state.visible_candidate_count = 1
     manager = Phase12ToolsManager(state, object(), [], tmp_path)
 
     first = manager.inspect_columns(filename="table.parquet")
@@ -248,6 +251,70 @@ def test_inspect_columns_allows_two_attempts_but_reads_file_once(
     assert second.startswith("Cached inspection (attempt 2/2)")
     assert third.startswith("Inspection skipped")
     assert reads == ["table.parquet"]
+
+
+def test_unified_selection_requires_every_selected_table_to_be_inspected(tmp_path):
+    state = P12State()
+    state.all_candidates = ["a.parquet", "b.parquet"]
+    state.visible_candidate_count = 2
+    state.inspection_cache["a.parquet"] = "Schema for a.parquet"
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    with pytest.raises(ValueError, match="inspect_columns is mandatory"):
+        manager.confirm_unified_selection("both are needed", ["a.parquet", "b.parquet"])
+
+    state.inspection_cache["b.parquet"] = "Schema for b.parquet"
+    result = manager.confirm_unified_selection(
+        "both are needed", ["a.parquet", "b.parquet"]
+    )
+    assert '"tables": "a.parquet, b.parquet"' in result
+
+
+def test_unified_selection_blocks_proven_temporal_mismatch(tmp_path):
+    state = P12State()
+    state.all_candidates = ["history.parquet"]
+    state.visible_candidate_count = 1
+    state.inspection_cache["history.parquet"] = (
+        "Schema for history.parquet:\nTemporal coverage:\n"
+        "- Year: 2010 to 2018 (missing/unparseable 0.0%)"
+    )
+    manager = Phase12ToolsManager(
+        state,
+        object(),
+        state.all_candidates,
+        tmp_path,
+        question="How many permits were filed in 2020?",
+    )
+
+    with pytest.raises(ValueError, match="outside the inspected temporal coverage"):
+        manager.confirm_unified_selection("year is covered", ["history.parquet"])
+
+
+def test_phase2_selection_requires_inspection(tmp_path):
+    manager = Phase2JudgeToolsManager(["table.parquet"], tmp_path)
+
+    with pytest.raises(ValueError, match="inspect_columns is mandatory"):
+        manager.confirm_table_selection("relevant", ["table.parquet"])
+
+    manager._inspection_cache["table.parquet"] = "Schema for table.parquet"
+    assert "FINAL_PAYLOAD" in manager.confirm_table_selection(
+        "relevant", ["table.parquet"]
+    )
+
+
+def test_phase2_selection_blocks_proven_temporal_mismatch(tmp_path):
+    manager = Phase2JudgeToolsManager(
+        ["history.parquet"],
+        tmp_path,
+        question="How many permits were filed in 2020?",
+    )
+    manager._inspection_cache["history.parquet"] = (
+        "Schema for history.parquet:\nTemporal coverage:\n"
+        "- Year: 2010 to 2018 (missing/unparseable 0.0%)"
+    )
+
+    with pytest.raises(ValueError, match="outside the inspected temporal coverage"):
+        manager.confirm_table_selection("year is covered", ["history.parquet"])
 
 
 def test_solr_candidates_are_mapped_and_deduplicated_before_final_top_k(
@@ -323,3 +390,77 @@ def test_solr_candidate_order_is_preserved_without_schema_reranking(
     ]
     assert result.index("solr-first.parquet") < result.index("schema-match.parquet")
     assert "solr-third.parquet" not in result
+
+
+def test_unified_adaptive_candidates_reveal_ten_then_five(
+    monkeypatch, tmp_path
+):
+    hits = [_hit(f"table-{index}", index, ["value"]) for index in range(1, 21)]
+
+    class FakeService:
+        def retrieve(self, **_kwargs):
+            return hits
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+    )
+    monkeypatch.setattr(
+        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+    )
+    files = [f"table-{index}.parquet" for index in range(1, 21)]
+    state = P12State()
+    manager = Phase12ToolsManager(
+        state,
+        object(),
+        files,
+        tmp_path,
+        retrieval_config=RetrievalConfig(top_k=20),
+    )
+
+    initial = manager.search_solr("tables")
+    assert "table-10.parquet" in initial
+    assert "table-11.parquet" not in initial
+    assert "10 additional ranked candidates" in initial
+    assert manager.expand_candidates().startswith("Expansion blocked")
+
+    assert manager.inspect_columns("table-1.parquet").startswith("Schema")
+    expanded = manager.expand_candidates()
+    assert "candidates 11-15" in expanded
+    assert "table-15.parquet" in expanded
+    assert "table-16.parquet" not in expanded
+
+
+def test_unified_adaptive_inspection_limits_are_enforced(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+    )
+    state = P12State()
+    state.all_candidates = [f"table-{index}.parquet" for index in range(1, 21)]
+    state.visible_candidate_count = 10
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    for index in range(1, 4):
+        assert manager.inspect_columns(f"table-{index}.parquet").startswith("Schema")
+    assert manager.inspect_columns("table-4.parquet").startswith("Inspection blocked")
+
+    assert "candidates 11-15" in manager.expand_candidates()
+    assert manager.inspect_columns("table-4.parquet").startswith("Schema")
+    assert manager.inspect_columns("table-5.parquet").startswith("Schema")
+    assert manager.inspect_columns("table-6.parquet").startswith("Inspection blocked")
+
+
+def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "lakegen.agent_tools.tools_p2._inspect_columns",
+        lambda _directory, name: f"Schema for {name}",
+    )
+    candidates = [f"table-{index}.parquet" for index in range(1, 21)]
+    manager = Phase2JudgeToolsManager(candidates, tmp_path)
+
+    assert len(manager.visible_candidates()) == 10
+    assert manager.inspect_columns("table-11.parquet").startswith("Error:")
+    for index in range(1, 4):
+        assert manager.inspect_columns(f"table-{index}.parquet").startswith("Schema")
+    assert manager.inspect_columns("table-4.parquet").startswith("Inspection blocked")
+    assert "candidates 11-15" in manager.expand_candidates()
+    assert len(manager.visible_candidates()) == 15

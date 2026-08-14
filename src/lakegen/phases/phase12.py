@@ -117,17 +117,18 @@ def phase12_agent(
             max_repeats=4,
         )
     except Phase2AgentStall as stall_err:
+        inspected_fallback = state.inspected_candidates()[:2]
         fallback_payload = {
-            "tables": ", ".join(state.all_candidates[:2]),
+            "tables": ", ".join(inspected_fallback),
             "reasoning": (
                 f"Phase loop guard triggered: {stall_err}. "
-                "Fallback to top candidates."
+                "Fallback restricted to inspected candidates."
             ),
         }
         emit_stream(
             "\n\n**Loop guard triggered**\n"
             f"- Reason: `{str(stall_err)}`\n"
-            "- Action: using top candidates.\n"
+            "- Action: using only inspected candidates.\n"
         )
         agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
     except WorkflowCancelled:
@@ -139,8 +140,9 @@ def phase12_agent(
         else:
             reason = f"Agent error: {err_msg[:120]}. Fallback to top 2."
             
+        inspected_fallback = state.inspected_candidates()[:2]
         fallback_payload = {
-            "tables": ", ".join(state.all_candidates[:2]),
+            "tables": ", ".join(inspected_fallback),
             "reasoning": reason,
         }
         emit_stream(f"\n[agent error] {str(agent_err)[:160]}\n")
@@ -176,6 +178,6 @@ def phase12_agent(
         pass
 
     if not selected:
-        selected = state.all_candidates[:3]
+        selected = state.inspected_candidates()[:3]
 
     return selected, state.used_keywords, state.solr_meta, reasoning, full_trace, tokens

@@ -34,8 +34,9 @@ retrieval:
   #   - hybrid: combines BM25 and KNN results
   mode: semantic
 
-  # Final number of candidate tables passed to the selector. Must be > 0.
-  top_k: 10
+  # Ranked retrieval pool size. The selector initially sees 10 and can reveal
+  # the rest adaptively in blocks of 5. Must be > 0.
+  top_k: 20
 
   # Weight of the lexical component in hybrid fusion, from 0.0 to 1.0:
   #   1.0 = BM25 only; 0.0 = semantic search only; 0.5 = equal weights.

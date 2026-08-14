@@ -10,6 +10,8 @@ from valentine import valentine_match
 from valentine.algorithms import ComaPy
 
 from lakegen.core.table_io import iter_table_chunks, read_table, table_row_count
+from lakegen.core.types import SolrMetadata
+from lakegen.phases.utils import format_candidate_context
 
 try:
     try:
@@ -42,6 +44,50 @@ _TEMPORAL_COLUMN_PATTERN = re.compile(
     r"(^|_)(date|datetime|timestamp|time|year)($|_)",
     re.IGNORECASE,
 )
+_QUESTION_YEAR_PATTERN = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+_COVERAGE_RANGE_PATTERN = re.compile(
+    r"^-[^:]+:\s*((?:19|20)\d{2})(?:-\d{2}-\d{2})?\s+to\s+"
+    r"((?:19|20)\d{2})(?:-\d{2}-\d{2})?",
+    re.MULTILINE,
+)
+
+
+def _temporal_coverage_issue(
+    question: str,
+    tables: list[str],
+    inspection_cache: dict[str, str],
+) -> str | None:
+    """Return an issue only when measured coverage proves insufficiency."""
+    requested = sorted(
+        {int(value) for value in _QUESTION_YEAR_PATTERN.findall(question)}
+    )
+    if not requested:
+        return None
+
+    ranges: list[tuple[int, int]] = []
+    for table in tables:
+        inspection = inspection_cache.get(table.casefold(), "")
+        ranges.extend(
+            (int(start), int(end))
+            for start, end in _COVERAGE_RANGE_PATTERN.findall(inspection)
+        )
+    # Snapshot tables can encode their fiscal year only in authoritative
+    # metadata. Absence of a measurable time column is therefore inconclusive.
+    if not ranges:
+        return None
+
+    missing = [
+        year
+        for year in requested
+        if not any(start <= year <= end for start, end in ranges)
+    ]
+    if not missing:
+        return None
+    measured = ", ".join(f"{start}-{end}" for start, end in ranges)
+    return (
+        f"requested year(s) {missing} are outside the inspected temporal "
+        f"coverage ({measured})"
+    )
 
 
 class ConfirmSelectionSchema(BaseModel):
@@ -440,11 +486,39 @@ def _find_schema_matches(table_dir: Path, file_name_1: str, file_name_2: str) ->
 class Phase2JudgeToolsManager:
     """Manager for Phase 2 judge tools to avoid closures and improve testability."""
     
-    def __init__(self, candidates: list[str], csv_dir: Path):
+    INITIAL_CANDIDATES = 10
+    EXPANSION_SIZE = 5
+    INITIAL_SHORTLIST_SIZE = 3
+    MAX_INSPECTED_CANDIDATES = 5
+
+    def __init__(
+        self,
+        candidates: list[str],
+        csv_dir: Path,
+        question: str = "",
+        metadata: SolrMetadata | None = None,
+    ):
         self.candidates = candidates
         self.csv_dir = Path(csv_dir)
+        self.question = question
+        self.metadata = metadata or {}
+        self.visible_candidate_count = min(self.INITIAL_CANDIDATES, len(candidates))
+        self.expansion_count = 0
         self._inspection_cache: dict[str, str] = {}
         self._inspection_counts: dict[str, int] = {}
+
+    def visible_candidates(self) -> list[str]:
+        return self.candidates[: self.visible_candidate_count]
+
+    def inspected_candidates(self) -> list[str]:
+        return [
+            candidate
+            for candidate in self.candidates
+            if (
+                candidate.casefold() in self._inspection_cache
+                and not self._inspection_cache[candidate.casefold()].startswith("Error:")
+            )
+        ]
 
     def inspect_columns(self, file_name: str) -> str:
         """
@@ -456,6 +530,29 @@ class Phase2JudgeToolsManager:
         """
         name = file_name.strip()
         key = name.casefold()
+        if name not in self.visible_candidates():
+            return (
+                f"Error: {name} is not currently visible. Inspect only candidates "
+                "already shown by retrieval or expand_candidates."
+            )
+        attempted_candidates = len(self._inspection_counts)
+        if key not in self._inspection_cache:
+            current_limit = (
+                self.INITIAL_SHORTLIST_SIZE
+                if self.expansion_count == 0
+                else self.MAX_INSPECTED_CANDIDATES
+            )
+            if attempted_candidates >= current_limit:
+                if self.expansion_count == 0 and self.visible_candidate_count < len(self.candidates):
+                    return (
+                        "Inspection blocked: the initial shortlist is limited to 3 "
+                        "candidates. If coverage is incomplete, call expand_candidates "
+                        "before inspecting another candidate."
+                    )
+                return (
+                    "Inspection blocked: at most 5 distinct candidates may be "
+                    "inspected for this request."
+                )
         count = self._inspection_counts.get(key, 0) + 1
         self._inspection_counts[key] = count
         if count > MAX_INSPECTIONS_PER_FILE:
@@ -472,6 +569,28 @@ class Phase2JudgeToolsManager:
             + self._inspection_cache[key]
         )
 
+    def expand_candidates(self) -> str:
+        """Reveal the next five ranked candidates when visible candidates are insufficient."""
+        if not self.inspected_candidates():
+            return (
+                "Expansion blocked: inspect at least one plausible visible candidate "
+                "before requesting more results."
+            )
+        if self.visible_candidate_count >= len(self.candidates):
+            return "No additional candidates are available."
+        start = self.visible_candidate_count
+        self.visible_candidate_count = min(
+            start + self.EXPANSION_SIZE,
+            len(self.candidates),
+        )
+        self.expansion_count += 1
+        newly_visible = self.candidates[start : self.visible_candidate_count]
+        return (
+            f"Revealed candidates {start + 1}-{self.visible_candidate_count} "
+            "in retrieval order:\n"
+            + format_candidate_context(newly_visible, self.metadata)
+        )
+
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
         """
         Use Valentine to identify matching columns, then verify their practical
@@ -485,7 +604,37 @@ class Phase2JudgeToolsManager:
         CRITICAL: Use this tool ONLY when you have identified the required files.
         Calling this tool terminates execution and confirms the selection.
         """
-        final_tables = ", ".join(str(t) for t in tables)
+        normalized_tables = list(dict.fromkeys(str(table).strip() for table in tables))
+        if not normalized_tables:
+            raise ValueError("Selection blocked: at least one inspected table is required.")
+        unknown = [table for table in normalized_tables if table not in self.visible_candidates()]
+        if unknown:
+            raise ValueError(
+                "Selection blocked: only currently visible candidates may be selected. "
+                f"Unknown table(s): {unknown}."
+            )
+        inspected = {table.casefold() for table in self.inspected_candidates()}
+        uninspected = [
+            table for table in normalized_tables if table.casefold() not in inspected
+        ]
+        if uninspected:
+            raise ValueError(
+                "Selection blocked: inspect_columns is mandatory for every selected "
+                f"table. Inspect {uninspected}, verify complete requirement and "
+                "temporal coverage, then confirm again."
+            )
+
+        coverage_issue = _temporal_coverage_issue(
+            self.question,
+            normalized_tables,
+            self._inspection_cache,
+        )
+        if coverage_issue:
+            raise ValueError(
+                "Selection blocked by temporal validation: " + coverage_issue + "."
+            )
+
+        final_tables = ", ".join(normalized_tables)
 
         dati_uscita = {
             "tables": final_tables,
@@ -503,6 +652,7 @@ class Phase2JudgeToolsManager:
     def get_tools(self) -> list[FunctionTool]:
         return [
             FunctionTool.from_defaults(fn=self.inspect_columns),
+            FunctionTool.from_defaults(fn=self.expand_candidates),
             FunctionTool.from_defaults(fn=self.find_schema_matches),
             FunctionTool.from_defaults(fn=self.confirm_table_selection, fn_schema=ConfirmSelectionSchema, return_direct=True),
             FunctionTool.from_defaults(fn=self.reject_selection, fn_schema=RejectSelectionSchema, return_direct=True),
