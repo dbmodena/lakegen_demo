@@ -11,6 +11,7 @@ class RetrievalMode(StrEnum):
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
     HYBRID = "hybrid"
+    PNEUMA = "pneuma"
 
 
 class MissingSignalPolicy(StrEnum):
@@ -39,6 +40,9 @@ class RetrievalConfig:
     missing_signal_policy: MissingSignalPolicy = MissingSignalPolicy.ZERO
     fusion_method: FusionMethod = FusionMethod.WEIGHTED
     rrf_k: int = 60
+    pneuma_index_name: str = "lakegen"
+    pneuma_base_url: str = "http://localhost:8765"
+    pneuma_timeout_seconds: float = 120.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", RetrievalMode(self.mode))
@@ -56,7 +60,15 @@ class RetrievalConfig:
             raise ValueError("candidate_multiplier must be greater than zero")
         if self.rrf_k <= 0:
             raise ValueError("rrf_k must be greater than zero")
+        if self.pneuma_timeout_seconds <= 0:
+            raise ValueError("pneuma_timeout_seconds must be greater than zero")
         for name in ("representation_version", "embedding_model", "vector_field"):
+            if not getattr(self, name).strip():
+                raise ValueError(f"{name} must not be blank")
+        for name in (
+            "pneuma_index_name",
+            "pneuma_base_url",
+        ):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} must not be blank")
         if self.lexical_query_fields is not None:
@@ -113,4 +125,11 @@ class RetrievalConfig:
                 os.environ.get("LAKEGEN_FUSION_METHOD", "weighted")
             ),
             rrf_k=int(os.environ.get("LAKEGEN_RRF_K", "60")),
+            pneuma_index_name=os.environ.get("LAKEGEN_PNEUMA_INDEX_NAME", "lakegen"),
+            pneuma_base_url=os.environ.get(
+                "LAKEGEN_PNEUMA_BASE_URL", "http://localhost:8765"
+            ),
+            pneuma_timeout_seconds=float(
+                os.environ.get("LAKEGEN_PNEUMA_TIMEOUT_SECONDS", "120")
+            ),
         )

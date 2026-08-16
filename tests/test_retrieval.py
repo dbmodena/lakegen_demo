@@ -11,6 +11,7 @@ from lakegen.retrieval import (
     FusionMethod,
     KeywordRetriever,
     MissingSignalPolicy,
+    PneumaRetriever,
     RetrievalConfig,
     RetrievalHit,
     RetrievalMode,
@@ -75,6 +76,60 @@ class StubBranch:
     def retrieve(self, value, *, top_k):
         self.calls.append((value, top_k))
         return list(self.hits)
+
+
+class FakePneuma:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    def query_index(self, index_name, queries, *, k, n, alpha):
+        self.calls.append((index_name, queries, k, n, alpha))
+        return self.response
+
+
+def test_pneuma_retriever_preserves_order_and_maps_documents():
+    client = FakePneuma(
+        {
+            "status": "SUCCESS",
+            "data": [
+                {
+                    "query": "Which tables?",
+                    "retrieved_tables": ["/tables/b.csv", "/tables/a.csv"],
+                }
+            ],
+        }
+    )
+    documents = {
+        "/tables/a.csv": {"resource_id": "a", "title": "A"},
+        "/tables/b.csv": {"resource_id": "b", "title": "B"},
+    }
+    config = RetrievalConfig(
+        mode="pneuma",
+        top_k=2,
+        alpha=0.25,
+        candidate_multiplier=7,
+        pneuma_index_name="test-index",
+    )
+
+    hits = PneumaRetriever(config, documents.get, client=client).retrieve(
+        "Which tables?", top_k=2
+    )
+
+    assert [item.document["resource_id"] for item in hits] == ["b", "a"]
+    assert [item.rank for item in hits] == [1, 2]
+    assert [item.score for item in hits] == [1.0, 0.5]
+    assert client.calls == [("test-index", "Which tables?", 2, 7, 0.25)]
+
+
+def test_pneuma_retriever_rejects_failed_response():
+    client = FakePneuma({"status": "ERROR", "message": "missing index"})
+    retriever = PneumaRetriever(
+        RetrievalConfig(mode="pneuma"), lambda _table_id: None, client=client
+    )
+
+    with pytest.raises(RuntimeError, match="missing index"):
+        retriever.retrieve("question", top_k=1)
 
 
 def hit(resource_id, score, rank):
@@ -482,7 +537,11 @@ def test_retriever_benchmark_uses_identical_cases_and_top_k_for_all_modes():
         solr,
         cases,
         base_config=RetrievalConfig(top_k=3, candidate_multiplier=2),
-        modes=tuple(RetrievalMode),
+        modes=(
+            RetrievalMode.KEYWORD,
+            RetrievalMode.SEMANTIC,
+            RetrievalMode.HYBRID,
+        ),
         alphas=(0.5,),
         include_rrf=False,
         k_values=(1, 3),

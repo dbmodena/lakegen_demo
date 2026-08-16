@@ -108,12 +108,16 @@ class Phase12ToolsManager:
                 item.strip() for item in concepts_str.split(" ") if item.strip()
             ]
             keywords = list(supplied_concepts)
-            if self.retrieval_config.mode == RetrievalMode.SEMANTIC:
+            if self.retrieval_config.mode in (
+                RetrievalMode.SEMANTIC,
+                RetrievalMode.PNEUMA,
+            ):
                 keywords = []
             elif not keywords:
                 return "No concepts provided. Search with one or two dataset concepts."
             if (
-                self.retrieval_config.mode != RetrievalMode.KEYWORD
+                self.retrieval_config.mode
+                in (RetrievalMode.SEMANTIC, RetrievalMode.HYBRID)
                 and self.state.semantic_failure is not None
             ):
                 return (

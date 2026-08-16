@@ -222,7 +222,11 @@ def test_search_tool_allows_one_call_in_every_retrieval_mode(
     assert second.startswith("Search skipped: the configured retrieval")
     assert len(calls) == 1
     assert calls[0]["question"] == "Count road incidents"
-    expected_concepts = [] if mode == RetrievalMode.SEMANTIC else ["road", "incidents"]
+    expected_concepts = (
+        []
+        if mode in (RetrievalMode.SEMANTIC, RetrievalMode.PNEUMA)
+        else ["road", "incidents"]
+    )
     assert calls[0]["keywords"] == expected_concepts
 
 

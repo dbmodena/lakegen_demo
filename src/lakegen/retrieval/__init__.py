@@ -20,6 +20,7 @@ from lakegen.retrieval.indexing import (
     validate_vector_schema,
 )
 from lakegen.retrieval.models import RetrievalHit, RetrievalRun
+from lakegen.retrieval.pneuma import PneumaRetriever, SolrPneumaDocumentResolver
 from lakegen.retrieval.representation import METADATA_V1, represent_table
 from lakegen.retrieval.retrievers import (
     HybridRetriever,
@@ -42,6 +43,8 @@ __all__ = [
     "RetrievalMode",
     "RetrievalRun",
     "RetrievalRunLogger",
+    "PneumaRetriever",
+    "SolrPneumaDocumentResolver",
     "SemanticRetriever",
     "SolrEmbeddingIndexer",
     "TableRetrievalService",

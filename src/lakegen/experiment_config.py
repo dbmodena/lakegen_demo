@@ -65,6 +65,9 @@ class RetrievalExperimentConfig(FrozenModel):
     missing_signal_policy: MissingSignalPolicy = MissingSignalPolicy.ZERO
     fusion_method: FusionMethod = FusionMethod.WEIGHTED
     rrf_k: int = Field(default=60, gt=0)
+    pneuma_index_name: str = Field(default="lakegen", min_length=1)
+    pneuma_base_url: str = Field(default="http://localhost:8765", min_length=1)
+    pneuma_timeout_seconds: float = Field(default=120.0, gt=0)
 
     @classmethod
     def from_runtime(cls, value: RetrievalConfig) -> "RetrievalExperimentConfig":

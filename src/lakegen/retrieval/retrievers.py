@@ -17,6 +17,12 @@ from lakegen.retrieval.config import (
 )
 from lakegen.retrieval.embeddings import EmbeddingModel, get_embedding_model
 from lakegen.retrieval.models import RetrievalHit, RetrievalRun, document_key
+from lakegen.retrieval.pneuma import (
+    DocumentResolver,
+    PneumaClient,
+    PneumaRetriever,
+    SolrPneumaDocumentResolver,
+)
 
 
 MissingScoreResolver = Callable[
@@ -327,6 +333,8 @@ class TableRetrievalService:
         embedding_model: EmbeddingModel | None = None,
         observer: RunObserver | None = None,
         missing_score_resolver: MissingScoreResolver | None = None,
+        pneuma_client: PneumaClient | None = None,
+        pneuma_document_resolver: DocumentResolver | None = None,
     ) -> None:
         self.solr = solr
         self.config = config
@@ -336,7 +344,7 @@ class TableRetrievalService:
             query_fields=config.lexical_query_fields,
         )
         self.semantic: SemanticRetriever | None = None
-        if config.mode != RetrievalMode.KEYWORD:
+        if config.mode in (RetrievalMode.SEMANTIC, RetrievalMode.HYBRID):
             model = embedding_model or get_embedding_model(
                 config.embedding_model, config.embedding_base_url
             )
@@ -349,6 +357,15 @@ class TableRetrievalService:
                 missing_score_resolver=missing_score_resolver,
             )
             if self.semantic is not None and config.mode == RetrievalMode.HYBRID
+            else None
+        )
+        self.pneuma = (
+            PneumaRetriever(
+                config,
+                pneuma_document_resolver or SolrPneumaDocumentResolver(solr),
+                client=pneuma_client,
+            )
+            if config.mode == RetrievalMode.PNEUMA
             else None
         )
 
@@ -377,9 +394,12 @@ class TableRetrievalService:
             elif self.config.mode == RetrievalMode.SEMANTIC:
                 assert self.semantic is not None
                 hits = self.semantic.retrieve(question, top_k=requested_k)
-            else:
+            elif self.config.mode == RetrievalMode.HYBRID:
                 assert self.hybrid is not None
                 hits = self.hybrid.retrieve(question, keywords, top_k=requested_k)
+            else:
+                assert self.pneuma is not None
+                hits = self.pneuma.retrieve(question, top_k=requested_k)
         except Exception as exc:
             run = self._run_record(
                 question=question,
