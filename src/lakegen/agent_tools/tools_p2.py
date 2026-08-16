@@ -412,32 +412,43 @@ def _find_schema_matches(table_dir: Path, file_name_1: str, file_name_2: str) ->
 
     try:
         df1 = read_table(path_1, nrows=JOINABILITY_SAMPLE_ROWS)
-        df2 = read_table(path_2, nrows=JOINABILITY_SAMPLE_ROWS)
+        same_file = path_1.resolve() == path_2.resolve()
+        df2 = df1 if same_file else read_table(path_2, nrows=JOINABILITY_SAMPLE_ROWS)
+        same_schema = list(df1.columns) == list(df2.columns)
 
-        matcher = ComaPy(use_instances=True)
-        matches = valentine_match(
-            df1.astype("string"),
-            df2.astype("string"),
-            matcher,
-        )
-
-        if not matches:
-            return "No schema matches found."
-
-        ranked_matches = [
-            (col1, col2, score)
-            for ((_, col1), (_, col2)), score in sorted(
-                matches.items(),
-                key=lambda item: item[1],
-                reverse=True,
+        if same_schema:
+            # Valentine is needlessly expensive when the schemas already provide
+            # an exact, position-preserving correspondence.
+            ranked_matches = [(column, column, 1.0) for column in df1.columns]
+            analysis_method = "Exact-schema"
+            similarity_label = "Schema similarity"
+        else:
+            matcher = ComaPy(use_instances=True)
+            matches = valentine_match(
+                df1.astype("string"),
+                df2.astype("string"),
+                matcher,
             )
-            if score > 0.0 and col1 in df1.columns and col2 in df2.columns
-        ]
+
+            if not matches:
+                return "No schema matches found."
+
+            ranked_matches = [
+                (col1, col2, score)
+                for ((_, col1), (_, col2)), score in sorted(
+                    matches.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+                if score > 0.0 and col1 in df1.columns and col2 in df2.columns
+            ]
+            analysis_method = "Valentine"
+            similarity_label = "Valentine similarity"
         if not ranked_matches:
             return "No schema matches found."
 
         lines = [
-            f"Valentine joinability analysis between '{file_name_1}' and '{file_name_2}':",
+            f"{analysis_method} joinability analysis between '{file_name_1}' and '{file_name_2}':",
             f"Sample: first {JOINABILITY_SAMPLE_ROWS} rows per table; comparisons use normalized exact values.",
         ]
         for index, (col1, col2, score) in enumerate(
@@ -449,7 +460,7 @@ def _find_schema_matches(table_dir: Path, file_name_1: str, file_name_2: str) ->
                 [
                     "",
                     f"{index}. {col1} <-> {col2}",
-                    f"   Valentine similarity: {score:.4f}",
+                    f"   {similarity_label}: {score:.4f}",
                     (
                         f"   Distinct overlap: {metrics['common_distinct']} "
                         f"(left {metrics['left_distinct_coverage']:.1%}, "
@@ -570,7 +581,14 @@ class Phase2JudgeToolsManager:
         )
 
     def expand_candidates(self) -> str:
-        """Reveal the next five ranked candidates when visible candidates are insufficient."""
+        """Reveal the next five ranked candidates only to fill a known coverage gap.
+
+        First inspect the strongest plausible visible candidates and identify the
+        missing measure, dimension, filter, period, or join key. This tool does
+        not run or re-rank retrieval; it only reveals the next ranked block.
+        After expansion, inspect only candidates whose metadata could fill the
+        identified gap. Do not call again when no ranked candidates remain.
+        """
         if not self.inspected_candidates():
             return (
                 "Expansion blocked: inspect at least one plausible visible candidate "
@@ -585,10 +603,22 @@ class Phase2JudgeToolsManager:
         )
         self.expansion_count += 1
         newly_visible = self.candidates[start : self.visible_candidate_count]
+        remaining = len(self.candidates) - self.visible_candidate_count
+        next_step = (
+            f"{remaining} ranked candidates remain hidden. Expand again only if "
+            "the currently visible candidates still cannot fill the identified "
+            "coverage gap."
+            if remaining
+            else (
+                "All ranked candidates are now visible. Do not call "
+                "expand_candidates again."
+            )
+        )
         return (
             f"Revealed candidates {start + 1}-{self.visible_candidate_count} "
             "in retrieval order:\n"
             + format_candidate_context(newly_visible, self.metadata)
+            + f"\n\n{next_step}"
         )
 
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:

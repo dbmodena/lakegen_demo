@@ -306,7 +306,14 @@ class Phase12ToolsManager:
         )
 
     def expand_candidates(self) -> str:
-        """Reveal the next five ranked candidates when visible candidates are insufficient."""
+        """Reveal the next five ranked candidates only to fill a known coverage gap.
+
+        First inspect the strongest plausible visible candidates and identify the
+        missing measure, dimension, filter, period, or join key. This tool does
+        not run or re-rank retrieval; it only reveals the next ranked block.
+        After expansion, inspect only candidates whose metadata could fill the
+        identified gap. Do not call again when no ranked candidates remain.
+        """
         if not self.state.inspected_candidates():
             return (
                 "Expansion blocked: inspect at least one plausible visible candidate "
@@ -323,10 +330,22 @@ class Phase12ToolsManager:
         newly_visible = self.state.all_candidates[
             start : self.state.visible_candidate_count
         ]
+        remaining = len(self.state.all_candidates) - self.state.visible_candidate_count
+        next_step = (
+            f"{remaining} ranked candidates remain hidden. Expand again only if "
+            "the currently visible candidates still cannot fill the identified "
+            "coverage gap."
+            if remaining
+            else (
+                "All ranked candidates are now visible. Do not call "
+                "expand_candidates again."
+            )
+        )
         return (
             f"Revealed candidates {start + 1}-{self.state.visible_candidate_count} "
             "in retrieval order:\n"
             + format_candidate_context(newly_visible, self.state.solr_meta)
+            + f"\n\n{next_step}"
         )
 
     def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:

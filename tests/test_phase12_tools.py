@@ -428,6 +428,12 @@ def test_unified_adaptive_candidates_reveal_ten_then_five(
     assert "candidates 11-15" in expanded
     assert "table-15.parquet" in expanded
     assert "table-16.parquet" not in expanded
+    assert "5 ranked candidates remain hidden" in expanded
+
+    final_expansion = manager.expand_candidates()
+    assert "candidates 16-20" in final_expansion
+    assert "All ranked candidates are now visible" in final_expansion
+    assert "Do not call expand_candidates again" in final_expansion
 
 
 def test_unified_adaptive_inspection_limits_are_enforced(monkeypatch, tmp_path):
@@ -462,5 +468,12 @@ def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_pat
     for index in range(1, 4):
         assert manager.inspect_columns(f"table-{index}.parquet").startswith("Schema")
     assert manager.inspect_columns("table-4.parquet").startswith("Inspection blocked")
-    assert "candidates 11-15" in manager.expand_candidates()
+    first_expansion = manager.expand_candidates()
+    assert "candidates 11-15" in first_expansion
+    assert "5 ranked candidates remain hidden" in first_expansion
     assert len(manager.visible_candidates()) == 15
+
+    final_expansion = manager.expand_candidates()
+    assert "candidates 16-20" in final_expansion
+    assert "All ranked candidates are now visible" in final_expansion
+    assert "Do not call expand_candidates again" in final_expansion
