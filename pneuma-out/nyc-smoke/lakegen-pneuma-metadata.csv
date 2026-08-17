@@ -1,0 +1,3 @@
+table_id,value
+/data/datasets/open_data/nyc/datasets/parquet/2234-9r2y.parquet,"Hurricane Inundation by Evacuation Zone (Map)
+These inundation areas are based on the National Hurricane Center’s 2020 SLOSH (Sea Lake and Overland Surge from Hurricanes) Model for the NE1 basin post-processed to a 10 meter resolution. The data used assumes that the storm surge will occur at high tide. The Storm surge inundation data then used  to develop New York City’s Hurricane Evacuation Zones."
