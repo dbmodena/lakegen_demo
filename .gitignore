@@ -34,6 +34,11 @@ queries_old
 queries
 benchmark
 
+# Pneuma local runtime, virtual environment, and generated indexes.
+.pneuma/
+.venv-pneuma/
+pneuma-out
+
 # Ignore dynamically generated Python code by the agent
 coding/
 script.py
@@ -55,4 +60,3 @@ src/.files/
 .codex
 .DS_Store
 Thumbs.db
-

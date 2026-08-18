@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -16,17 +17,48 @@ from pneuma import Pneuma
 
 
 SUPPORTED_SUFFIXES = {".csv", ".parquet"}
+DEFAULT_EXTERNAL_VIEW_ROW_LIMIT = 10_000
+BOUNDED_TABLE_IDS: set[str] = set()
+BOUNDED_TABLE_ROW_LIMIT = DEFAULT_EXTERNAL_VIEW_ROW_LIMIT
 
 
 def tune_duckdb_connections() -> None:
     """Apply low-memory settings to every connection opened inside Pneuma."""
     original_connect = duckdb.connect
 
+    class BoundedConnection:
+        def __init__(self, connection: Any):
+            self._connection = connection
+
+        def __enter__(self):
+            self._connection.__enter__()
+            return self
+
+        def __exit__(self, *args: Any):
+            return self._connection.__exit__(*args)
+
+        def __getattr__(self, name: str):
+            return getattr(self._connection, name)
+
+        def sql(self, query: str, *args: Any, **kwargs: Any):
+            match = re.fullmatch(
+                r"\s*SELECT\s+\*\s+FROM\s+'((?:''|[^'])+)'\s*",
+                query,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                table_id = match.group(1).replace("''", "'")
+                if table_id in BOUNDED_TABLE_IDS:
+                    query = f"{query.rstrip()} LIMIT {BOUNDED_TABLE_ROW_LIMIT}"
+            return self._connection.sql(query, *args, **kwargs)
+
     def connect(*args: Any, **kwargs: Any):
         config = dict(kwargs.pop("config", {}) or {})
         config.setdefault("threads", "4")
         config.setdefault("preserve_insertion_order", "false")
-        return original_connect(*args, config=config, **kwargs)
+        return BoundedConnection(
+            original_connect(*args, config=config, **kwargs)
+        )
 
     duckdb.connect = connect  # type: ignore[assignment]
 
@@ -63,7 +95,7 @@ def existing_table_ids(db_path: Path) -> set[str]:
 def register_external_view(
     db_path: Path, path: Path, *, creator: str
 ) -> None:
-    """Register a Parquet-backed view when Pneuma's full-table hash exhausts RAM."""
+    """Register a Parquet-backed view when a full materialization exhausts RAM."""
     identifier = str(path).replace('"', '""')
     literal = str(path).replace("'", "''")
     stat = path.stat()
@@ -80,6 +112,28 @@ def register_external_view(
             "VALUES (?, ?, 'TableStatus.REGISTERED', ?, ?)",
             [str(path), path.stem, creator, f"external:{fingerprint}"],
         )
+
+
+def configure_bounded_external_views(
+    db_path: Path, *, row_limit: int
+) -> int:
+    """Limit direct Parquet reads for external views during summarization."""
+    global BOUNDED_TABLE_IDS, BOUNDED_TABLE_ROW_LIMIT
+    with duckdb.connect(str(db_path), read_only=True) as connection:
+        table_ids = [
+            row[0]
+            for row in connection.execute(
+                "SELECT id FROM table_status WHERE hash LIKE 'external:%'"
+            ).fetchall()
+        ]
+    BOUNDED_TABLE_IDS = {
+        table_id
+        for table_id in table_ids
+        if Path(table_id).is_file()
+        and Path(table_id).suffix.casefold() == ".parquet"
+    }
+    BOUNDED_TABLE_ROW_LIMIT = row_limit
+    return len(BOUNDED_TABLE_IDS)
 
 
 def pending_summary_ids(db_path: Path) -> list[str]:
@@ -172,6 +226,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-metadata", action="store_true")
     parser.add_argument("--skip-index", action="store_true")
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--external-view-row-limit",
+        type=int,
+        default=DEFAULT_EXTERNAL_VIEW_ROW_LIMIT,
+        help="Maximum rows exposed by Parquet-backed external views during summaries",
+    )
     return parser
 
 
@@ -193,6 +253,8 @@ def main() -> None:
         paths = paths[: args.limit]
     if not paths:
         raise RuntimeError(f"No CSV or Parquet tables found in {table_dir}")
+    if args.external_view_row_limit <= 0:
+        raise ValueError("--external-view-row-limit must be greater than zero")
 
     print(
         f"[setup] portal={args.portal} tables={len(paths)} out={out_path} "
@@ -221,7 +283,11 @@ def main() -> None:
         if payload.get("status") != "SUCCESS":
             message = str(payload.get("message") or "")
             if "Out of Memory Error" in message and path.suffix.casefold() == ".parquet":
-                register_external_view(db_path, path, creator=args.creator)
+                register_external_view(
+                    db_path,
+                    path,
+                    creator=args.creator,
+                )
                 print(
                     f"[register] external-view fallback {path.name}",
                     file=sys.stderr,
@@ -244,11 +310,24 @@ def main() -> None:
     )
 
     if not args.skip_summaries:
+        bounded_views = configure_bounded_external_views(
+            db_path, row_limit=args.external_view_row_limit
+        )
+        print(
+            f"[summarize] bounded_external_views={bounded_views} "
+            f"row_limit={args.external_view_row_limit}",
+            flush=True,
+        )
         pending_summaries = pending_summary_ids(db_path)
         allowed = {str(path) for path in active_paths}
         pending_summaries = [item for item in pending_summaries if item in allowed]
         print(f"[summarize] pending={len(pending_summaries)}", flush=True)
         for number, table_id in enumerate(pending_summaries, 1):
+            print(
+                f"[summarize] starting {number}/{len(pending_summaries)} "
+                f"{Path(table_id).name}",
+                flush=True,
+            )
             require_success(pneuma.summarize(table_id), f"summary for {table_id}")
             print(
                 f"[summarize] {number}/{len(pending_summaries)} {Path(table_id).name}",
