@@ -173,18 +173,6 @@ def metadata_text(item: dict[str, Any]) -> str:
     return "\n".join(part for part in parts if part and part not in {"Tags: ", "Columns: "})
 
 
-def normalize_metadata_for_pneuma(value: str) -> tuple[str, int]:
-    """Escape SQL apostrophes in Pneuma's disposable metadata staging CSV.
-
-    Pneuma 0.0.4 interpolates CSV values into a DuckDB string literal instead
-    of using query parameters. DuckDB decodes each doubled apostrophe back to
-    one apostrophe when storing the context, so the persisted text keeps its
-    original meaning while the source metadata remains untouched.
-    """
-    apostrophe_count = value.count("'")
-    return value.replace("'", "''"), apostrophe_count
-
-
 def add_metadata(
     pneuma: Pneuma,
     metadata_path: Path,
@@ -197,7 +185,6 @@ def add_metadata(
         raise RuntimeError(f"Expected a JSON list in {metadata_path}")
     existing = context_table_ids(db_path)
     rows: list[tuple[str, str]] = []
-    normalized_apostrophes = 0
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -208,12 +195,7 @@ def add_metadata(
             continue
         value = metadata_text(item)
         if value:
-            normalized_table_id, table_id_count = normalize_metadata_for_pneuma(
-                str(path)
-            )
-            normalized_value, value_count = normalize_metadata_for_pneuma(value)
-            normalized_apostrophes += table_id_count + value_count
-            rows.append((normalized_table_id, normalized_value))
+            rows.append((str(path), value))
     if not rows:
         print("[metadata] no missing metadata entries", flush=True)
         return
@@ -222,11 +204,6 @@ def add_metadata(
         writer = csv.writer(output)
         writer.writerow(("table_id", "value"))
         writer.writerows(rows)
-    print(
-        f"[metadata] normalized_apostrophes={normalized_apostrophes} "
-        f"staging={csv_path}",
-        flush=True,
-    )
     print(f"[metadata] adding {len(rows)} entries", flush=True)
     require_success(pneuma.add_metadata(str(csv_path)), "metadata registration")
 
