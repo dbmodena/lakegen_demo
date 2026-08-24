@@ -43,6 +43,7 @@ pneuma-out
 coding/
 script.py
 .lakegen_jobs/
+.lakegen_reference_cache/
 reports
 benchmarks
 

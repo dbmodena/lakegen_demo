@@ -73,6 +73,9 @@ BENCHMARK_LOG_COLUMNS = [
     "SUPPORTED_RESULT_RATE",
     "AMBIGUOUS_RESULT_RATE",
     "EVALUATION_DISPOSITIONS_JSON",
+    "REFERENCE_EXECUTION_SUCCESS_RATE",
+    "REFERENCE_DRIFT_CASES",
+    "INVALID_REFERENCE_CASES",
 ]
 _BENCHMARK_LOG_LOCK = threading.Lock()
 
@@ -306,6 +309,7 @@ def append_benchmark_metrics_log(
         config = experiment["config"]
         metrics = experiment["mean_metrics"]
         code_metrics = experiment.get("code_metrics", {})
+        reference_metrics = experiment.get("reference_metrics", {})
         question_count = len(experiment["cases"])
         rows.append(
             {
@@ -405,6 +409,15 @@ def append_benchmark_metrics_log(
                     )
                     if code_metrics
                     else ""
+                ),
+                "REFERENCE_EXECUTION_SUCCESS_RATE": reference_metrics.get(
+                    "execution_success_rate", ""
+                ),
+                "REFERENCE_DRIFT_CASES": reference_metrics.get(
+                    "reference_drift_count", ""
+                ),
+                "INVALID_REFERENCE_CASES": reference_metrics.get(
+                    "invalid_reference_count", ""
                 ),
             }
         )

@@ -15,7 +15,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Callable
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -28,6 +28,7 @@ for _path in (_SRC_DIR, _ROOT_DIR):
 
 from lakegen.core.bootstrap import bootstrap_nltk_data
 from lakegen.core.config import BASE_DIR
+from lakegen.core.config import resolve_portal_tables_dir
 from lakegen.service import (
     QuestionSource,
     extract_questions,
@@ -42,7 +43,8 @@ from lakegen.ui.state import (
 from lakegen.retrieval import RetrievalMode, check_embedding_health
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
-from lakegen.code_evaluation import summarize_code_evaluations
+from lakegen.code_evaluation import evaluate_code_result, summarize_code_evaluations
+from lakegen.reference_execution import execute_pandas_reference
 from lakegen.experiment_config import (
     CoderContextLevel,
     DiscoveryArchitecture,
@@ -332,6 +334,30 @@ def _append_batch_table_metrics(
     retrieval = resolved["retrieval"]
     base_label = str(resolved.get("experiment_id") or "batch")
     automatic_test_coder = bool(resolved.get("automatic_test_coder"))
+    reference_executions = [
+        source.get("log_fields", {}).get("SOURCE_REFERENCE_EXECUTION", {})
+        for source in questions
+        if source.get("log_fields", {}).get("SOURCE_REFERENCE_EXECUTION")
+    ]
+    reference_successes = [
+        execution
+        for execution in reference_executions
+        if execution.get("status") == "success"
+    ]
+    reference_metrics = {
+        "eligible_case_count": len(reference_executions),
+        "execution_success_count": len(reference_successes),
+        "invalid_reference_count": (
+            len(reference_executions) - len(reference_successes)
+        ),
+        "reference_drift_count": sum(
+            bool(execution.get("declared_result_drift"))
+            for execution in reference_successes
+        ),
+        "execution_success_rate": round(
+            len(reference_successes) / len(reference_executions), 6
+        ) if reference_executions else 0.0,
+    }
     levels = (
         list(CoderContextLevel)
         if automatic_test_coder
@@ -365,6 +391,7 @@ def _append_batch_table_metrics(
             "successful_case_count": len(successful_metric_rows),
             "failed_case_count": len(case_rows) - len(successful_metric_rows),
             "code_metrics": code_metrics,
+            "reference_metrics": reference_metrics,
             "cases": case_rows,
         }
     report = {
@@ -470,6 +497,18 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
             )
             logger.info("Embedding health check passed: %s", health)
 
+        reference_metrics = _prepare_dynamic_references(
+            pending_questions,
+            tables_dir=resolve_portal_tables_dir(
+                getattr(config, "core", DEFAULT_CORE)
+            ),
+            cache_dir=BASE_DIR / ".lakegen_reference_cache",
+            progress_callback=lambda progress: _update_job(
+                job_id, reference_preparation=progress
+            ),
+        )
+        _update_job(job_id, reference_preparation=reference_metrics)
+
         for source in pending_questions:
             source_key = str(source.get("source_id"))
             execution_attempt = attempts.get(source_key, 0) + 1
@@ -540,6 +579,7 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
             batch_metrics={
                 "table_selection": table_metrics,
                 "code": code_metrics,
+                "reference_preparation": reference_metrics,
             },
         )
     except Exception as exc:
@@ -549,6 +589,96 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
             error=f"{type(exc).__name__}: {exc}",
             finished_at=_now(),
         )
+
+
+def _prepare_dynamic_references(
+    questions: list[dict[str, Any]],
+    *,
+    tables_dir: Path,
+    cache_dir: Path,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Replace declared Pandas golds with results executed on current tables."""
+
+    metrics = {
+        "eligible_case_count": 0,
+        "execution_success_count": 0,
+        "invalid_reference_count": 0,
+        "reference_drift_count": 0,
+        "cache_hit_count": 0,
+        "processed_case_count": 0,
+    }
+    eligible_sources = []
+    for source in questions:
+        fields = source.get("log_fields", {})
+        if (
+            str(fields.get("SOURCE_ENGINE", "")).casefold() == "pandas"
+            and isinstance(fields.get("SOURCE_REFERENCE_CODE"), str)
+            and isinstance(fields.get("SOURCE_TABLE_ALIASES"), dict)
+        ):
+            eligible_sources.append(source)
+    metrics["eligible_case_count"] = len(eligible_sources)
+    logger.info(
+        "Dynamic reference preparation started: 0/%d cases",
+        len(eligible_sources),
+    )
+    if progress_callback:
+        progress_callback(dict(metrics))
+
+    for index, source in enumerate(eligible_sources, start=1):
+        fields = source["log_fields"]
+        reference_code = fields["SOURCE_REFERENCE_CODE"]
+        table_aliases = fields["SOURCE_TABLE_ALIASES"]
+        declared_result = fields.get("SOURCE_REFERENCE_RESULT")
+        execution = execute_pandas_reference(
+            reference_code=reference_code,
+            table_aliases=table_aliases,
+            tables_dir=tables_dir,
+            cache_dir=cache_dir,
+        )
+        fields["SOURCE_DECLARED_REFERENCE_RESULT"] = declared_result
+        fields["SOURCE_REFERENCE_EXECUTION"] = execution
+        if execution.get("status") != "success":
+            metrics["invalid_reference_count"] += 1
+            fields.pop("SOURCE_REFERENCE_RESULT", None)
+        else:
+            metrics["execution_success_count"] += 1
+            metrics["cache_hit_count"] += int(bool(execution.get("cache_hit")))
+            executed_result = execution.get("result")
+            fields["SOURCE_REFERENCE_RESULT"] = executed_result
+            expected_type = fields.get("SOURCE_EXPECTED_RESULT_TYPE")
+            drift = True
+            if expected_type and declared_result is not None:
+                comparison = evaluate_code_result(
+                    expected_result_type=str(expected_type),
+                    reference_result=declared_result,
+                    actual_result=executed_result,
+                    expected_description=str(
+                        fields.get("SOURCE_EXPECTED_RESULT_DESCRIPTION") or ""
+                    ),
+                )
+                drift = not bool(comparison.get("exact_result_match"))
+            execution["declared_result_drift"] = drift
+            metrics["reference_drift_count"] += int(drift)
+        metrics["processed_case_count"] = index
+        logger.info(
+            "Dynamic reference preparation: %d/%d cases "
+            "(success=%d, invalid=%d, cache_hits=%d)",
+            index,
+            len(eligible_sources),
+            metrics["execution_success_count"],
+            metrics["invalid_reference_count"],
+            metrics["cache_hit_count"],
+        )
+        if progress_callback and (
+            index % 5 == 0 or index == len(eligible_sources)
+        ):
+            progress_callback(dict(metrics))
+    eligible = metrics["eligible_case_count"]
+    metrics["execution_success_rate"] = round(
+        metrics["execution_success_count"] / eligible, 6
+    ) if eligible else 0.0
+    return metrics
 
 
 @app.get("/health")

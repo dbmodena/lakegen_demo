@@ -128,7 +128,12 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def make_sample(payload: Any, *, count: int, seed: int) -> dict[str, Any]:
-    eligible = [item for item in _records(payload) if item["record"].get("status") == "success"]
+    eligible = [
+        item
+        for item in _records(payload)
+        if item["record"].get("status") == "success"
+        and item["engine"].casefold() == "pandas"
+    ]
     strata: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for item in eligible:
         strata[(item["engine"], item["query_kind"])].append(item)
@@ -151,7 +156,8 @@ def make_sample(payload: Any, *, count: int, seed: int) -> dict[str, Any]:
             "generation_seed_note": "Not recorded in the source query file",
             "sampling_seed": seed,
             "count": len(cases),
-            "selection": "proportional_by_engine_and_query_kind_from_success_records",
+            "engine_filter": "PANDAS",
+            "selection": "proportional_by_query_kind_from_successful_pandas_records",
             "strata": {
                 f"{engine}/{kind}": quotas[(engine, kind)]
                 for engine, kind in sorted(quotas)

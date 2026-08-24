@@ -399,6 +399,45 @@ def test_single_query_passes_the_complete_request_to_csv_logging(monkeypatch):
     assert captured["log_context"]["SOURCE_TOP_K"] == 25
 
 
+def test_dynamic_reference_replaces_declared_gold_and_records_drift(
+    tmp_path, monkeypatch
+):
+    questions = [{
+        "log_fields": {
+            "SOURCE_ENGINE": "PANDAS",
+            "SOURCE_REFERENCE_CODE": "result = 2",
+            "SOURCE_TABLE_ALIASES": {"Table_0": "numbers"},
+            "SOURCE_EXPECTED_RESULT_TYPE": "number",
+            "SOURCE_REFERENCE_RESULT": [{"result": 1}],
+        }
+    }]
+    monkeypatch.setattr(
+        api,
+        "execute_pandas_reference",
+        lambda **_kwargs: {
+            "status": "success", "result": 2, "cache_hit": False
+        },
+    )
+
+    progress = []
+    metrics = api._prepare_dynamic_references(
+        questions,
+        tables_dir=tmp_path,
+        cache_dir=tmp_path / "cache",
+        progress_callback=progress.append,
+    )
+
+    fields = questions[0]["log_fields"]
+    assert fields["SOURCE_DECLARED_REFERENCE_RESULT"] == [{"result": 1}]
+    assert fields["SOURCE_REFERENCE_RESULT"] == 2
+    assert fields["SOURCE_REFERENCE_EXECUTION"]["declared_result_drift"] is True
+    assert metrics["execution_success_count"] == 1
+    assert metrics["reference_drift_count"] == 1
+    assert metrics["processed_case_count"] == 1
+    assert progress[0]["processed_case_count"] == 0
+    assert progress[-1]["processed_case_count"] == 1
+
+
 def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "BASE_DIR", tmp_path)
     questions = [
