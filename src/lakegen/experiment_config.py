@@ -114,6 +114,7 @@ class ExperimentConfig(FrozenModel):
     reviewers: ReviewerConfig = Field(default_factory=ReviewerConfig)
     max_revision_rounds: int = Field(default=3, ge=0)
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL
+    automatic_test_coder: bool = False
     interaction_mode: InteractionMode = InteractionMode.HUMAN_GATED
     gates: GateConfig = Field(default_factory=GateConfig)
 
@@ -134,8 +135,6 @@ class ExperimentConfig(FrozenModel):
             )
         if self.max_revision_rounds != 3:
             raise ValueError("only max_revision_rounds=3 currently preserves the workflow")
-        if self.coder_context_level != CoderContextLevel.FULL:
-            raise ValueError("only coder_context_level='full' is implemented")
         if self.gates.plan or self.gates.result:
             raise ValueError("plan and result gates are not implemented")
         if not self.gates.keywords or not self.gates.datasets:

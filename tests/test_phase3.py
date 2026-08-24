@@ -5,11 +5,13 @@ from lakegen.column_resolution import (
 import pandas as pd
 
 from lakegen.phases.phase3 import (
+    _build_coder_tables_info,
     _detect_tabpfn_intent,
     _exact_column_labels,
     _execute_code,
     _tabpfn_enabled,
 )
+from lakegen.experiment_config import CoderContextLevel
 
 
 def test_execute_code_treats_reported_missing_columns_as_error(tmp_path):
@@ -100,3 +102,25 @@ def test_code_generator_schema_uses_exact_file_columns_not_solr_field_aliases():
     assert labels[0].startswith("Mbps Bandwidth(")
     assert labels[1].startswith("Construction Year(")
     assert all("mbps_bandwidth" not in label for label in labels)
+
+
+def test_coder_context_levels_control_table_metadata(tmp_path):
+    table = tmp_path / "table.csv"
+    table.write_text("City,Population\nBologna,390000\n", encoding="utf-8")
+
+    full = _build_coder_tables_info(
+        [table.name], tmp_path, CoderContextLevel.FULL
+    )
+    schema_only = _build_coder_tables_info(
+        [table.name], tmp_path, CoderContextLevel.SCHEMA_ONLY
+    )
+    minimal = _build_coder_tables_info(
+        [table.name], tmp_path, CoderContextLevel.MINIMAL
+    )
+
+    assert "LOAD:" in full and "Columns (2):" in full and "Sample:" in full
+    assert "Bologna" in full
+    assert "LOAD:" in schema_only and "Columns (2):" in schema_only
+    assert "Sample:" not in schema_only and "Bologna" not in schema_only
+    assert "LOAD:" in minimal
+    assert "Columns" not in minimal and "Sample:" not in minimal

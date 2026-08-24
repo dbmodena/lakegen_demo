@@ -99,10 +99,13 @@ reviewers:
 max_revision_rounds: 3
 
 # Amount of context provided to the coder:
-#   - full: complete context (the only currently implemented option)
-#   - schema_only: schemas only [NOT IMPLEMENTED YET]
-#   - minimal: minimal context [NOT IMPLEMENTED YET]
+#   - full: schemas and sample rows
+#   - schema_only: schemas only
+#   - minimal: load commands only
 coder_context_level: full
+
+# Run full, schema_only, and minimal against one shared retrieval/selection.
+automatic_test_coder: false
 
 # Human interaction policy:
 #   - human_gated: the CLI/UI requests confirmations and hints at enabled gates

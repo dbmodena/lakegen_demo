@@ -11,10 +11,15 @@ import pandas as pd
 from llama_index.core.llms import ChatMessage, LLM
 
 from lakegen.core.types import SolrMetadata
+from lakegen.experiment_config import CoderContextLevel
 from prompts.prompt_manager import PromptManager
 from lakegen.core.config import BASE_DIR
 from lakegen.core.table_io import read_table, table_load_command
 from lakegen.column_resolution import resolve_generated_code_columns
+from lakegen.code_evaluation import (
+    evaluation_output_instruction,
+    extract_evaluation_payload,
+)
 from lakegen.core.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
@@ -32,6 +37,8 @@ class Phase3Result:
     error: str | None = None
     clean_code: str = ""
     rejected_reason: str = ""
+    structured_result: object | None = None
+    structured_result_error: str = ""
 
 
 _ERROR_PATTERNS = [
@@ -225,6 +232,62 @@ def _exact_column_labels(frame) -> list[str]:
     return [f"{column}({frame[column].dtype})" for column in frame.columns]
 
 
+def _build_coder_tables_info(
+    tables: list[str],
+    csv_dir: Path,
+    context_level: CoderContextLevel,
+) -> str:
+    """Build the selected-table context exposed to the code generator."""
+
+    max_detail_cols = 25
+    max_sample_cols = 15
+    max_sample_rows = 2
+    max_cell_width = 40
+
+    info_lines = ["AVAILABLE TABLES:"]
+    for idx, fn in enumerate(tables, 1):
+        filepath = Path(csv_dir) / fn.strip()
+        load_cmd = table_load_command(filepath)
+        info_lines.append(f"{idx}. LOAD: {load_cmd}")
+
+        if context_level == CoderContextLevel.MINIMAL:
+            continue
+
+        rows_to_read = max_sample_rows + 1 if context_level == CoderContextLevel.FULL else 0
+        df = read_table(filepath, nrows=rows_to_read)
+
+        # The local file is the execution schema and therefore the sole source
+        # of truth for exact names. Solr may expose normalized API aliases.
+        try:
+            col_typed = _exact_column_labels(df)
+        except Exception:
+            col_typed = ["Unknown columns"]
+
+        total_cols = len(col_typed)
+        shown = col_typed[:max_detail_cols]
+        info_lines.append(f"   Columns ({total_cols}): {', '.join(shown)}")
+        if total_cols > max_detail_cols:
+            rest_names = [
+                column.split("(")[0] if "(" in column else column
+                for column in col_typed[max_detail_cols:]
+            ]
+            info_lines.append(
+                f"   +{total_cols - max_detail_cols} more: {', '.join(rest_names[:15])}"
+            )
+
+        if context_level == CoderContextLevel.SCHEMA_ONLY:
+            continue
+
+        sample_df = df.head(max_sample_rows).copy()
+        if len(sample_df.columns) > max_sample_cols:
+            sample_df = sample_df.iloc[:, :max_sample_cols].copy()
+        for column in sample_df.columns:
+            sample_df[column] = sample_df[column].astype(str).str.slice(0, max_cell_width)
+        info_lines.append(f"   Sample:\n{sample_df.to_string(index=False)}")
+
+    return "\n".join(info_lines)
+
+
 def phase3_generate_code(
     query, 
     tables, 
@@ -244,46 +307,11 @@ def phase3_generate_code(
     cancel_check: Callable[[], None] | None = None,
     seed: int = 0,
     seed_instruction_recorder: Callable[[], None] | None = None,
+    coder_context_level: CoderContextLevel = CoderContextLevel.FULL,
+    evaluation_result_type: str | None = None,
 ):
-    MAX_DETAIL_COLS = 25    # columns shown with type info
-    MAX_SAMPLE_COLS = 15    # columns shown in sample rows
-    MAX_SAMPLE_ROWS = 2     # rows in sample preview
-    MAX_CELL_WIDTH = 40     # max chars per cell in sample
-
-    info_lines = ["AVAILABLE TABLES:"]
-    for idx, fn in enumerate(tables, 1):
-        filepath = os.path.join(csv_dir, fn.strip())
-
-        load_cmd = table_load_command(filepath)
-        df = read_table(filepath, nrows=MAX_SAMPLE_ROWS + 1)
-
-        # The local file is the execution schema and therefore the sole source
-        # of truth for exact names. Solr may expose API field names such as
-        # ``mbps_bandwidth`` while the parquet contains ``Mbps Bandwidth``.
-        try:
-            col_typed = _exact_column_labels(df)
-        except Exception:
-            col_typed = ["Unknown columns"]
-
-        total_cols = len(col_typed)
-        shown = col_typed[:MAX_DETAIL_COLS]
-
-        # Sample preview: limit columns and truncate wide cells
-        sample_df = df.head(MAX_SAMPLE_ROWS).copy()
-        if len(sample_df.columns) > MAX_SAMPLE_COLS:
-            sample_df = sample_df.iloc[:, :MAX_SAMPLE_COLS].copy()
-        for col in sample_df.columns:
-            sample_df[col] = sample_df[col].astype(str).str.slice(0, MAX_CELL_WIDTH)
-        sample_str = sample_df.to_string(index=False)
-
-        info_lines.append(f"{idx}. LOAD: {load_cmd}")
-        info_lines.append(f"   Columns ({total_cols}): {', '.join(shown)}")
-        if total_cols > MAX_DETAIL_COLS:
-            rest_names = [c.split("(")[0] if "(" in c else c for c in col_typed[MAX_DETAIL_COLS:]]
-            info_lines.append(f"   +{total_cols - MAX_DETAIL_COLS} more: {', '.join(rest_names[:15])}")
-        info_lines.append(f"   Sample:\n{sample_str}")
-
-    tables_info = "\n".join(info_lines)
+    context_level = CoderContextLevel(coder_context_level)
+    tables_info = _build_coder_tables_info(tables, Path(csv_dir), context_level)
 
     system_prompt = pm.render("code_generator", "system_prompt")
     if retries == 0:
@@ -305,6 +333,8 @@ def phase3_generate_code(
         "random_state parameters). Do not add a seed to deterministic operations. "
         "Do not use another fixed seed.\n"
     )
+    if evaluation_result_type:
+        user_prompt += evaluation_output_instruction(evaluation_result_type)
 
     # --- Optional TabPFN intent routing and task-specific hint injection ---
     tabpfn_intent = _detect_tabpfn_intent(query)
@@ -518,6 +548,8 @@ def phase3_generate_and_execute(
     run_dir: Path | None = None,
     seed: int = 0,
     seed_instruction_recorder: Callable[[], None] | None = None,
+    coder_context_level: CoderContextLevel = CoderContextLevel.FULL,
+    evaluation_result_type: str | None = None,
 ) -> Phase3Result:
     code_raw, tokens = phase3_generate_code(
         query,
@@ -538,6 +570,8 @@ def phase3_generate_and_execute(
         cancel_check=cancel_check,
         seed=seed,
         seed_instruction_recorder=seed_instruction_recorder,
+        coder_context_level=coder_context_level,
+        evaluation_result_type=evaluation_result_type,
     )
 
     # Detect generation errors (loop, empty output) before attempting execution
@@ -573,10 +607,19 @@ def phase3_generate_and_execute(
         )
 
     raw_result, error, clean_code = _execute_code(resolved_code, run_dir=run_dir)
+    structured_result = None
+    structured_result_error = ""
+    if error is None and raw_result is not None and evaluation_result_type:
+        raw_result, structured_result, payload_error = extract_evaluation_payload(
+            raw_result
+        )
+        structured_result_error = payload_error or ""
     return Phase3Result(
         code_raw=code_raw,
         tokens=tokens,
         raw_result=raw_result,
         error=error,
         clean_code=clean_code,
+        structured_result=structured_result,
+        structured_result_error=structured_result_error,
     )

@@ -59,6 +59,16 @@ BENCHMARK_LOG_COLUMNS = [
     "NDCG_AT_1",
     "NDCG_AT_5",
     "NDCG_AT_10",
+    "CODER_CONTEXT_LEVEL",
+    "CODE_APPLICABLE_CASES",
+    "CODE_EXECUTION_SUCCESS_RATE",
+    "EXACT_RESULT_MATCH_RATE",
+    "PASS_AT_1",
+    "SUCCESS_WITHIN_3",
+    "MEAN_CODE_ATTEMPTS",
+    "CODE_CASE_COUNT_BY_RESULT_TYPE_JSON",
+    "EXACT_RESULT_MATCH_RATE_BY_TYPE_JSON",
+    "CODE_ERROR_CATEGORIES_JSON",
 ]
 _BENCHMARK_LOG_LOCK = threading.Lock()
 
@@ -291,6 +301,7 @@ def append_benchmark_metrics_log(
     for label, experiment in report.get("experiments", {}).items():
         config = experiment["config"]
         metrics = experiment["mean_metrics"]
+        code_metrics = experiment.get("code_metrics", {})
         question_count = len(experiment["cases"])
         rows.append(
             {
@@ -333,6 +344,46 @@ def append_benchmark_metrics_log(
                 "NDCG_AT_1": metrics.get("nDCG@1", ""),
                 "NDCG_AT_5": metrics.get("nDCG@5", ""),
                 "NDCG_AT_10": metrics.get("nDCG@10", ""),
+                "CODER_CONTEXT_LEVEL": config.get("coder_context_level", ""),
+                "CODE_APPLICABLE_CASES": code_metrics.get(
+                    "applicable_case_count", ""
+                ),
+                "CODE_EXECUTION_SUCCESS_RATE": code_metrics.get(
+                    "execution_success_rate", ""
+                ),
+                "EXACT_RESULT_MATCH_RATE": code_metrics.get(
+                    "exact_result_match_rate", ""
+                ),
+                "PASS_AT_1": code_metrics.get("pass_at_1", ""),
+                "SUCCESS_WITHIN_3": code_metrics.get("success_within_3", ""),
+                "MEAN_CODE_ATTEMPTS": code_metrics.get("mean_attempts", ""),
+                "CODE_CASE_COUNT_BY_RESULT_TYPE_JSON": (
+                    json.dumps(
+                        code_metrics.get("case_count_by_result_type", {}),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    if code_metrics
+                    else ""
+                ),
+                "EXACT_RESULT_MATCH_RATE_BY_TYPE_JSON": (
+                    json.dumps(
+                        code_metrics.get("exact_result_match_rate_by_type", {}),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    if code_metrics
+                    else ""
+                ),
+                "CODE_ERROR_CATEGORIES_JSON": (
+                    json.dumps(
+                        code_metrics.get("error_categories", {}),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    if code_metrics
+                    else ""
+                ),
             }
         )
 

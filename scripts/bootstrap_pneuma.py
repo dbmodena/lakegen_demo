@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import inspect
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -18,6 +20,9 @@ from pneuma import Pneuma
 
 SUPPORTED_SUFFIXES = {".csv", ".parquet"}
 DEFAULT_EXTERNAL_VIEW_ROW_LIMIT = 10_000
+DEFAULT_EMBEDDING_BATCH_SIZE = 16
+DEFAULT_CHROMA_INSERT_BATCH_SIZE = 1_000
+EMBEDDING_NON_FINITE_FALLBACK_PREFIX = "Represent this dataset for retrieval. "
 BOUNDED_TABLE_IDS: set[str] = set()
 BOUNDED_TABLE_ROW_LIMIT = DEFAULT_EXTERNAL_VIEW_ROW_LIMIT
 
@@ -41,6 +46,18 @@ def tune_duckdb_connections() -> None:
             return getattr(self._connection, name)
 
         def sql(self, query: str, *args: Any, **kwargs: Any):
+            if re.search(r"\bFROM\s+insert_df\b", query, flags=re.IGNORECASE):
+                caller_frame = inspect.currentframe().f_back
+                insert_df = (
+                    caller_frame.f_locals.get("insert_df")
+                    if caller_frame is not None
+                    else None
+                )
+                if insert_df is None:
+                    raise RuntimeError(
+                        "Pneuma referenced insert_df but no caller DataFrame was found"
+                    )
+                self._connection.register("insert_df", insert_df)
             match = re.fullmatch(
                 r"\s*SELECT\s+\*\s+FROM\s+'((?:''|[^'])+)'\s*",
                 query,
@@ -61,6 +78,137 @@ def tune_duckdb_connections() -> None:
         )
 
     duckdb.connect = connect  # type: ignore[assignment]
+
+
+def _is_non_finite_embedding_error(error: BaseException) -> bool:
+    messages: list[str] = []
+    current: BaseException | None = error
+    while current is not None:
+        messages.append(str(current).casefold())
+        current = current.__cause__
+    detail = " ".join(messages)
+    return any(
+        marker in detail
+        for marker in (
+            "unsupported value: nan",
+            "non-finite vector",
+            "zero-norm vector",
+        )
+    )
+
+
+def _validate_embedding(vector: Any) -> list[float]:
+    result = [float(value) for value in vector]
+    if not result or any(not math.isfinite(value) for value in result):
+        raise ValueError("Embedding model returned an empty or non-finite vector")
+    norm = math.sqrt(sum(value * value for value in result))
+    if norm < 1e-12:
+        raise ValueError("Embedding model returned a zero-norm vector")
+    return result
+
+
+def configure_pneuma_indexing(
+    *, embedding_batch_size: int, chroma_insert_batch_size: int
+) -> None:
+    """Make Pneuma indexing robust to BGE-M3 NaNs and Chroma batch limits."""
+    import pneuma.index_generator.index_generator as pneuma_index_generator
+
+    original_collection_add = pneuma_index_generator.Collection.add
+
+    def chunked_collection_add(
+        collection: Any,
+        ids: Any,
+        embeddings: Any = None,
+        metadatas: Any = None,
+        documents: Any = None,
+        images: Any = None,
+        uris: Any = None,
+    ) -> None:
+        item_count = 1 if isinstance(ids, str) else len(ids)
+        if item_count <= chroma_insert_batch_size:
+            original_collection_add(
+                collection,
+                ids=ids,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                documents=documents,
+                images=images,
+                uris=uris,
+            )
+            return
+
+        def batch(value: Any, start: int, end: int) -> Any:
+            if value is None:
+                return None
+            return value[start:end]
+
+        print(
+            f"[index] chroma_insert documents={item_count} "
+            f"batch_size={chroma_insert_batch_size}",
+            flush=True,
+        )
+        for start in range(0, item_count, chroma_insert_batch_size):
+            end = min(start + chroma_insert_batch_size, item_count)
+            original_collection_add(
+                collection,
+                ids=batch(ids, start, end),
+                embeddings=batch(embeddings, start, end),
+                metadatas=batch(metadatas, start, end),
+                documents=batch(documents, start, end),
+                images=batch(images, start, end),
+                uris=batch(uris, start, end),
+            )
+            print(f"[index] chroma_insert {end}/{item_count}", flush=True)
+
+    pneuma_index_generator.Collection.add = chunked_collection_add
+
+    def robust_prompt_openai_embed(
+        embed_model: Any,
+        documents: list[str],
+        model: str = "text-embedding-3-small",
+    ) -> list[list[float]]:
+        def request(items: list[str]) -> list[list[float]]:
+            try:
+                response = embed_model.embeddings.create(input=items, model=model)
+                vectors = [_validate_embedding(item.embedding) for item in response.data]
+                if len(vectors) != len(items):
+                    raise RuntimeError(
+                        "Embedding provider returned a different number of vectors "
+                        f"({len(vectors)}) than inputs ({len(items)})"
+                    )
+                return vectors
+            except Exception as error:
+                if not _is_non_finite_embedding_error(error):
+                    raise
+                if len(items) > 1:
+                    midpoint = len(items) // 2
+                    return request(items[:midpoint]) + request(items[midpoint:])
+
+                original = items[0]
+                fallback = EMBEDDING_NON_FINITE_FALLBACK_PREFIX + original
+                response = embed_model.embeddings.create(input=[fallback], model=model)
+                if len(response.data) != 1:
+                    raise RuntimeError(
+                        "Embedding provider did not return one vector for the "
+                        "non-finite fallback"
+                    ) from error
+                vector = _validate_embedding(response.data[0].embedding)
+                print(
+                    "[index] recovered_non_finite_embedding "
+                    f"sha256={hashlib.sha256(original.encode('utf-8')).hexdigest()}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return [vector]
+
+        vectors: list[list[float]] = []
+        for offset in range(0, len(documents), embedding_batch_size):
+            vectors.extend(
+                request(documents[offset : offset + embedding_batch_size])
+            )
+        return vectors
+
+    pneuma_index_generator.prompt_openai_embed = robust_prompt_openai_embed
 
 
 def response_payload(raw: str | dict[str, Any]) -> dict[str, Any]:
@@ -255,6 +403,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_EXTERNAL_VIEW_ROW_LIMIT,
         help="Maximum rows exposed by Parquet-backed external views during summaries",
     )
+    parser.add_argument(
+        "--embedding-batch-size",
+        type=int,
+        default=DEFAULT_EMBEDDING_BATCH_SIZE,
+        help="Documents sent per OpenAI-compatible embedding request",
+    )
+    parser.add_argument(
+        "--chroma-insert-batch-size",
+        type=int,
+        default=DEFAULT_CHROMA_INSERT_BATCH_SIZE,
+        help="Documents inserted per Chroma operation",
+    )
     return parser
 
 
@@ -278,6 +438,15 @@ def main() -> None:
         raise RuntimeError(f"No CSV or Parquet tables found in {table_dir}")
     if args.external_view_row_limit <= 0:
         raise ValueError("--external-view-row-limit must be greater than zero")
+    if args.embedding_batch_size <= 0:
+        raise ValueError("--embedding-batch-size must be greater than zero")
+    if args.chroma_insert_batch_size <= 0:
+        raise ValueError("--chroma-insert-batch-size must be greater than zero")
+
+    configure_pneuma_indexing(
+        embedding_batch_size=args.embedding_batch_size,
+        chroma_insert_batch_size=args.chroma_insert_batch_size,
+    )
 
     print(
         f"[setup] portal={args.portal} tables={len(paths)} out={out_path} "

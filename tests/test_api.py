@@ -139,7 +139,96 @@ def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
     assert api._jobs[job_id]["processed"] == 2
     assert len(api._jobs[job_id]["results"]) == 2
     assert api._jobs[job_id]["status"] == "completed"
+    assert "code" in api._jobs[job_id]["batch_metrics"]
     api._jobs.pop(job_id, None)
+
+
+def test_batch_table_metrics_returns_summary_for_final_job_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(api, "append_benchmark_metrics_log", lambda *_args, **_kwargs: None)
+    questions = [{
+        "question": "How many parks?",
+        "source_id": "case-1",
+        "source_path": "$.cases[0].question",
+        "log_fields": {"SOURCE_RELEVANT_TABLE_IDS": ["parks"]},
+    }]
+    results = [{"result": {
+        "tables": ["parks.csv"],
+        "error": "",
+    }}]
+    settings = {"resolved_config": {
+        "experiment_id": "experiment",
+        "core": "nyc",
+        "model": "model",
+        "discovery_architecture": "unified",
+        "retrieval": {
+            "mode": "keyword",
+            "fusion_method": "weighted",
+        },
+    }}
+
+    summary = api._append_batch_table_metrics(
+        "d" * 32, questions, results, settings
+    )
+
+    assert summary["case_count"] == 1
+    assert summary["mean_metrics"]["Hit@1"] == 1.0
+
+
+def test_automatic_coder_sweep_writes_one_csv_row_per_shared_context_variant(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(api, "BASE_DIR", tmp_path)
+    questions = [{
+        "question": "How many parks?",
+        "source_id": "case-1",
+        "source_path": "$.cases[0].question",
+        "log_fields": {"SOURCE_RELEVANT_TABLE_IDS": ["parks"]},
+    }]
+    variants = {}
+    for level, correct in (("full", True), ("schema_only", True), ("minimal", False)):
+        variants[level] = {"code_evaluation": {
+            "applicable": True,
+            "expected_result_type": "number",
+            "generation_success": True,
+            "execution_success": True,
+            "structured_output_valid": True,
+            "result_type_match": True,
+            "exact_result_match": correct,
+            "pass_at_1": correct,
+            "success_within_3": correct,
+            "attempt_count": 1,
+        }}
+    results = [{"result": {
+        "tables": ["parks.csv"],
+        "error": "",
+        "coder_context_experiment": {"variants": variants},
+    }}]
+    retrieval = {
+        "mode": "keyword", "fusion_method": "weighted", "alpha": 0.5,
+        "rrf_k": 60, "top_k": 10, "candidate_multiplier": 5,
+        "representation_version": "metadata-v1", "embedding_model": "bge-m3",
+    }
+    settings = {"resolved_config": {
+        "experiment_id": "coder-sweep", "core": "nyc", "model": "model",
+        "discovery_architecture": "unified", "automatic_test_coder": True,
+        "coder_context_level": "full", "retrieval": retrieval,
+    }}
+
+    api._append_batch_table_metrics("e" * 32, questions, results, settings)
+
+    with (tmp_path / "logs" / "retrieval_benchmarks_log.csv").open(
+        newline="", encoding="utf-8"
+    ) as input_file:
+        rows = list(csv.DictReader(input_file))
+    assert [row["CODER_CONTEXT_LEVEL"] for row in rows] == [
+        "full", "schema_only", "minimal"
+    ]
+    assert [row["EXACT_RESULT_MATCH_RATE"] for row in rows] == [
+        "1.0", "1.0", "0.0"
+    ]
+    assert len({row["JOB_ID"] for row in rows}) == 1
+    assert all(row["RECALL_AT_1"] == "1.0" for row in rows)
 
 
 def test_invalid_job_id_cannot_be_used_as_a_path(tmp_path, monkeypatch):
@@ -327,13 +416,34 @@ def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatc
         },
     ]
     results = [
-        {"result": {"tables": ["gold-a.parquet", "other.parquet", "gold-b.parquet"], "error": ""}},
-        {"result": {"tables": ["other.parquet", "gold-c.parquet"], "error": ""}},
+        {"result": {
+            "tables": ["gold-a.parquet", "other.parquet", "gold-b.parquet"],
+            "error": "",
+            "code_evaluation": {
+                "applicable": True, "generation_success": True,
+                "execution_success": True, "structured_output_valid": True,
+                "result_type_match": True, "exact_result_match": True,
+                "pass_at_1": True, "success_within_3": True,
+                "attempt_count": 1, "column_f1": 1.0, "row_f1": 1.0,
+                "cell_accuracy": 1.0,
+            },
+        }},
+        {"result": {
+            "tables": ["other.parquet", "gold-c.parquet"], "error": "",
+            "code_evaluation": {
+                "applicable": True, "generation_success": True,
+                "execution_success": False, "structured_output_valid": False,
+                "result_type_match": False, "exact_result_match": False,
+                "pass_at_1": False, "success_within_3": False,
+                "attempt_count": 3, "error_category": "execution_error",
+            },
+        }},
     ]
     settings = {
         "resolved_config": {
             "experiment_id": "architecture-test",
             "core": "nyc",
+            "coder_context_level": "full",
             "retrieval": {
                 "mode": "keyword",
                 "fusion_method": "weighted",
@@ -362,6 +472,14 @@ def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatc
     assert row["QUESTION_COUNT"] == "2"
     assert row["RECALL_AT_1"] == "0.25"
     assert row["MRR"] == "0.75"
+    assert row["CODER_CONTEXT_LEVEL"] == "full"
+    assert row["CODE_EXECUTION_SUCCESS_RATE"] == "0.5"
+    assert row["EXACT_RESULT_MATCH_RATE"] == "0.5"
+    assert row["PASS_AT_1"] == "0.5"
+    assert row["MEAN_CODE_ATTEMPTS"] == "2.0"
+    assert json.loads(row["CODE_ERROR_CATEGORIES_JSON"]) == {
+        "execution_error": 1
+    }
     assert "CASE_METRICS_JSON" not in row
 
 

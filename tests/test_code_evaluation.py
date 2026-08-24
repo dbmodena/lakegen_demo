@@ -1,0 +1,134 @@
+from lakegen.code_evaluation import (
+    EVALUATION_MARKER,
+    evaluate_code_result,
+    extract_evaluation_payload,
+    summarize_code_evaluations,
+)
+
+
+def test_extracts_structured_evaluation_payload_and_cleans_marker():
+    clean, value, error = extract_evaluation_payload(
+        f'{EVALUATION_MARKER}[{{"borough":"Bronx","count":2}}]'
+    )
+
+    assert value == [{"borough": "Bronx", "count": 2}]
+    assert clean == '[{"borough": "Bronx", "count": 2}]'
+    assert error is None
+
+
+def test_structured_payload_stays_complete_while_synthesis_output_is_bounded():
+    values = list(range(12))
+    clean, value, error = extract_evaluation_payload(
+        EVALUATION_MARKER + "[" + ",".join(map(str, values)) + "]"
+    )
+
+    assert value == values
+    assert clean.startswith("Total items: 12\n[0, 1, 2, 3, 4]")
+    assert error is None
+
+
+def test_number_evaluation_accepts_scalar_with_numeric_tolerance():
+    evaluation = evaluate_code_result(
+        expected_result_type="number",
+        reference_result=[{"correlation": 0.123456789}],
+        actual_result=0.12345679,
+    )
+
+    assert evaluation["result_type_match"] is True
+    assert evaluation["exact_result_match"] is True
+    assert evaluation["numeric_match"] is True
+    assert evaluation["numeric_absolute_error"] < 1e-8
+    assert "cell_accuracy" not in evaluation
+
+
+def test_table_evaluation_ignores_row_order_unless_required():
+    reference = [
+        {"borough": "Bronx", "count": 2},
+        {"borough": "Queens", "count": 4},
+    ]
+    actual = list(reversed(reference))
+
+    unordered = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=reference,
+        actual_result=actual,
+    )
+    ordered = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=reference,
+        actual_result=actual,
+        expected_description="Rows sorted by count descending.",
+    )
+
+    assert unordered["exact_result_match"] is True
+    assert unordered["cell_accuracy"] == 1.0
+    assert ordered["exact_result_match"] is False
+    assert ordered["order_correct"] is False
+
+
+def test_partial_table_metrics_penalize_missing_columns_and_wrong_values():
+    evaluation = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=[{"borough": "Bronx", "count": 2}],
+        actual_result=[{"borough": "Bronx", "count": 3, "extra": "x"}],
+    )
+
+    assert evaluation["exact_result_match"] is False
+    assert evaluation["column_recall"] == 1.0
+    assert evaluation["column_precision"] < 1.0
+    assert evaluation["row_f1"] == 0.0
+    assert evaluation["cell_accuracy"] == 0.5
+
+
+def test_list_uses_item_metrics_instead_of_table_metrics():
+    evaluation = evaluate_code_result(
+        expected_result_type="list",
+        reference_result=[{"rotation": 10}, {"rotation": 20}],
+        actual_result=[20, 10],
+    )
+
+    assert evaluation["exact_result_match"] is True
+    assert evaluation["item_f1"] == 1.0
+    assert "column_f1" not in evaluation
+    assert "cell_accuracy" not in evaluation
+
+
+def test_batch_summary_aggregates_only_applicable_code_evaluations():
+    results = [
+        {"result": {"code_evaluation": {
+            "applicable": True,
+            "generation_success": True,
+            "execution_success": True,
+            "structured_output_valid": True,
+            "result_type_match": True,
+            "exact_result_match": True,
+            "pass_at_1": True,
+            "success_within_3": True,
+            "attempt_count": 1,
+            "column_f1": 1.0,
+            "row_f1": 1.0,
+            "cell_accuracy": 1.0,
+        }}},
+        {"result": {"code_evaluation": {
+            "applicable": True,
+            "generation_success": True,
+            "execution_success": False,
+            "structured_output_valid": False,
+            "result_type_match": False,
+            "exact_result_match": False,
+            "pass_at_1": False,
+            "success_within_3": False,
+            "attempt_count": 3,
+            "error_category": "execution_error",
+        }}},
+        {"result": {"code_evaluation": {"applicable": False}}},
+    ]
+
+    summary = summarize_code_evaluations(results)
+
+    assert summary["batch_case_count"] == 3
+    assert summary["applicable_case_count"] == 2
+    assert summary["execution_success_rate"] == 0.5
+    assert summary["exact_result_match_rate"] == 0.5
+    assert summary["mean_attempts"] == 2.0
+    assert summary["error_categories"] == {"execution_error": 1}

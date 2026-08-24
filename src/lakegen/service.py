@@ -30,8 +30,13 @@ from lakegen.phases import (
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import RetrievalConfig, RetrievalMode, evaluate_ranking
 from lakegen.output_validation import AnswerDisposition, validate_answer
+from lakegen.code_evaluation import (
+    evaluate_code_result,
+    unavailable_code_evaluation,
+)
 from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.experiment_config import (
+    CoderContextLevel,
     DiscoveryArchitecture,
     ExperimentConfig,
     InteractionMode,
@@ -117,6 +122,8 @@ class QueryResult:
     errors: list[dict[str, Any]] = field(default_factory=list)
     human_interventions: list[dict[str, Any]] = field(default_factory=list)
     execution_outcome: dict[str, Any] = field(default_factory=dict)
+    code_evaluation: dict[str, Any] = field(default_factory=dict)
+    coder_context_experiment: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -248,6 +255,115 @@ def run_question(
 
     started = time.monotonic()
     result = QueryResult(question=question, status="running")
+    expected_result_type = (
+        str(log_context.get("SOURCE_EXPECTED_RESULT_TYPE"))
+        if log_context and log_context.get("SOURCE_EXPECTED_RESULT_TYPE")
+        else ""
+    )
+    reference_result = (
+        log_context.get("SOURCE_REFERENCE_RESULT") if log_context else None
+    )
+    expected_result_description = (
+        str(log_context.get("SOURCE_EXPECTED_RESULT_DESCRIPTION") or "")
+        if log_context
+        else ""
+    )
+    code_evaluation_enabled = bool(
+        expected_result_type and reference_result is not None
+    )
+    if code_evaluation_enabled:
+        result.code_evaluation = {
+            "applicable": True,
+            "expected_result_type": expected_result_type,
+            "generation_success": False,
+            "execution_success": False,
+            "structured_output_valid": False,
+            "result_type_match": False,
+            "exact_result_match": False,
+            "pass_at_1": False,
+            "success_within_3": False,
+            "attempt_count": 0,
+            "attempts": [],
+            "error_category": None,
+        }
+    else:
+        result.code_evaluation = unavailable_code_evaluation(
+            "expected_result_type and reference_result are required"
+        )
+
+    def evaluate_generated_attempt(generated, attempt_number: int) -> dict[str, Any]:
+        generation_success = not (
+            generated.code_raw.startswith("__GENERATION_ERROR__:")
+            or bool(generated.rejected_reason)
+        )
+        execution_success = (
+            generated.error is None and generated.raw_result is not None
+        )
+        structured_result = getattr(generated, "structured_result", None)
+        structured_error = str(
+            getattr(generated, "structured_result_error", "") or ""
+        )
+        attempt_evaluation: dict[str, Any] = {
+            "attempt": attempt_number,
+            "generation_success": generation_success,
+            "execution_success": execution_success,
+            "structured_output_valid": structured_result is not None,
+            "error": generated.error or structured_error,
+        }
+        if structured_result is not None:
+            attempt_evaluation.update(evaluate_code_result(
+                expected_result_type=expected_result_type,
+                reference_result=reference_result,
+                actual_result=structured_result,
+                expected_description=expected_result_description,
+            ))
+        else:
+            attempt_evaluation["exact_result_match"] = False
+        return attempt_evaluation
+
+    def summarize_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+        summary = {
+            "applicable": True,
+            "expected_result_type": expected_result_type,
+            "generation_success": any(
+                item["generation_success"] for item in attempts
+            ),
+            "execution_success": any(
+                item["execution_success"] for item in attempts
+            ),
+            "structured_output_valid": any(
+                item["structured_output_valid"] for item in attempts
+            ),
+            "result_type_match": False,
+            "exact_result_match": False,
+            "pass_at_1": bool(attempts and attempts[0].get("exact_result_match")),
+            "success_within_3": any(
+                item.get("exact_result_match") for item in attempts[:3]
+            ),
+            "attempt_count": len(attempts),
+            "attempts": attempts,
+            "error_category": None,
+        }
+        if attempts:
+            latest = attempts[-1]
+            summary.update({
+                key: value
+                for key, value in latest.items()
+                if key not in {"attempt", "error", "applicable"}
+            })
+            if latest.get("exact_result_match"):
+                summary["error_category"] = None
+            elif not latest["generation_success"]:
+                summary["error_category"] = "generation_error"
+            elif not latest["execution_success"]:
+                summary["error_category"] = "execution_error"
+            elif not latest["structured_output_valid"]:
+                summary["error_category"] = "structured_output_error"
+            elif not latest.get("result_type_match"):
+                summary["error_category"] = "result_type_mismatch"
+            else:
+                summary["error_category"] = "wrong_result"
+        return summary
     discovery_phase_tokens = {"p1": 0, "p2": 0}
     experiment = getattr(runtime, "experiment", None)
     if experiment is None:
@@ -517,6 +633,172 @@ def run_question(
                 if keywords_rejected:
                     continue
 
+                if experiment.automatic_test_coder:
+                    variants: dict[str, Any] = {}
+                    for context_level in CoderContextLevel:
+                        variant_started = time.monotonic()
+                        variant_error = ""
+                        variant_previous_code = ""
+                        variant_generated = None
+                        variant_attempts: list[dict[str, Any]] = []
+                        variant_tokens = 0
+                        variant_status = "failed"
+
+                        for code_attempt in range(MAX_CODE_ATTEMPTS):
+                            code_started = time.monotonic()
+                            variant_generated = phase3_generate_and_execute(
+                                question,
+                                selected,
+                                selected,
+                                solr_meta,
+                                reasoning,
+                                llm,
+                                prompt_manager,
+                                runtime.csv_dir,
+                                retries=code_attempt,
+                                error_msg=variant_error,
+                                previous_code=variant_previous_code,
+                                run_dir=(
+                                    run_dir / "coder_context" / context_level.value
+                                ),
+                                seed=reproducibility.effective_seed,
+                                seed_instruction_recorder=record_seed_instruction,
+                                coder_context_level=context_level,
+                                evaluation_result_type=(
+                                    expected_result_type
+                                    if code_evaluation_enabled
+                                    else None
+                                ),
+                            )
+                            phase_invocation_counts["code"] += 1
+                            variant_tokens += variant_generated.tokens
+                            result.tokens["p3"] += variant_generated.tokens
+                            code_metric = result.phase_metrics.setdefault(
+                                "code", {"latency_seconds": 0.0, "retries": 0}
+                            )
+                            code_metric["latency_seconds"] = round(
+                                code_metric["latency_seconds"]
+                                + (time.monotonic() - code_started),
+                                6,
+                            )
+                            result.retries += int(code_attempt > 0)
+                            variant_previous_code = (
+                                variant_generated.clean_code
+                                or variant_generated.code_raw
+                            )
+
+                            if code_evaluation_enabled:
+                                variant_attempts.append(evaluate_generated_attempt(
+                                    variant_generated, code_attempt + 1
+                                ))
+
+                            if variant_generated.rejected_reason:
+                                variant_status = "tables_rejected"
+                                variant_error = variant_generated.rejected_reason
+                                break
+
+                            if (
+                                variant_generated.error is None
+                                and variant_generated.raw_result is not None
+                            ):
+                                raw_validation = validate_answer(
+                                    variant_generated.raw_result
+                                )
+                                if raw_validation.disposition == AnswerDisposition.EMPTY:
+                                    variant_status = "empty"
+                                    variant_error = raw_validation.reason
+                                    continue
+                                if raw_validation.disposition == AnswerDisposition.REJECTED:
+                                    variant_status = "rejected"
+                                    variant_error = raw_validation.reason
+                                    break
+                                variant_status = "completed"
+                                variant_error = ""
+                                break
+
+                            variant_error = (
+                                variant_generated.error
+                                or "Code execution returned no output."
+                            )
+
+                        if code_evaluation_enabled:
+                            variant_evaluation = summarize_attempts(variant_attempts)
+                        else:
+                            variant_evaluation = unavailable_code_evaluation(
+                                "expected_result_type and reference_result are required"
+                            )
+                        variants[context_level.value] = {
+                            "coder_context_level": context_level.value,
+                            "status": variant_status,
+                            "code": variant_previous_code,
+                            "raw_result": (
+                                variant_generated.raw_result
+                                if variant_generated is not None
+                                and variant_generated.raw_result is not None
+                                else ""
+                            ),
+                            "error": variant_error,
+                            "tokens": variant_tokens,
+                            "attempts": len(variant_attempts) if code_evaluation_enabled else (
+                                code_attempt + 1
+                            ),
+                            "elapsed_seconds": round(
+                                time.monotonic() - variant_started, 6
+                            ),
+                            "code_evaluation": variant_evaluation,
+                        }
+
+                    result.phase_metrics["code"]["retries"] = result.retries
+                    result.coder_context_experiment = {
+                        "shared_retrieval": True,
+                        "shared_tables": list(selected),
+                        "shared_keywords": list(keywords),
+                        "shared_reasoning": reasoning,
+                        "primary_level": CoderContextLevel.FULL.value,
+                        "variants": variants,
+                    }
+                    primary = variants[CoderContextLevel.FULL.value]
+                    result.code = primary["code"]
+                    result.raw_result = primary["raw_result"]
+                    result.code_evaluation = primary["code_evaluation"]
+                    primary_status = primary["status"]
+                    if primary_status == "completed":
+                        result.pipeline_stages["code_execution"] = "succeeded"
+                        synthesis_started = time.monotonic()
+                        answer, synthesis_tokens = phase4_synthesize(
+                            question, result.raw_result, llm, prompt_manager
+                        )
+                        phase_invocation_counts["result"] += 1
+                        result.answer = answer
+                        result.tokens["p4"] = synthesis_tokens
+                        result.phase_metrics["result"] = {
+                            "latency_seconds": round(
+                                time.monotonic() - synthesis_started, 6
+                            ),
+                            "retries": 0,
+                        }
+                        validation = validate_answer(result.raw_result, answer)
+                        result.answer_disposition = validation.disposition.value
+                        result.pipeline_stages["final_answer"] = (
+                            validation.disposition.value
+                        )
+                        if validation.disposition == AnswerDisposition.VALID:
+                            result.status = "completed"
+                            result.error = ""
+                        elif validation.disposition == AnswerDisposition.REJECTED:
+                            result.status = "rejected"
+                            result.error = validation.reason
+                        else:
+                            result.status = "failed"
+                            result.error = validation.reason
+                    else:
+                        result.pipeline_stages["code_execution"] = primary_status
+                        result.status = (
+                            "rejected" if primary_status == "rejected" else "failed"
+                        )
+                        result.error = primary["error"]
+                    return result
+
                 previous_code = ""
                 for code_attempt in range(MAX_CODE_ATTEMPTS):
                     code_started = time.monotonic()
@@ -535,6 +817,10 @@ def run_question(
                         run_dir=run_dir,
                         seed=reproducibility.effective_seed,
                         seed_instruction_recorder=record_seed_instruction,
+                        coder_context_level=experiment.coder_context_level,
+                        evaluation_result_type=(
+                            expected_result_type if code_evaluation_enabled else None
+                        ),
                     )
                     phase_invocation_counts["code"] += 1
                     result.tokens["p3"] += generated.tokens
@@ -550,6 +836,13 @@ def run_question(
                     result.retries += int(code_attempt > 0)
                     previous_code = generated.clean_code or generated.code_raw
                     result.code = previous_code
+
+                    if code_evaluation_enabled:
+                        attempts = result.code_evaluation["attempts"]
+                        attempts.append(evaluate_generated_attempt(
+                            generated, code_attempt + 1
+                        ))
+                        result.code_evaluation = summarize_attempts(attempts)
 
                     if generated.rejected_reason:
                         result.errors.append({
@@ -711,6 +1004,8 @@ def run_question(
                 "status": result.pipeline_stages["code_execution"],
                 "raw_result": result.raw_result,
                 "error": result.error,
+                "code_evaluation": result.code_evaluation,
+                "coder_context_experiment": result.coder_context_experiment,
             }
             retrieval = runtime.retrieval
             extra_fields: dict[str, Any] = {
@@ -751,6 +1046,8 @@ def run_question(
                     "errors": result.errors,
                     "human_interventions": result.human_interventions,
                     "execution_outcome": result.execution_outcome,
+                    "code_evaluation": result.code_evaluation,
+                    "coder_context_experiment": result.coder_context_experiment,
                 },
             }
             if log_context:

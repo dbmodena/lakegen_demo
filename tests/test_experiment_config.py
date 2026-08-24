@@ -30,6 +30,7 @@ def test_default_config_matches_existing_interactive_workflow(monkeypatch):
     assert not any(config.reviewers.model_dump().values())
     assert config.max_revision_rounds == 3
     assert config.coder_context_level == "full"
+    assert config.automatic_test_coder is False
     assert config.interaction_mode == "human_gated"
     assert config.gates.model_dump() == {
         "keywords": True,
@@ -81,13 +82,21 @@ def test_yaml_json_and_cli_overrides_resolve_identically(tmp_path):
         {"planner_enabled": True},
         {"reviewers": {"dataset": True}},
         {"max_revision_rounds": 4},
-        {"coder_context_level": "minimal"},
         {"gates": {"result": True}},
     ],
 )
 def test_unimplemented_combinations_are_rejected(update):
     with pytest.raises(ValidationError):
         ExperimentConfig.model_validate(update)
+
+
+@pytest.mark.parametrize("level", ["full", "schema_only", "minimal"])
+def test_coder_context_levels_are_supported(level):
+    assert ExperimentConfig(coder_context_level=level).coder_context_level == level
+
+
+def test_automatic_coder_context_sweep_is_supported():
+    assert ExperimentConfig(automatic_test_coder=True).automatic_test_coder is True
 
 
 def test_orchestrated_context_is_supported_and_unknown_tool_access_is_rejected():

@@ -639,6 +639,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     seed_instruction_recorder=lambda: setattr(
                         session, "generated_code_seed_instruction_provided", True
                     ),
+                    coder_context_level=session.runtime.experiment.coder_context_level,
                 )
                 session.phase_seconds["code"] += time.monotonic() - phase_started
                 session.llm_call_counts["code"] += 1

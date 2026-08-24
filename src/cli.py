@@ -571,6 +571,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             run_dir=run_dir,
             seed=reproducibility.effective_seed,
             seed_instruction_recorder=record_seed_instruction,
+            coder_context_level=runtime.experiment.coder_context_level,
         )
         phase_seconds["code"] += time.monotonic() - phase_started
         llm_call_counts["code"] += 1

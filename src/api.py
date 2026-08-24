@@ -42,7 +42,9 @@ from lakegen.ui.state import (
 from lakegen.retrieval import RetrievalMode, check_embedding_health
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
+from lakegen.code_evaluation import summarize_code_evaluations
 from lakegen.experiment_config import (
+    CoderContextLevel,
     DiscoveryArchitecture,
     ExperimentConfig,
     load_experiment_config,
@@ -289,7 +291,7 @@ def _append_batch_table_metrics(
     questions: list[dict[str, Any]],
     results: list[dict[str, Any]],
     settings: dict[str, Any],
-) -> bool:
+) -> dict[str, Any] | None:
     """Log end-to-end table-selection metrics for metric-ready batches.
 
     A batch is metric-ready only when every question supplies non-empty
@@ -298,7 +300,7 @@ def _append_batch_table_metrics(
     """
 
     if not questions or len(questions) != len(results):
-        return False
+        return None
 
     case_rows: list[dict[str, Any]] = []
     metric_rows: list[dict[str, float]] = []
@@ -306,7 +308,7 @@ def _append_batch_table_metrics(
     for source, entry in zip(questions, results, strict=True):
         gold = source.get("log_fields", {}).get("SOURCE_RELEVANT_TABLE_IDS")
         if not isinstance(gold, list) or not gold:
-            return False
+            return None
         relevant = list(dict.fromkeys(_table_id(value) for value in gold))
         result = entry.get("result", {})
         ranking = list(
@@ -328,25 +330,45 @@ def _append_batch_table_metrics(
 
     resolved = settings["resolved_config"]
     retrieval = resolved["retrieval"]
-    label = str(resolved.get("experiment_id") or "batch")
+    base_label = str(resolved.get("experiment_id") or "batch")
+    automatic_test_coder = bool(resolved.get("automatic_test_coder"))
+    levels = (
+        list(CoderContextLevel)
+        if automatic_test_coder
+        else [CoderContextLevel(resolved.get("coder_context_level", "full"))]
+    )
+    experiments: dict[str, Any] = {}
+    for level in levels:
+        label = (
+            f"{base_label}-coder-{level.value}"
+            if automatic_test_coder
+            else base_label
+        )
+        code_metrics = summarize_code_evaluations(
+            results,
+            coder_context_level=(level.value if automatic_test_coder else None),
+        )
+        experiments[label] = {
+            "config": {
+                **retrieval,
+                "mode": retrieval["mode"],
+                "fusion_method": retrieval["fusion_method"],
+                "coder_context_level": level.value,
+            },
+            "mean_metrics": mean_metrics(metric_rows),
+            "mean_metrics_successful_queries": mean_metrics(
+                successful_metric_rows
+            ),
+            "successful_case_count": len(successful_metric_rows),
+            "failed_case_count": len(case_rows) - len(successful_metric_rows),
+            "code_metrics": code_metrics,
+            "cases": case_rows,
+        }
     report = {
         "benchmark_type": "batch-table-selection",
         "created_at": _now(),
         "case_count": len(case_rows),
-        "experiments": {
-            label: {
-                "config": {
-                    **retrieval,
-                    "mode": retrieval["mode"],
-                    "fusion_method": retrieval["fusion_method"],
-                },
-                "mean_metrics": mean_metrics(metric_rows),
-                "mean_metrics_successful_queries": mean_metrics(successful_metric_rows),
-                "successful_case_count": len(successful_metric_rows),
-                "failed_case_count": len(case_rows) - len(successful_metric_rows),
-                "cases": case_rows,
-            }
-        },
+        "experiments": experiments,
     }
     append_benchmark_metrics_log(
         report,
@@ -354,7 +376,7 @@ def _append_batch_table_metrics(
         run_id=job_id,
         core=str(resolved["core"]),
         source_path=questions[0]["source_path"],
-        source_job_ids={label: job_id},
+        source_job_ids={label: job_id for label in experiments},
         model=str(resolved.get("model") or ""),
         architecture=str(resolved.get("discovery_architecture") or ""),
         portal_name=str(
@@ -362,7 +384,16 @@ def _append_batch_table_metrics(
             or SOLR_CORE_PORTAL_NAMES.get(str(resolved["core"]), resolved["core"])
         ),
     )
-    return True
+    experiment_report = next(iter(experiments.values()))
+    return {
+        "case_count": len(case_rows),
+        "successful_case_count": experiment_report["successful_case_count"],
+        "failed_case_count": experiment_report["failed_case_count"],
+        "mean_metrics": experiment_report["mean_metrics"],
+        "mean_metrics_successful_queries": experiment_report[
+            "mean_metrics_successful_queries"
+        ],
+    }
 
 
 def _snapshot_job(job_id: str, *, include_results: bool = True) -> dict[str, Any] | None:
@@ -471,15 +502,43 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
         with _jobs_lock:
             completed_results = json.loads(json.dumps(_jobs[job_id]["results"]))
             metrics_logged = bool(_jobs[job_id].get("metrics_logged"))
+            existing_batch_metrics = json.loads(json.dumps(
+                _jobs[job_id].get("batch_metrics", {})
+            ))
+        table_metrics = None
         if not metrics_logged:
             try:
-                if _append_batch_table_metrics(
+                table_metrics = _append_batch_table_metrics(
                     job_id, questions, completed_results, settings
-                ):
+                )
+                if table_metrics:
                     _update_job(job_id, metrics_logged=True)
             except Exception:
                 logger.exception("Could not persist batch table-selection metrics")
-        _update_job(job_id, status="completed", finished_at=_now())
+        elif existing_batch_metrics:
+            table_metrics = existing_batch_metrics.get("table_selection")
+        automatic_test_coder = bool(
+            settings["resolved_config"].get("automatic_test_coder")
+        )
+        code_metrics = (
+            {
+                level.value: summarize_code_evaluations(
+                    completed_results, coder_context_level=level.value
+                )
+                for level in CoderContextLevel
+            }
+            if automatic_test_coder
+            else summarize_code_evaluations(completed_results)
+        )
+        _update_job(
+            job_id,
+            status="completed",
+            finished_at=_now(),
+            batch_metrics={
+                "table_selection": table_metrics,
+                "code": code_metrics,
+            },
+        )
     except Exception as exc:
         _update_job(
             job_id,
