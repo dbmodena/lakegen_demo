@@ -133,16 +133,15 @@ def _records(value: Any, expected_columns: Sequence[str]) -> list[dict[str, Any]
 
 
 def _single_value(value: Any) -> tuple[Any, bool]:
-    """Return a scalar candidate and whether it was already scalar-shaped."""
+    """Return a scalar candidate and whether it is unambiguously single-valued."""
 
     if isinstance(value, Mapping):
         if len(value) == 1:
-            return next(iter(value.values())), False
+            return _single_value(next(iter(value.values())))
         return value, False
     if isinstance(value, list):
         if len(value) == 1:
-            scalar, _scalar_shaped = _single_value(value[0])
-            return scalar, False
+            return _single_value(value[0])
         return value, False
     return value, True
 
@@ -264,23 +263,15 @@ def evaluate_code_result(
             "reason": f"unsupported expected_result_type {expected_result_type!r}",
         }
 
-    reference_rows = _records(reference_result, [])
-    if reference_rows is None or not reference_rows:
-        return {
-            "applicable": False,
-            "reason": "reference_result is empty or not record-shaped",
-        }
-    expected_columns = list(reference_rows[0])
-
     if result_type == "number":
-        if len(reference_rows) != 1 or len(expected_columns) != 1:
+        expected_value, _reference_scalar_shaped = _single_value(reference_result)
+        expected_number = _numeric(expected_value)
+        if expected_number is None:
             return {
                 "applicable": False,
-                "reason": "number reference_result must contain exactly one value",
+                "reason": "number reference_result must contain one numeric value",
             }
-        expected_value = reference_rows[0][expected_columns[0]]
         actual_value, scalar_shaped = _single_value(actual_result)
-        expected_number = _numeric(expected_value)
         actual_number = _numeric(actual_value)
         numeric_match = _values_equal(expected_value, actual_value)
         absolute_error = (
@@ -307,6 +298,14 @@ def evaluate_code_result(
                 round(relative_error, 12) if relative_error is not None else None
             ),
         }
+
+    reference_rows = _records(reference_result, [])
+    if reference_rows is None or not reference_rows:
+        return {
+            "applicable": False,
+            "reason": "reference_result is empty or not record-shaped",
+        }
+    expected_columns = list(reference_rows[0])
 
     actual_rows = _records(actual_result, expected_columns)
     if actual_rows is None:

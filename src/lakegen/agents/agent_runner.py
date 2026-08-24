@@ -30,6 +30,8 @@ def run_agent_workflow(
     tool_retriever: Any | None = None,
     max_iterations: int = 10,
     max_repeats: int = 3,
+    max_tool_calls: int | None = None,
+    timeout_seconds: float | None = None,
     chat_history: list | None = None,
 ) -> str:
     """
@@ -78,6 +80,10 @@ def run_agent_workflow(
             elif isinstance(event, ToolCall):
                 tool_call_count += 1
                 tool_name = getattr(event, 'tool_name', 'unknown_tool')
+                if max_tool_calls is not None and tool_call_count > max_tool_calls:
+                    raise Phase2AgentStall(
+                        f"tool-call limit reached ({max_tool_calls})"
+                    )
                 tool_signature = (
                     f"{tool_name}:"
                     f"{format_phase2_tool_args(event)}"
@@ -110,7 +116,14 @@ def run_agent_workflow(
         llm._async_client = None
 
     try:
-        res = asyncio.run(_run_agent())
+        workflow = _run_agent()
+        if timeout_seconds is not None:
+            workflow = asyncio.wait_for(workflow, timeout=timeout_seconds)
+        res = asyncio.run(workflow)
+    except TimeoutError as exc:
+        raise Phase2AgentStall(
+            f"workflow timeout reached ({timeout_seconds:g}s)"
+        ) from exc
     except Exception:
         raise
     return str(getattr(res, "response", res)).strip()

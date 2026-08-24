@@ -113,8 +113,10 @@ def phase12_agent(
             emit_stream=emit_stream,
             cancel_check=cancel_check,
             tools=agent_tools,
-            max_iterations=16,
-            max_repeats=4,
+            max_iterations=10,
+            max_repeats=3,
+            max_tool_calls=8,
+            timeout_seconds=300,
         )
     except Phase2AgentStall as stall_err:
         inspected_fallback = state.inspected_candidates()[:2]

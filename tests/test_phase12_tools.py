@@ -435,8 +435,7 @@ def test_unified_adaptive_candidates_reveal_ten_then_five(
     assert "5 ranked candidates remain hidden" in expanded
 
     final_expansion = manager.expand_candidates()
-    assert "candidates 16-20" in final_expansion
-    assert "All ranked candidates are now visible" in final_expansion
+    assert "Expansion limit reached" in final_expansion
     assert "Do not call expand_candidates again" in final_expansion
 
 
@@ -478,6 +477,5 @@ def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_pat
     assert len(manager.visible_candidates()) == 15
 
     final_expansion = manager.expand_candidates()
-    assert "candidates 16-20" in final_expansion
-    assert "All ranked candidates are now visible" in final_expansion
+    assert "Expansion limit reached" in final_expansion
     assert "Do not call expand_candidates again" in final_expansion

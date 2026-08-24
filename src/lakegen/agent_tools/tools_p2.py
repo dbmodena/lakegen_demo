@@ -499,6 +499,7 @@ class Phase2JudgeToolsManager:
     
     INITIAL_CANDIDATES = 10
     EXPANSION_SIZE = 5
+    MAX_EXPANSIONS = 1
     INITIAL_SHORTLIST_SIZE = 3
     MAX_INSPECTED_CANDIDATES = 5
 
@@ -593,6 +594,11 @@ class Phase2JudgeToolsManager:
             return (
                 "Expansion blocked: inspect at least one plausible visible candidate "
                 "before requesting more results."
+            )
+        if self.expansion_count >= self.MAX_EXPANSIONS:
+            return (
+                "Expansion limit reached. Do not call expand_candidates again; "
+                "select among the inspected candidates."
             )
         if self.visible_candidate_count >= len(self.candidates):
             return "No additional candidates are available."

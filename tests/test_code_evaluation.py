@@ -41,6 +41,29 @@ def test_number_evaluation_accepts_scalar_with_numeric_tolerance():
     assert "cell_accuracy" not in evaluation
 
 
+def test_number_evaluation_accepts_dynamic_scalar_reference():
+    evaluation = evaluate_code_result(
+        expected_result_type="number",
+        reference_result=638904,
+        actual_result=638904,
+    )
+
+    assert evaluation["applicable"] is True
+    assert evaluation["result_type_match"] is True
+    assert evaluation["exact_result_match"] is True
+
+
+def test_number_evaluation_compares_scalar_reference_to_legacy_record_result():
+    evaluation = evaluate_code_result(
+        expected_result_type="number",
+        reference_result=158.0,
+        actual_result=[{"total_adult_shelter_beds": 158}],
+    )
+
+    assert evaluation["numeric_match"] is True
+    assert evaluation["exact_result_match"] is True
+
+
 def test_number_evaluation_accepts_equivalent_percentage_text():
     evaluation = evaluate_code_result(
         expected_result_type="number",

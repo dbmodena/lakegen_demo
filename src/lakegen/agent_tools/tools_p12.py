@@ -63,6 +63,7 @@ class Phase12ToolsManager:
 
     INITIAL_CANDIDATES = 10
     EXPANSION_SIZE = 5
+    MAX_EXPANSIONS = 1
     INITIAL_SHORTLIST_SIZE = 3
     MAX_INSPECTED_CANDIDATES = 5
     
@@ -322,6 +323,11 @@ class Phase12ToolsManager:
             return (
                 "Expansion blocked: inspect at least one plausible visible candidate "
                 "before requesting more results."
+            )
+        if self.state.expansion_count >= self.MAX_EXPANSIONS:
+            return (
+                "Expansion limit reached. Do not call expand_candidates again "
+                "or search_solr again; select among the inspected candidates."
             )
         if self.state.visible_candidate_count >= len(self.state.all_candidates):
             return "No additional candidates are available."
