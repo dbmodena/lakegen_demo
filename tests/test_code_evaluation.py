@@ -41,6 +41,17 @@ def test_number_evaluation_accepts_scalar_with_numeric_tolerance():
     assert "cell_accuracy" not in evaluation
 
 
+def test_number_evaluation_accepts_equivalent_percentage_text():
+    evaluation = evaluate_code_result(
+        expected_result_type="number",
+        reference_result=[{"percentage": 82}],
+        actual_result="82%",
+    )
+
+    assert evaluation["numeric_match"] is True
+    assert evaluation["exact_result_match"] is True
+
+
 def test_table_evaluation_ignores_row_order_unless_required():
     reference = [
         {"borough": "Bronx", "count": 2},
@@ -64,6 +75,36 @@ def test_table_evaluation_ignores_row_order_unless_required():
     assert unordered["cell_accuracy"] == 1.0
     assert ordered["exact_result_match"] is False
     assert ordered["order_correct"] is False
+
+
+def test_table_evaluation_accepts_unique_value_equivalent_column_aliases():
+    evaluation = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=[
+            {"program": "A", "avg_count": 10.0},
+            {"program": "B", "avg_count": 20.0},
+        ],
+        actual_result=[
+            {"program": "B", "Average Monthly Case Count": 20.0},
+            {"program": "A", "Average Monthly Case Count": 10.0},
+        ],
+    )
+
+    assert evaluation["exact_result_match"] is True
+    assert evaluation["column_aliases"] == {
+        "avg_count": "Average Monthly Case Count"
+    }
+
+
+def test_table_evaluation_rejects_ambiguous_value_based_column_aliases():
+    evaluation = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=[{"left": 1, "right": 1}],
+        actual_result=[{"first": 1, "second": 1}],
+    )
+
+    assert evaluation["exact_result_match"] is False
+    assert evaluation["column_recall"] == 0.0
 
 
 def test_partial_table_metrics_penalize_missing_columns_and_wrong_values():
@@ -130,5 +171,11 @@ def test_batch_summary_aggregates_only_applicable_code_evaluations():
     assert summary["applicable_case_count"] == 2
     assert summary["execution_success_rate"] == 0.5
     assert summary["exact_result_match_rate"] == 0.5
+    assert summary["supported_result_rate"] == 0.5
+    assert summary["ambiguous_result_rate"] == 0.0
+    assert summary["evaluation_dispositions"] == {
+        "gold_correct": 1,
+        "incorrect": 1,
+    }
     assert summary["mean_attempts"] == 2.0
     assert summary["error_categories"] == {"execution_error": 1}

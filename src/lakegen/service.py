@@ -34,6 +34,7 @@ from lakegen.code_evaluation import (
     evaluate_code_result,
     unavailable_code_evaluation,
 )
+from lakegen.semantic_code_judge import judge_semantic_code_result
 from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.experiment_config import (
     CoderContextLevel,
@@ -343,6 +344,10 @@ def run_question(
             "attempt_count": len(attempts),
             "attempts": attempts,
             "error_category": None,
+            "evaluation_disposition": "incorrect",
+            "supported_correct": False,
+            "semantic_judge_used": False,
+            "semantic_judge_tokens": 0,
         }
         if attempts:
             latest = attempts[-1]
@@ -353,6 +358,8 @@ def run_question(
             })
             if latest.get("exact_result_match"):
                 summary["error_category"] = None
+                summary["evaluation_disposition"] = "gold_correct"
+                summary["supported_correct"] = True
             elif not latest["generation_success"]:
                 summary["error_category"] = "generation_error"
             elif not latest["execution_success"]:
@@ -363,6 +370,12 @@ def run_question(
                 summary["error_category"] = "result_type_mismatch"
             else:
                 summary["error_category"] = "wrong_result"
+            if (
+                latest["execution_success"]
+                and latest["structured_output_valid"]
+                and not latest.get("exact_result_match")
+            ):
+                summary["evaluation_disposition"] = "pending_semantic_review"
         return summary
     discovery_phase_tokens = {"p1": 0, "p2": 0}
     experiment = getattr(runtime, "experiment", None)
@@ -386,6 +399,7 @@ def run_question(
     result.configuration = dict(manifest.resolved_config)
     persist_manifest(manifest, LOG_DIR / "manifests")
     llm, _token_counter = get_llm(runtime.model_name)
+    semantic_judge_llm = None
     solr = get_solr(runtime.solr_core)
     prompt_manager = get_prompt_manager()
     all_files = get_all_table_files(runtime.csv_dir)
@@ -420,6 +434,48 @@ def run_question(
         "preparation_error": None,
         "selector_error": None,
     }
+
+    def adjudicate_code_evaluation(
+        evaluation: dict[str, Any], generated
+    ) -> dict[str, Any]:
+        nonlocal semantic_judge_llm
+        if evaluation.get("evaluation_disposition") != "pending_semantic_review":
+            return evaluation
+        if not experiment.semantic_code_judge_enabled:
+            evaluation.update({
+                "evaluation_disposition": "indeterminate",
+                "supported_correct": False,
+                "semantic_judge_used": False,
+                "semantic_judge_model": experiment.semantic_code_judge_model,
+            })
+            return evaluation
+        if semantic_judge_llm is None:
+            semantic_judge_llm = (
+                llm
+                if experiment.semantic_code_judge_model == runtime.model_name
+                else get_llm(experiment.semantic_code_judge_model)[0]
+            )
+        judgment, judge_tokens = judge_semantic_code_result(
+            question=question,
+            expected_description=expected_result_description,
+            reference_result=reference_result,
+            selected_tables=selected,
+            selected_metadata=solr_meta,
+            generated_code=generated.clean_code or generated.code_raw,
+            generated_result=getattr(generated, "structured_result", None),
+            llm=semantic_judge_llm,
+            prompt_manager=prompt_manager,
+        )
+        disposition = judgment["disposition"]
+        evaluation.update({
+            "evaluation_disposition": disposition,
+            "supported_correct": disposition == "alternative_correct",
+            "semantic_judge_used": True,
+            "semantic_judge_model": experiment.semantic_code_judge_model,
+            "semantic_judge_tokens": judge_tokens,
+            "semantic_judgment": judgment,
+        })
+        return evaluation
 
     def record_seed_instruction() -> None:
         nonlocal generated_code_seed_instruction_provided
@@ -723,6 +779,13 @@ def run_question(
 
                         if code_evaluation_enabled:
                             variant_evaluation = summarize_attempts(variant_attempts)
+                            if (
+                                variant_generated is not None
+                                and variant_status == "completed"
+                            ):
+                                variant_evaluation = adjudicate_code_evaluation(
+                                    variant_evaluation, variant_generated
+                                )
                         else:
                             variant_evaluation = unavailable_code_evaluation(
                                 "expected_result_type and reference_result are required"
@@ -873,6 +936,10 @@ def run_question(
                             result.error = raw_validation.reason
                             return result
 
+                        if code_evaluation_enabled:
+                            result.code_evaluation = adjudicate_code_evaluation(
+                                result.code_evaluation, generated
+                            )
                         result.pipeline_stages["code_execution"] = "succeeded"
                         synthesis_started = time.monotonic()
                         answer, synthesis_tokens = phase4_synthesize(

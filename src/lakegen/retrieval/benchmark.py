@@ -69,6 +69,10 @@ BENCHMARK_LOG_COLUMNS = [
     "CODE_CASE_COUNT_BY_RESULT_TYPE_JSON",
     "EXACT_RESULT_MATCH_RATE_BY_TYPE_JSON",
     "CODE_ERROR_CATEGORIES_JSON",
+    "SEMANTIC_CODE_JUDGE_MODEL",
+    "SUPPORTED_RESULT_RATE",
+    "AMBIGUOUS_RESULT_RATE",
+    "EVALUATION_DISPOSITIONS_JSON",
 ]
 _BENCHMARK_LOG_LOCK = threading.Lock()
 
@@ -345,6 +349,9 @@ def append_benchmark_metrics_log(
                 "NDCG_AT_5": metrics.get("nDCG@5", ""),
                 "NDCG_AT_10": metrics.get("nDCG@10", ""),
                 "CODER_CONTEXT_LEVEL": config.get("coder_context_level", ""),
+                "SEMANTIC_CODE_JUDGE_MODEL": config.get(
+                    "semantic_code_judge_model", ""
+                ),
                 "CODE_APPLICABLE_CASES": code_metrics.get(
                     "applicable_case_count", ""
                 ),
@@ -353,6 +360,12 @@ def append_benchmark_metrics_log(
                 ),
                 "EXACT_RESULT_MATCH_RATE": code_metrics.get(
                     "exact_result_match_rate", ""
+                ),
+                "SUPPORTED_RESULT_RATE": code_metrics.get(
+                    "supported_result_rate", ""
+                ),
+                "AMBIGUOUS_RESULT_RATE": code_metrics.get(
+                    "ambiguous_result_rate", ""
                 ),
                 "PASS_AT_1": code_metrics.get("pass_at_1", ""),
                 "SUCCESS_WITHIN_3": code_metrics.get("success_within_3", ""),
@@ -378,6 +391,15 @@ def append_benchmark_metrics_log(
                 "CODE_ERROR_CATEGORIES_JSON": (
                     json.dumps(
                         code_metrics.get("error_categories", {}),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    if code_metrics
+                    else ""
+                ),
+                "EVALUATION_DISPOSITIONS_JSON": (
+                    json.dumps(
+                        code_metrics.get("evaluation_dispositions", {}),
                         ensure_ascii=False,
                         sort_keys=True,
                     )

@@ -115,6 +115,8 @@ class ExperimentConfig(FrozenModel):
     max_revision_rounds: int = Field(default=3, ge=0)
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL
     automatic_test_coder: bool = False
+    semantic_code_judge_enabled: bool = True
+    semantic_code_judge_model: str = DEFAULT_MODEL
     interaction_mode: InteractionMode = InteractionMode.HUMAN_GATED
     gates: GateConfig = Field(default_factory=GateConfig)
 
@@ -124,6 +126,11 @@ class ExperimentConfig(FrozenModel):
             raise ValueError(f"unsupported core {self.core!r}")
         if self.model not in SUPPORTED_MODELS:
             raise ValueError(f"unsupported model {self.model!r}")
+        if self.semantic_code_judge_model not in SUPPORTED_MODELS:
+            raise ValueError(
+                f"unsupported semantic_code_judge_model "
+                f"{self.semantic_code_judge_model!r}"
+            )
         if self.planner_enabled:
             raise ValueError("planner_enabled=true is not implemented")
         enabled_reviewers = [

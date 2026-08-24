@@ -1,0 +1,34 @@
+prompt: |
+  You are a strict, configuration-blind evaluator of a generated data-analysis result.
+
+  Classify the result using exactly one disposition:
+  - alternative_correct: fully answers the question and is supported by a valid alternative source/representation.
+  - partially_correct: some requested measures, groups, filters, periods, or rows are correct but coverage is incomplete.
+  - incorrect: the code/result contradicts the question, selected data, required scope, or reference evidence.
+  - indeterminate: the supplied evidence is insufficient to decide reliably.
+
+  A plausible answer is not enough. Use alternative_correct only when the selected sources, code operations, and result provide positive evidence for every requirement. Differences in harmless aliases, formatting, row order, or equivalent units are acceptable. Different values are acceptable only when a valid alternative table/version clearly explains them. If source version, scope, or semantics cannot be verified, choose indeterminate.
+
+  Return JSON only with this exact shape:
+  {"disposition":"alternative_correct|partially_correct|incorrect|indeterminate","confidence":0.0,"rationale":"concise evidence-based explanation","requirements_met":["..."],"requirements_missing":["..."]}
+
+  QUESTION:
+  {{ question }}
+
+  EXPECTED RESULT DESCRIPTION:
+  {{ expected_description }}
+
+  GOLD RESULT:
+  {{ reference_result }}
+
+  SELECTED TABLES:
+  {{ selected_tables }}
+
+  SELECTED TABLE METADATA:
+  {{ selected_metadata }}
+
+  GENERATED CODE:
+  {{ generated_code }}
+
+  GENERATED RESULT:
+  {{ generated_result }}

@@ -92,6 +92,8 @@ def _numeric(value: Any) -> float | None:
         return float(value)
     if isinstance(value, str):
         stripped = value.strip().replace(",", "")
+        if stripped.endswith("%"):
+            stripped = stripped[:-1].strip()
         try:
             return float(stripped)
         except ValueError:
@@ -156,6 +158,83 @@ def _column_map(
         for expected in expected_columns
         if _normalized_column(expected) in actual_by_normalized
     }
+
+
+def _value_multisets_equal(left: Sequence[Any], right: Sequence[Any]) -> bool:
+    """Compare column values without relying on row order."""
+
+    if len(left) != len(right):
+        return False
+    unmatched = set(range(len(right)))
+    for left_value in left:
+        match = next(
+            (
+                index for index in sorted(unmatched)
+                if _values_equal(left_value, right[index])
+            ),
+            None,
+        )
+        if match is None:
+            return False
+        unmatched.remove(match)
+    return True
+
+
+def _semantic_column_map(
+    expected_rows: Sequence[Mapping[str, Any]],
+    actual_rows: Sequence[Mapping[str, Any]],
+    expected_columns: Sequence[str],
+    actual_columns: Sequence[str],
+) -> dict[str, str]:
+    """Resolve exact names first, then unique value-equivalent aliases."""
+
+    mapping = _column_map(expected_columns, actual_columns)
+    remaining_expected = [
+        column for column in expected_columns if column not in mapping
+    ]
+    used_actual = set(mapping.values())
+    remaining_actual = [
+        column for column in actual_columns if column not in used_actual
+    ]
+    if not remaining_expected or len(remaining_expected) != len(remaining_actual):
+        return mapping
+
+    candidates: dict[str, list[str]] = {}
+    for expected_column in remaining_expected:
+        expected_values = [row.get(expected_column) for row in expected_rows]
+        candidates[expected_column] = [
+            actual_column
+            for actual_column in remaining_actual
+            if _value_multisets_equal(
+                expected_values,
+                [row.get(actual_column) for row in actual_rows],
+            )
+        ]
+        if not candidates[expected_column]:
+            return mapping
+
+    solutions: list[dict[str, str]] = []
+
+    def search(index: int, current: dict[str, str], used: set[str]) -> None:
+        if len(solutions) > 1:
+            return
+        if index == len(remaining_expected):
+            solutions.append(dict(current))
+            return
+        expected_column = remaining_expected[index]
+        for actual_column in candidates[expected_column]:
+            if actual_column in used:
+                continue
+            current[expected_column] = actual_column
+            used.add(actual_column)
+            search(index + 1, current, used)
+            used.remove(actual_column)
+            current.pop(expected_column, None)
+
+    search(0, {}, set())
+    if len(solutions) == 1:
+        mapping.update(solutions[0])
+    return mapping
 
 
 def _rows_equal(
@@ -266,7 +345,9 @@ def evaluate_code_result(
     actual_columns = list(dict.fromkeys(
         column for row in actual_rows for column in row
     ))
-    columns = _column_map(expected_columns, actual_columns)
+    columns = _semantic_column_map(
+        reference_rows, actual_rows, expected_columns, actual_columns
+    )
     matched_column_count = len(columns)
     column_precision = (
         matched_column_count / len(actual_columns) if actual_columns else 0.0
@@ -391,6 +472,11 @@ def evaluate_code_result(
         "order_correct": order_correct,
         "expected_row_count": len(reference_rows),
         "actual_row_count": len(actual_rows),
+        "column_aliases": {
+            expected: actual
+            for expected, actual in columns.items()
+            if _normalized_column(expected) != _normalized_column(actual)
+        },
     }
 
 
@@ -455,6 +541,17 @@ def summarize_code_evaluations(
         for item in applicable
         if item.get("expected_result_type")
     )
+    def disposition(item: Mapping[str, Any]) -> str:
+        explicit = item.get("evaluation_disposition")
+        if explicit:
+            return str(explicit)
+        return "gold_correct" if item.get("exact_result_match") else "incorrect"
+
+    dispositions = Counter(disposition(item) for item in applicable)
+    supported_count = sum(
+        bool(item.get("supported_correct", item.get("exact_result_match")))
+        for item in applicable
+    )
     return {
         "batch_case_count": total,
         "applicable_case_count": count,
@@ -464,6 +561,10 @@ def summarize_code_evaluations(
         "structured_output_rate": rate("structured_output_valid"),
         "result_type_match_rate": rate("result_type_match"),
         "exact_result_match_rate": rate("exact_result_match"),
+        "supported_result_rate": round(supported_count / count, 6) if count else 0.0,
+        "ambiguous_result_rate": round(
+            dispositions.get("indeterminate", 0) / count, 6
+        ) if count else 0.0,
         "pass_at_1": rate("pass_at_1"),
         "success_within_3": rate("success_within_3"),
         "mean_attempts": mean("attempt_count"),
@@ -479,4 +580,11 @@ def summarize_code_evaluations(
             for result_type in ("number", "table", "list")
         },
         "error_categories": dict(sorted(errors.items())),
+        "evaluation_dispositions": dict(sorted(dispositions.items())),
+        "semantic_judge_case_count": sum(
+            bool(item.get("semantic_judge_used")) for item in applicable
+        ),
+        "semantic_judge_total_tokens": sum(
+            int(item.get("semantic_judge_tokens") or 0) for item in applicable
+        ),
     }

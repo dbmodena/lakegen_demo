@@ -354,6 +354,9 @@ def _append_batch_table_metrics(
                 "mode": retrieval["mode"],
                 "fusion_method": retrieval["fusion_method"],
                 "coder_context_level": level.value,
+                "semantic_code_judge_model": resolved.get(
+                    "semantic_code_judge_model", ""
+                ),
             },
             "mean_metrics": mean_metrics(metric_rows),
             "mean_metrics_successful_queries": mean_metrics(
