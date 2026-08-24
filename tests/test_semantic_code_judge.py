@@ -27,8 +27,10 @@ def test_semantic_judge_accepts_supported_alternative():
         selected_metadata={"newer.parquet": {"description": "Updated data"}},
         generated_code="print(12)",
         generated_result=12,
+        deterministic_evaluation={"exact_result_match": False},
         llm=FakeLlm(
             '{"disposition":"alternative_correct","confidence":0.9,'
+            '"all_requirements_verified":true,'
             '"rationale":"Newer source","requirements_met":["count"],'
             '"requirements_missing":[]}'
         ),
@@ -49,6 +51,7 @@ def test_semantic_judge_fails_closed_on_invalid_response():
         selected_metadata={},
         generated_code="print([])",
         generated_result=[],
+        deterministic_evaluation={"exact_result_match": False},
         llm=FakeLlm("not json"),
         prompt_manager=FakePromptManager(),
     )
@@ -56,3 +59,25 @@ def test_semantic_judge_fails_closed_on_invalid_response():
     assert judgment["disposition"] == "indeterminate"
     assert judgment["judge_error"].startswith("JSONDecodeError:")
     assert tokens == 0
+
+
+def test_semantic_judge_downgrades_unverified_alternative():
+    judgment, _tokens = judge_semantic_code_result(
+        question="Question",
+        expected_description="Expected",
+        reference_result=10,
+        selected_tables=["alternative.parquet"],
+        selected_metadata={},
+        generated_code="print(12)",
+        generated_result=12,
+        deterministic_evaluation={"exact_result_match": False},
+        llm=FakeLlm(
+            '{"disposition":"alternative_correct","confidence":0.95,'
+            '"all_requirements_verified":false,"rationale":"Plausible",'
+            '"requirements_met":[],"requirements_missing":[]}'
+        ),
+        prompt_manager=FakePromptManager(),
+    )
+
+    assert judgment["requested_disposition"] == "alternative_correct"
+    assert judgment["disposition"] == "indeterminate"

@@ -463,6 +463,7 @@ def run_question(
             selected_metadata=solr_meta,
             generated_code=generated.clean_code or generated.code_raw,
             generated_result=getattr(generated, "structured_result", None),
+            deterministic_evaluation=evaluation,
             llm=semantic_judge_llm,
             prompt_manager=prompt_manager,
         )

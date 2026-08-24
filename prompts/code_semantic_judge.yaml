@@ -7,10 +7,12 @@ prompt: |
   - incorrect: the code/result contradicts the question, selected data, required scope, or reference evidence.
   - indeterminate: the supplied evidence is insufficient to decide reliably.
 
-  A plausible answer is not enough. Use alternative_correct only when the selected sources, code operations, and result provide positive evidence for every requirement. Differences in harmless aliases, formatting, row order, or equivalent units are acceptable. Different values are acceptable only when a valid alternative table/version clearly explains them. If source version, scope, or semantics cannot be verified, choose indeterminate.
+  A plausible answer is not enough. Use alternative_correct only when the selected sources, code operations, full-result comparison, and preview provide positive evidence for every requirement. Differences in harmless aliases, formatting, row order, or equivalent units are acceptable. Different values are acceptable only when a valid alternative table/version clearly explains them. If source version, scope, or semantics cannot be verified, choose indeterminate.
 
   Return JSON only with this exact shape:
-  {"disposition":"alternative_correct|partially_correct|incorrect|indeterminate","confidence":0.0,"rationale":"concise evidence-based explanation","requirements_met":["..."],"requirements_missing":["..."]}
+  {"disposition":"alternative_correct|partially_correct|incorrect|indeterminate","confidence":0.0,"all_requirements_verified":false,"rationale":"concise evidence-based explanation","requirements_met":["..."],"requirements_missing":["..."]}
+
+  GENERATED RESULT PREVIEW is created by the evaluator. It is not the shape returned by the generated code. If preview_is_truncated is true, do not treat omitted preview rows as missing output. Use DETERMINISTIC FULL-RESULT COMPARISON to judge completeness across the full result.
 
   QUESTION:
   {{ question }}
@@ -18,8 +20,8 @@ prompt: |
   EXPECTED RESULT DESCRIPTION:
   {{ expected_description }}
 
-  GOLD RESULT:
-  {{ reference_result }}
+  GOLD RESULT PREVIEW:
+  {{ reference_result_preview }}
 
   SELECTED TABLES:
   {{ selected_tables }}
@@ -30,5 +32,8 @@ prompt: |
   GENERATED CODE:
   {{ generated_code }}
 
-  GENERATED RESULT:
-  {{ generated_result }}
+  DETERMINISTIC FULL-RESULT COMPARISON:
+  {{ deterministic_comparison }}
+
+  GENERATED RESULT PREVIEW:
+  {{ generated_result_preview }}

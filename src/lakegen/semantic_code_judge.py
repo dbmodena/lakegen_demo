@@ -24,17 +24,47 @@ SEMANTIC_DISPOSITIONS = {
 }
 
 
-def _bounded_json(value: Any, *, max_chars: int = 12_000) -> str:
-    if isinstance(value, list) and len(value) > 20:
-        value = {
-            "total_items": len(value),
-            "first_20_items": value[:20],
-            "truncated_for_judge": True,
-        }
+def _bounded_json(value: Any, *, max_chars: int = 8_000) -> str:
     encoded = json.dumps(value, ensure_ascii=False, default=str, sort_keys=True)
     if len(encoded) <= max_chars:
         return encoded
-    return encoded[:max_chars] + "...<truncated>"
+    return json.dumps({
+        "serialized_prefix": encoded[:max_chars],
+        "preview_is_truncated": True,
+    }, ensure_ascii=False)
+
+
+def _result_preview(value: Any, *, sample_size: int = 6) -> Mapping[str, Any]:
+    """Describe an evaluator-created preview without changing result semantics."""
+
+    if isinstance(value, list):
+        truncated = len(value) > sample_size * 2
+        items = value[:sample_size]
+        if truncated:
+            items = [*items, *value[-sample_size:]]
+        return {
+            "original_result_type": "list",
+            "total_items": len(value),
+            "preview_is_truncated": truncated,
+            "sample_items": items,
+        }
+    return {
+        "original_result_type": type(value).__name__,
+        "preview_is_truncated": False,
+        "value": value,
+    }
+
+
+def _comparison_facts(evaluation: Mapping[str, Any]) -> dict[str, Any]:
+    useful_keys = {
+        "expected_result_type", "result_type_match", "exact_result_match",
+        "column_precision", "column_recall", "column_f1", "row_precision",
+        "row_recall", "row_f1", "cell_accuracy", "item_precision",
+        "item_recall", "item_f1", "numeric_absolute_error",
+        "numeric_relative_error", "expected_row_count", "actual_row_count",
+        "order_required", "order_correct", "column_aliases",
+    }
+    return {key: evaluation[key] for key in useful_keys if key in evaluation}
 
 
 def _extract_json(text: str) -> Mapping[str, Any]:
@@ -57,6 +87,7 @@ def judge_semantic_code_result(
     selected_metadata: Mapping[str, Any],
     generated_code: str,
     generated_result: Any,
+    deterministic_evaluation: Mapping[str, Any],
     llm: LLM,
     prompt_manager: PromptManager,
 ) -> tuple[dict[str, Any], int]:
@@ -69,11 +100,14 @@ def judge_semantic_code_result(
             "prompt",
             question=question,
             expected_description=expected_description,
-            reference_result=_bounded_json(reference_result),
+            reference_result_preview=_bounded_json(_result_preview(reference_result)),
             selected_tables=_bounded_json(list(selected_tables)),
             selected_metadata=_bounded_json(selected_metadata),
-            generated_code=generated_code[:16_000],
-            generated_result=_bounded_json(generated_result),
+            generated_code=generated_code[:10_000],
+            generated_result_preview=_bounded_json(_result_preview(generated_result)),
+            deterministic_comparison=_bounded_json(
+                _comparison_facts(deterministic_evaluation)
+            ),
         )
         response = llm.chat([ChatMessage(role="user", content=prompt)])
         raw_content = str(response.message.content).strip()
@@ -82,9 +116,18 @@ def judge_semantic_code_result(
         if disposition not in SEMANTIC_DISPOSITIONS:
             raise ValueError(f"unsupported semantic disposition {disposition!r}")
         confidence = float(payload.get("confidence", 0.0))
+        confidence = max(0.0, min(1.0, confidence))
+        all_requirements_verified = payload.get("all_requirements_verified") is True
+        requested_disposition = disposition
+        if disposition == "alternative_correct" and (
+            confidence < 0.9 or not all_requirements_verified
+        ):
+            disposition = "indeterminate"
         result = {
             "disposition": disposition,
-            "confidence": round(max(0.0, min(1.0, confidence)), 6),
+            "requested_disposition": requested_disposition,
+            "confidence": round(confidence, 6),
+            "all_requirements_verified": all_requirements_verified,
             "rationale": str(payload.get("rationale") or "").strip(),
             "requirements_met": [
                 str(item) for item in payload.get("requirements_met", [])
@@ -107,5 +150,6 @@ def judge_semantic_code_result(
             "rationale": "Semantic adjudication could not be completed.",
             "requirements_met": [],
             "requirements_missing": [],
+            "all_requirements_verified": False,
             "judge_error": f"{type(exc).__name__}: {exc}",
         }, get_llm_token_usage(llm)

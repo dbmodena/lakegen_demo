@@ -113,7 +113,7 @@ max_revision_rounds: 3
 coder_context_level: full
 
 # Run full, schema_only, and minimal against one shared retrieval/selection.
-automatic_test_coder: false
+automatic_test_coder: true
 
 # Judge executable gold mismatches with one fixed model for comparable runs.
 semantic_code_judge_enabled: true
