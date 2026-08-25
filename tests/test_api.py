@@ -438,6 +438,41 @@ def test_dynamic_reference_replaces_declared_gold_and_records_drift(
     assert progress[-1]["processed_case_count"] == 1
 
 
+def test_prevalidated_gold_is_not_executed_again(tmp_path, monkeypatch):
+    questions = [{
+        "log_fields": {
+            "SOURCE_ENGINE": "PANDAS",
+            "SOURCE_REFERENCE_CODE": "result = 2",
+            "SOURCE_TABLE_ALIASES": {"Table_0": "numbers"},
+            "SOURCE_EXPECTED_RESULT_TYPE": "number",
+            "SOURCE_REFERENCE_RESULT": 2,
+            "SOURCE_DECLARED_REFERENCE_RESULT": 1,
+            "SOURCE_GOLD_VALIDATION": {
+                "status": "benchmark_ready",
+                "deterministic": True,
+                "validation_runs": 3,
+            },
+        }
+    }]
+    monkeypatch.setattr(
+        api,
+        "execute_pandas_reference",
+        lambda **_kwargs: pytest.fail("prevalidated gold must not be re-executed"),
+    )
+
+    metrics = api._prepare_dynamic_references(
+        questions,
+        tables_dir=tmp_path,
+        cache_dir=tmp_path / "cache",
+    )
+
+    execution = questions[0]["log_fields"]["SOURCE_REFERENCE_EXECUTION"]
+    assert execution["prevalidated"] is True
+    assert metrics["prevalidated_case_count"] == 1
+    assert metrics["execution_success_count"] == 1
+    assert metrics["reference_drift_count"] == 1
+
+
 def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "BASE_DIR", tmp_path)
     questions = [

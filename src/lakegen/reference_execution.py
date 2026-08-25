@@ -116,6 +116,7 @@ def execute_pandas_reference(
     tables_dir: Path,
     cache_dir: Path,
     timeout_seconds: int = 180,
+    use_cache: bool = True,
 ) -> dict[str, Any]:
     """Execute one reference in a subprocess and cache it by code/table snapshot."""
 
@@ -138,7 +139,7 @@ def execute_pandas_reference(
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f"{key}.json"
-    if cache_path.is_file():
+    if use_cache and cache_path.is_file():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
         return {**cached, "cache_hit": True, "cache_key": key}
 
@@ -159,7 +160,11 @@ def execute_pandas_reference(
             return {"status": "invalid_reference", "error": detail, "cache_hit": False}
         result = json.loads(process.stdout)
         result["cache_hit"] = False
-        cache_path.write_text(json.dumps(result, ensure_ascii=False, default=str), encoding="utf-8")
+        if use_cache:
+            cache_path.write_text(
+                json.dumps(result, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
         return {**result, "cache_key": key}
     except subprocess.TimeoutExpired:
         return {"status": "invalid_reference", "error": "reference execution timed out", "cache_hit": False}

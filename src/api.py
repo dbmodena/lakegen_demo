@@ -609,6 +609,7 @@ def _prepare_dynamic_references(
         "reference_drift_count": 0,
         "cache_hit_count": 0,
         "processed_case_count": 0,
+        "prevalidated_case_count": 0,
     }
     eligible_sources = []
     for source in questions:
@@ -632,13 +633,31 @@ def _prepare_dynamic_references(
         reference_code = fields["SOURCE_REFERENCE_CODE"]
         table_aliases = fields["SOURCE_TABLE_ALIASES"]
         declared_result = fields.get("SOURCE_REFERENCE_RESULT")
-        execution = execute_pandas_reference(
-            reference_code=reference_code,
-            table_aliases=table_aliases,
-            tables_dir=tables_dir,
-            cache_dir=cache_dir,
+        historical_declared_result = fields.get(
+            "SOURCE_DECLARED_REFERENCE_RESULT", declared_result
         )
-        fields["SOURCE_DECLARED_REFERENCE_RESULT"] = declared_result
+        gold_validation = fields.get("SOURCE_GOLD_VALIDATION")
+        prevalidated = (
+            isinstance(gold_validation, dict)
+            and gold_validation.get("status") == "benchmark_ready"
+            and gold_validation.get("deterministic") is True
+        )
+        if prevalidated:
+            execution = {
+                "status": "success",
+                "result": declared_result,
+                "cache_hit": False,
+                "prevalidated": True,
+            }
+            metrics["prevalidated_case_count"] += 1
+        else:
+            execution = execute_pandas_reference(
+                reference_code=reference_code,
+                table_aliases=table_aliases,
+                tables_dir=tables_dir,
+                cache_dir=cache_dir,
+            )
+        fields["SOURCE_DECLARED_REFERENCE_RESULT"] = historical_declared_result
         fields["SOURCE_REFERENCE_EXECUTION"] = execution
         if execution.get("status") != "success":
             metrics["invalid_reference_count"] += 1
@@ -650,10 +669,10 @@ def _prepare_dynamic_references(
             fields["SOURCE_REFERENCE_RESULT"] = executed_result
             expected_type = fields.get("SOURCE_EXPECTED_RESULT_TYPE")
             drift = True
-            if expected_type and declared_result is not None:
+            if expected_type and historical_declared_result is not None:
                 comparison = evaluate_code_result(
                     expected_result_type=str(expected_type),
-                    reference_result=declared_result,
+                    reference_result=historical_declared_result,
                     actual_result=executed_result,
                     expected_description=str(
                         fields.get("SOURCE_EXPECTED_RESULT_DESCRIPTION") or ""
