@@ -39,6 +39,9 @@ class Phase3Result:
     rejected_reason: str = ""
     structured_result: object | None = None
     structured_result_error: str = ""
+    execution_error: dict[str, object] | None = None
+    coder_review: dict[str, str] | None = None
+    coder_runs: int = 0
 
 
 _ERROR_PATTERNS = [
@@ -551,75 +554,113 @@ def phase3_generate_and_execute(
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL,
     evaluation_result_type: str | None = None,
 ) -> Phase3Result:
-    code_raw, tokens = phase3_generate_code(
-        query,
-        tables,
-        candidates,
-        solr_meta,
-        reasoning,
-        llm,
-        pm,
-        csv_dir,
-        retries=retries,
-        error_msg=error_msg,
-        previous_code=previous_code,
-        force_execution=force_execution,
-        stream_placeholder=stream_placeholder,
-        reasoning_placeholder=reasoning_placeholder,
-        stream_reasoning=stream_reasoning,
-        cancel_check=cancel_check,
-        seed=seed,
-        seed_instruction_recorder=seed_instruction_recorder,
-        coder_context_level=coder_context_level,
+    # Keep retrieval/discovery and the existing sandbox unchanged: only the
+    # coder's generate/execute retry loop becomes a bounded tool-using agent.
+    from lakegen.agent_tools.tools_p3 import P3State, Phase3ToolsManager
+    from lakegen.agents.agent_runner import run_agent_workflow
+    from lakegen.phases.logging import Phase2AgentStall
+
+    context_level = CoderContextLevel(coder_context_level)
+    tables_info = _build_coder_tables_info(tables, Path(csv_dir), context_level)
+    system_prompt = pm.render("code_generator", "system_prompt") + (
+        "\n\nYou are now a bounded coding agent. Write a complete Python program and "
+        "call run_code with it. If execution fails, use the structured error to "
+        "correct the program. After every successful run, call inspect_result and "
+        "verify that the result answers the whole question. Finish only by calling "
+        "finish_code with the self-review checklist. You have at most three "
+        "run_code calls. Never infer correctness from benchmark gold: it is not "
+        "available. Do not merely describe code in chat."
+    )
+    if retries == 0:
+        user_prompt = pm.render(
+            "code_generator", "initial_prompt", question=query,
+            arch_reasoning=reasoning, tables_info=tables_info,
+        )
+    else:
+        user_prompt = pm.render(
+            "code_generator", "correction_prompt", question=query,
+            error_message=error_msg, previous_code=previous_code,
+            arch_reasoning=reasoning, tables_info=tables_info,
+        )
+    user_prompt += (
+        "\n\n[REPRODUCIBILITY]\n"
+        f"Use seed {seed} for every stochastic operation. "
+        "Before finishing, inspect the actual output and check filters, measures, "
+        "group coverage, ordering/limits, and output shape."
+    )
+    if evaluation_result_type:
+        user_prompt += evaluation_output_instruction(evaluation_result_type)
+    if force_execution:
+        user_prompt += (
+            "\nThe selected tables must be used for the best possible executable "
+            "answer; do not reject them."
+        )
+    if seed_instruction_recorder is not None:
+        seed_instruction_recorder()
+
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state,
+        tables=tables,
+        csv_dir=Path(csv_dir),
+        run_dir=run_dir,
         evaluation_result_type=evaluation_result_type,
+        resolve_code=_resolve_and_validate_columns,
+        execute_code=_execute_code,
+        extract_payload=extract_evaluation_payload,
     )
+    reset_llm_token_usage(llm)
 
-    # Detect generation errors (loop, empty output) before attempting execution
-    if code_raw.startswith("__GENERATION_ERROR__:"):
-        error_detail = code_raw.replace("__GENERATION_ERROR__:", "").strip()
-        return Phase3Result(
-            code_raw=code_raw,
-            tokens=tokens,
-            error=f"Code generation failed: {error_detail}",
-            clean_code="",
+    def emit_stream(delta: str) -> None:
+        if not delta:
+            return
+        print(delta, end="", flush=True)
+        if stream_placeholder is not None:
+            stream_placeholder.markdown(delta)
+
+    try:
+        response = run_agent_workflow(
+            llm=llm,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            agent_name="coder",
+            emit_stream=emit_stream,
+            cancel_check=cancel_check,
+            tools=manager.get_tools(),
+            max_iterations=10,
+            # inspect_result has no arguments and may legitimately follow each
+            # of the three distinct executions.
+            max_repeats=4,
+            max_tool_calls=8,
+            timeout_seconds=600,
         )
+    except Phase2AgentStall as exc:
+        response = ""
+        if state.error is None and state.raw_result is not None:
+            state.error = f"Coder stopped before mandatory self-review: {exc}"
+        elif not state.error:
+            state.error = f"Coder agent stalled: {exc}"
+    except Exception as exc:
+        response = ""
+        if not state.error:
+            state.error = f"Coder agent failed: {type(exc).__name__}: {exc}"
 
-    rejected_reason = "" if force_execution else _rejected_tables_reason(code_raw)
-    if rejected_reason:
-        return Phase3Result(
-            code_raw=code_raw,
-            tokens=tokens,
-            rejected_reason=rejected_reason,
+    tokens = get_llm_token_usage(llm)
+    rejected_reason = "" if force_execution else _rejected_tables_reason(response)
+    if not state.finished and state.error is None and not rejected_reason:
+        state.error = (
+            "Coder did not call finish_code after inspecting and reviewing the result."
         )
-
-    if cancel_check is not None:
-        cancel_check()
-
-    resolved_code, preflight_error = _resolve_and_validate_columns(
-        code_raw, tables, csv_dir
-    )
-    if preflight_error:
-        return Phase3Result(
-            code_raw=code_raw,
-            tokens=tokens,
-            error=preflight_error,
-            clean_code=resolved_code,
-        )
-
-    raw_result, error, clean_code = _execute_code(resolved_code, run_dir=run_dir)
-    structured_result = None
-    structured_result_error = ""
-    if error is None and raw_result is not None and evaluation_result_type:
-        raw_result, structured_result, payload_error = extract_evaluation_payload(
-            raw_result
-        )
-        structured_result_error = payload_error or ""
     return Phase3Result(
-        code_raw=code_raw,
+        code_raw=state.code_raw or response,
         tokens=tokens,
-        raw_result=raw_result,
-        error=error,
-        clean_code=clean_code,
-        structured_result=structured_result,
-        structured_result_error=structured_result_error,
+        raw_result=state.raw_result,
+        error=state.error,
+        clean_code=state.clean_code,
+        rejected_reason=rejected_reason,
+        structured_result=state.structured_result,
+        structured_result_error=state.structured_result_error,
+        execution_error=state.execution_error or None,
+        coder_review=state.review or None,
+        coder_runs=state.run_count,
     )

@@ -12,6 +12,11 @@ from lakegen.phases.phase3 import (
     _tabpfn_enabled,
 )
 from lakegen.experiment_config import CoderContextLevel
+from lakegen.agent_tools.tools_p3 import (
+    P3State,
+    Phase3ToolsManager,
+    classify_execution_error,
+)
 
 
 def test_execute_code_treats_reported_missing_columns_as_error(tmp_path):
@@ -43,6 +48,68 @@ def test_execute_code_identifies_the_forbidden_fragment(tmp_path):
     assert output is None
     assert "'import sys'" in error
     assert "Remove it completely" in error
+
+
+def _agentic_tools(tmp_path, *, execute=None):
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state,
+        tables=["table.csv"],
+        csv_dir=tmp_path,
+        run_dir=tmp_path / "run",
+        evaluation_result_type=None,
+        resolve_code=lambda code, _tables, _csv_dir: (code, None),
+        execute_code=execute or (lambda code, **_kwargs: ("value: 42", None, code)),
+        extract_payload=lambda raw: (raw, None, None),
+    )
+    return state, manager
+
+
+def test_agentic_coder_requires_inspection_and_self_review(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+
+    assert '"ok": true' in manager.run_code("print(42)")
+    try:
+        manager.finish_code(
+            "verified", "verified", "not_applicable", "not_applicable",
+            "verified", "The output contains the requested numeric measure.",
+        )
+    except ValueError as exc:
+        assert "inspect_result" in str(exc)
+    else:
+        raise AssertionError("finish_code should require result inspection")
+
+    assert '"ok": true' in manager.inspect_result()
+    payload = manager.finish_code(
+        "verified", "verified", "not_applicable", "not_applicable",
+        "verified", "The output contains the requested numeric measure.",
+    )
+    assert payload.startswith("FINAL_PAYLOAD:")
+    assert state.finished is True
+
+
+def test_agentic_coder_returns_structured_execution_error(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            None, "KeyError: 'missing_total'", code
+        ),
+    )
+
+    response = manager.run_code("print(df['missing_total'])")
+
+    assert '"category": "missing_column"' in response
+    assert state.execution_error["stage"] == "execution"
+    assert state.execution_error["column"] == "missing_total"
+
+
+def test_execution_error_classifier_marks_security_failures_non_retryable():
+    error = classify_execution_error(
+        "Security Error: forbidden code fragment 'import os'."
+    )
+
+    assert error["category"] == "security_error"
+    assert error["retryable"] is False
 
 
 def test_column_resolver_preserves_exact_names_and_normalizes_generated_aliases():

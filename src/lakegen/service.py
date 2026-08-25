@@ -6,7 +6,6 @@ import logging
 import re
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
 
 from lakegen.core.config import BASE_DIR, LOG_DIR, resolve_portal_tables_dir
@@ -30,10 +29,9 @@ from lakegen.phases import (
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import RetrievalConfig, RetrievalMode, evaluate_ranking
 from lakegen.output_validation import AnswerDisposition, validate_answer
-from lakegen.code_evaluation import (
-    evaluate_code_result,
-    unavailable_code_evaluation,
-)
+from lakegen.code_attempts import CodeAttemptEvaluator
+from lakegen.coder_experiment import run_coder_context_sweep
+from lakegen.service_models import QuestionSource, QueryResult, extract_questions
 from lakegen.semantic_code_judge import judge_semantic_code_result
 from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.experiment_config import (
@@ -65,126 +63,6 @@ from lakegen.tracing import (
 MAX_CODE_ATTEMPTS = 3
 MAX_TABLE_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class QuestionSource:
-    """A question together with its location in the submitted JSON document."""
-
-    question: str
-    path: str
-    source_id: str | int | None = None
-    source_data: dict[str, Any] = field(default_factory=dict)
-
-    def log_fields(self) -> dict[str, Any]:
-        """Expose every top-level input variable without CSV name collisions."""
-
-        fields: dict[str, Any] = {"SOURCE_JSON": self.source_data}
-        for key, value in self.source_data.items():
-            column = re.sub(r"[^A-Z0-9]+", "_", str(key).upper()).strip("_")
-            if column:
-                fields[f"SOURCE_{column}"] = value
-        fields["SOURCE_PATH"] = self.path
-        fields["SOURCE_ID"] = self.source_id
-        return fields
-
-
-@dataclass
-class QueryResult:
-    question: str
-    status: str
-    answer: str = ""
-    raw_result: str = ""
-    code: str = ""
-    tables: list[str] = field(default_factory=list)
-    keywords: list[str] = field(default_factory=list)
-    tokens: dict[str, int] = field(
-        default_factory=lambda: {"p1_p2": 0, "p3": 0, "p4": 0}
-    )
-    retries: int = 0
-    error: str = ""
-    elapsed_seconds: float = 0.0
-    answer_disposition: str = ""
-    pipeline_stages: dict[str, str] = field(
-        default_factory=lambda: {
-            "retrieval": "not_run",
-            "table_selection": "not_run",
-            "code_execution": "not_run",
-            "final_answer": "not_run",
-        }
-    )
-    manifest: dict[str, Any] = field(default_factory=dict)
-    configuration: dict[str, Any] = field(default_factory=dict)
-    discovery: dict[str, Any] = field(default_factory=dict)
-    ranking: list[dict[str, Any]] = field(default_factory=list)
-    llm_calls: list[dict[str, Any]] = field(default_factory=list)
-    phase_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    errors: list[dict[str, Any]] = field(default_factory=list)
-    human_interventions: list[dict[str, Any]] = field(default_factory=list)
-    execution_outcome: dict[str, Any] = field(default_factory=dict)
-    code_evaluation: dict[str, Any] = field(default_factory=dict)
-    coder_context_experiment: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-def _json_path(parent: str, component: str | int) -> str:
-    if isinstance(component, int):
-        return f"{parent}[{component}]"
-    if component.isidentifier():
-        return f"{parent}.{component}"
-    return f"{parent}[{component!r}]"
-
-
-def extract_questions(payload: Any) -> list[QuestionSource]:
-    """Extract questions from both simple lists and queries_old-style documents.
-
-    Supported examples include ``["question"]``, ``{"questions": [...]}``, and
-    the historical nested ``...data.queries[*].question`` structure. Occurrences
-    are preserved deliberately: benchmark files may contain intentional repeats.
-    """
-
-    found: list[QuestionSource] = []
-
-    def visit(value: Any, path: str, *, string_is_question: bool = False) -> None:
-        if isinstance(value, str):
-            question = value.strip()
-            if string_is_question and question:
-                found.append(QuestionSource(question=question, path=path))
-            return
-
-        if isinstance(value, list):
-            for index, item in enumerate(value):
-                visit(item, _json_path(path, index), string_is_question=string_is_question)
-            return
-
-        if not isinstance(value, dict):
-            return
-
-        question = value.get("question")
-        if isinstance(question, str) and question.strip():
-            found.append(
-                QuestionSource(
-                    question=question.strip(),
-                    path=_json_path(path, "question"),
-                    source_id=value.get("id"),
-                    source_data=dict(value),
-                )
-            )
-
-        for key, item in value.items():
-            if key == "question":
-                continue
-            visit(
-                item,
-                _json_path(path, str(key)),
-                string_is_question=key in {"questions", "queries"},
-            )
-
-    visit(payload, "$", string_is_question=isinstance(payload, list))
-    return found
 
 
 def make_runtime_settings(
@@ -269,119 +147,13 @@ def run_question(
         if log_context
         else ""
     )
-    code_evaluation_enabled = bool(
-        expected_result_type and reference_result is not None
+    attempt_evaluator = CodeAttemptEvaluator(
+        expected_result_type=expected_result_type,
+        reference_result=reference_result,
+        expected_description=expected_result_description,
     )
-    if code_evaluation_enabled:
-        result.code_evaluation = {
-            "applicable": True,
-            "expected_result_type": expected_result_type,
-            "generation_success": False,
-            "execution_success": False,
-            "structured_output_valid": False,
-            "result_type_match": False,
-            "exact_result_match": False,
-            "pass_at_1": False,
-            "success_within_3": False,
-            "attempt_count": 0,
-            "attempts": [],
-            "error_category": None,
-        }
-    else:
-        result.code_evaluation = unavailable_code_evaluation(
-            "expected_result_type and reference_result are required"
-        )
-
-    def evaluate_generated_attempt(generated, attempt_number: int) -> dict[str, Any]:
-        generation_success = not (
-            generated.code_raw.startswith("__GENERATION_ERROR__:")
-            or bool(generated.rejected_reason)
-        )
-        execution_success = (
-            generated.error is None and generated.raw_result is not None
-        )
-        structured_result = getattr(generated, "structured_result", None)
-        structured_error = str(
-            getattr(generated, "structured_result_error", "") or ""
-        )
-        attempt_evaluation: dict[str, Any] = {
-            "attempt": attempt_number,
-            "generation_success": generation_success,
-            "execution_success": execution_success,
-            "structured_output_valid": structured_result is not None,
-            "error": generated.error or structured_error,
-        }
-        if structured_result is not None:
-            attempt_evaluation.update(evaluate_code_result(
-                expected_result_type=expected_result_type,
-                reference_result=reference_result,
-                actual_result=structured_result,
-                expected_description=expected_result_description,
-            ))
-        else:
-            attempt_evaluation["exact_result_match"] = False
-        return attempt_evaluation
-
-    def summarize_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any]:
-        summary = {
-            "applicable": True,
-            "expected_result_type": expected_result_type,
-            "generation_success": any(
-                item["generation_success"] for item in attempts
-            ),
-            "execution_success": any(
-                item["execution_success"] for item in attempts
-            ),
-            "structured_output_valid": any(
-                item["structured_output_valid"] for item in attempts
-            ),
-            "result_type_match": False,
-            "exact_result_match": False,
-            "pass_at_1": bool(attempts and attempts[0].get("exact_result_match")),
-            "success_within_3": any(
-                item.get("exact_result_match") for item in attempts[:3]
-            ),
-            "attempt_count": len(attempts),
-            "attempts": attempts,
-            "error_category": None,
-            "evaluation_disposition": "incorrect",
-            "supported_correct": False,
-            "semantic_judge_used": False,
-            "semantic_judge_tokens": 0,
-        }
-        if attempts:
-            latest = attempts[-1]
-            summary.update({
-                key: value
-                for key, value in latest.items()
-                if key not in {"attempt", "error", "applicable"}
-            })
-            if latest.get("exact_result_match"):
-                summary["error_category"] = None
-                summary["evaluation_disposition"] = "gold_correct"
-                summary["supported_correct"] = True
-            elif latest.get("representation_equivalent_match"):
-                summary["error_category"] = None
-                summary["evaluation_disposition"] = "gold_correct"
-                summary["supported_correct"] = True
-            elif not latest["generation_success"]:
-                summary["error_category"] = "generation_error"
-            elif not latest["execution_success"]:
-                summary["error_category"] = "execution_error"
-            elif not latest["structured_output_valid"]:
-                summary["error_category"] = "structured_output_error"
-            elif not latest.get("result_type_match"):
-                summary["error_category"] = "result_type_mismatch"
-            else:
-                summary["error_category"] = "wrong_result"
-            if (
-                latest["execution_success"]
-                and latest["structured_output_valid"]
-                and not latest.get("exact_result_match")
-                and not latest.get("representation_equivalent_match")
-            ):
-                summary["evaluation_disposition"] = "pending_semantic_review"
-        return summary
+    code_evaluation_enabled = attempt_evaluator.enabled
+    result.code_evaluation = attempt_evaluator.initial_evaluation()
     discovery_phase_tokens = {"p1": 0, "p2": 0}
     experiment = getattr(runtime, "experiment", None)
     if experiment is None:
@@ -696,128 +468,21 @@ def run_question(
                     continue
 
                 if experiment.automatic_test_coder:
-                    variants: dict[str, Any] = {}
-                    for context_level in CoderContextLevel:
-                        variant_started = time.monotonic()
-                        variant_error = ""
-                        variant_previous_code = ""
-                        variant_generated = None
-                        variant_attempts: list[dict[str, Any]] = []
-                        variant_tokens = 0
-                        variant_status = "failed"
-
-                        for code_attempt in range(MAX_CODE_ATTEMPTS):
-                            code_started = time.monotonic()
-                            variant_generated = phase3_generate_and_execute(
-                                question,
-                                selected,
-                                selected,
-                                solr_meta,
-                                reasoning,
-                                llm,
-                                prompt_manager,
-                                runtime.csv_dir,
-                                retries=code_attempt,
-                                error_msg=variant_error,
-                                previous_code=variant_previous_code,
-                                run_dir=(
-                                    run_dir / "coder_context" / context_level.value
-                                ),
-                                seed=reproducibility.effective_seed,
-                                seed_instruction_recorder=record_seed_instruction,
-                                coder_context_level=context_level,
-                                evaluation_result_type=(
-                                    expected_result_type
-                                    if code_evaluation_enabled
-                                    else None
-                                ),
-                            )
-                            phase_invocation_counts["code"] += 1
-                            variant_tokens += variant_generated.tokens
-                            result.tokens["p3"] += variant_generated.tokens
-                            code_metric = result.phase_metrics.setdefault(
-                                "code", {"latency_seconds": 0.0, "retries": 0}
-                            )
-                            code_metric["latency_seconds"] = round(
-                                code_metric["latency_seconds"]
-                                + (time.monotonic() - code_started),
-                                6,
-                            )
-                            result.retries += int(code_attempt > 0)
-                            variant_previous_code = (
-                                variant_generated.clean_code
-                                or variant_generated.code_raw
-                            )
-
-                            if code_evaluation_enabled:
-                                variant_attempts.append(evaluate_generated_attempt(
-                                    variant_generated, code_attempt + 1
-                                ))
-
-                            if variant_generated.rejected_reason:
-                                variant_status = "tables_rejected"
-                                variant_error = variant_generated.rejected_reason
-                                break
-
-                            if (
-                                variant_generated.error is None
-                                and variant_generated.raw_result is not None
-                            ):
-                                raw_validation = validate_answer(
-                                    variant_generated.raw_result
-                                )
-                                if raw_validation.disposition == AnswerDisposition.EMPTY:
-                                    variant_status = "empty"
-                                    variant_error = raw_validation.reason
-                                    continue
-                                if raw_validation.disposition == AnswerDisposition.REJECTED:
-                                    variant_status = "rejected"
-                                    variant_error = raw_validation.reason
-                                    break
-                                variant_status = "completed"
-                                variant_error = ""
-                                break
-
-                            variant_error = (
-                                variant_generated.error
-                                or "Code execution returned no output."
-                            )
-
-                        if code_evaluation_enabled:
-                            variant_evaluation = summarize_attempts(variant_attempts)
-                            if (
-                                variant_generated is not None
-                                and variant_status == "completed"
-                            ):
-                                variant_evaluation = adjudicate_code_evaluation(
-                                    variant_evaluation, variant_generated
-                                )
-                        else:
-                            variant_evaluation = unavailable_code_evaluation(
-                                "expected_result_type and reference_result are required"
-                            )
-                        variants[context_level.value] = {
-                            "coder_context_level": context_level.value,
-                            "status": variant_status,
-                            "code": variant_previous_code,
-                            "raw_result": (
-                                variant_generated.raw_result
-                                if variant_generated is not None
-                                and variant_generated.raw_result is not None
-                                else ""
-                            ),
-                            "error": variant_error,
-                            "tokens": variant_tokens,
-                            "attempts": len(variant_attempts) if code_evaluation_enabled else (
-                                code_attempt + 1
-                            ),
-                            "elapsed_seconds": round(
-                                time.monotonic() - variant_started, 6
-                            ),
-                            "code_evaluation": variant_evaluation,
-                        }
-
-                    result.phase_metrics["code"]["retries"] = result.retries
+                    variants = run_coder_context_sweep(
+                        question=question, selected=selected,
+                        solr_meta=solr_meta, reasoning=reasoning, llm=llm,
+                        prompt_manager=prompt_manager, csv_dir=runtime.csv_dir,
+                        run_dir=run_dir, seed=reproducibility.effective_seed,
+                        record_seed_instruction=record_seed_instruction,
+                        expected_result_type=expected_result_type,
+                        evaluation_enabled=code_evaluation_enabled,
+                        evaluator=attempt_evaluator,
+                        adjudicate=adjudicate_code_evaluation,
+                        generate_and_execute=phase3_generate_and_execute,
+                        result=result,
+                        phase_invocation_counts=phase_invocation_counts,
+                        max_attempts=MAX_CODE_ATTEMPTS,
+                    )
                     result.coder_context_experiment = {
                         "shared_retrieval": True,
                         "shared_tables": list(selected),
@@ -908,10 +573,10 @@ def run_question(
 
                     if code_evaluation_enabled:
                         attempts = result.code_evaluation["attempts"]
-                        attempts.append(evaluate_generated_attempt(
+                        attempts.append(attempt_evaluator.evaluate(
                             generated, code_attempt + 1
                         ))
-                        result.code_evaluation = summarize_attempts(attempts)
+                        result.code_evaluation = attempt_evaluator.summarize(attempts)
 
                     if generated.rejected_reason:
                         result.errors.append({
@@ -975,12 +640,23 @@ def run_question(
                         return result
 
                     error = generated.error or "Code execution returned no output."
-                    result.errors.append({
+                    error_record = {
                         "phase": "code",
                         "type": "execution_error",
                         "message": error,
-                    })
+                    }
+                    structured_execution_error = getattr(
+                        generated, "execution_error", None
+                    )
+                    if structured_execution_error:
+                        error_record["details"] = structured_execution_error
+                        error_record["type"] = structured_execution_error.get(
+                            "category", "execution_error"
+                        )
+                    result.errors.append(error_record)
                     result.pipeline_stages["code_execution"] = "failed"
+                    if getattr(generated, "coder_runs", 0):
+                        break
                 else:
                     break
 
@@ -1084,6 +760,10 @@ def run_question(
                 "error": result.error,
                 "code_evaluation": result.code_evaluation,
                 "coder_context_experiment": result.coder_context_experiment,
+                "coder_runs": getattr(locals().get("generated"), "coder_runs", 0),
+                "coder_review": getattr(
+                    locals().get("generated"), "coder_review", None
+                ),
             }
             retrieval = runtime.retrieval
             extra_fields: dict[str, Any] = {
