@@ -74,7 +74,7 @@ def test_search_returns_bounded_schema_preview_in_solr_order(
     assert "3 additional columns omitted" in result
 
 
-def test_unified_search_runs_once_and_reuses_the_same_candidates(
+def test_unified_search_allows_one_distinct_refinement_and_merges_candidates(
     monkeypatch, tmp_path
 ):
     calls = []
@@ -104,12 +104,37 @@ def test_unified_search_runs_once_and_reuses_the_same_candidates(
     repeated = manager.search_solr("bandwidth")
 
     assert "generic.parquet" in first
-    assert second.startswith("Search skipped: the configured retrieval")
-    assert "generic.parquet" in second
-    assert state.best_ranks == {"generic.parquet": 1}
-    assert len(state.search_attempts) == 1
+    assert "gold.parquet" in second
+    assert state.best_ranks == {"generic.parquet": 1, "gold.parquet": 3}
+    assert len(state.search_attempts) == 2
     assert repeated.startswith("Search skipped")
-    assert calls == [["school"]]
+    assert calls == [["school"], ["bandwidth"]]
+
+    limited = manager.search_solr("third distinct concept")
+    assert limited.startswith("Search limit reached")
+
+
+def test_search_refinement_is_blocked_after_schema_inspection(monkeypatch, tmp_path):
+    class FakeService:
+        def retrieve(self, **_kwargs):
+            return [_hit("table", 1, ["value"])]
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+    )
+    monkeypatch.setattr(
+        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+    )
+    manager = Phase12ToolsManager(
+        P12State(), object(), ["table.parquet"], tmp_path,
+        question="value", retrieval_config=RetrievalConfig(top_k=10),
+    )
+    manager.search_solr("first concept")
+    manager.inspect_columns("table.parquet")
+
+    assert manager.search_solr("new concept").startswith(
+        "Search refinement blocked"
+    )
 
 
 def test_configured_search_contract_is_mode_neutral_while_semantic_uses_question(
@@ -142,7 +167,7 @@ def test_configured_search_contract_is_mode_neutral_while_semantic_uses_question
     description = manager.get_tools()[0].metadata.description
 
     assert "gold.parquet" in first
-    assert repeated.startswith("Search skipped: the configured retrieval")
+    assert repeated.startswith("Search skipped: identical concepts")
     assert calls == [("Which school has the highest bandwidth?", [], 15)]
     assert state.used_keywords == ["invented", "keyword"]
     assert "Provide 1-2 concise dataset concepts" in description
@@ -196,7 +221,7 @@ def test_search_tool_description_is_identical_for_all_retrieval_modes(tmp_path):
 
 
 @pytest.mark.parametrize("mode", list(RetrievalMode))
-def test_search_tool_allows_one_call_in_every_retrieval_mode(
+def test_search_tool_allows_at_most_two_distinct_calls(
     mode, monkeypatch, tmp_path
 ):
     calls = []
@@ -219,8 +244,10 @@ def test_search_tool_allows_one_call_in_every_retrieval_mode(
     second = manager.search_solr("traffic crashes")
 
     assert "table.parquet" in first
-    assert second.startswith("Search skipped: the configured retrieval")
-    assert len(calls) == 1
+    expected_calls = (
+        1 if mode in (RetrievalMode.SEMANTIC, RetrievalMode.PNEUMA) else 2
+    )
+    assert len(calls) == expected_calls
     assert calls[0]["question"] == "Count road incidents"
     expected_concepts = (
         []
@@ -425,16 +452,16 @@ def test_unified_adaptive_candidates_reveal_ten_then_five(
     assert "table-10.parquet" in initial
     assert "table-11.parquet" not in initial
     assert "10 additional ranked candidates" in initial
-    assert manager.expand_candidates().startswith("Expansion blocked")
+    assert manager.expand_candidates("value").startswith("Expansion blocked")
 
     assert manager.inspect_columns("table-1.parquet").startswith("Schema")
-    expanded = manager.expand_candidates()
-    assert "candidates 11-15" in expanded
+    expanded = manager.expand_candidates("value")
+    assert "Guided expansion" in expanded
     assert "table-15.parquet" in expanded
     assert "table-16.parquet" not in expanded
     assert "5 ranked candidates remain hidden" in expanded
 
-    final_expansion = manager.expand_candidates()
+    final_expansion = manager.expand_candidates("value")
     assert "Expansion limit reached" in final_expansion
     assert "Do not call expand_candidates again" in final_expansion
 
@@ -452,10 +479,56 @@ def test_unified_adaptive_inspection_limits_are_enforced(monkeypatch, tmp_path):
         assert manager.inspect_columns(f"table-{index}.parquet").startswith("Schema")
     assert manager.inspect_columns("table-4.parquet").startswith("Inspection blocked")
 
-    assert "candidates 11-15" in manager.expand_candidates()
+    assert "Guided expansion" in manager.expand_candidates("table")
     assert manager.inspect_columns("table-4.parquet").startswith("Schema")
     assert manager.inspect_columns("table-5.parquet").startswith("Schema")
     assert manager.inspect_columns("table-6.parquet").startswith("Inspection blocked")
+
+
+def test_guided_expansion_prefers_hidden_metadata_covering_missing_requirement(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+    )
+    state = P12State()
+    state.all_candidates = [f"table-{index}.parquet" for index in range(1, 14)]
+    state.visible_candidate_count = 10
+    state.solr_meta = {
+        "table-11.parquet": {"columns": [{"name": "unrelated"}]},
+        "table-12.parquet": {"columns": [{"name": "Borough"}, {"name": "Year"}]},
+        "table-13.parquet": {"columns": [{"name": "other"}]},
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+    manager.inspect_columns("table-1.parquet")
+
+    expanded = manager.expand_candidates("borough year")
+
+    assert "table-12.parquet" in expanded
+    assert "table-11.parquet" not in expanded
+    assert state.expansion_requirements == ["borough", "year"]
+    assert state.all_candidates[10] == "table-12.parquet"
+
+
+def test_guided_expansion_stops_when_hidden_metadata_has_no_coverage(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+    )
+    state = P12State()
+    state.all_candidates = [f"table-{index}.parquet" for index in range(1, 12)]
+    state.visible_candidate_count = 10
+    state.solr_meta = {
+        "table-11.parquet": {"columns": [{"name": "unrelated"}]},
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+    manager.inspect_columns("table-1.parquet")
+
+    result = manager.expand_candidates("borough")
+
+    assert result.startswith("No hidden candidate")
+    assert state.expansion_count == 1
 
 
 def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_path):
@@ -471,11 +544,11 @@ def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_pat
     for index in range(1, 4):
         assert manager.inspect_columns(f"table-{index}.parquet").startswith("Schema")
     assert manager.inspect_columns("table-4.parquet").startswith("Inspection blocked")
-    first_expansion = manager.expand_candidates()
-    assert "candidates 11-15" in first_expansion
+    first_expansion = manager.expand_candidates("table")
+    assert "Guided expansion" in first_expansion
     assert "5 ranked candidates remain hidden" in first_expansion
     assert len(manager.visible_candidates()) == 15
 
-    final_expansion = manager.expand_candidates()
+    final_expansion = manager.expand_candidates("table")
     assert "Expansion limit reached" in final_expansion
     assert "Do not call expand_candidates again" in final_expansion

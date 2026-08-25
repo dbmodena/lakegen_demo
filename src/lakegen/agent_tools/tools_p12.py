@@ -12,6 +12,8 @@ from lakegen.agent_tools.tools_p2 import (
     MAX_INSPECTIONS_PER_FILE,
     _find_schema_matches,
     _inspect_columns,
+    _rank_for_missing_requirements,
+    _requirement_terms,
     _temporal_coverage_issue,
 )
 from src.client_solr import LocalSolrClient
@@ -38,6 +40,7 @@ class P12State:
         self.used_keywords: list[str] = []
         self.keyword_history: list[list[str]] = []
         self.best_ranks: dict[str, int] = {}
+        self.candidate_scores: dict[str, float] = {}
         self.search_cache: dict[tuple[str, ...], str] = {}
         self.search_attempts: list[dict[str, object]] = []
         self.semantic_failure: str | None = None
@@ -45,6 +48,7 @@ class P12State:
         self.inspection_counts: dict[str, int] = {}
         self.visible_candidate_count = 0
         self.expansion_count = 0
+        self.expansion_requirements: list[str] = []
 
     def inspected_candidates(self) -> list[str]:
         """Return successfully inspected candidates in retrieval order."""
@@ -64,6 +68,7 @@ class Phase12ToolsManager:
     INITIAL_CANDIDATES = 10
     EXPANSION_SIZE = 5
     MAX_EXPANSIONS = 1
+    MAX_SEARCH_ATTEMPTS = 2
     INITIAL_SHORTLIST_SIZE = 3
     MAX_INSPECTED_CANDIDATES = 5
     
@@ -86,18 +91,18 @@ class Phase12ToolsManager:
         self.retrieval_observer = retrieval_observer
 
     def _search_cache_key(self, keywords: list[str]) -> tuple[str, ...]:
-        # The agent-facing contract allows one retrieval request regardless of
-        # the configured strategy.  Mode-specific use of the concepts remains
-        # internal to the retriever.
-        return ("configured-retrieval",)
+        return tuple(dict.fromkeys(
+            keyword.casefold() for keyword in keywords if keyword.strip()
+        ))
 
     def _search_tool_description(self) -> str:
         return (
             "Search for relevant tables using the retrieval strategy configured by "
             "the experiment. Provide 1-2 concise dataset concepts in the portal's "
             "native language. The tool applies the original question and the "
-            "configured retrieval parameters automatically. Call the tool once and "
-            "evaluate only the returned candidates. Use the bounded metadata and "
+            "configured retrieval parameters automatically. One refinement with "
+            "genuinely different concepts is allowed before inspecting any table; "
+            "identical or later searches are blocked. Use the bounded metadata and "
             "schema previews to shortlist the strongest candidates, then verify "
             "them with inspect_columns before selecting tables."
         )
@@ -128,8 +133,19 @@ class Phase12ToolsManager:
             key = self._search_cache_key(keywords)
             if key in self.state.search_cache:
                 return (
-                    "Search skipped: the configured retrieval was already run.\n"
+                    "Search skipped: identical concepts were already used. Do not "
+                    "repeat this search.\n"
                     + self.state.search_cache[key]
+                )
+            if self.state.inspection_cache:
+                return (
+                    "Search refinement blocked: a candidate has already been "
+                    "inspected. Use the existing evidence or one guided expansion."
+                )
+            if len(self.state.search_attempts) >= self.MAX_SEARCH_ATTEMPTS:
+                return (
+                    "Search limit reached (2 distinct attempts). Do not call "
+                    "search_solr again; inspect, expand once if needed, then select."
                 )
             self.state.used_keywords = supplied_concepts
             self.state.keyword_history.append(keywords)
@@ -184,6 +200,10 @@ class Phase12ToolsManager:
                     continue
                 current_candidates.append(matched)
                 previous_rank = self.state.best_ranks.get(matched)
+                self.state.candidate_scores[matched] = (
+                    self.state.candidate_scores.get(matched, 0.0)
+                    + 1.0 / (60.0 + hit.rank)
+                )
                 if previous_rank is None or hit.rank < previous_rank:
                     self.state.best_ranks[matched] = hit.rank
                     self.state.solr_meta[matched] = solr_metadata_from_doc(doc)
@@ -195,10 +215,17 @@ class Phase12ToolsManager:
                 if len(current_candidates) >= self.retrieval_config.top_k:
                     break
 
-            # Preserve the retriever/Solr order after local-file mapping and
-            # de-duplication.  The configured top_k is the only final cutoff;
-            # no workflow-level schema heuristic re-ranks the candidates.
-            candidates = self.state.all_candidates[: self.retrieval_config.top_k]
+            # Fuse at most two distinct agent searches with reciprocal-rank
+            # contributions. The first search alone preserves its original order.
+            self.state.all_candidates.sort(key=lambda candidate: (
+                -self.state.candidate_scores.get(candidate, 0.0),
+                self.state.best_ranks.get(candidate, 10**9),
+                candidate,
+            ))
+            self.state.all_candidates = self.state.all_candidates[
+                : self.retrieval_config.top_k
+            ]
+            candidates = self.state.all_candidates
             self.state.visible_candidate_count = min(
                 self.INITIAL_CANDIDATES,
                 len(candidates),
@@ -310,8 +337,8 @@ class Phase12ToolsManager:
             + self.state.inspection_cache[key]
         )
 
-    def expand_candidates(self) -> str:
-        """Reveal the next five ranked candidates only to fill a known coverage gap.
+    def expand_candidates(self, missing_requirements: str) -> str:
+        """Reveal hidden candidates that best cover a known metadata gap.
 
         First inspect the strongest plausible visible candidates and identify the
         missing measure, dimension, filter, period, or join key. This tool does
@@ -324,6 +351,12 @@ class Phase12ToolsManager:
                 "Expansion blocked: inspect at least one plausible visible candidate "
                 "before requesting more results."
             )
+        requirements = _requirement_terms(missing_requirements)
+        if not requirements:
+            return (
+                "Expansion blocked: provide concrete missing requirements such as "
+                "a measure, dimension, period, filter, or join key."
+            )
         if self.state.expansion_count >= self.MAX_EXPANSIONS:
             return (
                 "Expansion limit reached. Do not call expand_candidates again "
@@ -332,19 +365,30 @@ class Phase12ToolsManager:
         if self.state.visible_candidate_count >= len(self.state.all_candidates):
             return "No additional candidates are available."
         start = self.state.visible_candidate_count
-        self.state.visible_candidate_count = min(
-            start + self.EXPANSION_SIZE,
-            len(self.state.all_candidates),
+        hidden = self.state.all_candidates[start:]
+        newly_visible = _rank_for_missing_requirements(
+            hidden, self.state.solr_meta, requirements, self.EXPANSION_SIZE
         )
-        self.state.expansion_count += 1
-        newly_visible = self.state.all_candidates[
-            start : self.state.visible_candidate_count
+        if not newly_visible:
+            self.state.expansion_count += 1
+            self.state.expansion_requirements = requirements
+            return (
+                "No hidden candidate has metadata matching the missing requirements. "
+                "Do not call expand_candidates or search_solr again; select or "
+                "reject using the inspected evidence."
+            )
+        selected = set(newly_visible)
+        self.state.all_candidates[start:] = [
+            *newly_visible,
+            *(candidate for candidate in hidden if candidate not in selected),
         ]
+        self.state.visible_candidate_count = start + len(newly_visible)
+        self.state.expansion_count += 1
+        self.state.expansion_requirements = requirements
         remaining = len(self.state.all_candidates) - self.state.visible_candidate_count
         next_step = (
-            f"{remaining} ranked candidates remain hidden. Expand again only if "
-            "the currently visible candidates still cannot fill the identified "
-            "coverage gap."
+            f"{remaining} ranked candidates remain hidden, but the single guided "
+            "expansion has been used. Do not call expand_candidates again."
             if remaining
             else (
                 "All ranked candidates are now visible. Do not call "
@@ -352,8 +396,10 @@ class Phase12ToolsManager:
             )
         )
         return (
-            f"Revealed candidates {start + 1}-{self.state.visible_candidate_count} "
-            "in retrieval order:\n"
+            "Guided expansion for missing requirements: "
+            + ", ".join(requirements)
+            + f"\nRevealed {len(newly_visible)} best-matching hidden candidates "
+            "(original retrieval ranks are preserved in metadata):\n"
             + format_candidate_context(newly_visible, self.state.solr_meta)
             + f"\n\n{next_step}"
         )

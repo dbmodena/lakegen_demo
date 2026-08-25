@@ -365,6 +365,9 @@ def append_benchmark_metrics_log(
                 "EXACT_RESULT_MATCH_RATE": code_metrics.get(
                     "exact_result_match_rate", ""
                 ),
+                "REPRESENTATION_EQUIVALENT_MATCH_RATE": code_metrics.get(
+                    "representation_equivalent_match_rate", ""
+                ),
                 "SUPPORTED_RESULT_RATE": code_metrics.get(
                     "supported_result_rate", ""
                 ),

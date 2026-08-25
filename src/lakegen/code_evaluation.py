@@ -92,32 +92,60 @@ def _numeric(value: Any) -> float | None:
         return float(value)
     if isinstance(value, str):
         stripped = value.strip().replace(",", "")
+        negative = stripped.startswith("(") and stripped.endswith(")")
+        if negative:
+            stripped = stripped[1:-1].strip()
+        stripped = re.sub(r"^[€£$]\s*", "", stripped)
         if stripped.endswith("%"):
             stripped = stripped[:-1].strip()
         try:
-            return float(stripped)
+            number = float(stripped)
+            return -number if negative else number
         except ValueError:
             return None
     return None
 
 
+def _numeric_candidates(value: Any) -> list[float]:
+    """Return lossless numeric interpretations for common result formats."""
+
+    number = _numeric(value)
+    if number is None:
+        return []
+    candidates = [number]
+    if isinstance(value, str) and value.strip().endswith("%"):
+        candidates.append(number / 100.0)
+    return candidates
+
+
 def _values_equal(left: Any, right: Any) -> bool:
     if _is_null(left) or _is_null(right):
         return _is_null(left) and _is_null(right)
-    left_number = _numeric(left)
-    right_number = _numeric(right)
-    if left_number is not None and right_number is not None:
-        return math.isclose(
-            left_number,
-            right_number,
-            rel_tol=_FLOAT_REL_TOL,
-            abs_tol=_FLOAT_ABS_TOL,
+    left_numbers = _numeric_candidates(left)
+    right_numbers = _numeric_candidates(right)
+    if left_numbers and right_numbers:
+        return any(
+            math.isclose(
+                left_number,
+                right_number,
+                rel_tol=_FLOAT_REL_TOL,
+                abs_tol=_FLOAT_ABS_TOL,
+            )
+            for left_number in left_numbers
+            for right_number in right_numbers
         )
     return str(left).strip() == str(right).strip()
 
 
 def _records(value: Any, expected_columns: Sequence[str]) -> list[dict[str, Any]] | None:
     if isinstance(value, Mapping):
+        if value and all(isinstance(item, (list, tuple)) for item in value.values()):
+            lengths = {len(item) for item in value.values()}
+            if len(lengths) == 1:
+                return [
+                    {str(column): values[index] for column, values in value.items()}
+                    for index in range(next(iter(lengths)))
+                ]
         return [dict(value)]
     if not isinstance(value, list):
         if len(expected_columns) == 1:
@@ -265,23 +293,32 @@ def evaluate_code_result(
 
     if result_type == "number":
         expected_value, _reference_scalar_shaped = _single_value(reference_result)
-        expected_number = _numeric(expected_value)
-        if expected_number is None:
+        expected_numbers = _numeric_candidates(expected_value)
+        if not expected_numbers:
             return {
                 "applicable": False,
                 "reason": "number reference_result must contain one numeric value",
             }
         actual_value, scalar_shaped = _single_value(actual_result)
-        actual_number = _numeric(actual_value)
+        actual_numbers = _numeric_candidates(actual_value)
+        actual_number = actual_numbers[0] if actual_numbers else None
         numeric_match = _values_equal(expected_value, actual_value)
+        numeric_pairs = [
+            (expected, actual)
+            for expected in expected_numbers
+            for actual in actual_numbers
+        ]
+        best_pair = min(
+            numeric_pairs,
+            key=lambda pair: abs(pair[1] - pair[0]),
+            default=None,
+        )
         absolute_error = (
-            abs(actual_number - expected_number)
-            if expected_number is not None and actual_number is not None
-            else None
+            abs(best_pair[1] - best_pair[0]) if best_pair is not None else None
         )
         relative_error = (
-            absolute_error / abs(expected_number)
-            if absolute_error is not None and expected_number not in {None, 0.0}
+            absolute_error / abs(best_pair[0])
+            if absolute_error is not None and best_pair is not None and best_pair[0] != 0
             else absolute_error
         )
         type_match = scalar_shaped and actual_number is not None
@@ -291,6 +328,7 @@ def evaluate_code_result(
             "result_type_match": type_match,
             "numeric_match": numeric_match,
             "exact_result_match": type_match and numeric_match,
+            "representation_equivalent_match": numeric_match,
             "numeric_absolute_error": (
                 round(absolute_error, 12) if absolute_error is not None else None
             ),
@@ -315,6 +353,7 @@ def evaluate_code_result(
                 "expected_result_type": result_type,
                 "result_type_match": False,
                 "exact_result_match": False,
+                "representation_equivalent_match": False,
                 "item_precision": 0.0,
                 "item_recall": 0.0,
                 "item_f1": 0.0,
@@ -328,6 +367,7 @@ def evaluate_code_result(
             "expected_result_type": result_type,
             "result_type_match": False,
             "exact_result_match": False,
+            "representation_equivalent_match": False,
             "column_precision": 0.0,
             "column_recall": 0.0,
             "column_f1": 0.0,
@@ -399,6 +439,11 @@ def evaluate_code_result(
             "expected_result_type": result_type,
             "result_type_match": type_match,
             "exact_result_match": exact_match,
+            "representation_equivalent_match": (
+                len(expected_columns) == len(actual_columns) == len(columns)
+                and len(reference_rows) == len(actual_rows) == matched_rows
+                and (order_correct or not order_required)
+            ),
             "item_precision": round(row_precision, 6),
             "item_recall": round(row_recall, 6),
             "item_f1": round(row_f1, 6),
@@ -449,17 +494,19 @@ def evaluate_code_result(
     all_rows_match = (
         len(reference_rows) == len(actual_rows) == matched_rows
     )
-    exact_match = all_columns_match and all_rows_match and (
+    representation_equivalent = all_columns_match and all_rows_match and (
         order_correct or not order_required
     )
 
     type_match = isinstance(actual_result, (list, Mapping))
+    exact_match = type_match and representation_equivalent
 
     return {
         "applicable": True,
         "expected_result_type": result_type,
         "result_type_match": type_match,
         "exact_result_match": exact_match,
+        "representation_equivalent_match": representation_equivalent,
         "column_precision": round(column_precision, 6),
         "column_recall": round(column_recall, 6),
         "column_f1": round(column_f1, 6),
@@ -560,6 +607,9 @@ def summarize_code_evaluations(
         "structured_output_rate": rate("structured_output_valid"),
         "result_type_match_rate": rate("result_type_match"),
         "exact_result_match_rate": rate("exact_result_match"),
+        "representation_equivalent_match_rate": rate(
+            "representation_equivalent_match"
+        ),
         "supported_result_rate": round(supported_count / count, 6) if count else 0.0,
         "ambiguous_result_rate": round(
             dispositions.get("indeterminate", 0) / count, 6

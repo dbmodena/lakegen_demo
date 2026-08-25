@@ -360,6 +360,10 @@ def run_question(
                 summary["error_category"] = None
                 summary["evaluation_disposition"] = "gold_correct"
                 summary["supported_correct"] = True
+            elif latest.get("representation_equivalent_match"):
+                summary["error_category"] = None
+                summary["evaluation_disposition"] = "gold_correct"
+                summary["supported_correct"] = True
             elif not latest["generation_success"]:
                 summary["error_category"] = "generation_error"
             elif not latest["execution_success"]:
@@ -374,6 +378,7 @@ def run_question(
                 latest["execution_success"]
                 and latest["structured_output_valid"]
                 and not latest.get("exact_result_match")
+                and not latest.get("representation_equivalent_match")
             ):
                 summary["evaluation_disposition"] = "pending_semantic_review"
         return summary
@@ -1016,6 +1021,11 @@ def run_question(
                 "keywords": list(keywords),
                 "selected_datasets": list(selected),
                 "reasoning": reasoning,
+                "search_attempt_count": len(selection_state.search_attempts),
+                "expansion_used": bool(selection_state.expansion_count),
+                "expansion_requirements": list(
+                    selection_state.expansion_requirements
+                ),
             }
             result.ranking = summarize_final_ranking(retrieval_runs, selected)
             result.llm_calls = build_llm_phase_records(

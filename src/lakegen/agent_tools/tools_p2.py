@@ -494,6 +494,45 @@ def _find_schema_matches(table_dir: Path, file_name_1: str, file_name_2: str) ->
         return f"Error in Valentine matcher for '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
 
 
+_EXPANSION_STOPWORDS = {
+    "a", "an", "and", "by", "for", "from", "in", "of", "or", "the", "to",
+    "con", "da", "del", "della", "di", "e", "il", "in", "la", "per", "un",
+    "una",
+}
+
+
+def _requirement_terms(value: str) -> list[str]:
+    """Extract a small, stable set of explicit coverage requirements."""
+
+    terms = re.findall(r"[a-z0-9]+", str(value).casefold())
+    return list(dict.fromkeys(
+        term for term in terms
+        if len(term) > 1 and term not in _EXPANSION_STOPWORDS
+    ))[:12]
+
+
+def _rank_for_missing_requirements(
+    candidates: list[str],
+    metadata: SolrMetadata,
+    requirements: list[str],
+    limit: int,
+) -> list[str]:
+    """Rank hidden candidates using only already-retrieved metadata."""
+
+    scored: list[tuple[int, int, str]] = []
+    for original_index, candidate in enumerate(candidates):
+        searchable = json.dumps(
+            {"file": candidate, "metadata": metadata.get(candidate, {})},
+            ensure_ascii=False,
+            default=str,
+        ).casefold()
+        score = sum(1 for requirement in requirements if requirement in searchable)
+        if score:
+            scored.append((-score, original_index, candidate))
+    scored.sort()
+    return [candidate for _score, _index, candidate in scored[:limit]]
+
+
 class Phase2JudgeToolsManager:
     """Manager for Phase 2 judge tools to avoid closures and improve testability."""
     
@@ -516,6 +555,7 @@ class Phase2JudgeToolsManager:
         self.metadata = metadata or {}
         self.visible_candidate_count = min(self.INITIAL_CANDIDATES, len(candidates))
         self.expansion_count = 0
+        self.expansion_requirements: list[str] = []
         self._inspection_cache: dict[str, str] = {}
         self._inspection_counts: dict[str, int] = {}
 
@@ -581,8 +621,8 @@ class Phase2JudgeToolsManager:
             + self._inspection_cache[key]
         )
 
-    def expand_candidates(self) -> str:
-        """Reveal the next five ranked candidates only to fill a known coverage gap.
+    def expand_candidates(self, missing_requirements: str) -> str:
+        """Reveal up to five hidden candidates that best cover a known gap.
 
         First inspect the strongest plausible visible candidates and identify the
         missing measure, dimension, filter, period, or join key. This tool does
@@ -595,6 +635,12 @@ class Phase2JudgeToolsManager:
                 "Expansion blocked: inspect at least one plausible visible candidate "
                 "before requesting more results."
             )
+        requirements = _requirement_terms(missing_requirements)
+        if not requirements:
+            return (
+                "Expansion blocked: provide concrete missing requirements such as "
+                "a measure, dimension, period, filter, or join key."
+            )
         if self.expansion_count >= self.MAX_EXPANSIONS:
             return (
                 "Expansion limit reached. Do not call expand_candidates again; "
@@ -603,17 +649,30 @@ class Phase2JudgeToolsManager:
         if self.visible_candidate_count >= len(self.candidates):
             return "No additional candidates are available."
         start = self.visible_candidate_count
-        self.visible_candidate_count = min(
-            start + self.EXPANSION_SIZE,
-            len(self.candidates),
+        hidden = self.candidates[start:]
+        newly_visible = _rank_for_missing_requirements(
+            hidden, self.metadata, requirements, self.EXPANSION_SIZE
         )
+        if not newly_visible:
+            self.expansion_count += 1
+            self.expansion_requirements = requirements
+            return (
+                "No hidden candidate has metadata matching the missing requirements. "
+                "Do not call expand_candidates again; select or reject using the "
+                "inspected evidence."
+            )
+        selected = set(newly_visible)
+        self.candidates[start:] = [
+            *newly_visible,
+            *(candidate for candidate in hidden if candidate not in selected),
+        ]
+        self.visible_candidate_count = start + len(newly_visible)
         self.expansion_count += 1
-        newly_visible = self.candidates[start : self.visible_candidate_count]
+        self.expansion_requirements = requirements
         remaining = len(self.candidates) - self.visible_candidate_count
         next_step = (
-            f"{remaining} ranked candidates remain hidden. Expand again only if "
-            "the currently visible candidates still cannot fill the identified "
-            "coverage gap."
+            f"{remaining} ranked candidates remain hidden, but the single guided "
+            "expansion has been used. Do not call expand_candidates again."
             if remaining
             else (
                 "All ranked candidates are now visible. Do not call "
@@ -621,8 +680,10 @@ class Phase2JudgeToolsManager:
             )
         )
         return (
-            f"Revealed candidates {start + 1}-{self.visible_candidate_count} "
-            "in retrieval order:\n"
+            "Guided expansion for missing requirements: "
+            + ", ".join(requirements)
+            + f"\nRevealed {len(newly_visible)} best-matching hidden candidates "
+            "(original retrieval ranks are preserved in metadata):\n"
             + format_candidate_context(newly_visible, self.metadata)
             + f"\n\n{next_step}"
         )

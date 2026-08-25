@@ -62,7 +62,9 @@ MAX_CONFIG_UPLOAD_BYTES = 1_000_000
 MAX_QUESTIONS_UPLOAD_BYTES = 25_000_000
 JOB_DIR = BASE_DIR / ".lakegen_jobs"
 BENCHMARK_DIR = BASE_DIR / "benchmark"
-logger = logging.getLogger(__name__)
+# Use Uvicorn's configured application logger so batch progress is visible in
+# the same terminal as the HTTP access log when the API is run with Uvicorn.
+logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(
     title="LakeGen API",

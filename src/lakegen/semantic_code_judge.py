@@ -58,6 +58,7 @@ def _result_preview(value: Any, *, sample_size: int = 6) -> Mapping[str, Any]:
 def _comparison_facts(evaluation: Mapping[str, Any]) -> dict[str, Any]:
     useful_keys = {
         "expected_result_type", "result_type_match", "exact_result_match",
+        "representation_equivalent_match",
         "column_precision", "column_recall", "column_f1", "row_precision",
         "row_recall", "row_f1", "cell_accuracy", "item_precision",
         "item_recall", "item_f1", "numeric_absolute_error",

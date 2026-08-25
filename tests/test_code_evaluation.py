@@ -75,6 +75,47 @@ def test_number_evaluation_accepts_equivalent_percentage_text():
     assert evaluation["exact_result_match"] is True
 
 
+def test_number_evaluation_normalizes_fractional_percentage_and_currency():
+    percentage = evaluate_code_result(
+        expected_result_type="number",
+        reference_result=0.82,
+        actual_result="82%",
+    )
+    currency = evaluate_code_result(
+        expected_result_type="number",
+        reference_result=-1234.5,
+        actual_result="($1,234.50)",
+    )
+
+    assert percentage["representation_equivalent_match"] is True
+    assert percentage["numeric_absolute_error"] == 0.0
+    assert currency["representation_equivalent_match"] is True
+
+
+def test_table_single_cell_scalar_is_equivalent_but_not_exact_shape():
+    evaluation = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=[{"total": 42}],
+        actual_result=42,
+    )
+
+    assert evaluation["result_type_match"] is False
+    assert evaluation["exact_result_match"] is False
+    assert evaluation["representation_equivalent_match"] is True
+
+
+def test_list_accepts_column_oriented_mapping_as_equivalent_representation():
+    evaluation = evaluate_code_result(
+        expected_result_type="list",
+        reference_result=[{"borough": "Bronx"}, {"borough": "Queens"}],
+        actual_result={"borough": ["Bronx", "Queens"]},
+    )
+
+    assert evaluation["result_type_match"] is False
+    assert evaluation["exact_result_match"] is False
+    assert evaluation["representation_equivalent_match"] is True
+
+
 def test_table_evaluation_ignores_row_order_unless_required():
     reference = [
         {"borough": "Bronx", "count": 2},
