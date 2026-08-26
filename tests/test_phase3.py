@@ -143,6 +143,23 @@ def test_coverage_counts_nested_top_five_as_five_semantic_items(tmp_path):
     assert warnings == []
 
 
+def test_top_n_ignores_unrelated_number_words(tmp_path):
+    _state, manager = _agentic_tools(
+        tmp_path,
+        question=(
+            "Which top five districts have the highest combined values across "
+            "the two disciplinary measures?"
+        ),
+    )
+    requirements, warnings, facts = manager._coverage(
+        [{"district": item} for item in range(5)]
+    )
+
+    assert facts["expected_ranked_items"] == 5
+    assert requirements == ["return 5 ranked semantic items"]
+    assert warnings == []
+
+
 def test_coverage_recognizes_nyc_borough_codes(tmp_path):
     _state, manager = _agentic_tools(
         tmp_path, question="Show the result for each borough"

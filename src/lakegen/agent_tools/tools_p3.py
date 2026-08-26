@@ -330,13 +330,29 @@ class Phase3ToolsManager:
             "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
         }
+        ranking_terms = "highest|lowest|most|least|largest|smallest"
         top_match = re.search(r"\btop\s+(\d+)\b", question)
         expected_top = int(top_match.group(1)) if top_match else None
-        if expected_top is None and any(term in question for term in ("highest", "lowest", "most", "least", "largest", "smallest")):
-            for word, number in number_words.items():
-                if re.search(rf"\b{word}\b", question):
-                    expected_top = number
-                    break
+        if expected_top is None:
+            top_word = re.search(
+                rf"\btop\s+({'|'.join(number_words)})\b", question
+            )
+            if top_word:
+                expected_top = number_words[top_word.group(1)]
+        if expected_top is None:
+            ranked_number = re.search(
+                rf"\b({'|'.join(number_words)})\s+(?:\w+[\s-]+){{0,4}}(?:{ranking_terms})\b",
+                question,
+            )
+            if ranked_number:
+                expected_top = number_words[ranked_number.group(1)]
+        if expected_top is None:
+            which_number = re.search(
+                rf"\bwhich\s+({'|'.join(number_words)})\b[^?.]{{0,80}}\b(?:{ranking_terms})\b",
+                question,
+            )
+            if which_number:
+                expected_top = number_words[which_number.group(1)]
         if expected_top is not None:
             requirement = f"return {expected_top} ranked semantic items"
             requirements.append(requirement)
