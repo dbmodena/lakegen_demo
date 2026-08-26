@@ -7,6 +7,7 @@ import ast
 import difflib
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -18,6 +19,15 @@ from lakegen.core.table_io import read_table, table_load_command
 
 
 ReviewStatus = Literal["verified", "not_applicable", "needs_revision"]
+
+
+class CoderLifecycle(str, Enum):
+    NEEDS_CODE = "needs_code"
+    NEEDS_INSPECTION = "needs_inspection"
+    NEEDS_REVISION = "needs_revision"
+    READY_TO_FINISH = "ready_to_finish"
+    TABLES_INSUFFICIENT = "tables_insufficient"
+    FINISHED = "finished"
 
 
 class FinishCodeSchema(BaseModel):
@@ -94,6 +104,9 @@ class P3State:
     table_profiled_columns: dict[str, set[str]] = field(default_factory=dict)
     rejected_reason: str = ""
     rejection_details: dict[str, Any] = field(default_factory=dict)
+    lifecycle: CoderLifecycle = CoderLifecycle.NEEDS_CODE
+    stop_reason: str = ""
+    finalization_mode: str = ""
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -104,6 +117,7 @@ class P3State:
             and self.result_version > 0
             and self.inspected_version == self.result_version
             and not self.coverage_warnings
+            and self.lifecycle == CoderLifecycle.READY_TO_FINISH
         )
 
 
@@ -119,6 +133,7 @@ class Phase3ToolsManager:
         run_dir: Path | None,
         evaluation_result_type: str | None,
         question: str = "",
+        table_metadata: dict[str, Any] | None = None,
         resolve_code: Callable[[str, list[str], Path], tuple[str, str | None]],
         execute_code: Callable[..., tuple[str | None, str | None, str]],
         extract_payload: Callable[[str], tuple[str, object | None, str | None]],
@@ -129,6 +144,7 @@ class Phase3ToolsManager:
         self.run_dir = run_dir
         self.evaluation_result_type = evaluation_result_type
         self.question = question
+        self.table_metadata = table_metadata or {}
         self.resolve_code = resolve_code
         self.execute_code = execute_code
         self.extract_payload = extract_payload
@@ -194,6 +210,17 @@ class Phase3ToolsManager:
     def inspect_table(self, file_name: str, columns: str = "") -> str:
         """Inspect a selected table from one cached sample. Up to eight columns may be profiled progressively."""
         table = file_name.strip()
+        supplied = Path(table).expanduser()
+        if table not in self.tables and supplied.is_absolute():
+            supplied_resolved = supplied.resolve()
+            table = next(
+                (
+                    selected
+                    for selected in self.tables
+                    if (self.csv_dir / selected).resolve() == supplied_resolved
+                ),
+                table,
+            )
         if table not in self.tables:
             return json.dumps({"ok": False, "error": "Only selected tables may be inspected.", "selected_tables": self.tables})
         path = self.csv_dir / table
@@ -272,6 +299,11 @@ class Phase3ToolsManager:
         """Reject the selected tables with structured evidence so discovery can retry."""
         if self.state.finished:
             raise ValueError("Tables cannot be rejected after finish_code.")
+        if self.state.rejected_reason:
+            return "REJECT_TABLES: " + json.dumps({
+                "reason": self.state.rejected_reason,
+                **self.state.rejection_details,
+            }, ensure_ascii=False)
         if not self.state.inspected_tables and self.state.run_count == 0:
             raise ValueError("Inspect a selected table or run code before rejecting it.")
         missing = [str(item).strip() for item in missing_requirements if str(item).strip()]
@@ -279,24 +311,96 @@ class Phase3ToolsManager:
             raise ValueError("Provide at least one concrete missing requirement.")
         if len(reason.strip()) < 20 or len(inspected_evidence.strip()) < 20:
             raise ValueError("Provide a concrete reason and inspected evidence.")
+        blockers = self._rejection_blockers(missing, reason, inspected_evidence)
+        if blockers:
+            self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
+            payload = json.dumps({
+                "ok": False,
+                "error": {
+                    "category": "rejection_not_proven",
+                    "message": "The selected tables have not been proven insufficient.",
+                    "blockers": blockers,
+                    "next_actions": ["run_code", "inspect_table"],
+                },
+            }, ensure_ascii=False)
+            raise ValueError("REJECTION_NOT_PROVEN: " + payload)
         self.state.rejected_reason = reason.strip()
         self.state.rejection_details = {
             "missing_requirements": missing,
             "inspected_evidence": inspected_evidence.strip(),
         }
+        self.state.lifecycle = CoderLifecycle.TABLES_INSUFFICIENT
         return "REJECT_TABLES: " + json.dumps({
             "reason": self.state.rejected_reason,
             **self.state.rejection_details,
         }, ensure_ascii=False)
 
+    def _metadata_text(self) -> str:
+        def flatten(value: Any) -> list[str]:
+            if isinstance(value, dict):
+                return [str(key) for key in value] + [
+                    item for child in value.values() for item in flatten(child)
+                ]
+            if isinstance(value, (list, tuple, set)):
+                return [item for child in value for item in flatten(child)]
+            return [str(value)] if value is not None else []
+
+        return " ".join(flatten(self.table_metadata)).casefold()
+
+    def _rejection_blockers(
+        self,
+        missing: list[str],
+        reason: str,
+        inspected_evidence: str,
+    ) -> list[str]:
+        """Reject only when a missing base fact, rather than a derivation, is proven."""
+        claim = " ".join([reason, inspected_evidence, *missing]).casefold()
+        blockers: list[str] = []
+        metadata = self._metadata_text()
+        requested_years = set(re.findall(r"\b(?:19|20)\d{2}\b", self.question))
+        if (
+            requested_years
+            and ("year column" in claim or "fiscal-year column" in claim or "fiscal year column" in claim)
+            and any(year in metadata for year in requested_years)
+        ):
+            blockers.append(
+                "The requested period appears in selected-table metadata; a dedicated year column is not required."
+            )
+        if re.search(
+            r"(?:only|lack|missing|without)[^.]*(?:all five|five nyc)?[^.]*(?:borough|boro)",
+            claim,
+        ) or "zero-count" in claim or "zero count" in claim:
+            blockers.append(
+                "Absent borough rows do not prove missing data; derive observed groups and add valid zero-count groups when required."
+            )
+        if re.search(r"not enough distinct|fewer than\s+(?:five|5)|only\s+\d+\s+(?:distinct\s+)?(?:categories|codes)", claim):
+            blockers.append(
+                "Fewer observed categories than a requested top-N is not by itself proof that the tables are insufficient."
+            )
+        if ("column" in claim and ("missing" in claim or "does not contain" in claim)):
+            all_columns = self._all_columns()
+            normalized = {re.sub(r"[^a-z0-9]", "", column.casefold()) for column in all_columns}
+            requirement_words = {
+                re.sub(r"[^a-z0-9]", "", word)
+                for word in re.findall(r"[A-Za-z][A-Za-z _-]{3,40}", " ".join(missing))
+            }
+            if any(word and any(word in column or column in word for column in normalized) for word in requirement_words):
+                blockers.append(
+                    "A selected schema contains a plausible equivalent column; inspect or use the exact available name before rejection."
+                )
+        return list(dict.fromkeys(blockers))
+
     def run_code(self, code: str) -> str:
         """Execute a complete Python analysis. At most three calls are allowed; fix structured errors before retrying."""
         if self.state.finished:
             return json.dumps({"ok": False, "error": {"category": "already_finished"}})
+        if self.state.rejected_reason:
+            return json.dumps({"ok": False, "error": {"category": "tables_already_rejected"}})
         if self.state.run_count >= self.state.max_runs:
             return json.dumps({"ok": False, "error": {"category": "run_limit", "message": "Maximum of 3 executions reached."}})
 
         self.state.run_count += 1
+        self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
         self.state.code_raw = code
         path_error = self._validate_load_paths(code)
         if path_error:
@@ -357,6 +461,7 @@ class Phase3ToolsManager:
                     "error": self.state.execution_error,
                 })
         self.state.result_version += 1
+        self.state.lifecycle = CoderLifecycle.NEEDS_INSPECTION
         return json.dumps({
             "ok": True,
             "attempt": self.state.run_count,
@@ -514,7 +619,17 @@ class Phase3ToolsManager:
             if value and isinstance(value[0], dict):
                 profile["columns"] = list(value[0])[:30]
         self.state.inspected_version = self.state.result_version
-        return json.dumps({"ok": True, "profile": profile}, ensure_ascii=False, default=str)
+        self.state.lifecycle = (
+            CoderLifecycle.NEEDS_REVISION
+            if warnings else CoderLifecycle.READY_TO_FINISH
+        )
+        return json.dumps({
+            "ok": True,
+            "state": self.state.lifecycle.value,
+            "required_action": "run_code_or_reject_tables" if warnings else "finish_code",
+            "allowed_actions": ["run_code", "reject_tables"] if warnings else ["finish_code"],
+            "profile": profile,
+        }, ensure_ascii=False, default=str)
 
     def finish_code(
         self,
@@ -545,6 +660,7 @@ class Phase3ToolsManager:
             )
         unresolved = [name for name, status in checks.items() if status == "needs_revision"]
         if unresolved:
+            self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
             raise ValueError("Finish blocked: revise code for " + ", ".join(unresolved) + ".")
         if len(review.strip()) < 20:
             raise ValueError("Finish blocked: provide a concrete review of at least 20 characters.")
@@ -565,12 +681,32 @@ class Phase3ToolsManager:
         if any(len(evidence) < 8 for evidence in reviewed.values()):
             raise ValueError("Finish blocked: provide evidence for every requirement.")
         self.state.finished = True
+        self.state.lifecycle = CoderLifecycle.FINISHED
+        self.state.finalization_mode = "agent"
         self.state.review = {
             **checks,
             "requirement_reviews": reviewed,
             "review": review.strip(),
         }
         return "FINAL_PAYLOAD: " + json.dumps({"status": "finished", "review": self.state.review})
+
+    def recover_finish(self, reason: str) -> None:
+        """Close a valid inspected result when only the agent protocol failed."""
+        if not self.state.ready_for_finalization():
+            raise ValueError("Recovery finalization requires the latest warning-free inspected result.")
+        self.state.finished = True
+        self.state.lifecycle = CoderLifecycle.FINISHED
+        self.state.finalization_mode = "system_recovery"
+        self.state.review = {
+            "finalization_mode": "system_recovery",
+            "coverage_checks": "verified",
+            "semantic_self_review": "not_available",
+            "requirement_reviews": {
+                requirement: "Verified by inspect_result coverage checks."
+                for requirement in self.state.coverage_requirements
+            },
+            "review": reason,
+        }
 
     def get_tools(self) -> list[FunctionTool]:
         return [

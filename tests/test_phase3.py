@@ -10,10 +10,12 @@ from lakegen.phases.phase3 import (
     _detect_tabpfn_intent,
     _exact_column_labels,
     _execute_code,
+    _recover_fenced_agent_code,
     _tabpfn_enabled,
 )
 from lakegen.experiment_config import CoderContextLevel
 from lakegen.agent_tools.tools_p3 import (
+    CoderLifecycle,
     P3State,
     Phase3ToolsManager,
     classify_execution_error,
@@ -105,6 +107,30 @@ def test_agentic_coder_returns_structured_execution_error(tmp_path):
     assert state.execution_error["column"] == "missing_total"
 
 
+def test_fenced_code_without_tool_call_uses_normal_run_and_inspection(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            '__LAKEGEN_EVAL_JSON__42', None, code
+        ),
+    )
+    manager.evaluation_result_type = "number"
+    manager.extract_payload = lambda raw: ("42", 42, None)
+    response = """assistant: ```python
+import json
+evaluation_value = 42
+print('__LAKEGEN_EVAL_JSON__' + json.dumps(evaluation_value))
+```"""
+
+    recovered = _recover_fenced_agent_code(response, manager, state)
+
+    assert recovered is True
+    assert state.run_count == 1
+    assert state.inspected_version == state.result_version == 1
+    assert state.lifecycle == CoderLifecycle.READY_TO_FINISH
+    assert state.stop_reason == "recovered_fenced_code_without_run_code_call"
+
+
 def test_execution_error_classifier_marks_security_failures_non_retryable():
     error = classify_execution_error(
         "Security Error: forbidden code fragment 'import os'."
@@ -122,6 +148,7 @@ def test_finalization_recovery_requires_structured_latest_inspection():
     assert state.ready_for_finalization() is False
 
     state.inspected_version = 1
+    state.lifecycle = CoderLifecycle.READY_TO_FINISH
     assert state.ready_for_finalization() is True
 
     state.error = "execution failed"
@@ -130,6 +157,42 @@ def test_finalization_recovery_requires_structured_latest_inspection():
     state.error = None
     state.coverage_warnings = ["coverage_shortfall"]
     assert state.ready_for_finalization() is False
+
+
+def test_recovery_finalizes_only_warning_free_latest_inspection(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    manager.evaluation_result_type = "number"
+    manager.extract_payload = lambda raw: ("42", 42, None)
+
+    assert '"ok": true' in manager.run_code("print(42)")
+    inspection = json.loads(manager.inspect_result())
+    assert inspection["state"] == "ready_to_finish"
+
+    manager.recover_finish("Agent exhausted its protocol budget after inspection.")
+
+    assert state.finished is True
+    assert state.lifecycle == CoderLifecycle.FINISHED
+    assert state.finalization_mode == "system_recovery"
+    assert state.review["semantic_self_review"] == "not_available"
+
+
+def test_recovery_does_not_override_explicit_needs_revision(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    manager.evaluation_result_type = "table"
+    manager.question = "Show the top 3 agencies"
+    manager.extract_payload = lambda raw: (raw, [{"agency": "A"}], None)
+
+    manager.run_code("print('one item')")
+    inspection = json.loads(manager.inspect_result())
+
+    assert inspection["state"] == "needs_revision"
+    try:
+        manager.recover_finish("Must not recover a warned result.")
+    except ValueError as exc:
+        assert "warning-free" in str(exc)
+    else:
+        raise AssertionError("Recovery must reject a result that needs revision")
+    assert state.finished is False
 
 
 def test_coverage_counts_nested_top_five_as_five_semantic_items(tmp_path):
@@ -238,6 +301,18 @@ def test_inspect_table_is_limited_and_returns_exact_load_command(tmp_path):
     assert "run_code" in second["next_action"]
 
 
+def test_inspect_table_accepts_exact_selected_absolute_path(tmp_path):
+    table = tmp_path / "table.csv"
+    table.write_text("Borough,Value\nBrooklyn,1\n", encoding="utf-8")
+    state, manager = _agentic_tools(tmp_path)
+
+    response = json.loads(manager.inspect_table(str(table), "Borough"))
+
+    assert response["ok"] is True
+    assert response["table"] == "table.csv"
+    assert state.inspected_tables == {"table.csv"}
+
+
 def test_inspect_table_profiles_new_columns_from_same_cached_sample(tmp_path):
     (tmp_path / "table.csv").write_text(
         "Borough,Year,Value\nManhattan,2023,1\nBrooklyn,2024,2\n",
@@ -268,6 +343,57 @@ def test_reject_tables_requires_evidence_and_returns_structured_marker(tmp_path)
     assert response.startswith("REJECT_TABLES:")
     assert state.rejected_reason.startswith("The selected table")
     assert state.rejection_details["missing_requirements"] == ["records for year 2023"]
+
+
+def test_reject_tables_blocks_year_column_claim_when_metadata_has_period(tmp_path):
+    (tmp_path / "table.csv").write_text("Value\n1\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state,
+        tables=["table.csv"],
+        csv_dir=tmp_path,
+        run_dir=tmp_path / "run",
+        evaluation_result_type=None,
+        question="How many records were there in fiscal year 2023?",
+        table_metadata={"table.csv": {"title": "Fiscal Year 2023 records"}},
+        resolve_code=lambda code, _tables, _csv_dir: (code, None),
+        execute_code=lambda code, **_kwargs: ("1", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+    )
+    manager.inspect_table("table.csv")
+
+    try:
+        manager.reject_tables(
+            "The selected table cannot answer the fiscal year 2023 question.",
+            ["a fiscal year column for 2023"],
+            "The inspected schema does not contain a dedicated fiscal year column.",
+        )
+    except ValueError as exc:
+        assert "rejection_not_proven" in str(exc)
+    else:
+        raise AssertionError("Metadata-backed periods must block table rejection")
+    assert state.rejected_reason == ""
+    assert state.lifecycle == CoderLifecycle.NEEDS_REVISION
+
+
+def test_reject_tables_blocks_missing_borough_rows_as_insufficient_evidence(tmp_path):
+    (tmp_path / "table.csv").write_text(
+        "Borough,Value\nBrooklyn,1\nQueens,2\n", encoding="utf-8"
+    )
+    state, manager = _agentic_tools(tmp_path, question="Show each borough")
+    manager.inspect_table("table.csv", "Borough")
+
+    try:
+        manager.reject_tables(
+            "The selected table contains only two boroughs rather than all five.",
+            ["rows for all five NYC boroughs"],
+            "The Borough profile contains only Brooklyn and Queens in the sample.",
+        )
+    except ValueError as exc:
+        assert "rejection_not_proven" in str(exc)
+    else:
+        raise AssertionError("Missing borough rows alone must not reject tables")
+    assert state.rejected_reason == ""
 
 
 def test_diagnostic_output_is_retryable_and_not_inspectable_as_result(tmp_path):

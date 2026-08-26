@@ -133,6 +133,29 @@ def _extract_code(code_raw: str) -> str:
     return code_raw.replace("```python", "").replace("```", "").strip()
 
 
+def _recover_fenced_agent_code(response: str, manager, state) -> bool:
+    """Execute and inspect a complete program emitted without a run_code call."""
+    if (
+        state.run_count != 0
+        or state.error is not None
+        or state.rejected_reason
+        or "```python" not in response.casefold()
+    ):
+        return False
+    fallback_code = _extract_code(response)
+    if (
+        "__LAKEGEN_EVAL_JSON__" not in fallback_code
+        or not re.search(r"\b(?:import|from)\s+\w+", fallback_code)
+    ):
+        return False
+    fallback_run = json.loads(manager.run_code(fallback_code))
+    if not fallback_run.get("ok"):
+        return False
+    manager.inspect_result()
+    state.stop_reason = "recovered_fenced_code_without_run_code_call"
+    return True
+
+
 def _rejected_tables_reason(code_raw: str) -> str:
     if "REJECT_TABLES" not in code_raw:
         return ""
@@ -618,6 +641,10 @@ def phase3_generate_and_execute(
         run_dir=run_dir,
         evaluation_result_type=evaluation_result_type,
         question=query,
+        table_metadata={
+            table: solr_meta.get(table, solr_meta.get(Path(table).stem, {}))
+            for table in tables
+        },
         resolve_code=_resolve_and_validate_columns,
         execute_code=_execute_code,
         extract_payload=extract_evaluation_payload,
@@ -652,14 +679,18 @@ def phase3_generate_and_execute(
         )
     except Phase2AgentStall as exc:
         response = ""
-        if state.error is None and state.raw_result is not None:
-            state.error = f"Coder stopped before mandatory self-review: {exc}"
-        elif not state.error:
+        state.stop_reason = str(exc)
+        if not state.error and state.raw_result is None:
             state.error = f"Coder agent stalled: {exc}"
     except Exception as exc:
         response = ""
         if not state.error:
             state.error = f"Coder agent failed: {type(exc).__name__}: {exc}"
+
+    # Some model turns emit the complete program in a fenced response instead
+    # of invoking run_code. Route that program through the exact same bounded
+    # preflight, sandbox, result extraction and inspection path as a tool call.
+    _recover_fenced_agent_code(response, manager, state)
 
     if force_execution:
         rejected_reason = ""
@@ -713,15 +744,27 @@ def phase3_generate_and_execute(
                 timeout_seconds=120,
             )
         except Exception as exc:
-            state.error = (
-                "Coder finalization failed after a valid inspection: "
-                f"{type(exc).__name__}: {exc}"
+            state.stop_reason = (
+                "finalizer_failed: " f"{type(exc).__name__}: {exc}"
             )
+
+    # A warning-free latest inspection is sufficient to preserve a computed
+    # result even if the model omitted or malformed the protocol-only finish
+    # call. Correctness is still decided by the normal evaluator downstream.
+    if not state.finished and state.ready_for_finalization() and not rejected_reason:
+        manager.recover_finish(
+            "System recovery after a valid, structured, warning-free latest-result inspection."
+        )
 
     tokens = get_llm_token_usage(llm)
     if not state.finished and state.error is None and not rejected_reason:
-        state.error = (
-            "Coder did not call finish_code after inspecting and reviewing the result."
+        state.error = {
+            "needs_inspection": "Coder stopped after execution without inspecting the latest result.",
+            "needs_revision": "Coder stopped while the inspected result still required revision.",
+            "ready_to_finish": "Coder stopped before mandatory finalization.",
+        }.get(
+            state.lifecycle.value,
+            "Coder stopped without reaching a terminal coding state.",
         )
     return Phase3Result(
         code_raw=state.code_raw or response,
