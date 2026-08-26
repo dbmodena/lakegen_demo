@@ -234,8 +234,56 @@ def test_inspect_table_is_limited_and_returns_exact_load_command(tmp_path):
     assert first["columns"] == ["Borough", "Created Date"]
     assert "pd.read_csv" in first["load_command"]
     assert second["ok"] is True
-    assert second["cached"] is True
-    assert "do not inspect" in second["next_action"].lower()
+    assert second["cached_sample"] is True
+    assert "run_code" in second["next_action"]
+
+
+def test_inspect_table_profiles_new_columns_from_same_cached_sample(tmp_path):
+    (tmp_path / "table.csv").write_text(
+        "Borough,Year,Value\nManhattan,2023,1\nBrooklyn,2024,2\n",
+        encoding="utf-8",
+    )
+    state, manager = _agentic_tools(tmp_path)
+
+    first = json.loads(manager.inspect_table("table.csv", "Borough"))
+    second = json.loads(manager.inspect_table("table.csv", "Year"))
+
+    assert first["cached_sample"] is False
+    assert second["cached_sample"] is True
+    assert "Year" in second["requested_column_profiles"]
+    assert state.table_profiled_columns["table.csv"] == {"Borough", "Year"}
+
+
+def test_reject_tables_requires_evidence_and_returns_structured_marker(tmp_path):
+    (tmp_path / "table.csv").write_text("Year\n2020\n", encoding="utf-8")
+    state, manager = _agentic_tools(tmp_path)
+    manager.inspect_table("table.csv", "Year")
+
+    response = manager.reject_tables(
+        "The selected table cannot answer the requested 2023 question.",
+        ["records for year 2023"],
+        "The cached Year profile contains only the value 2020.",
+    )
+
+    assert response.startswith("REJECT_TABLES:")
+    assert state.rejected_reason.startswith("The selected table")
+    assert state.rejection_details["missing_requirements"] == ["records for year 2023"]
+
+
+def test_diagnostic_output_is_retryable_and_not_inspectable_as_result(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: ("Columns: ['A', 'B']", None, code),
+    )
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda raw: (raw, None, "missing payload")
+
+    response = json.loads(manager.run_code("print('columns')"))
+
+    assert response["ok"] is False
+    assert response["error"]["category"] == "diagnostic_output"
+    assert state.raw_result is None
+    assert json.loads(manager.inspect_result())["ok"] is False
 
 
 def test_run_code_rejects_hallucinated_table_path_with_allowed_command(tmp_path):

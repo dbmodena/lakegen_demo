@@ -30,6 +30,12 @@ class FinishCodeSchema(BaseModel):
     review: str = Field(description="Brief evidence-based final review of the computed result.")
 
 
+class RejectTablesSchema(BaseModel):
+    reason: str = Field(description="Why the selected tables cannot answer the question.")
+    missing_requirements: list[str] = Field(description="Concrete missing columns, periods, categories, or join keys.")
+    inspected_evidence: str = Field(description="Evidence observed through inspect_table or run_code.")
+
+
 def classify_execution_error(message: str, *, stage: str = "execution") -> dict[str, Any]:
     """Convert an execution/preflight failure into a stable, compact schema."""
 
@@ -84,7 +90,10 @@ class P3State:
     coverage_requirements: list[str] = field(default_factory=list)
     coverage_warnings: list[str] = field(default_factory=list)
     inspected_tables: set[str] = field(default_factory=set)
-    table_inspection_cache: dict[str, str] = field(default_factory=dict)
+    table_samples: dict[str, Any] = field(default_factory=dict)
+    table_profiled_columns: dict[str, set[str]] = field(default_factory=dict)
+    rejected_reason: str = ""
+    rejection_details: dict[str, Any] = field(default_factory=dict)
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -183,33 +192,45 @@ class Phase3ToolsManager:
         error["available_columns"] = columns[:100]
 
     def inspect_table(self, file_name: str, columns: str = "") -> str:
-        """Inspect one selected table once, without consuming a run_code attempt. Columns is a comma-separated shortlist."""
+        """Inspect a selected table from one cached sample. Up to eight columns may be profiled progressively."""
         table = file_name.strip()
         if table not in self.tables:
             return json.dumps({"ok": False, "error": "Only selected tables may be inspected.", "selected_tables": self.tables})
-        if table in self.state.table_inspection_cache:
-            cached = json.loads(self.state.table_inspection_cache[table])
-            cached["cached"] = True
-            cached["next_action"] = (
-                "This table was already inspected. Do not inspect it again; "
-                "write or correct the analysis with run_code."
-            )
-            return json.dumps(cached, ensure_ascii=False, default=str)
-        self.state.inspected_tables.add(table)
         path = self.csv_dir / table
-        try:
-            frame = read_table(path, nrows=5000)
-        except Exception as exc:
-            return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        cached = table in self.state.table_samples
+        if cached:
+            frame = self.state.table_samples[table]
+        else:
+            try:
+                frame = read_table(path, nrows=5000)
+            except Exception as exc:
+                return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            self.state.inspected_tables.add(table)
+            self.state.table_samples[table] = frame
+            self.state.table_profiled_columns[table] = set()
         requested = [item.strip() for item in columns.split(",") if item.strip()]
         exact = {str(column): column for column in frame.columns}
         details: dict[str, Any] = {}
-        for requested_column in requested[:8]:
+        resolved_requests: list[tuple[str, str]] = []
+        for requested_column in requested:
             matches = difflib.get_close_matches(requested_column.strip(), list(exact), n=1, cutoff=0.55)
             if not matches:
                 details[requested_column] = {"error": "column_not_found"}
                 continue
             name = matches[0]
+            resolved_requests.append((requested_column, name))
+        already_profiled = self.state.table_profiled_columns[table]
+        new_names = {name for _requested, name in resolved_requests} - already_profiled
+        if len(already_profiled | new_names) > 8:
+            return json.dumps({
+                "ok": False,
+                "error": "Column profile limit exceeded: at most 8 distinct columns per table.",
+                "already_profiled": sorted(already_profiled),
+                "remaining_profile_slots": max(0, 8 - len(already_profiled)),
+                "next_action": "Use the existing evidence and choose run_code or reject_tables.",
+            })
+        already_profiled.update(new_names)
+        for requested_column, name in resolved_requests:
             series = frame[exact[name]]
             non_null = series.dropna()
             detail: dict[str, Any] = {
@@ -227,14 +248,46 @@ class Phase3ToolsManager:
             details[requested_column] = detail
         response = json.dumps({
             "ok": True,
+            "cached_sample": cached,
             "table": table,
             "load_command": table_load_command(path),
             "sampled_rows": len(frame),
             "columns": [str(column) for column in frame.columns],
             "requested_column_profiles": details,
+            "profiled_columns_total": sorted(already_profiled),
+            "remaining_profile_slots": 8 - len(already_profiled),
+            "next_action": (
+                "Choose one: run_code if the evidence is sufficient, or "
+                "reject_tables if required data is missing."
+            ),
         }, ensure_ascii=False, default=str)
-        self.state.table_inspection_cache[table] = response
         return response
+
+    def reject_tables(
+        self,
+        reason: str,
+        missing_requirements: list[str],
+        inspected_evidence: str,
+    ) -> str:
+        """Reject the selected tables with structured evidence so discovery can retry."""
+        if self.state.finished:
+            raise ValueError("Tables cannot be rejected after finish_code.")
+        if not self.state.inspected_tables and self.state.run_count == 0:
+            raise ValueError("Inspect a selected table or run code before rejecting it.")
+        missing = [str(item).strip() for item in missing_requirements if str(item).strip()]
+        if not missing:
+            raise ValueError("Provide at least one concrete missing requirement.")
+        if len(reason.strip()) < 20 or len(inspected_evidence.strip()) < 20:
+            raise ValueError("Provide a concrete reason and inspected evidence.")
+        self.state.rejected_reason = reason.strip()
+        self.state.rejection_details = {
+            "missing_requirements": missing,
+            "inspected_evidence": inspected_evidence.strip(),
+        }
+        return "REJECT_TABLES: " + json.dumps({
+            "reason": self.state.rejected_reason,
+            **self.state.rejection_details,
+        }, ensure_ascii=False)
 
     def run_code(self, code: str) -> str:
         """Execute a complete Python analysis. At most three calls are allowed; fix structured errors before retrying."""
@@ -276,6 +329,33 @@ class Phase3ToolsManager:
             self.state.raw_result = display
             self.state.structured_result = structured
             self.state.structured_result_error = payload_error or ""
+            diagnostic_text = display.strip().casefold()
+            diagnostic_markers = (
+                "columns:", "unique ", "unique values", "sample values",
+                "matches count", "potential ", "roof cols:", "cellar cols:",
+                "empty dataframe", "dtype:", "length:",
+            )
+            if structured is None and any(
+                marker in diagnostic_text for marker in diagnostic_markers
+            ):
+                self.state.error = (
+                    "Diagnostic output is not a final answer. Use inspect_table "
+                    "for schema/value evidence, then choose run_code with corrected "
+                    "analysis or reject_tables if required data is unavailable."
+                )
+                self.state.execution_error = {
+                    "stage": "result_validation",
+                    "category": "diagnostic_output",
+                    "message": self.state.error,
+                    "retryable": self.state.run_count < self.state.max_runs,
+                    "next_actions": ["inspect_table", "run_code", "reject_tables"],
+                }
+                self.state.raw_result = None
+                return json.dumps({
+                    "ok": False,
+                    "attempt": self.state.run_count,
+                    "error": self.state.execution_error,
+                })
         self.state.result_version += 1
         return json.dumps({
             "ok": True,
@@ -496,6 +576,11 @@ class Phase3ToolsManager:
         return [
             FunctionTool.from_defaults(fn=self.inspect_table),
             FunctionTool.from_defaults(fn=self.run_code),
+            FunctionTool.from_defaults(
+                fn=self.reject_tables,
+                fn_schema=RejectTablesSchema,
+                return_direct=True,
+            ),
             FunctionTool.from_defaults(fn=self.inspect_result),
             FunctionTool.from_defaults(fn=self.finish_code, fn_schema=FinishCodeSchema, return_direct=True),
         ]

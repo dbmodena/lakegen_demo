@@ -571,8 +571,12 @@ def phase3_generate_and_execute(
         "finish_code with the self-review checklist. You have at most three "
         "run_code calls. You may call inspect_table once per selected table when "
         "you need exact columns, category values, null counts, or temporal coverage; "
-        "do this instead of spending run_code on diagnostic prints. If inspection "
-        "reports a correctable problem, revise the program and run it again. Never "
+        "the same cached sample supports progressive profiling of up to 8 columns. "
+        "Do this instead of spending run_code on diagnostic prints. After inspection "
+        "you MUST choose: run_code if the data is sufficient, or reject_tables with "
+        "specific missing requirements and evidence if it is insufficient. If a "
+        "run reports diagnostic_output, do not print more diagnostics: use "
+        "inspect_table, then correct the analysis or reject the tables. Never "
         "infer correctness from benchmark gold: it is not available. In "
         "finish_code, pass requirement_reviews as a JSON object mapping each exact "
         "requirement string from inspect_result to its concrete evidence, for "
@@ -657,7 +661,17 @@ def phase3_generate_and_execute(
         if not state.error:
             state.error = f"Coder agent failed: {type(exc).__name__}: {exc}"
 
-    rejected_reason = "" if force_execution else _rejected_tables_reason(response)
+    if force_execution:
+        rejected_reason = ""
+    elif state.rejected_reason:
+        missing = state.rejection_details.get("missing_requirements", [])
+        evidence = state.rejection_details.get("inspected_evidence", "")
+        rejected_reason = (
+            f"{state.rejected_reason} Missing requirements: {missing}. "
+            f"Inspected evidence: {evidence}"
+        )
+    else:
+        rejected_reason = _rejected_tables_reason(response)
     # A model can exhaust its normal reasoning turn immediately after inspection.
     # Allow one tightly-scoped closure turn only for a structured result that was
     # successfully executed and whose latest version was actually inspected.
