@@ -248,10 +248,14 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
         lambda _path: ["first.csv", "second.csv"],
     )
     discovery_calls = []
+    selection_state_ids = []
 
-    def discover(**_kwargs):
+    def discover(**kwargs):
         discovery_calls.append("called")
-        table = "first.csv" if len(discovery_calls) == 1 else "second.csv"
+        selection_state_ids.append(id(kwargs["state"]))
+        # The second discovery turn ignores the feedback and repeats the exact
+        # rejected set. Service must block it before invoking the coder.
+        table = "first.csv" if len(discovery_calls) <= 2 else "second.csv"
         return [table], ["value"], {}, "selection", "trace", 0
 
     monkeypatch.setattr("lakegen.service.phase12_agent", discover)
@@ -287,7 +291,8 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
     )
 
     assert result.status == "completed"
-    assert discovery_calls == ["called", "called"]
+    assert discovery_calls == ["called", "called", "called"]
+    assert len(set(selection_state_ids)) == 3
     assert coder_calls == [
         ("first.csv", "full"),
         ("second.csv", "full"),
@@ -295,3 +300,8 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
         ("second.csv", "minimal"),
     ]
     assert result.tables == ["second.csv"]
+    assert [attempt["outcome"] for attempt in result.discovery["selection_attempts"]] == [
+        "tables_rejected",
+        "duplicate_selection_blocked",
+        "accepted",
+    ]

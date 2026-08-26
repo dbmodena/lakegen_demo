@@ -49,6 +49,7 @@ class P12State:
         self.visible_candidate_count = 0
         self.expansion_count = 0
         self.expansion_requirements: list[str] = []
+        self.rejected_selections: set[tuple[str, ...]] = set()
 
     def inspected_candidates(self) -> list[str]:
         """Return successfully inspected candidates in retrieval order."""
@@ -439,6 +440,14 @@ class Phase12ToolsManager:
                 "Selection blocked: inspect_columns is mandatory for every selected "
                 f"table. Inspect {uninspected}, verify requirement and temporal "
                 "coverage, then confirm again."
+            )
+
+        selection_key = tuple(sorted(table.casefold() for table in normalized_tables))
+        if selection_key in self.state.rejected_selections:
+            raise ValueError(
+                "Selection blocked: this exact table combination was already "
+                "rejected by the full-context coder. Select at least one different "
+                "table or reject the keywords if no alternative exists."
             )
 
         coverage_issue = _temporal_coverage_issue(

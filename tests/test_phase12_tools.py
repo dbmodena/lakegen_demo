@@ -301,6 +301,26 @@ def test_unified_selection_requires_every_selected_table_to_be_inspected(tmp_pat
     assert '"tables": "a.parquet, b.parquet"' in result
 
 
+def test_unified_selection_blocks_exact_coder_rejected_combination(tmp_path):
+    state = P12State()
+    state.all_candidates = ["a.parquet", "b.parquet"]
+    state.visible_candidate_count = 2
+    state.inspection_cache = {
+        "a.parquet": "Schema for a.parquet",
+        "b.parquet": "Schema for b.parquet",
+    }
+    state.rejected_selections = {("a.parquet", "b.parquet")}
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    with pytest.raises(ValueError, match="exact table combination"):
+        manager.confirm_unified_selection(
+            "retry the same tables", ["b.parquet", "a.parquet"]
+        )
+
+    result = manager.confirm_unified_selection("use a different set", ["b.parquet"])
+    assert '"tables": "b.parquet"' in result
+
+
 def test_unified_selection_blocks_proven_temporal_mismatch(tmp_path):
     state = P12State()
     state.all_candidates = ["history.parquet"]

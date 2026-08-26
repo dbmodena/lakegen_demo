@@ -52,7 +52,9 @@ def classify_execution_error(message: str, *, stage: str = "execution") -> dict[
     text = str(message or "Unknown execution error")
     lowered = text.casefold()
     category = "runtime_error"
-    if stage == "preflight":
+    if "forbidden code fragment 'import sys'" in lowered:
+        category = "forbidden_import"
+    elif stage == "preflight":
         category = "column_resolution_error"
     elif "security error" in lowered or "forbidden code" in lowered:
         category = "security_error"

@@ -192,6 +192,9 @@ def run_question(
     hint = ""
     error = ""
     selection_state = P12State()
+    selection_states: list[P12State] = []
+    selection_attempts: list[dict[str, Any]] = []
+    rejected_selection_keys: set[tuple[str, ...]] = set()
     attempted_keywords: list[str] = []
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
     generated_code_seed_instruction_provided = False
@@ -272,10 +275,24 @@ def run_question(
             for table_attempt in range(MAX_TABLE_ATTEMPTS):
                 discovery_started = time.monotonic()
                 keywords_rejected = False
+                selection_record: dict[str, Any] = {
+                    "attempt": table_attempt + 1,
+                    "selected_datasets": [],
+                    "keywords": [],
+                    "outcome": "discovery_started",
+                    "rejection_feedback": "",
+                }
+                selection_attempts.append(selection_record)
                 if (
                     experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED
                     and experiment.tool_access == ToolAccess.AGENTIC
                 ):
+                    # A coder rejection starts a genuinely new retrieval turn.
+                    # Reusing P12State would block new searches after the first
+                    # inspected candidate and could silently repeat the same set.
+                    selection_state = P12State()
+                    selection_state.rejected_selections = set(rejected_selection_keys)
+                    selection_states.append(selection_state)
                     (
                         selected,
                         keywords,
@@ -440,6 +457,12 @@ def run_question(
                         context_telemetry["empty_context_retries"] += 1
                         hint = f"The previous keywords returned no datasets. Generate different keywords. Attempted: {attempted_keywords}"
                 result.tokens["p1_p2"] += architecture_tokens
+                selection_record.update({
+                    "selected_datasets": list(selected),
+                    "keywords": list(keywords),
+                    "reasoning": reasoning,
+                    "outcome": "keywords_rejected" if keywords_rejected else "selected",
+                })
                 if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:
                     discovery_phase_tokens["p1"] += tokens_p1
                     discovery_phase_tokens["p2"] += tokens_p2
@@ -467,6 +490,22 @@ def run_question(
                 if keywords_rejected:
                     continue
 
+                selection_key = tuple(sorted(table.casefold() for table in selected))
+                if selected and selection_key in rejected_selection_keys:
+                    selection_record["outcome"] = "duplicate_selection_blocked"
+                    error = (
+                        "Discovery repeated an exact table combination already "
+                        f"rejected by the coder: {selected}."
+                    )
+                    hint = (
+                        error
+                        + " Select at least one different table. Use these missing "
+                        f"requirements as retrieval concepts: {hint}"
+                    )
+                    if table_attempt < MAX_TABLE_ATTEMPTS - 1:
+                        continue
+                    break
+
                 if experiment.automatic_test_coder:
                     # Full context is the only reliable table-rejection gate.
                     # Run it first so rejected selections can return to discovery
@@ -490,6 +529,9 @@ def run_question(
                     primary = variants[CoderContextLevel.FULL.value]
                     if primary["status"] == "tables_rejected":
                         rejection_reason = primary["error"]
+                        rejected_selection_keys.add(selection_key)
+                        selection_record["outcome"] = "tables_rejected"
+                        selection_record["rejection_feedback"] = rejection_reason
                         result.errors.append({
                             "phase": "code",
                             "type": "tables_rejected",
@@ -534,6 +576,7 @@ def run_question(
                         "primary_level": CoderContextLevel.FULL.value,
                         "variants": variants,
                     }
+                    selection_record["outcome"] = "accepted"
                     result.code = primary["code"]
                     result.raw_result = primary["raw_result"]
                     result.code_evaluation = primary["code_evaluation"]
@@ -734,16 +777,22 @@ def run_question(
                 "latency_seconds": result.elapsed_seconds,
                 "retries": result.retries,
             }
+            p12_states = selection_states or [selection_state]
             result.discovery = {
                 "outcome": result.pipeline_stages["table_selection"],
                 "keywords": list(keywords),
                 "selected_datasets": list(selected),
                 "reasoning": reasoning,
-                "search_attempt_count": len(selection_state.search_attempts),
-                "expansion_used": bool(selection_state.expansion_count),
-                "expansion_requirements": list(
-                    selection_state.expansion_requirements
+                "search_attempt_count": sum(
+                    len(state.search_attempts) for state in p12_states
                 ),
+                "expansion_used": any(state.expansion_count for state in p12_states),
+                "expansion_requirements": list(dict.fromkeys(
+                    requirement
+                    for state in p12_states
+                    for requirement in state.expansion_requirements
+                )),
+                "selection_attempts": selection_attempts,
             }
             result.ranking = summarize_final_ranking(retrieval_runs, selected)
             result.llm_calls = build_llm_phase_records(

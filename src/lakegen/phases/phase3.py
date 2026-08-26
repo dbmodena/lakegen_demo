@@ -43,6 +43,9 @@ class Phase3Result:
     execution_error: dict[str, object] | None = None
     coder_review: dict[str, str] | None = None
     coder_runs: int = 0
+    coder_lifecycle: str = ""
+    stop_reason: str = ""
+    finalization_mode: str = ""
 
 
 _ERROR_PATTERNS = [
@@ -577,6 +580,7 @@ def phase3_generate_and_execute(
     seed_instruction_recorder: Callable[[], None] | None = None,
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL,
     evaluation_result_type: str | None = None,
+    max_run_calls: int = 3,
 ) -> Phase3Result:
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
@@ -591,7 +595,8 @@ def phase3_generate_and_execute(
         "call run_code with it. If execution fails, use the structured error to "
         "correct the program. After every successful run, call inspect_result and "
         "verify that the result answers the whole question. Finish only by calling "
-        "finish_code with the self-review checklist. You have at most three "
+        "finish_code with the self-review checklist. You have at most "
+        f"{max_run_calls} "
         "run_code calls. You may call inspect_table once per selected table when "
         "you need exact columns, category values, null counts, or temporal coverage; "
         "the same cached sample supports progressive profiling of up to 8 columns. "
@@ -604,6 +609,7 @@ def phase3_generate_and_execute(
         "finish_code, pass requirement_reviews as a JSON object mapping each exact "
         "requirement string from inspect_result to its concrete evidence, for "
         "example {\"return 3 ranked semantic items\": \"The result contains 3 items.\"}. "
+        "Do not import sys; it is unnecessary and forbidden by the execution sandbox. "
         "Do not merely describe code in chat."
     )
     if retries == 0:
@@ -633,7 +639,7 @@ def phase3_generate_and_execute(
     if seed_instruction_recorder is not None:
         seed_instruction_recorder()
 
-    state = P3State()
+    state = P3State(max_runs=max(1, min(3, max_run_calls)))
     manager = Phase3ToolsManager(
         state,
         tables=tables,
@@ -691,6 +697,19 @@ def phase3_generate_and_execute(
     # of invoking run_code. Route that program through the exact same bounded
     # preflight, sandbox, result extraction and inspection path as a tool call.
     _recover_fenced_agent_code(response, manager, state)
+
+    # inspect_result is deterministic and does not consume a run_code attempt.
+    # If the model stops immediately after a valid structured execution, apply
+    # the same inspection tool programmatically so closure/revision routing is
+    # based on the actual latest result.
+    if (
+        state.error is None
+        and state.raw_result is not None
+        and state.structured_result is not None
+        and state.inspected_version != state.result_version
+    ):
+        manager.inspect_result()
+        state.stop_reason = state.stop_reason or "auto_inspected_latest_successful_result"
 
     if force_execution:
         rejected_reason = ""
@@ -766,6 +785,18 @@ def phase3_generate_and_execute(
             state.lifecycle.value,
             "Coder stopped without reaching a terminal coding state.",
         )
+    if (
+        not state.finished
+        and state.lifecycle.value == "needs_revision"
+        and not state.execution_error
+    ):
+        state.execution_error = {
+            "stage": "result_validation",
+            "category": "result_needs_revision",
+            "message": state.error or "The inspected result requires revision.",
+            "retryable": state.run_count < state.max_runs,
+            "coverage_warnings": list(state.coverage_warnings),
+        }
     return Phase3Result(
         code_raw=state.code_raw or response,
         tokens=tokens,
@@ -778,4 +809,7 @@ def phase3_generate_and_execute(
         execution_error=state.execution_error or None,
         coder_review=state.review or None,
         coder_runs=state.run_count,
+        coder_lifecycle=state.lifecycle.value,
+        stop_reason=state.stop_reason,
+        finalization_mode=state.finalization_mode,
     )

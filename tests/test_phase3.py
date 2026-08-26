@@ -140,6 +140,15 @@ def test_execution_error_classifier_marks_security_failures_non_retryable():
     assert error["retryable"] is False
 
 
+def test_execution_error_classifier_allows_retry_for_forbidden_sys_import():
+    error = classify_execution_error(
+        "Security Error: forbidden code fragment 'import sys'. Remove it completely."
+    )
+
+    assert error["category"] == "forbidden_import"
+    assert error["retryable"] is True
+
+
 def test_finalization_recovery_requires_structured_latest_inspection():
     state = P3State(
         raw_result="42", structured_result=42, result_version=1,

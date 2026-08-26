@@ -46,8 +46,12 @@ def run_coder_context_sweep(
         tokens = 0
         status = "failed"
         attempt_index = 0
+        total_coder_runs = 0
 
         for attempt_index in range(max_attempts):
+            remaining_runs = max_attempts - total_coder_runs
+            if remaining_runs <= 0:
+                break
             code_started = time.monotonic()
             generated = generate_and_execute(
                 question, selected, selected, solr_meta, reasoning, llm,
@@ -57,6 +61,7 @@ def run_coder_context_sweep(
                 seed=seed, seed_instruction_recorder=record_seed_instruction,
                 coder_context_level=context_level,
                 evaluation_result_type=(expected_result_type if evaluation_enabled else None),
+                max_run_calls=remaining_runs,
             )
             phase_invocation_counts["code"] += 1
             tokens += generated.tokens
@@ -69,6 +74,7 @@ def run_coder_context_sweep(
             )
             result.retries += int(attempt_index > 0)
             previous_code = generated.clean_code or generated.code_raw
+            total_coder_runs += int(getattr(generated, "coder_runs", 0) or 0)
             if evaluation_enabled:
                 attempts.append(evaluator.evaluate(generated, attempt_index + 1))
             if generated.rejected_reason:
@@ -85,7 +91,11 @@ def run_coder_context_sweep(
                 status, error = "completed", ""
                 break
             error = generated.error or "Code execution returned no output."
-            if getattr(generated, "coder_runs", 0):
+            execution_error = getattr(generated, "execution_error", None) or {}
+            retryable = bool(execution_error.get("retryable"))
+            if total_coder_runs >= max_attempts:
+                break
+            if getattr(generated, "coder_runs", 0) and not retryable:
                 break
 
         if evaluation_enabled:
@@ -107,7 +117,10 @@ def run_coder_context_sweep(
             "error": error,
             "execution_error": getattr(generated, "execution_error", None),
             "coder_review": getattr(generated, "coder_review", None),
-            "coder_runs": getattr(generated, "coder_runs", 0),
+            "coder_runs": total_coder_runs,
+            "coder_lifecycle": getattr(generated, "coder_lifecycle", ""),
+            "stop_reason": getattr(generated, "stop_reason", ""),
+            "finalization_mode": getattr(generated, "finalization_mode", ""),
             "tokens": tokens,
             "attempts": len(attempts) if evaluation_enabled else attempt_index + 1,
             "elapsed_seconds": round(time.monotonic() - started, 6),
