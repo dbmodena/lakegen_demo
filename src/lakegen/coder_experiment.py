@@ -32,10 +32,12 @@ def run_coder_context_sweep(
     result: Any,
     phase_invocation_counts: dict[str, int],
     max_attempts: int,
+    context_levels: list[CoderContextLevel] | None = None,
 ) -> dict[str, Any]:
     """Test every metadata level while reusing the same selected tables."""
     variants: dict[str, Any] = {}
-    for context_level in CoderContextLevel:
+    levels = context_levels or list(CoderContextLevel)
+    for context_level in levels:
         started = time.monotonic()
         error = ""
         previous_code = ""

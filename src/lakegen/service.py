@@ -468,6 +468,9 @@ def run_question(
                     continue
 
                 if experiment.automatic_test_coder:
+                    # Full context is the only reliable table-rejection gate.
+                    # Run it first so rejected selections can return to discovery
+                    # without wasting calls on the reduced-context variants.
                     variants = run_coder_context_sweep(
                         question=question, selected=selected,
                         solr_meta=solr_meta, reasoning=reasoning, llm=llm,
@@ -482,7 +485,47 @@ def run_question(
                         result=result,
                         phase_invocation_counts=phase_invocation_counts,
                         max_attempts=MAX_CODE_ATTEMPTS,
+                        context_levels=[CoderContextLevel.FULL],
                     )
+                    primary = variants[CoderContextLevel.FULL.value]
+                    if primary["status"] == "tables_rejected":
+                        rejection_reason = primary["error"]
+                        result.errors.append({
+                            "phase": "code",
+                            "type": "tables_rejected",
+                            "message": rejection_reason,
+                            "coder_context_level": CoderContextLevel.FULL.value,
+                        })
+                        result.pipeline_stages["code_execution"] = "tables_rejected"
+                        hint = (
+                            "The full-context code generator rejected the previous "
+                            "tables. Select different tables. Feedback: "
+                            f"{rejection_reason}"
+                        )
+                        error = rejection_reason
+                        if table_attempt < MAX_TABLE_ATTEMPTS - 1:
+                            continue
+                        break
+
+                    variants.update(run_coder_context_sweep(
+                        question=question, selected=selected,
+                        solr_meta=solr_meta, reasoning=reasoning, llm=llm,
+                        prompt_manager=prompt_manager, csv_dir=runtime.csv_dir,
+                        run_dir=run_dir, seed=reproducibility.effective_seed,
+                        record_seed_instruction=record_seed_instruction,
+                        expected_result_type=expected_result_type,
+                        evaluation_enabled=code_evaluation_enabled,
+                        evaluator=attempt_evaluator,
+                        adjudicate=adjudicate_code_evaluation,
+                        generate_and_execute=phase3_generate_and_execute,
+                        result=result,
+                        phase_invocation_counts=phase_invocation_counts,
+                        max_attempts=MAX_CODE_ATTEMPTS,
+                        context_levels=[
+                            CoderContextLevel.SCHEMA_ONLY,
+                            CoderContextLevel.MINIMAL,
+                        ],
+                    ))
                     result.coder_context_experiment = {
                         "shared_retrieval": True,
                         "shared_tables": list(selected),
@@ -491,7 +534,6 @@ def run_question(
                         "primary_level": CoderContextLevel.FULL.value,
                         "variants": variants,
                     }
-                    primary = variants[CoderContextLevel.FULL.value]
                     result.code = primary["code"]
                     result.raw_result = primary["raw_result"]
                     result.code_evaluation = primary["code_evaluation"]

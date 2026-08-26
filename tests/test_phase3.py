@@ -2,6 +2,7 @@ from lakegen.column_resolution import (
     resolve_column_name,
     resolve_generated_code_columns,
 )
+import json
 import pandas as pd
 
 from lakegen.phases.phase3 import (
@@ -50,7 +51,7 @@ def test_execute_code_identifies_the_forbidden_fragment(tmp_path):
     assert "Remove it completely" in error
 
 
-def _agentic_tools(tmp_path, *, execute=None):
+def _agentic_tools(tmp_path, *, execute=None, question=""):
     state = P3State()
     manager = Phase3ToolsManager(
         state,
@@ -58,6 +59,7 @@ def _agentic_tools(tmp_path, *, execute=None):
         csv_dir=tmp_path,
         run_dir=tmp_path / "run",
         evaluation_result_type=None,
+        question=question,
         resolve_code=lambda code, _tables, _csv_dir: (code, None),
         execute_code=execute or (lambda code, **_kwargs: ("value: 42", None, code)),
         extract_payload=lambda raw: (raw, None, None),
@@ -72,7 +74,7 @@ def test_agentic_coder_requires_inspection_and_self_review(tmp_path):
     try:
         manager.finish_code(
             "verified", "verified", "not_applicable", "not_applicable",
-            "verified", "The output contains the requested numeric measure.",
+            "verified", {}, "The output contains the requested numeric measure.",
         )
     except ValueError as exc:
         assert "inspect_result" in str(exc)
@@ -82,7 +84,7 @@ def test_agentic_coder_requires_inspection_and_self_review(tmp_path):
     assert '"ok": true' in manager.inspect_result()
     payload = manager.finish_code(
         "verified", "verified", "not_applicable", "not_applicable",
-        "verified", "The output contains the requested numeric measure.",
+        "verified", {}, "The output contains the requested numeric measure.",
     )
     assert payload.startswith("FINAL_PAYLOAD:")
     assert state.finished is True
@@ -110,6 +112,126 @@ def test_execution_error_classifier_marks_security_failures_non_retryable():
 
     assert error["category"] == "security_error"
     assert error["retryable"] is False
+
+
+def test_finalization_recovery_requires_structured_latest_inspection():
+    state = P3State(
+        raw_result="42", structured_result=42, result_version=1,
+        inspected_version=0,
+    )
+    assert state.ready_for_finalization() is False
+
+    state.inspected_version = 1
+    assert state.ready_for_finalization() is True
+
+    state.error = "execution failed"
+    assert state.ready_for_finalization() is False
+
+    state.error = None
+    state.coverage_warnings = ["coverage_shortfall"]
+    assert state.ready_for_finalization() is False
+
+
+def test_coverage_counts_nested_top_five_as_five_semantic_items(tmp_path):
+    _state, manager = _agentic_tools(tmp_path, question="Show the top 5 agencies")
+    requirements, warnings, facts = manager._coverage(
+        {"top_5": ["A", "B", "C", "D", "E"]}
+    )
+
+    assert facts["semantic_item_count"] == 5
+    assert "return 5 ranked semantic items" in requirements
+    assert warnings == []
+
+
+def test_coverage_recognizes_nyc_borough_codes(tmp_path):
+    _state, manager = _agentic_tools(
+        tmp_path, question="Show the result for each borough"
+    )
+    requirements, warnings, facts = manager._coverage([
+        {"BORO": code, "value": 1} for code in ["K", "M", "Q", "R", "X"]
+    ])
+
+    assert "cover all five NYC boroughs, including valid zero-count groups" in requirements
+    assert set(facts["boroughs_present"]) == {
+        "bronx", "brooklyn", "manhattan", "queens", "staten island"
+    }
+    assert warnings == []
+
+
+def test_coverage_problem_blocks_finish_but_allows_corrected_run(tmp_path):
+    outputs = iter([
+        ('[{"name": "A"}]', [{"name": "A"}]),
+        ('[{"name": "A"}, {"name": "B"}, {"name": "C"}]',
+         [{"name": "A"}, {"name": "B"}, {"name": "C"}]),
+    ])
+
+    def execute(code, **_kwargs):
+        raw, _structured = next(outputs)
+        return "__PAYLOAD__" + raw, None, code
+
+    state, manager = _agentic_tools(
+        tmp_path, execute=execute, question="Which three agencies have the most?"
+    )
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda raw: (
+        raw.removeprefix("__PAYLOAD__"),
+        json.loads(raw.removeprefix("__PAYLOAD__")),
+        None,
+    )
+    manager.run_code("print('first')")
+    first = json.loads(manager.inspect_result())
+    assert first["profile"]["correction_required"] is True
+    try:
+        manager.finish_code(
+            "verified", "verified", "verified", "verified", "verified",
+            {}, "Only one item was returned and requires correction.",
+        )
+    except ValueError as exc:
+        assert "correct the code" in str(exc)
+    else:
+        raise AssertionError("coverage warning should block finish_code")
+
+    assert '"ok": true' in manager.run_code("print('corrected')")
+    second = json.loads(manager.inspect_result())
+    assert second["profile"]["correction_required"] is False
+    requirement = state.coverage_requirements[0]
+    payload = manager.finish_code(
+        "verified", "verified", "verified", "verified", "verified",
+        {requirement: "Three items are present."},
+        "The corrected result contains all three ranked agencies.",
+    )
+    assert payload.startswith("FINAL_PAYLOAD:")
+
+
+def test_inspect_table_is_limited_and_returns_exact_load_command(tmp_path):
+    (tmp_path / "table.csv").write_text(
+        "Borough,Created Date\nManhattan,2024-01-01\nBrooklyn,2024-02-01\n",
+        encoding="utf-8",
+    )
+    _state, manager = _agentic_tools(tmp_path)
+
+    first = json.loads(manager.inspect_table("table.csv", "Borough,Created Date"))
+    second = json.loads(manager.inspect_table("table.csv", "Borough"))
+
+    assert first["ok"] is True
+    assert first["columns"] == ["Borough", "Created Date"]
+    assert "pd.read_csv" in first["load_command"]
+    assert second["ok"] is True
+    assert second["cached"] is True
+    assert "do not inspect" in second["next_action"].lower()
+
+
+def test_run_code_rejects_hallucinated_table_path_with_allowed_command(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n42\n", encoding="utf-8")
+    state, manager = _agentic_tools(tmp_path)
+
+    response = json.loads(manager.run_code(
+        "import pandas as pd\ndf = pd.read_csv('/wrong/table.csv')\nprint(df)"
+    ))
+
+    assert response["error"]["category"] == "invalid_table_path"
+    assert "table.csv" in response["error"]["allowed_load_commands"][0]
+    assert state.finished is False
 
 
 def test_column_resolver_preserves_exact_names_and_normalizes_generated_aliases():

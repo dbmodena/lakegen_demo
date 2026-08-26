@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import subprocess
 import sys
@@ -568,8 +569,15 @@ def phase3_generate_and_execute(
         "correct the program. After every successful run, call inspect_result and "
         "verify that the result answers the whole question. Finish only by calling "
         "finish_code with the self-review checklist. You have at most three "
-        "run_code calls. Never infer correctness from benchmark gold: it is not "
-        "available. Do not merely describe code in chat."
+        "run_code calls. You may call inspect_table once per selected table when "
+        "you need exact columns, category values, null counts, or temporal coverage; "
+        "do this instead of spending run_code on diagnostic prints. If inspection "
+        "reports a correctable problem, revise the program and run it again. Never "
+        "infer correctness from benchmark gold: it is not available. In "
+        "finish_code, pass requirement_reviews as a JSON object mapping each exact "
+        "requirement string from inspect_result to its concrete evidence, for "
+        "example {\"return 3 ranked semantic items\": \"The result contains 3 items.\"}. "
+        "Do not merely describe code in chat."
     )
     if retries == 0:
         user_prompt = pm.render(
@@ -605,6 +613,7 @@ def phase3_generate_and_execute(
         csv_dir=Path(csv_dir),
         run_dir=run_dir,
         evaluation_result_type=evaluation_result_type,
+        question=query,
         resolve_code=_resolve_and_validate_columns,
         execute_code=_execute_code,
         extract_payload=extract_evaluation_payload,
@@ -627,11 +636,14 @@ def phase3_generate_and_execute(
             emit_stream=emit_stream,
             cancel_check=cancel_check,
             tools=manager.get_tools(),
-            max_iterations=10,
+            max_iterations=14,
             # inspect_result has no arguments and may legitimately follow each
             # of the three distinct executions.
-            max_repeats=4,
-            max_tool_calls=8,
+            # Repeated inspect_table calls are served from a cache and no longer
+            # justify aborting the whole coder. The global tool budget still
+            # bounds unproductive loops.
+            max_repeats=8,
+            max_tool_calls=12,
             timeout_seconds=600,
         )
     except Phase2AgentStall as exc:
@@ -645,8 +657,54 @@ def phase3_generate_and_execute(
         if not state.error:
             state.error = f"Coder agent failed: {type(exc).__name__}: {exc}"
 
-    tokens = get_llm_token_usage(llm)
     rejected_reason = "" if force_execution else _rejected_tables_reason(response)
+    # A model can exhaust its normal reasoning turn immediately after inspection.
+    # Allow one tightly-scoped closure turn only for a structured result that was
+    # successfully executed and whose latest version was actually inspected.
+    eligible_for_finalization = (
+        state.ready_for_finalization()
+        and not rejected_reason
+    )
+    if eligible_for_finalization:
+        finish_tool = manager.get_tools()[-1]
+        finalization_prompt = (
+            f"Question: {query}\n\n"
+            f"Requirements reported by inspect_result: "
+            f"{json.dumps(state.coverage_requirements, ensure_ascii=False)}\n\n"
+            "The latest structured result executed successfully and has already "
+            "been inspected. Perform the mandatory final self-review now. Call "
+            "finish_code exactly once. Pass requirement_reviews as a JSON object "
+            "mapping every exact requirement above to concrete evidence. Mark a "
+            "dimension not_applicable only when "
+            "the question genuinely does not request it; use needs_revision if "
+            "the inspected result does not fully answer the question. Do not run "
+            "or inspect code and do not provide a prose-only answer."
+        )
+        try:
+            run_agent_workflow(
+                llm=llm,
+                system_prompt=(
+                    "You are the finalization step of a coding agent. Your only "
+                    "available action is finish_code, which records an explicit "
+                    "evidence-based review of the already inspected result."
+                ),
+                user_prompt=finalization_prompt,
+                agent_name="coder_finalizer",
+                emit_stream=emit_stream,
+                cancel_check=cancel_check,
+                tools=[finish_tool],
+                max_iterations=3,
+                max_repeats=2,
+                max_tool_calls=2,
+                timeout_seconds=120,
+            )
+        except Exception as exc:
+            state.error = (
+                "Coder finalization failed after a valid inspection: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    tokens = get_llm_token_usage(llm)
     if not state.finished and state.error is None and not rejected_reason:
         state.error = (
             "Coder did not call finish_code after inspecting and reviewing the result."
