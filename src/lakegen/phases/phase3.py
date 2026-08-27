@@ -268,6 +268,7 @@ def _build_coder_tables_info(
     tables: list[str],
     csv_dir: Path,
     context_level: CoderContextLevel,
+    table_metadata: SolrMetadata | None = None,
 ) -> str:
     """Build the selected-table context exposed to the code generator."""
 
@@ -284,6 +285,18 @@ def _build_coder_tables_info(
 
         if context_level == CoderContextLevel.MINIMAL:
             continue
+
+        metadata = (table_metadata or {}).get(
+            fn, (table_metadata or {}).get(Path(fn).stem, {})
+        )
+        title = " ".join(str(metadata.get("title") or "").split())[:160]
+        description = " ".join(
+            str(metadata.get("description") or "").split()
+        )[:320]
+        if title:
+            info_lines.append(f"   Resource title: {title}")
+        if description:
+            info_lines.append(f"   Resource description: {description}")
 
         rows_to_read = max_sample_rows + 1 if context_level == CoderContextLevel.FULL else 0
         df = read_table(filepath, nrows=rows_to_read)
@@ -305,6 +318,38 @@ def _build_coder_tables_info(
             ]
             info_lines.append(
                 f"   +{total_cols - max_detail_cols} more: {', '.join(rest_names[:15])}"
+            )
+
+        structured_columns = metadata.get("columns", [])
+        if isinstance(structured_columns, list):
+            descriptions = {
+                re.sub(r"[^a-z0-9]", "", str(column.get("name", "")).casefold()):
+                    " ".join(str(column.get("description") or "").split())[:180]
+                for column in structured_columns
+                if isinstance(column, dict) and column.get("name") and column.get("description")
+            }
+            described = []
+            for column in df.columns:
+                description_hint = descriptions.get(
+                    re.sub(r"[^a-z0-9]", "", str(column).casefold())
+                )
+                if description_hint:
+                    described.append(f"{column}: {description_hint}")
+                if len(described) >= 12:
+                    break
+            if described:
+                info_lines.append("   Column semantics:")
+                info_lines.extend(f"     - {item}" for item in described)
+
+        temporal_candidates = [
+            str(column) for column in df.columns
+            if re.search(r"(?:^|[_\W])(year|date|time|period|fy|sy)(?:$|[_\W])", str(column), re.IGNORECASE)
+            or re.search(r"(?:year|date)$", str(column), re.IGNORECASE)
+        ]
+        if len(temporal_candidates) > 1:
+            info_lines.append(
+                "   Temporal ambiguity: " + ", ".join(temporal_candidates[:8])
+                + ". Choose by resource/column meaning, not name alone."
             )
 
         if context_level == CoderContextLevel.SCHEMA_ONLY:
@@ -343,7 +388,9 @@ def phase3_generate_code(
     evaluation_result_type: str | None = None,
 ):
     context_level = CoderContextLevel(coder_context_level)
-    tables_info = _build_coder_tables_info(tables, Path(csv_dir), context_level)
+    tables_info = _build_coder_tables_info(
+        tables, Path(csv_dir), context_level, solr_meta
+    )
 
     system_prompt = pm.render("code_generator", "system_prompt")
     if retries == 0:
@@ -590,8 +637,19 @@ def phase3_generate_and_execute(
     from lakegen.agents.agent_runner import run_agent_workflow
     from lakegen.phases.logging import Phase2AgentStall
 
+    selection_plan: dict[str, object] = {}
+    plan_match = re.search(
+        r"AGENTIC SELECTION PLAN\s*\nCombination strategy:\s*([^\n]+)",
+        reasoning,
+        flags=re.IGNORECASE,
+    )
+    if plan_match:
+        selection_plan["combination_strategy"] = plan_match.group(1).strip()
+
     context_level = CoderContextLevel(coder_context_level)
-    tables_info = _build_coder_tables_info(tables, Path(csv_dir), context_level)
+    tables_info = _build_coder_tables_info(
+        tables, Path(csv_dir), context_level, solr_meta
+    )
     system_prompt = pm.render("code_generator", "system_prompt") + (
         "\n\nYou are now a bounded coding agent. You may call set_analysis_contract "
         "to record the requested filters, measures, "
@@ -660,6 +718,7 @@ def phase3_generate_and_execute(
             table: solr_meta.get(table, solr_meta.get(Path(table).stem, {}))
             for table in tables
         },
+        selection_plan=selection_plan,
         resolve_code=_resolve_and_validate_columns,
         execute_code=_execute_code,
         extract_payload=extract_evaluation_payload,
@@ -782,6 +841,20 @@ def phase3_generate_and_execute(
     if not state.finished and state.ready_for_finalization() and not rejected_reason:
         manager.recover_finish(
             "System recovery after a valid, structured, warning-free latest-result inspection."
+        )
+
+    # A latest inspected structured result remains useful even when semantic
+    # advisories could not be resolved within the bounded coder loop. Preserve
+    # it as a degraded completion; downstream evaluation still decides its
+    # correctness and the advisories remain attached to the review telemetry.
+    if (
+        not state.finished
+        and state.ready_for_degraded_finalization()
+        and not rejected_reason
+    ):
+        manager.recover_degraded_finish(
+            "System recovery preserved the latest inspected structured result "
+            "after the coder exhausted its correction/finalization budget."
         )
 
     tokens = get_llm_token_usage(llm)

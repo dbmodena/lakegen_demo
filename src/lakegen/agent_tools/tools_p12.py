@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 from pydantic import BaseModel, Field
 
 from llama_index.core.tools import FunctionTool
@@ -30,6 +30,33 @@ from lakegen.retrieval import (
 class ConfirmUnifiedSelectionSchema(BaseModel):
     reasoning: str = Field(description="MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question.")
     tables: list[str] = Field(description="A list of ALL the exact file names needed (e.g., ['sales.parquet', 'dates.parquet']). Do not omit any table you need!")
+    requirement_coverage: dict[str, dict[str, object]] = Field(
+        default_factory=dict,
+        description=(
+            "Map each essential question requirement to an object containing "
+            "the exact selected table in `table` and supporting column names "
+            "in `columns`, e.g. {'requested year': {'table': "
+            "'permits.parquet', 'columns': ['issue_date']}}."
+        ),
+    )
+    table_roles: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Map every selected table filename to its distinct role in the "
+            "answer, e.g. fact records, lookup, or yearly partition."
+        ),
+    )
+    combination_strategy: Literal[
+        "single_table",
+        "join",
+        "concat_partitions",
+        "aggregate_separately",
+        "lookup",
+        "compare",
+    ] = Field(
+        default="single_table",
+        description="How the coder should combine the selected tables.",
+    )
 
 
 class P12State:
@@ -50,6 +77,8 @@ class P12State:
         self.expansion_count = 0
         self.expansion_requirements: list[str] = []
         self.rejected_selections: set[tuple[str, ...]] = set()
+        self.selection_plan: dict[str, object] = {}
+        self.selection_advisories: list[str] = []
 
     def inspected_candidates(self) -> list[str]:
         """Return successfully inspected candidates in retrieval order."""
@@ -413,7 +442,14 @@ class Phase12ToolsManager:
         """
         return _find_schema_matches(self.csv_dir, file_name_1, file_name_2)
 
-    def confirm_unified_selection(self, reasoning: str, tables: list[str]) -> str:
+    def confirm_unified_selection(
+        self,
+        reasoning: str,
+        tables: list[str],
+        requirement_coverage: dict[str, dict[str, object]] | None = None,
+        table_roles: dict[str, str] | None = None,
+        combination_strategy: str = "single_table",
+    ) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
         Calling this tool terminates execution and confirms the selection.
@@ -460,11 +496,74 @@ class Phase12ToolsManager:
                 "Selection blocked by temporal validation: " + coverage_issue + "."
             )
 
+        requirement_coverage = requirement_coverage or {}
+        table_roles = table_roles or {}
+        selected_set = set(normalized_tables)
+        advisories: list[str] = []
+
+        missing_roles = [table for table in normalized_tables if not table_roles.get(table)]
+        if missing_roles:
+            advisories.append(
+                "Selected table(s) without an explicit role: " + ", ".join(missing_roles)
+            )
+
+        role_extras = [table for table in table_roles if table not in selected_set]
+        if role_extras:
+            advisories.append(
+                "Table role(s) refer to unselected tables: " + ", ".join(role_extras)
+            )
+
+        covered_tables: set[str] = set()
+        malformed_requirements: list[str] = []
+        for requirement, evidence in requirement_coverage.items():
+            if not isinstance(evidence, dict):
+                malformed_requirements.append(requirement)
+                continue
+            table = str(evidence.get("table", "")).strip()
+            columns = evidence.get("columns", [])
+            if table in selected_set:
+                covered_tables.add(table)
+            if table not in selected_set or not isinstance(columns, list) or not columns:
+                malformed_requirements.append(requirement)
+        if not requirement_coverage:
+            advisories.append("No explicit requirement coverage was supplied.")
+        elif malformed_requirements:
+            advisories.append(
+                "Requirement coverage lacks selected-table/column evidence for: "
+                + ", ".join(malformed_requirements)
+            )
+
+        uncovered_tables = [table for table in normalized_tables if table not in covered_tables]
+        if uncovered_tables:
+            advisories.append(
+                "Selected table(s) cover no explicit requirement: "
+                + ", ".join(uncovered_tables)
+            )
+
+        if len(normalized_tables) > 1 and combination_strategy == "single_table":
+            advisories.append(
+                "Multiple tables were selected but the combination strategy is single_table."
+            )
+        elif len(normalized_tables) == 1 and combination_strategy != "single_table":
+            advisories.append(
+                "One table was selected but the combination strategy is "
+                f"{combination_strategy}."
+            )
+
+        self.state.selection_plan = {
+            "requirement_coverage": requirement_coverage,
+            "table_roles": table_roles,
+            "combination_strategy": combination_strategy,
+        }
+        self.state.selection_advisories = advisories
+
         final_tables = ", ".join(normalized_tables)
 
         dati_uscita = {
             "tables": final_tables,
-            "reasoning": reasoning
+            "reasoning": reasoning,
+            "selection_plan": self.state.selection_plan,
+            "advisories": advisories,
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 

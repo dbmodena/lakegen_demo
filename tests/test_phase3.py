@@ -54,7 +54,7 @@ def test_execute_code_identifies_the_forbidden_fragment(tmp_path):
     assert "Remove it completely" in error
 
 
-def _agentic_tools(tmp_path, *, execute=None, question=""):
+def _agentic_tools(tmp_path, *, execute=None, question="", table_metadata=None):
     state = P3State()
     state.analysis_contract = {
         "filters": [],
@@ -73,6 +73,7 @@ def _agentic_tools(tmp_path, *, execute=None, question=""):
         run_dir=tmp_path / "run",
         evaluation_result_type=None,
         question=question,
+        table_metadata=table_metadata,
         resolve_code=lambda code, _tables, _csv_dir: (code, None),
         execute_code=execute or (lambda code, **_kwargs: ("value: 42", None, code)),
         extract_payload=lambda raw: (raw, None, None),
@@ -191,6 +192,59 @@ def test_contract_code_warnings_are_non_blocking_advisories(tmp_path):
     assert "contract_limit_missing_in_code: 3" in advisories
     assert inspection["profile"]["coverage_warnings"] == []
     assert inspection["state"] == "ready_to_finish"
+
+
+def test_inspection_maps_contract_to_code_and_result_evidence(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            '[{"borough":"Manhattan","average_cases":4.5},'
+            '{"borough":"Queens","average_cases":3.0}]', None, code
+        ),
+    )
+    state.analysis_contract = {
+        "filters": ["year = 2020"],
+        "measures": ["average cases"],
+        "group_by": ["borough"],
+        "distinct_counts": [],
+        "joins": [],
+        "ordering": "none",
+        "limit": None,
+        "output_columns": ["borough", "average_cases"],
+    }
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda raw: (raw, json.loads(raw), None)
+
+    manager.run_code(
+        "year = 2020\n"
+        "result = df.groupby('borough').agg(average_cases=('cases', 'mean'))\n"
+        "print(result)"
+    )
+    inspection = json.loads(manager.inspect_result())
+    evidence = inspection["profile"]["contract_evidence"]
+
+    grouping = next(row for row in evidence if row["kind"] == "grouping")
+    measure = next(row for row in evidence if row["kind"] == "measure")
+    assert grouping["code_evidence"]
+    assert grouping["result_evidence"] == ["borough"]
+    assert measure["code_evidence"] == ["mean aggregation found"]
+    assert measure["result_evidence"] == ["average_cases"]
+    assert inspection["profile"]["correction_required"] is False
+
+
+def test_missing_contract_evidence_is_specific_but_non_blocking(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    state.analysis_contract["group_by"] = ["borough"]
+
+    manager.run_code("print(42)")
+    inspection = json.loads(manager.inspect_result())
+
+    advisories = inspection["profile"]["contract_advisories"]
+    assert any(
+        "No explicit code or result evidence for grouping requirement 'borough'"
+        in advisory for advisory in advisories
+    )
+    assert inspection["profile"]["correction_required"] is False
 
 
 def test_contract_accepts_school_year_encoded_in_column_name(tmp_path):
@@ -327,6 +381,39 @@ def test_recovery_does_not_override_explicit_needs_revision(tmp_path):
     else:
         raise AssertionError("Recovery must reject a result that needs revision")
     assert state.finished is False
+
+
+def test_degraded_recovery_preserves_inspected_result_and_warnings(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    manager.evaluation_result_type = "table"
+    manager.question = "Show the top 3 agencies"
+    manager.extract_payload = lambda raw: (raw, [{"agency": "A"}], None)
+
+    manager.run_code("print('one item')")
+    inspection = json.loads(manager.inspect_result())
+    assert inspection["state"] == "needs_revision"
+
+    manager.recover_degraded_finish("Correction budget exhausted.")
+
+    assert state.finished is True
+    assert state.finalization_mode == "system_recovery_with_advisories"
+    assert state.review["coverage_warnings"]
+
+
+def test_contract_semantic_checks_are_advisory_and_cover_plan_usage(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    manager.tables = ["events.csv", "boroughs.csv"]
+    manager.selection_plan = {"combination_strategy": "join"}
+    state.analysis_contract["group_by"] = ["borough"]
+
+    manager.run_code("print(42)  # events.csv")
+    inspection = json.loads(manager.inspect_result())
+    advisories = inspection["profile"]["contract_advisories"]
+
+    assert "contract_grouping_missing_in_code" in advisories
+    assert "selected_tables_not_loaded_in_code: boroughs.csv" in advisories
+    assert "selection_strategy_not_evident_in_code: join" in advisories
+    assert inspection["profile"]["correction_required"] is False
 
 
 def test_coverage_counts_nested_top_five_as_five_semantic_items(tmp_path):
@@ -613,6 +700,27 @@ def test_generated_code_preflight_rewrites_column_contexts_and_validates_require
     assert invalid.unresolved_required == ("invented_metric",)
 
 
+def test_generated_columns_do_not_fail_source_column_preflight():
+    result = resolve_generated_code_columns(
+        "df['year'] = df['Issue Date'].str[:4]\n"
+        "summary = df.groupby('Borough').agg(total_permits=('Permit ID', 'size'))\n"
+        "required_cols = {'Issue Date', 'Borough', 'year', 'total_permits'}\n",
+        ["Issue Date", "Borough", "Permit ID"],
+    )
+
+    assert result.unresolved_required == ()
+
+
+def test_unread_generated_looking_column_still_fails_preflight():
+    result = resolve_generated_code_columns(
+        "required_cols = {'total_permits'}\n"
+        "out = df.groupby('Borough')['total_permits'].sum()\n",
+        ["Borough", "Permit ID"],
+    )
+
+    assert result.unresolved_required == ("total_permits",)
+
+
 def test_historical_trend_does_not_trigger_tabpfn_forecasting():
     assert _detect_tabpfn_intent("Show the allocation trend over time") is None
     assert _detect_tabpfn_intent("Forecast allocation for next year") == "forecasting"
@@ -656,3 +764,52 @@ def test_coder_context_levels_control_table_metadata(tmp_path):
     assert "Sample:" not in schema_only and "Bologna" not in schema_only
     assert "LOAD:" in minimal
     assert "Columns" not in minimal and "Sample:" not in minimal
+
+
+def test_coder_context_adds_bounded_resource_and_column_semantics(tmp_path):
+    table = tmp_path / "projects.csv"
+    table.write_text(
+        "sip_year,end_date,Shape_Leng\n2016,2017-01-02,100\n",
+        encoding="utf-8",
+    )
+    metadata = {
+        table.name: {
+            "title": "Vision Zero Street Improvement Projects",
+            "description": "Project corridors and their program years.",
+            "columns": [
+                {"name": "sip_year", "description": "Street Improvement Project program year."},
+                {"name": "end_date", "description": "Recorded project end date."},
+            ],
+        }
+    }
+
+    context = _build_coder_tables_info(
+        [table.name], tmp_path, CoderContextLevel.FULL, metadata
+    )
+
+    assert "Resource title: Vision Zero" in context
+    assert "sip_year: Street Improvement Project program year." in context
+    assert "Temporal ambiguity: sip_year, end_date" in context
+
+
+def test_inspect_table_exposes_requested_column_metadata_and_ambiguity(tmp_path):
+    (tmp_path / "table.csv").write_text(
+        "sip_year,end_date,value\n2016,2017-01-02,1\n", encoding="utf-8"
+    )
+    metadata = {
+        "table.csv": {
+            "title": "Projects",
+            "description": "Program-year project records.",
+            "columns": [
+                {"name": "sip_year", "description": "Official program year."},
+                {"name": "end_date", "description": "Operational end date."},
+            ],
+        }
+    }
+    _state, manager = _agentic_tools(tmp_path, table_metadata=metadata)
+
+    payload = json.loads(manager.inspect_table("table.csv", "sip_year,end_date"))
+
+    assert payload["resource_metadata"]["title"] == "Projects"
+    assert payload["requested_column_profiles"]["sip_year"]["metadata_description"] == "Official program year."
+    assert payload["semantic_ambiguities"]["temporal_columns"] == ["sip_year", "end_date"]

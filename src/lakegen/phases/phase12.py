@@ -36,6 +36,70 @@ from lakegen.agent_tools.tools_p12 import P12State, make_p12_tools
 from lakegen.retrieval import RetrievalConfig
 from lakegen.retrieval.models import RetrievalRun
 
+
+def _reasoning_with_selection_plan(
+    reasoning: str,
+    plan: dict[str, object] | None,
+    advisories: list[str] | None,
+) -> str:
+    """Add the architect's agentic plan to the existing coder context."""
+    if not plan:
+        return reasoning
+    lines = [reasoning, "", "AGENTIC SELECTION PLAN"]
+    lines.append(f"Combination strategy: {plan.get('combination_strategy', 'unspecified')}")
+    roles = plan.get("table_roles", {})
+    if isinstance(roles, dict) and roles:
+        lines.append("Table roles:")
+        lines.extend(f"- {table}: {role}" for table, role in roles.items())
+    coverage = plan.get("requirement_coverage", {})
+    if isinstance(coverage, dict) and coverage:
+        lines.append("Requirement coverage:")
+        for requirement, evidence in coverage.items():
+            if isinstance(evidence, dict):
+                table = evidence.get("table", "unspecified")
+                columns = evidence.get("columns", [])
+                columns_text = ", ".join(map(str, columns)) if isinstance(columns, list) else str(columns)
+                lines.append(f"- {requirement}: {table} [{columns_text}]")
+    if advisories:
+        lines.append("Non-blocking architect advisories:")
+        lines.extend(f"- {advisory}" for advisory in advisories)
+    return "\n".join(lines).strip()
+
+
+def _recover_minimal_selection_plan(
+    selected: list[str], reasoning: str
+) -> tuple[dict[str, object], list[str]]:
+    """Recover non-blocking coder guidance when discovery exits without a plan."""
+    if not selected:
+        return {}, []
+    lowered = reasoning.casefold()
+    if len(selected) == 1:
+        strategy = "single_table"
+    elif any(term in lowered for term in ("concat", "partition", "append", "union")):
+        strategy = "concat_partitions"
+    elif any(term in lowered for term in ("lookup", "mapping", "reference table")):
+        strategy = "lookup"
+    elif any(term in lowered for term in ("compare", "comparison", "versus", " vs ")):
+        strategy = "compare"
+    elif any(term in lowered for term in ("join", "merge", "shared key")):
+        strategy = "join"
+    else:
+        strategy = "aggregate_separately"
+    roles = {
+        table: ("primary selected source" if index == 0 else "supporting selected source")
+        for index, table in enumerate(selected)
+    }
+    plan = {
+        "requirement_coverage": {},
+        "table_roles": roles,
+        "combination_strategy": strategy,
+        "recovered_from_existing_discovery_context": True,
+    }
+    return plan, [
+        "The structured selection plan was recovered from the existing discovery "
+        "decision; treat it as guidance, not as a blocking constraint."
+    ]
+
 def phase12_agent(
     query: str,
     llm: LLM,
@@ -165,12 +229,16 @@ def phase12_agent(
     # Parse agent_resp
     selected = []
     reasoning = ""
+    parsed_plan: dict[str, object] | None = None
+    parsed_advisories: list[str] = []
     try:
         match = re.search(r"FINAL_PAYLOAD:\s*(\{.*\})", agent_resp, re.DOTALL)
         if match:
             payload = json.loads(match.group(1))
             tables_raw = payload.get("tables", "")
             reasoning = payload.get("reasoning", "")
+            parsed_plan = payload.get("selection_plan")
+            parsed_advisories = payload.get("advisories") or []
             for t in [x.strip() for x in tables_raw.split(",")]:
                 if t in all_files and t not in selected:
                     selected.append(t)
@@ -181,5 +249,17 @@ def phase12_agent(
 
     if not selected:
         selected = state.inspected_candidates()[:3]
+
+    if not parsed_plan:
+        parsed_plan, recovered_advisories = _recover_minimal_selection_plan(
+            selected, reasoning
+        )
+        parsed_advisories.extend(recovered_advisories)
+    if parsed_plan:
+        state.selection_plan = parsed_plan
+        state.selection_advisories = parsed_advisories
+    reasoning = _reasoning_with_selection_plan(
+        reasoning, parsed_plan, parsed_advisories
+    )
 
     return selected, state.used_keywords, state.solr_meta, reasoning, full_trace, tokens

@@ -461,6 +461,8 @@ def run_question(
                     "selected_datasets": list(selected),
                     "keywords": list(keywords),
                     "reasoning": reasoning,
+                    "selection_plan": dict(selection_state.selection_plan),
+                    "selection_advisories": list(selection_state.selection_advisories),
                     "outcome": "keywords_rejected" if keywords_rejected else "selected",
                 })
                 if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:

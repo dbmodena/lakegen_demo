@@ -1,8 +1,14 @@
+import json
+
 import pytest
 
 from lakegen.agent_tools import tools_p12
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
+from lakegen.phases.phase12 import (
+    _reasoning_with_selection_plan,
+    _recover_minimal_selection_plan,
+)
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalConfig,
@@ -299,6 +305,69 @@ def test_unified_selection_requires_every_selected_table_to_be_inspected(tmp_pat
         "both are needed", ["a.parquet", "b.parquet"]
     )
     assert '"tables": "a.parquet, b.parquet"' in result
+
+
+def test_unified_selection_records_agentic_plan_without_blocking_advisories(tmp_path):
+    state = P12State()
+    state.all_candidates = ["a.parquet", "b.parquet"]
+    state.visible_candidate_count = 2
+    state.inspection_cache = {
+        "a.parquet": "Schema for a.parquet",
+        "b.parquet": "Schema for b.parquet",
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    result = manager.confirm_unified_selection(
+        "both yearly partitions are required",
+        ["a.parquet", "b.parquet"],
+        requirement_coverage={
+            "2019 records": {"table": "a.parquet", "columns": ["year", "value"]},
+            "2020 records": {"table": "b.parquet", "columns": ["year", "value"]},
+        },
+        table_roles={
+            "a.parquet": "2019 partition",
+            "b.parquet": "2020 partition",
+        },
+        combination_strategy="concat_partitions",
+    )
+
+    payload = json.loads(result.split("FINAL_PAYLOAD: ", 1)[1])
+    assert payload["advisories"] == []
+    assert payload["selection_plan"]["combination_strategy"] == "concat_partitions"
+    assert state.selection_plan == payload["selection_plan"]
+
+
+def test_unified_selection_advisories_are_non_blocking(tmp_path):
+    state = P12State()
+    state.all_candidates = ["a.parquet", "b.parquet"]
+    state.visible_candidate_count = 2
+    state.inspection_cache = {
+        "a.parquet": "Schema for a.parquet",
+        "b.parquet": "Schema for b.parquet",
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    result = manager.confirm_unified_selection(
+        "use both", ["a.parquet", "b.parquet"]
+    )
+
+    payload = json.loads(result.split("FINAL_PAYLOAD: ", 1)[1])
+    assert payload["tables"] == "a.parquet, b.parquet"
+    assert any("without an explicit role" in item for item in payload["advisories"])
+    assert any("strategy is single_table" in item for item in payload["advisories"])
+
+
+def test_missing_agentic_plan_is_recovered_as_non_blocking_coder_context():
+    plan, advisories = _recover_minimal_selection_plan(
+        ["events.parquet", "boroughs.parquet"],
+        "Join the event records to the borough lookup using the shared key.",
+    )
+    context = _reasoning_with_selection_plan("selected", plan, advisories)
+
+    assert plan["combination_strategy"] == "lookup"
+    assert plan["recovered_from_existing_discovery_context"] is True
+    assert set(plan["table_roles"]) == {"events.parquet", "boroughs.parquet"}
+    assert "treat it as guidance, not as a blocking constraint" in context
 
 
 def test_unified_selection_blocks_exact_coder_rejected_combination(tmp_path):

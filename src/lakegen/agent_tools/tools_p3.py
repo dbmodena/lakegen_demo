@@ -136,6 +136,20 @@ class P3State:
             and self.lifecycle == CoderLifecycle.READY_TO_FINISH
         )
 
+    def ready_for_degraded_finalization(self) -> bool:
+        """Return whether a computed result can be preserved with advisories."""
+        return (
+            not self.finished
+            and self.error is None
+            and self.structured_result is not None
+            and self.result_version > 0
+            and self.inspected_version == self.result_version
+            and self.lifecycle in {
+                CoderLifecycle.NEEDS_REVISION,
+                CoderLifecycle.READY_TO_FINISH,
+            }
+        )
+
 
 class Phase3ToolsManager:
     """Stateful, bounded execute/inspect/finish loop for the coder."""
@@ -150,6 +164,7 @@ class Phase3ToolsManager:
         evaluation_result_type: str | None,
         question: str = "",
         table_metadata: dict[str, Any] | None = None,
+        selection_plan: dict[str, Any] | None = None,
         resolve_code: Callable[[str, list[str], Path], tuple[str, str | None]],
         execute_code: Callable[..., tuple[str | None, str | None, str]],
         extract_payload: Callable[[str], tuple[str, object | None, str | None]],
@@ -161,6 +176,7 @@ class Phase3ToolsManager:
         self.evaluation_result_type = evaluation_result_type
         self.question = question
         self.table_metadata = table_metadata or {}
+        self.selection_plan = selection_plan or {}
         self.resolve_code = resolve_code
         self.execute_code = execute_code
         self.extract_payload = extract_payload
@@ -400,12 +416,23 @@ class Phase3ToolsManager:
                 "distinct_count_in_sample": int(non_null.nunique()),
                 "sample_values": [str(value)[:100] for value in non_null.drop_duplicates().head(12)],
             }
+            metadata_description = self._column_description(table, name)
+            if metadata_description:
+                detail["metadata_description"] = metadata_description
             if not non_null.empty and ("date" in name.casefold() or "year" in name.casefold()):
                 parsed = pd.to_datetime(non_null, errors="coerce").dropna()
                 if not parsed.empty:
                     detail["temporal_min"] = str(parsed.min())
                     detail["temporal_max"] = str(parsed.max())
             details[requested_column] = detail
+        temporal_candidates = [
+            str(column) for column in frame.columns
+            if re.search(
+                r"(?:^|[_\W])(year|date|time|period|fy|sy)(?:$|[_\W])",
+                str(column), re.IGNORECASE,
+            )
+            or re.search(r"(?:year|date)$", str(column), re.IGNORECASE)
+        ]
         response = json.dumps({
             "ok": True,
             "cached_sample": cached,
@@ -413,6 +440,11 @@ class Phase3ToolsManager:
             "load_command": table_load_command(path),
             "sampled_rows": len(frame),
             "columns": [str(column) for column in frame.columns],
+            "resource_metadata": self._resource_metadata_preview(table),
+            "semantic_ambiguities": ({
+                "temporal_columns": temporal_candidates[:8],
+                "guidance": "Choose using resource/column meaning and inspected values, not the column name alone.",
+            } if len(temporal_candidates) > 1 else {}),
             "requested_column_profiles": details,
             "profiled_columns_total": sorted(already_profiled),
             "remaining_profile_slots": 8 - len(already_profiled),
@@ -479,6 +511,38 @@ class Phase3ToolsManager:
             return [str(value)] if value is not None else []
 
         return " ".join(flatten(self.table_metadata)).casefold()
+
+    def _resource_metadata_preview(self, table: str) -> dict[str, Any]:
+        metadata = self.table_metadata.get(
+            table, self.table_metadata.get(Path(table).stem, {})
+        )
+        if not isinstance(metadata, dict):
+            return {}
+        preview = {
+            "title": " ".join(str(metadata.get("title") or "").split())[:160],
+            "description": " ".join(
+                str(metadata.get("description") or "").split()
+            )[:320],
+        }
+        return {key: value for key, value in preview.items() if value}
+
+    def _column_description(self, table: str, column_name: str) -> str:
+        metadata = self.table_metadata.get(
+            table, self.table_metadata.get(Path(table).stem, {})
+        )
+        columns = metadata.get("columns", []) if isinstance(metadata, dict) else []
+        normalized = re.sub(r"[^a-z0-9]", "", column_name.casefold())
+        for column in columns if isinstance(columns, list) else []:
+            if not isinstance(column, dict):
+                continue
+            candidate = re.sub(
+                r"[^a-z0-9]", "", str(column.get("name") or "").casefold()
+            )
+            if candidate == normalized:
+                return " ".join(
+                    str(column.get("description") or "").split()
+                )[:240]
+        return ""
 
     def _rejection_blockers(
         self,
@@ -641,6 +705,10 @@ class Phase3ToolsManager:
             marker in lowered for marker in (".merge(", ".join(", "pd.merge(")
         ):
             warnings.append("contract_join_missing_in_code")
+        if contract.get("group_by") and not any(
+            marker in lowered for marker in (".groupby(", ".pivot(", ".pivot_table(")
+        ):
+            warnings.append("contract_grouping_missing_in_code")
         limit = contract.get("limit")
         if limit is not None:
             has_limit = bool(re.search(
@@ -650,6 +718,18 @@ class Phase3ToolsManager:
                 warnings.append(f"contract_limit_missing_in_code: {limit}")
             if not any(marker in lowered for marker in ("sort_values(", "nlargest(", "nsmallest(")):
                 warnings.append("contract_ordering_missing_in_code")
+        unloaded = [table for table in self.tables if table.casefold() not in lowered]
+        if unloaded:
+            warnings.append("selected_tables_not_loaded_in_code: " + ", ".join(unloaded))
+        strategy = str(self.selection_plan.get("combination_strategy", ""))
+        markers_by_strategy = {
+            "join": (".merge(", ".join(", "pd.merge("),
+            "lookup": (".merge(", ".join(", ".map(", ".replace("),
+            "concat_partitions": ("pd.concat(", ".concat("),
+        }
+        markers = markers_by_strategy.get(strategy)
+        if len(self.tables) > 1 and markers and not any(marker in lowered for marker in markers):
+            warnings.append(f"selection_strategy_not_evident_in_code: {strategy}")
         return warnings
 
     @staticmethod
@@ -711,6 +791,115 @@ class Phase3ToolsManager:
             for child in value:
                 found.extend(self._dimension_values(child, dimension))
         return found
+
+    def _result_field_names(self, value: Any) -> list[str]:
+        """Return bounded semantic field names visible in a structured result."""
+        names: list[str] = []
+        if isinstance(value, dict):
+            names.extend(map(str, value.keys()))
+            for child in value.values():
+                names.extend(self._result_field_names(child))
+        elif isinstance(value, list):
+            for child in value[:10]:
+                names.extend(self._result_field_names(child))
+        return list(dict.fromkeys(names))[:60]
+
+    @staticmethod
+    def _label_is_evident(label: str, texts: list[str]) -> bool:
+        stop = {
+            "the", "and", "for", "from", "with", "requested", "result",
+            "count", "number", "value", "values", "total", "each", "per",
+        }
+        tokens = [
+            token for token in re.findall(r"[a-z0-9]+", label.casefold())
+            if len(token) >= 3 and token not in stop
+        ]
+        haystack = " ".join(texts).casefold()
+        return bool(tokens) and any(token in haystack for token in tokens)
+
+    def _contract_evidence(self, value: Any) -> tuple[list[dict[str, Any]], list[str]]:
+        """Map declared semantics to observable code/result evidence.
+
+        Missing evidence is advisory only. It is deliberately not added to
+        coverage_warnings and therefore cannot block a valid coder result.
+        """
+        contract = self.state.analysis_contract
+        code = self.state.clean_code or self.state.code_raw
+        lowered = code.casefold()
+        result_fields = self._result_field_names(value)
+        rows: list[dict[str, Any]] = []
+        advisories: list[str] = []
+
+        def add(kind: str, requirement: str, code_evidence: list[str], result_evidence: list[str]) -> None:
+            missing: list[str] = []
+            if not code_evidence:
+                missing.append("code")
+            if not result_evidence:
+                missing.append("result")
+            advisory = ""
+            if missing:
+                advisory = (
+                    f"No explicit {' or '.join(missing)} evidence for {kind} "
+                    f"requirement '{requirement}'. Verify it before finalizing."
+                )
+                advisories.append(advisory)
+            rows.append({
+                "kind": kind,
+                "requirement": requirement,
+                "code_evidence": code_evidence,
+                "result_evidence": result_evidence,
+                "advisory": advisory,
+            })
+
+        years = set(re.findall(r"\b(?:19|20)\d{2}\b", " ".join(contract.get("filters", []))))
+        for item in contract.get("filters", []):
+            item_years = set(re.findall(r"\b(?:19|20)\d{2}\b", item))
+            evident = (
+                all(self._code_represents_year(code, year, years) for year in item_years)
+                if item_years else self._label_is_evident(item, [code])
+            )
+            add("filter", item, ["filter expression found in code"] if evident else [], ["filter affects computed structured result"] if evident else [])
+
+        measures = contract.get("measures", [])
+        for item in measures:
+            item_lower = item.casefold()
+            operation = ""
+            if any(term in item_lower for term in ("average", "mean")) and re.search(r"\.mean\s*\(|['\"]mean['\"]", lowered):
+                operation = "mean aggregation found"
+            elif any(term in item_lower for term in ("count", "number", "total")) and any(marker in lowered for marker in (".count(", ".size(", "nunique(", "len(")):
+                operation = "count aggregation found"
+            elif self._label_is_evident(item, [code]):
+                operation = "measure terms found in code"
+            result_match = [field for field in result_fields if self._label_is_evident(item, [field])]
+            if not result_match and len(measures) == 1 and value is not None and not result_fields:
+                result_match = ["structured scalar result"]
+            add("measure", item, [operation] if operation else [], result_match)
+
+        for item in contract.get("group_by", []):
+            grouped = any(marker in lowered for marker in (".groupby(", ".pivot(", ".pivot_table("))
+            label_in_code = self._label_is_evident(item, [code])
+            result_match = [field for field in result_fields if self._label_is_evident(item, [field])]
+            add("grouping", item, ["grouping operation and dimension found"] if grouped and label_in_code else [], result_match)
+
+        for item in contract.get("distinct_counts", []):
+            distinct = any(marker in lowered for marker in ("nunique(", "drop_duplicates(", ".unique("))
+            result_match = [field for field in result_fields if self._label_is_evident(item, [field])]
+            add("distinct count", item, ["distinct-count operation found"] if distinct else [], result_match or (["structured result"] if distinct and value is not None else []))
+
+        for item in contract.get("joins", []):
+            joined = any(marker in lowered for marker in (".merge(", ".join(", "pd.merge("))
+            add("join", item, ["table join operation found"] if joined else [], ["joined structured result"] if joined and value is not None else [])
+
+        limit = contract.get("limit")
+        if limit is not None:
+            limited = bool(re.search(rf"(?:head|nlargest|nsmallest)\s*\(\s*{int(limit)}\b", lowered))
+            count = self._semantic_item_count(value)
+            add("limit", str(limit), [f"top/bottom limit {limit} found"] if limited else [], [f"{count} semantic items returned"] if count == limit else [])
+
+        for item in contract.get("output_columns", []):
+            result_match = [field for field in result_fields if self._label_is_evident(item, [field])]
+            add("output", item, ["output field terms found in code"] if self._label_is_evident(item, [code]) else [], result_match)
+        return rows, advisories
 
     def _coverage(self, value: Any) -> tuple[list[str], list[str], dict[str, Any]]:
         question = self.question.casefold()
@@ -814,6 +1003,11 @@ class Phase3ToolsManager:
             *self.state.contract_advisories,
             *self.state.contract_code_warnings,
         ]))
+        contract_evidence, evidence_advisories = self._contract_evidence(value)
+        contract_advisories = list(dict.fromkeys([
+            *contract_advisories,
+            *evidence_advisories,
+        ]))
         self.state.coverage_requirements = requirements
         self.state.coverage_warnings = warnings
         profile: dict[str, Any] = {
@@ -825,6 +1019,7 @@ class Phase3ToolsManager:
             "requirements": requirements,
             "coverage_warnings": warnings,
             "contract_advisories": contract_advisories,
+            "contract_evidence": contract_evidence,
             "correction_required": bool(warnings),
         }
         if isinstance(value, dict):
@@ -936,6 +1131,25 @@ class Phase3ToolsManager:
                 requirement: "Verified by inspect_result coverage checks."
                 for requirement in self.state.coverage_requirements
             },
+            "review": reason,
+        }
+
+    def recover_degraded_finish(self, reason: str) -> None:
+        """Preserve an inspected structured result without declaring it correct."""
+        if not self.state.ready_for_degraded_finalization():
+            raise ValueError("Degraded recovery requires the latest inspected structured result.")
+        self.state.finished = True
+        self.state.lifecycle = CoderLifecycle.FINISHED
+        self.state.finalization_mode = "system_recovery_with_advisories"
+        self.state.review = {
+            "finalization_mode": "system_recovery_with_advisories",
+            "coverage_checks": "advisories_preserved",
+            "semantic_self_review": "incomplete",
+            "coverage_warnings": list(self.state.coverage_warnings),
+            "contract_advisories": list(dict.fromkeys([
+                *self.state.contract_advisories,
+                *self.state.contract_code_warnings,
+            ])),
             "review": reason,
         }
 

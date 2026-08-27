@@ -78,8 +78,9 @@ _COLUMN_KEYWORDS = {
 
 
 class _ColumnLiteralResolver(ast.NodeTransformer):
-    def __init__(self, available: Sequence[str]) -> None:
+    def __init__(self, available: Sequence[str], generated: set[str] | None = None) -> None:
         self.available = available
+        self.generated = generated or set()
         self.replacements: dict[str, str] = {}
         self.unresolved_required: set[str] = set()
 
@@ -90,7 +91,7 @@ class _ColumnLiteralResolver(ast.NodeTransformer):
         if resolved is not None and resolved != node.value:
             self.replacements[node.value] = resolved
             return ast.copy_location(ast.Constant(value=resolved), node)
-        if required and resolved is None:
+        if required and resolved is None and node.value not in self.generated:
             self.unresolved_required.add(node.value)
         return node
 
@@ -143,7 +144,8 @@ def resolve_generated_code_columns(
     else:
         available = list(dict.fromkeys(map(str, schemas)))
     tree = ast.parse(code)
-    resolver = _ColumnLiteralResolver(available)
+    generated = _generated_column_names(tree)
+    resolver = _ColumnLiteralResolver(available, generated)
     resolved = resolver.visit(tree)
     ast.fix_missing_locations(resolved)
     rewritten = ast.unparse(resolved) if resolver.replacements else code
@@ -152,3 +154,50 @@ def resolve_generated_code_columns(
         replacements=dict(sorted(resolver.replacements.items())),
         unresolved_required=tuple(sorted(resolver.unresolved_required)),
     )
+
+
+def _generated_column_names(tree: ast.AST) -> set[str]:
+    """Collect explicit dataframe columns created by the generated program.
+
+    This deliberately recognizes only unambiguous write contexts. Merely using
+    a string in a read, groupby, filter, or required-column declaration never
+    makes it generated and therefore cannot bypass source-schema validation.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.slice, ast.Constant)
+                    and isinstance(target.slice.value, str)
+                ):
+                    names.add(target.slice.value)
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        method = node.func.attr
+        if method in {"assign", "agg", "aggregate"}:
+            names.update(
+                keyword.arg
+                for keyword in node.keywords
+                if keyword.arg is not None
+            )
+        elif method == "reset_index":
+            for keyword in node.keywords:
+                if (
+                    keyword.arg == "name"
+                    and isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                ):
+                    names.add(keyword.value.value)
+        elif method == "rename":
+            for keyword in node.keywords:
+                if keyword.arg != "columns" or not isinstance(keyword.value, ast.Dict):
+                    continue
+                names.update(
+                    value.value
+                    for value in keyword.value.values
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str)
+                )
+    return names
