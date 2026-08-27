@@ -151,6 +151,8 @@ def _recover_fenced_agent_code(response: str, manager, state) -> bool:
         or not re.search(r"\b(?:import|from)\s+\w+", fallback_code)
     ):
         return False
+    if not state.analysis_contract:
+        manager.infer_analysis_contract()
     fallback_run = json.loads(manager.run_code(fallback_code))
     if not fallback_run.get("ok"):
         return False
@@ -591,7 +593,14 @@ def phase3_generate_and_execute(
     context_level = CoderContextLevel(coder_context_level)
     tables_info = _build_coder_tables_info(tables, Path(csv_dir), context_level)
     system_prompt = pm.render("code_generator", "system_prompt") + (
-        "\n\nYou are now a bounded coding agent. Write a complete Python program and "
+        "\n\nYou are now a bounded coding agent. You may call set_analysis_contract "
+        "to record the requested filters, measures, "
+        "grouping, distinct counts, joins, ordering, limit, and semantic output columns. "
+        "Treat a year that names a dataset edition or release (for example, "
+        "'using the 2024 ... dataset') as resource provenance, not as a row-level "
+        "filter: omit it from filters and do not require a year/date column. "
+        "This contract is advisory and is inferred automatically if omitted; do not "
+        "delay execution merely to perfect its wording. Then write a complete Python program and "
         "call run_code with it. If execution fails, use the structured error to "
         "correct the program. After every successful run, call inspect_result and "
         "verify that the result answers the whole question. Finish only by calling "

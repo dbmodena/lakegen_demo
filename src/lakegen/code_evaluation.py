@@ -223,7 +223,7 @@ def _semantic_column_map(
     remaining_actual = [
         column for column in actual_columns if column not in used_actual
     ]
-    if not remaining_expected or len(remaining_expected) != len(remaining_actual):
+    if not remaining_expected or len(remaining_expected) > len(remaining_actual):
         return mapping
 
     candidates: dict[str, list[str]] = {}
@@ -428,22 +428,23 @@ def evaluate_code_result(
             )
         )
         type_match = isinstance(actual_result, list)
-        exact_match = (
-            type_match
-            and len(expected_columns) == len(actual_columns) == len(columns)
+        strict_schema_match = len(expected_columns) == len(actual_columns) == len(columns)
+        representation_equivalent = (
+            len(expected_columns) == len(columns)
             and len(reference_rows) == len(actual_rows) == matched_rows
             and (order_correct or not order_required)
+        )
+        exact_match = (
+            type_match
+            and strict_schema_match
+            and representation_equivalent
         )
         return {
             "applicable": True,
             "expected_result_type": result_type,
             "result_type_match": type_match,
             "exact_result_match": exact_match,
-            "representation_equivalent_match": (
-                len(expected_columns) == len(actual_columns) == len(columns)
-                and len(reference_rows) == len(actual_rows) == matched_rows
-                and (order_correct or not order_required)
-            ),
+            "representation_equivalent_match": representation_equivalent,
             "item_precision": round(row_precision, 6),
             "item_recall": round(row_recall, 6),
             "item_f1": round(row_f1, 6),
@@ -488,18 +489,17 @@ def evaluate_code_result(
             for expected, actual in zip(reference_rows, actual_rows)
         )
     )
-    all_columns_match = (
-        len(expected_columns) == len(actual_columns) == matched_column_count
-    )
+    all_expected_columns_match = len(expected_columns) == matched_column_count
+    strict_schema_match = len(expected_columns) == len(actual_columns)
     all_rows_match = (
         len(reference_rows) == len(actual_rows) == matched_rows
     )
-    representation_equivalent = all_columns_match and all_rows_match and (
+    representation_equivalent = all_expected_columns_match and all_rows_match and (
         order_correct or not order_required
     )
 
     type_match = isinstance(actual_result, (list, Mapping))
-    exact_match = type_match and representation_equivalent
+    exact_match = type_match and strict_schema_match and representation_equivalent
 
     return {
         "applicable": True,
@@ -523,6 +523,9 @@ def evaluate_code_result(
             for expected, actual in columns.items()
             if _normalized_column(expected) != _normalized_column(actual)
         },
+        "ignored_actual_columns": [
+            column for column in actual_columns if column not in set(columns.values())
+        ],
     }
 
 

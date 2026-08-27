@@ -185,6 +185,39 @@ def test_partial_table_metrics_penalize_missing_columns_and_wrong_values():
     assert evaluation["cell_accuracy"] == 0.5
 
 
+def test_table_treats_non_conflicting_extra_columns_as_equivalent_not_exact():
+    evaluation = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=[
+            {"borough": "Bronx", "community_plaza_count": 2},
+            {"borough": "Queens", "community_plaza_count": 1},
+        ],
+        actual_result=[
+            {"BoroName": "Queens", "plaza_count": 1, "source": "DOT"},
+            {"BoroName": "Bronx", "plaza_count": 2, "source": "DOT"},
+        ],
+    )
+
+    assert evaluation["exact_result_match"] is False
+    assert evaluation["representation_equivalent_match"] is True
+    assert evaluation["column_aliases"] == {
+        "borough": "BoroName",
+        "community_plaza_count": "plaza_count",
+    }
+    assert evaluation["ignored_actual_columns"] == ["source"]
+
+
+def test_table_extra_columns_do_not_hide_wrong_requested_values():
+    evaluation = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=[{"borough": "Bronx", "count": 2}],
+        actual_result=[{"borough": "Bronx", "count": 99, "source": "DOT"}],
+    )
+
+    assert evaluation["exact_result_match"] is False
+    assert evaluation["representation_equivalent_match"] is False
+
+
 def test_list_uses_item_metrics_instead_of_table_metrics():
     evaluation = evaluate_code_result(
         expected_result_type="list",

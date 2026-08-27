@@ -46,6 +46,17 @@ class RejectTablesSchema(BaseModel):
     inspected_evidence: str = Field(description="Evidence observed through inspect_table or run_code.")
 
 
+class AnalysisContractSchema(BaseModel):
+    filters: list[str] = Field(description="Requested filters and time ranges, using exact values from the question.")
+    measures: list[str] = Field(description="Requested measures with aggregation, units, and distinctness semantics.")
+    group_by: list[str] = Field(description="Requested grouping dimensions.")
+    distinct_counts: list[str] = Field(description="Entities that must be counted distinctly.")
+    joins: list[str] = Field(description="Required table relationships or join keys; empty when no join is needed.")
+    ordering: str = Field(description="Requested ordering direction and measure, or 'none'.")
+    limit: int | None = Field(description="Requested top/bottom N, or null.")
+    output_columns: list[str] = Field(description="Semantic columns required in the final output.")
+
+
 def classify_execution_error(message: str, *, stage: str = "execution") -> dict[str, Any]:
     """Convert an execution/preflight failure into a stable, compact schema."""
 
@@ -109,6 +120,9 @@ class P3State:
     lifecycle: CoderLifecycle = CoderLifecycle.NEEDS_CODE
     stop_reason: str = ""
     finalization_mode: str = ""
+    analysis_contract: dict[str, Any] = field(default_factory=dict)
+    contract_code_warnings: list[str] = field(default_factory=list)
+    contract_advisories: list[str] = field(default_factory=list)
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -150,6 +164,123 @@ class Phase3ToolsManager:
         self.resolve_code = resolve_code
         self.execute_code = execute_code
         self.extract_payload = extract_payload
+
+    def set_analysis_contract(
+        self,
+        filters: list[str],
+        measures: list[str],
+        group_by: list[str],
+        distinct_counts: list[str],
+        joins: list[str],
+        ordering: str,
+        limit: int | None,
+        output_columns: list[str],
+    ) -> str:
+        """Declare the question semantics before writing or executing code."""
+        contract = {
+            "filters": self._clean_contract_items(filters),
+            "measures": self._clean_contract_items(measures),
+            "group_by": self._clean_contract_items(group_by),
+            "distinct_counts": self._clean_contract_items(distinct_counts),
+            "joins": self._clean_contract_items(joins),
+            "ordering": str(ordering or "none").strip(),
+            "limit": limit,
+            "output_columns": self._clean_contract_items(output_columns),
+        }
+        problems = self._contract_problems(contract)
+        self.state.analysis_contract = contract
+        self.state.contract_advisories = problems
+        return json.dumps({
+            "ok": True,
+            "contract": contract,
+            "advisories": problems,
+            "next_action": "Write the complete program and call run_code.",
+        }, ensure_ascii=False)
+
+    @staticmethod
+    def _clean_contract_items(items: list[str]) -> list[str]:
+        return list(dict.fromkeys(
+            str(item).strip() for item in items if str(item).strip()
+        ))
+
+    def _contract_problems(self, contract: dict[str, Any]) -> list[str]:
+        problems: list[str] = []
+        question = self.question.casefold()
+        contract_text = json.dumps(contract, ensure_ascii=False).casefold()
+        for year in self._requested_filter_years(question):
+            if year not in contract_text:
+                problems.append(f"missing requested year {year}")
+        if re.search(r"\b(?:distinct|different|unique)\b", question) and not contract["distinct_counts"]:
+            problems.append("distinct/unique count requested but distinct_counts is empty")
+        expected_top = self._expected_top_n(question)
+        if expected_top is not None and contract["limit"] != expected_top:
+            problems.append(f"requested top/bottom limit is {expected_top}")
+        if not contract["measures"]:
+            problems.append("at least one requested measure is required")
+        if not contract["output_columns"]:
+            problems.append("at least one semantic output column is required")
+        return problems
+
+    @staticmethod
+    def _requested_filter_years(question: str) -> set[str]:
+        """Return row-filter years, excluding years that name a dataset edition."""
+        years = set(re.findall(r"\b(?:19|20)\d{2}\b", question))
+        edition_years = set(re.findall(
+            r"\b(?:using|from|in)\s+(?:the\s+)?((?:19|20)\d{2})\b"
+            r"[^?.]{0,80}\b(?:dataset|data\s+set|release|edition|inventory)\b",
+            question,
+            flags=re.IGNORECASE,
+        ))
+        return years - edition_years
+
+    @staticmethod
+    def _expected_top_n(question: str) -> int | None:
+        number_words = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        }
+        match = re.search(r"\b(?:top|bottom)\s+(\d+)\b", question)
+        if match:
+            return int(match.group(1))
+        match = re.search(
+            rf"\b(?:top|bottom)\s+({'|'.join(number_words)})\b", question
+        )
+        if match:
+            return number_words[match.group(1)]
+        match = re.search(
+            rf"\bwhich\s+({'|'.join(number_words)})\b[^?.]{{0,100}}"
+            r"\b(?:highest|lowest|most|least|largest|smallest)\b",
+            question,
+        )
+        return number_words[match.group(1)] if match else None
+
+    def infer_analysis_contract(self) -> None:
+        """Create a conservative contract only for fenced-code protocol recovery."""
+        question = self.question
+        lowered = question.casefold()
+        years = sorted(self._requested_filter_years(question))
+        limit = self._expected_top_n(lowered)
+        distinct = ["requested entity"] if re.search(
+            r"\b(?:distinct|different|unique)\b", lowered
+        ) else []
+        measure = "requested numeric measure"
+        if "average" in lowered or "mean" in lowered:
+            measure = "average of the requested measure"
+        elif "percentage" in lowered or "percent" in lowered:
+            measure = "requested percentage"
+        elif "how many" in lowered or "count" in lowered:
+            measure = "count of requested entities"
+        self.state.analysis_contract = {
+            "filters": [f"year = {year}" for year in years],
+            "measures": [measure],
+            "group_by": [],
+            "distinct_counts": distinct,
+            "joins": [],
+            "ordering": "question-defined ordering" if limit else "none",
+            "limit": limit,
+            "output_columns": ["requested result"],
+            "inferred_for_protocol_recovery": True,
+        }
 
     def _allowed_paths(self) -> dict[Path, str]:
         return {
@@ -360,6 +491,16 @@ class Phase3ToolsManager:
         blockers: list[str] = []
         metadata = self._metadata_text()
         requested_years = set(re.findall(r"\b(?:19|20)\d{2}\b", self.question))
+        edition_years = requested_years - self._requested_filter_years(self.question)
+        if edition_years and re.search(
+            r"(?:year|date|temporal)[^.]*(?:missing|lack|without|does not contain)|"
+            r"(?:missing|lack|without|does not contain)[^.]*(?:year|date|temporal)",
+            claim,
+        ):
+            blockers.append(
+                "The year identifies the requested dataset edition, not a row-level "
+                "filter; a dedicated year/date column is not required."
+            )
         if (
             requested_years
             and ("year column" in claim or "fiscal-year column" in claim or "fiscal year column" in claim)
@@ -398,6 +539,8 @@ class Phase3ToolsManager:
             return json.dumps({"ok": False, "error": {"category": "already_finished"}})
         if self.state.rejected_reason:
             return json.dumps({"ok": False, "error": {"category": "tables_already_rejected"}})
+        if not self.state.analysis_contract:
+            self.infer_analysis_contract()
         if self.state.run_count >= self.state.max_runs:
             return json.dumps({"ok": False, "error": {"category": "run_limit", "message": "Maximum of 3 executions reached."}})
 
@@ -411,6 +554,7 @@ class Phase3ToolsManager:
             return json.dumps({"ok": False, "attempt": self.state.run_count, "error": path_error})
         resolved, preflight_error = self.resolve_code(code, self.tables, self.csv_dir)
         self.state.clean_code = resolved
+        self.state.contract_code_warnings = self._validate_contract_code(resolved)
         if preflight_error:
             self.state.error = preflight_error
             self.state.execution_error = classify_execution_error(preflight_error, stage="preflight")
@@ -470,6 +614,68 @@ class Phase3ToolsManager:
             "result_available": self.state.raw_result is not None,
             "next_action": "Call inspect_result before finish_code.",
         })
+
+    def _validate_contract_code(self, code: str) -> list[str]:
+        contract = self.state.analysis_contract
+        lowered = code.casefold()
+        warnings: list[str] = []
+        contract_years = set(re.findall(
+            r"\b(?:19|20)\d{2}\b",
+            " ".join(contract.get("filters", [])),
+        ))
+        for year in contract_years:
+            if not self._code_represents_year(code, year, contract_years):
+                warnings.append(f"contract_filter_missing_in_code: year {year}")
+        if contract.get("distinct_counts") and not any(
+            marker in lowered for marker in ("nunique(", "drop_duplicates(", ".unique(")
+        ):
+            warnings.append("contract_distinct_count_missing_in_code")
+        measures = " ".join(contract.get("measures", [])).casefold()
+        has_mean_aggregation = bool(re.search(
+            r"(?:\.mean\s*\(|\b(?:np|numpy)\.mean\s*\(|['\"]mean['\"])",
+            lowered,
+        ))
+        if ("average" in measures or "mean" in measures) and not has_mean_aggregation:
+            warnings.append("contract_average_missing_in_code")
+        if contract.get("joins") and not any(
+            marker in lowered for marker in (".merge(", ".join(", "pd.merge(")
+        ):
+            warnings.append("contract_join_missing_in_code")
+        limit = contract.get("limit")
+        if limit is not None:
+            has_limit = bool(re.search(
+                rf"(?:head|nlargest|nsmallest)\s*\(\s*{int(limit)}\b", lowered
+            ))
+            if not has_limit:
+                warnings.append(f"contract_limit_missing_in_code: {limit}")
+            if not any(marker in lowered for marker in ("sort_values(", "nlargest(", "nsmallest(")):
+                warnings.append("contract_ordering_missing_in_code")
+        return warnings
+
+    @staticmethod
+    def _code_represents_year(code: str, year: str, requested_years: set[str]) -> bool:
+        """Recognize literal years and compact school/fiscal-year encodings."""
+        if year in code:
+            return True
+        short = year[-2:]
+        lowered = code.casefold()
+        for other in requested_years - {year}:
+            other_short = other[-2:]
+            compact_pairs = {
+                f"sy{short}{other_short}",
+                f"sy{other_short}{short}",
+                f"fy{short}{other_short}",
+                f"fy{other_short}{short}",
+            }
+            if any(pair in lowered for pair in compact_pairs):
+                return True
+            if re.search(
+                rf"(?<!\d)(?:{short}\s*[-/]\s*{other_short}|"
+                rf"{other_short}\s*[-/]\s*{short})(?!\d)",
+                lowered,
+            ):
+                return True
+        return False
 
     def _semantic_item_count(self, value: Any) -> int | None:
         if isinstance(value, list):
@@ -600,6 +806,14 @@ class Phase3ToolsManager:
             return json.dumps({"ok": False, "error": {"category": "no_successful_result", "message": "Call run_code successfully first."}})
         value = self.state.structured_result
         requirements, warnings, coverage = self._coverage(value)
+        warnings = list(dict.fromkeys([
+            *warnings,
+            *self._validate_contract_result(value),
+        ]))
+        contract_advisories = list(dict.fromkeys([
+            *self.state.contract_advisories,
+            *self.state.contract_code_warnings,
+        ]))
         self.state.coverage_requirements = requirements
         self.state.coverage_warnings = warnings
         profile: dict[str, Any] = {
@@ -610,6 +824,7 @@ class Phase3ToolsManager:
             "coverage": coverage,
             "requirements": requirements,
             "coverage_warnings": warnings,
+            "contract_advisories": contract_advisories,
             "correction_required": bool(warnings),
         }
         if isinstance(value, dict):
@@ -632,6 +847,20 @@ class Phase3ToolsManager:
             "allowed_actions": ["run_code", "reject_tables"] if warnings else ["finish_code"],
             "profile": profile,
         }, ensure_ascii=False, default=str)
+
+    def _validate_contract_result(self, value: Any) -> list[str]:
+        contract = self.state.analysis_contract
+        warnings: list[str] = []
+        limit = contract.get("limit")
+        count = self._semantic_item_count(value)
+        if limit is not None and count is not None and count != limit:
+            warnings.append(
+                f"contract_result_limit_mismatch: expected {limit}, found {count}"
+            )
+        if contract.get("group_by") and isinstance(value, list) and value:
+            if not all(isinstance(item, dict) for item in value):
+                warnings.append("contract_grouped_result_requires_record_rows")
+        return warnings
 
     def finish_code(
         self,
@@ -712,6 +941,10 @@ class Phase3ToolsManager:
 
     def get_tools(self) -> list[FunctionTool]:
         return [
+            FunctionTool.from_defaults(
+                fn=self.set_analysis_contract,
+                fn_schema=AnalysisContractSchema,
+            ),
             FunctionTool.from_defaults(fn=self.inspect_table),
             FunctionTool.from_defaults(fn=self.run_code),
             FunctionTool.from_defaults(

@@ -4,6 +4,7 @@ from lakegen.column_resolution import (
 )
 import json
 import pandas as pd
+import pytest
 
 from lakegen.phases.phase3 import (
     _build_coder_tables_info,
@@ -55,6 +56,16 @@ def test_execute_code_identifies_the_forbidden_fragment(tmp_path):
 
 def _agentic_tools(tmp_path, *, execute=None, question=""):
     state = P3State()
+    state.analysis_contract = {
+        "filters": [],
+        "measures": ["requested measure"],
+        "group_by": [],
+        "distinct_counts": [],
+        "joins": [],
+        "ordering": "none",
+        "limit": None,
+        "output_columns": ["requested result"],
+    }
     manager = Phase3ToolsManager(
         state,
         tables=["table.csv"],
@@ -90,6 +101,120 @@ def test_agentic_coder_requires_inspection_and_self_review(tmp_path):
     )
     assert payload.startswith("FINAL_PAYLOAD:")
     assert state.finished is True
+
+
+def test_run_code_infers_analysis_contract_when_omitted(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    state.analysis_contract = {}
+
+    response = json.loads(manager.run_code("print(42)"))
+
+    assert response["ok"] is True
+    assert state.run_count == 1
+    assert state.analysis_contract["inferred_for_protocol_recovery"] is True
+
+
+def test_analysis_contract_requires_year_distinctness_and_top_limit(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        question=(
+            "Which top three boroughs had the most different partners in 2023?"
+        ),
+    )
+    state.analysis_contract = {}
+
+    incomplete = json.loads(manager.set_analysis_contract(
+        filters=[], measures=["partner count"], group_by=["borough"],
+        distinct_counts=[], joins=[], ordering="descending by partner count",
+        limit=3, output_columns=["borough", "partner_count"],
+    ))
+    assert "missing requested year 2023" in incomplete["advisories"]
+
+    payload = json.loads(manager.set_analysis_contract(
+        filters=["year = 2023"], measures=["distinct partner count"],
+        group_by=["borough"], distinct_counts=["partner"], joins=[],
+        ordering="descending by partner count", limit=3,
+        output_columns=["borough", "partner_count"],
+    ))
+
+    assert payload["ok"] is True
+    assert state.analysis_contract["limit"] == 3
+
+
+def test_analysis_contract_treats_dataset_edition_year_as_provenance(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        question=(
+            "Using the 2024 NYC GIS hydrography dataset, how many features "
+            "are there for each subcode?"
+        ),
+    )
+    state.analysis_contract = {}
+
+    payload = json.loads(manager.set_analysis_contract(
+        filters=[], measures=["feature count"], group_by=["subcode"],
+        distinct_counts=[], joins=[], ordering="none", limit=None,
+        output_columns=["subcode", "feature_count"],
+    ))
+
+    assert payload["ok"] is True
+    assert manager._requested_filter_years(manager.question) == set()
+
+
+def test_contract_code_warnings_are_non_blocking_advisories(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            '[{"borough":"Manhattan","partner_count":3},'
+            '{"borough":"Brooklyn","partner_count":2},'
+            '{"borough":"Queens","partner_count":1}]', None, code
+        ),
+    )
+    state.analysis_contract = {
+        "filters": ["year = 2023"],
+        "measures": ["distinct partner count"],
+        "group_by": ["borough"],
+        "distinct_counts": ["partner"],
+        "joins": [],
+        "ordering": "descending",
+        "limit": 3,
+        "output_columns": ["borough", "partner_count"],
+    }
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda raw: (raw, json.loads(raw), None)
+
+    manager.run_code("year = 2023\nprint('result')")
+    inspection = json.loads(manager.inspect_result())
+
+    advisories = inspection["profile"]["contract_advisories"]
+    assert "contract_distinct_count_missing_in_code" in advisories
+    assert "contract_limit_missing_in_code: 3" in advisories
+    assert inspection["profile"]["coverage_warnings"] == []
+    assert inspection["state"] == "ready_to_finish"
+
+
+def test_contract_accepts_school_year_encoded_in_column_name(tmp_path):
+    _state, manager = _agentic_tools(tmp_path)
+
+    for year in ("2016", "2017"):
+        assert manager._code_represents_year(
+            "df['SY1617 TOTAL REMOVALS/SUSPENSIONS']", year, {"2016", "2017"}
+        )
+
+    assert not manager._code_represents_year(
+        "df['SY1516 TOTAL REMOVALS/SUSPENSIONS']", "2017", {"2016", "2017"}
+    )
+
+
+def test_contract_accepts_named_pandas_mean_aggregation(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    state.analysis_contract["measures"] = ["average elevation"]
+
+    warnings = manager._validate_contract_code(
+        "df.groupby('SUB_CODE').agg(avg_elevation=('ELEVATION', 'mean'))"
+    )
+
+    assert "contract_average_missing_in_code" not in warnings
 
 
 def test_agentic_coder_returns_structured_execution_error(tmp_path):
@@ -383,6 +508,24 @@ def test_reject_tables_blocks_year_column_claim_when_metadata_has_period(tmp_pat
         raise AssertionError("Metadata-backed periods must block table rejection")
     assert state.rejected_reason == ""
     assert state.lifecycle == CoderLifecycle.NEEDS_REVISION
+
+
+def test_reject_tables_blocks_year_column_for_dataset_edition(tmp_path):
+    (tmp_path / "table.csv").write_text("sub_code,elevation\n1,2\n", encoding="utf-8")
+    state, manager = _agentic_tools(
+        tmp_path,
+        question="Using the 2024 NYC GIS hydrography dataset, summarize each subcode.",
+    )
+    manager.inspect_table("table.csv")
+
+    with pytest.raises(ValueError, match="rejection_not_proven"):
+        manager.reject_tables(
+            "The selected hydrography table cannot be filtered to 2024.",
+            ["a year or date column for 2024"],
+            "The inspected schema does not contain a year or date column.",
+        )
+
+    assert state.rejected_reason == ""
 
 
 def test_reject_tables_blocks_missing_borough_rows_as_insufficient_evidence(tmp_path):
