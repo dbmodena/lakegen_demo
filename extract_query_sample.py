@@ -138,6 +138,7 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
         "expected_result_description": record.get("expected_result_description"),
         "reference_code": record.get("code"),
         "reference_result": record.get("query_result"),
+        "evaluation_contract": record.get("evaluation_contract"),
     }
     return {key: value for key, value in case.items() if value is not None}
 

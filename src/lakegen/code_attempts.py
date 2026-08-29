@@ -13,6 +13,7 @@ class CodeAttemptEvaluator:
     expected_result_type: str
     reference_result: object
     expected_description: str = ""
+    evaluation_contract: dict[str, Any] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -59,6 +60,7 @@ class CodeAttemptEvaluator:
                 reference_result=self.reference_result,
                 actual_result=structured_result,
                 expected_description=self.expected_description,
+                evaluation_contract=self.evaluation_contract,
             ))
         else:
             evaluation["exact_result_match"] = False

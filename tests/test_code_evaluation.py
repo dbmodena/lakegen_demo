@@ -218,6 +218,68 @@ def test_table_extra_columns_do_not_hide_wrong_requested_values():
     assert evaluation["representation_equivalent_match"] is False
 
 
+def test_contract_declares_order_keys_columns_and_limit():
+    reference = [
+        {"borough": "Queens", "count": 4},
+        {"borough": "Bronx", "count": 2},
+    ]
+    evaluation = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=reference,
+        actual_result=list(reversed(reference)),
+        evaluation_contract={
+            "result_kind": "table",
+            "required_dimensions": ["borough"],
+            "required_measures": ["count"],
+            "key_columns": ["borough"],
+            "ordering": [{"field": "count", "direction": "desc"}],
+            "limit": 2,
+        },
+    )
+
+    assert evaluation["key_columns"] == ["borough"]
+    assert evaluation["requirement_checks"] == {
+        "result_type": True,
+        "required_columns": True,
+        "row_count": True,
+        "ordering": False,
+        "limit": True,
+    }
+    assert evaluation["requirement_pass_rate"] == 0.8
+    assert evaluation["representation_equivalent_match"] is False
+
+
+def test_contract_applies_per_column_numeric_tolerance():
+    evaluation = evaluate_code_result(
+        expected_result_type="table",
+        reference_result=[{"group": "A", "average": 10.0}],
+        actual_result=[{"group": "A", "average": 10.05}],
+        evaluation_contract={
+            "key_columns": ["group"],
+            "numeric_tolerances": {"average": {"abs": 0.1, "rel": 0}},
+        },
+    )
+
+    assert evaluation["exact_result_match"] is True
+    assert evaluation["cell_accuracy"] == 1.0
+
+
+def test_summary_reports_robust_numeric_error_statistics():
+    results = [
+        {"result": {"code_evaluation": {
+            "applicable": True, "numeric_absolute_error": value,
+            "numeric_relative_error": value, "requirement_pass_rate": 0.5,
+        }}}
+        for value in (1.0, 2.0, 1e200)
+    ]
+
+    summary = summarize_code_evaluations(results)
+
+    assert summary["numeric_absolute_error_robust"]["median"] == 2.0
+    assert summary["numeric_absolute_error_robust"]["p95"] > 1e100
+    assert summary["mean_requirement_pass_rate"] == 0.5
+
+
 def test_list_uses_item_metrics_instead_of_table_metrics():
     evaluation = evaluate_code_result(
         expected_result_type="list",

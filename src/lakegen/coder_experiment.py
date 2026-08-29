@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -10,6 +11,31 @@ from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.code_evaluation import unavailable_code_evaluation
 from lakegen.experiment_config import CoderContextLevel
 from lakegen.output_validation import AnswerDisposition, validate_answer
+
+
+def serialize_retry_error(generated: Any) -> str:
+    """Build bounded, actionable retry context from a generated-code failure."""
+
+    message = str(getattr(generated, "error", "") or "Code execution returned no output.")
+    structured = getattr(generated, "execution_error", None)
+    if not isinstance(structured, dict) or not structured:
+        return message
+    allowed = {
+        "stage", "category", "column", "retryable", "closest_columns",
+        "source_columns", "rename_hints", "repair_hint", "next_actions",
+        "coverage_warnings",
+    }
+    payload = {key: structured[key] for key in allowed if key in structured}
+    if isinstance(payload.get("source_columns"), list):
+        payload["source_columns"] = payload["source_columns"][:50]
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return (
+        f"{message[-1600:]}\n\n"
+        "STRUCTURED_REPAIR_CONTEXT (authoritative JSON):\n"
+        f"{encoded}\n"
+        "Apply repair_hint and rename_hints exactly when present. Do not repeat "
+        "the failing downstream column label."
+    )
 
 
 def run_coder_context_sweep(
@@ -47,8 +73,12 @@ def run_coder_context_sweep(
         status = "failed"
         attempt_index = 0
         total_coder_runs = 0
+        repair_attempts = 0
+        # A model turn that never executes code must not consume the scarce
+        # execution/repair budget. Keep both budgets bounded independently.
+        max_generation_turns = max_attempts * 2
 
-        for attempt_index in range(max_attempts):
+        for attempt_index in range(max_generation_turns):
             remaining_runs = max_attempts - total_coder_runs
             if remaining_runs <= 0:
                 break
@@ -90,13 +120,15 @@ def run_coder_context_sweep(
                     break
                 status, error = "completed", ""
                 break
-            error = generated.error or "Code execution returned no output."
+            error = serialize_retry_error(generated)
             execution_error = getattr(generated, "execution_error", None) or {}
             retryable = bool(execution_error.get("retryable"))
             if total_coder_runs >= max_attempts:
                 break
             if getattr(generated, "coder_runs", 0) and not retryable:
                 break
+            if getattr(generated, "coder_runs", 0) and retryable:
+                repair_attempts += 1
 
         if evaluation_enabled:
             evaluation = evaluator.summarize(attempts)
@@ -118,6 +150,8 @@ def run_coder_context_sweep(
             "execution_error": getattr(generated, "execution_error", None),
             "coder_review": getattr(generated, "coder_review", None),
             "coder_runs": total_coder_runs,
+            "generation_turns": len(attempts) if evaluation_enabled else attempt_index + 1,
+            "repair_attempts": repair_attempts,
             "coder_lifecycle": getattr(generated, "coder_lifecycle", ""),
             "stop_reason": getattr(generated, "stop_reason", ""),
             "finalization_mode": getattr(generated, "finalization_mode", ""),

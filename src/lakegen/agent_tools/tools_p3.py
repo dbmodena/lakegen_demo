@@ -348,6 +348,37 @@ class Phase3ToolsManager:
                 continue
         return list(dict.fromkeys(columns))
 
+    def _rename_hints(self, column: str) -> list[dict[str, str]]:
+        """Find literal Pandas rename mappings relevant to a failed column."""
+
+        try:
+            tree = ast.parse(self.state.clean_code or self.state.code_raw)
+        except SyntaxError:
+            return []
+        hints: list[dict[str, str]] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr != "rename":
+                continue
+            columns_kw = next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "columns"),
+                None,
+            )
+            if not isinstance(columns_kw, ast.Dict):
+                continue
+            for old_node, new_node in zip(columns_kw.keys, columns_kw.values):
+                if not (
+                    isinstance(old_node, ast.Constant)
+                    and isinstance(new_node, ast.Constant)
+                    and isinstance(old_node.value, str)
+                    and isinstance(new_node.value, str)
+                ):
+                    continue
+                if old_node.value == column:
+                    hints.append({"renamed_from": old_node.value, "renamed_to": new_node.value})
+        return hints
+
     def _enrich_column_error(self, error: dict[str, Any]) -> None:
         column = error.get("column")
         if not column:
@@ -356,7 +387,18 @@ class Phase3ToolsManager:
         error["closest_columns"] = difflib.get_close_matches(
             str(column).strip(), columns, n=5, cutoff=0.5
         )
-        error["available_columns"] = columns[:100]
+        error["source_columns"] = columns[:100]
+        rename_hints = self._rename_hints(str(column).strip())
+        if rename_hints:
+            error["rename_hints"] = rename_hints
+            replacements = ", ".join(
+                f"{item['renamed_from']} -> {item['renamed_to']}"
+                for item in rename_hints
+            )
+            error["repair_hint"] = (
+                "The missing label was renamed earlier in the generated pipeline. "
+                f"Use the post-rename label in downstream expressions: {replacements}."
+            )
 
     def inspect_table(self, file_name: str, columns: str = "") -> str:
         """Inspect a selected table from one cached sample. Up to eight columns may be profiled progressively."""

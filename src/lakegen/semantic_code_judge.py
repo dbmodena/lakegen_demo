@@ -64,6 +64,7 @@ def _comparison_facts(evaluation: Mapping[str, Any]) -> dict[str, Any]:
         "item_recall", "item_f1", "numeric_absolute_error",
         "numeric_relative_error", "expected_row_count", "actual_row_count",
         "order_required", "order_correct", "column_aliases",
+        "requirement_checks", "requirement_pass_rate", "key_columns",
     }
     return {key: evaluation[key] for key in useful_keys if key in evaluation}
 

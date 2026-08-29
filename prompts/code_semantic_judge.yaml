@@ -9,6 +9,12 @@ prompt: |
 
   A plausible answer is not enough. Use alternative_correct only when the selected sources, code operations, full-result comparison, and preview provide positive evidence for every requirement. Differences in harmless aliases, formatting, row order, or equivalent units are acceptable. Different values are acceptable only when a valid alternative table/version clearly explains them. If source version, scope, or semantics cannot be verified, choose indeterminate.
 
+  Treat requirement_checks as a deterministic checklist. Never override a failed
+  deterministic check without concrete evidence that the reference is stale or
+  that the selected source is a valid alternative version. Mention each failed
+  check in requirements_missing. Do not interpret confidence as a probability of
+  correctness; it expresses confidence in this classification only.
+
   Return JSON only with this exact shape:
   {"disposition":"alternative_correct|partially_correct|incorrect|indeterminate","confidence":0.0,"all_requirements_verified":false,"rationale":"concise evidence-based explanation","requirements_met":["..."],"requirements_missing":["..."]}
 

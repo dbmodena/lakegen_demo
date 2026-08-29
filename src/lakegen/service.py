@@ -30,7 +30,7 @@ from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import RetrievalConfig, RetrievalMode, evaluate_ranking
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.code_attempts import CodeAttemptEvaluator
-from lakegen.coder_experiment import run_coder_context_sweep
+from lakegen.coder_experiment import run_coder_context_sweep, serialize_retry_error
 from lakegen.service_models import QuestionSource, QueryResult, extract_questions
 from lakegen.semantic_code_judge import judge_semantic_code_result
 from lakegen.agent_tools.tools_p12 import P12State
@@ -147,10 +147,16 @@ def run_question(
         if log_context
         else ""
     )
+    evaluation_contract = (
+        log_context.get("SOURCE_EVALUATION_CONTRACT", {}) if log_context else {}
+    )
+    if not isinstance(evaluation_contract, Mapping):
+        evaluation_contract = {}
     attempt_evaluator = CodeAttemptEvaluator(
         expected_result_type=expected_result_type,
         reference_result=reference_result,
         expected_description=expected_result_description,
+        evaluation_contract=dict(evaluation_contract),
     )
     code_evaluation_enabled = attempt_evaluator.enabled
     result.code_evaluation = attempt_evaluator.initial_evaluation()
@@ -747,7 +753,7 @@ def run_question(
                             result.error = validation.reason
                         return result
 
-                    error = generated.error or "Code execution returned no output."
+                    error = serialize_retry_error(generated)
                     error_record = {
                         "phase": "code",
                         "type": "execution_error",

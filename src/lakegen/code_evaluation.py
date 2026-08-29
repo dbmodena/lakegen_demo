@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import statistics
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -118,7 +119,13 @@ def _numeric_candidates(value: Any) -> list[float]:
     return candidates
 
 
-def _values_equal(left: Any, right: Any) -> bool:
+def _values_equal(
+    left: Any,
+    right: Any,
+    *,
+    rel_tol: float = _FLOAT_REL_TOL,
+    abs_tol: float = _FLOAT_ABS_TOL,
+) -> bool:
     if _is_null(left) or _is_null(right):
         return _is_null(left) and _is_null(right)
     left_numbers = _numeric_candidates(left)
@@ -128,8 +135,8 @@ def _values_equal(left: Any, right: Any) -> bool:
             math.isclose(
                 left_number,
                 right_number,
-                rel_tol=_FLOAT_REL_TOL,
-                abs_tol=_FLOAT_ABS_TOL,
+                rel_tol=rel_tol,
+                abs_tol=abs_tol,
             )
             for left_number in left_numbers
             for right_number in right_numbers
@@ -268,11 +275,70 @@ def _rows_equal(
     expected: Mapping[str, Any],
     actual: Mapping[str, Any],
     columns: Mapping[str, str],
+    tolerances: Mapping[str, tuple[float, float]] | None = None,
 ) -> bool:
     return all(
-        _values_equal(expected.get(expected_column), actual.get(actual_column))
+        _values_equal(
+            expected.get(expected_column),
+            actual.get(actual_column),
+            rel_tol=(tolerances or {}).get(expected_column, (_FLOAT_REL_TOL, _FLOAT_ABS_TOL))[0],
+            abs_tol=(tolerances or {}).get(expected_column, (_FLOAT_REL_TOL, _FLOAT_ABS_TOL))[1],
+        )
         for expected_column, actual_column in columns.items()
     )
+
+
+def _contract_tolerances(contract: Mapping[str, Any]) -> dict[str, tuple[float, float]]:
+    configured = contract.get("numeric_tolerances", {})
+    if not isinstance(configured, Mapping):
+        return {}
+    result: dict[str, tuple[float, float]] = {}
+    for column, value in configured.items():
+        if not isinstance(value, Mapping):
+            continue
+        try:
+            result[str(column)] = (
+                float(value.get("rel", _FLOAT_REL_TOL)),
+                float(value.get("abs", _FLOAT_ABS_TOL)),
+            )
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _requirement_checks(
+    *,
+    type_match: bool,
+    expected_columns: Sequence[str],
+    mapped_columns: Mapping[str, str],
+    expected_count: int,
+    actual_count: int,
+    order_required: bool,
+    order_correct: bool,
+    contract: Mapping[str, Any],
+) -> dict[str, bool]:
+    """Return stable, machine-readable structural requirement checks."""
+
+    required = contract.get("required_columns")
+    if not isinstance(required, list):
+        dimensions = contract.get("required_dimensions", [])
+        measures = contract.get("required_measures", [])
+        required = [
+            *(dimensions if isinstance(dimensions, list) else []),
+            *(measures if isinstance(measures, list) else []),
+        ]
+    required_columns = [str(column) for column in required] or list(expected_columns)
+    checks = {
+        "result_type": type_match,
+        "required_columns": all(column in mapped_columns for column in required_columns),
+        "row_count": expected_count == actual_count,
+    }
+    if order_required:
+        checks["ordering"] = order_correct
+    limit = contract.get("limit")
+    if isinstance(limit, int) and limit >= 0:
+        checks["limit"] = actual_count == min(limit, expected_count)
+    return checks
 
 
 def evaluate_code_result(
@@ -281,10 +347,12 @@ def evaluate_code_result(
     reference_result: Any,
     actual_result: Any,
     expected_description: str = "",
+    evaluation_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compare a structured generated result with the benchmark reference."""
 
-    result_type = str(expected_result_type).casefold()
+    contract = dict(evaluation_contract or {})
+    result_type = str(contract.get("result_kind") or expected_result_type).casefold()
     if result_type not in {"number", "table", "list"}:
         return {
             "applicable": False,
@@ -302,7 +370,13 @@ def evaluate_code_result(
         actual_value, scalar_shaped = _single_value(actual_result)
         actual_numbers = _numeric_candidates(actual_value)
         actual_number = actual_numbers[0] if actual_numbers else None
-        numeric_match = _values_equal(expected_value, actual_value)
+        scalar_tolerance = _contract_tolerances(contract).get(
+            "value", (_FLOAT_REL_TOL, _FLOAT_ABS_TOL)
+        )
+        numeric_match = _values_equal(
+            expected_value, actual_value,
+            rel_tol=scalar_tolerance[0], abs_tol=scalar_tolerance[1],
+        )
         numeric_pairs = [
             (expected, actual)
             for expected in expected_numbers
@@ -322,6 +396,7 @@ def evaluate_code_result(
             else absolute_error
         )
         type_match = scalar_shaped and actual_number is not None
+        requirement_checks = {"result_type": type_match, "numeric_value": numeric_match}
         return {
             "applicable": True,
             "expected_result_type": result_type,
@@ -334,6 +409,10 @@ def evaluate_code_result(
             ),
             "numeric_relative_error": (
                 round(relative_error, 12) if relative_error is not None else None
+            ),
+            "requirement_checks": requirement_checks,
+            "requirement_pass_rate": round(
+                sum(requirement_checks.values()) / len(requirement_checks), 6
             ),
         }
 
@@ -387,6 +466,11 @@ def evaluate_code_result(
     columns = _semantic_column_map(
         reference_rows, actual_rows, expected_columns, actual_columns
     )
+    key_columns = contract.get("key_columns", [])
+    if not isinstance(key_columns, list):
+        key_columns = []
+    key_columns = [str(column) for column in key_columns]
+    tolerances = _contract_tolerances(contract)
     matched_column_count = len(columns)
     column_precision = (
         matched_column_count / len(actual_columns) if actual_columns else 0.0
@@ -402,8 +486,20 @@ def evaluate_code_result(
     matched_pairs: list[tuple[int, int]] = []
     if columns:
         for expected_index, expected_row in enumerate(reference_rows):
-            for actual_index in sorted(unmatched_actual):
-                if _rows_equal(expected_row, actual_rows[actual_index], columns):
+            candidates = sorted(unmatched_actual)
+            mapped_keys = {
+                column: columns[column]
+                for column in key_columns if column in columns
+            }
+            if mapped_keys:
+                candidates = [
+                    index for index in candidates
+                    if _rows_equal(expected_row, actual_rows[index], mapped_keys, tolerances)
+                ]
+            for actual_index in candidates:
+                if _rows_equal(
+                    expected_row, actual_rows[actual_index], columns, tolerances
+                ):
                     matched_pairs.append((expected_index, actual_index))
                     unmatched_actual.remove(actual_index)
                     break
@@ -418,12 +514,12 @@ def evaluate_code_result(
     )
 
     if result_type == "list":
-        order_required = _order_required(expected_description)
+        order_required = bool(contract.get("ordering")) or _order_required(expected_description)
         order_correct = (
             len(reference_rows) == len(actual_rows)
             and bool(columns)
             and all(
-                _rows_equal(expected, actual, columns)
+                _rows_equal(expected, actual, columns, tolerances)
                 for expected, actual in zip(reference_rows, actual_rows)
             )
         )
@@ -439,6 +535,12 @@ def evaluate_code_result(
             and strict_schema_match
             and representation_equivalent
         )
+        checks = _requirement_checks(
+            type_match=type_match, expected_columns=expected_columns,
+            mapped_columns=columns, expected_count=len(reference_rows),
+            actual_count=len(actual_rows), order_required=order_required,
+            order_correct=order_correct, contract=contract,
+        )
         return {
             "applicable": True,
             "expected_result_type": result_type,
@@ -452,6 +554,8 @@ def evaluate_code_result(
             "order_correct": order_correct,
             "expected_item_count": len(reference_rows),
             "actual_item_count": len(actual_rows),
+            "requirement_checks": checks,
+            "requirement_pass_rate": round(sum(checks.values()) / len(checks), 6),
         }
 
     comparable_cells = len(reference_rows) * len(expected_columns)
@@ -469,6 +573,8 @@ def evaluate_code_result(
                 _values_equal(
                     expected_row.get(expected_column),
                     actual_rows[actual_index].get(actual_column),
+                    rel_tol=tolerances.get(expected_column, (_FLOAT_REL_TOL, _FLOAT_ABS_TOL))[0],
+                    abs_tol=tolerances.get(expected_column, (_FLOAT_REL_TOL, _FLOAT_ABS_TOL))[1],
                 )
                 for expected_column, actual_column in columns.items()
             )
@@ -480,12 +586,12 @@ def evaluate_code_result(
             remaining_actual.remove(best_actual)
     cell_accuracy = matching_cells / comparable_cells if comparable_cells else 0.0
 
-    order_required = _order_required(expected_description)
+    order_required = bool(contract.get("ordering")) or _order_required(expected_description)
     order_correct = (
         len(reference_rows) == len(actual_rows)
         and bool(columns)
         and all(
-            _rows_equal(expected, actual, columns)
+            _rows_equal(expected, actual, columns, tolerances)
             for expected, actual in zip(reference_rows, actual_rows)
         )
     )
@@ -501,6 +607,12 @@ def evaluate_code_result(
     type_match = isinstance(actual_result, (list, Mapping))
     exact_match = type_match and strict_schema_match and representation_equivalent
 
+    checks = _requirement_checks(
+        type_match=type_match, expected_columns=expected_columns,
+        mapped_columns=columns, expected_count=len(reference_rows),
+        actual_count=len(actual_rows), order_required=order_required,
+        order_correct=order_correct, contract=contract,
+    )
     return {
         "applicable": True,
         "expected_result_type": result_type,
@@ -526,6 +638,9 @@ def evaluate_code_result(
         "ignored_actual_columns": [
             column for column in actual_columns if column not in set(columns.values())
         ],
+        "key_columns": key_columns,
+        "requirement_checks": checks,
+        "requirement_pass_rate": round(sum(checks.values()) / len(checks), 6),
     }
 
 
@@ -567,6 +682,25 @@ def summarize_code_evaluations(
             float(item[key]) for item in applicable if item.get(key) is not None
         ]
         return round(sum(values) / len(values), 6) if values else None
+
+    def robust_stats(key: str) -> dict[str, float | None]:
+        values = sorted(
+            float(item[key]) for item in applicable
+            if item.get(key) is not None and math.isfinite(float(item[key]))
+        )
+        if not values:
+            return {"median": None, "p90": None, "p95": None}
+        def percentile(fraction: float) -> float:
+            index = fraction * (len(values) - 1)
+            low, high = math.floor(index), math.ceil(index)
+            if low == high:
+                return values[low]
+            return values[low] + (values[high] - values[low]) * (index - low)
+        return {
+            "median": round(statistics.median(values), 6),
+            "p90": round(percentile(0.90), 6),
+            "p95": round(percentile(0.95), 6),
+        }
 
     def exact_rate_for_type(result_type: str) -> float | None:
         typed = [
@@ -626,6 +760,9 @@ def summarize_code_evaluations(
         "mean_item_f1": mean("item_f1"),
         "mean_numeric_absolute_error": mean("numeric_absolute_error"),
         "mean_numeric_relative_error": mean("numeric_relative_error"),
+        "numeric_absolute_error_robust": robust_stats("numeric_absolute_error"),
+        "numeric_relative_error_robust": robust_stats("numeric_relative_error"),
+        "mean_requirement_pass_rate": mean("requirement_pass_rate"),
         "case_count_by_result_type": dict(sorted(type_counts.items())),
         "exact_result_match_rate_by_type": {
             result_type: exact_rate_for_type(result_type)

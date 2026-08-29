@@ -57,6 +57,10 @@ correction_prompt: |
 
   ERROR: "{{ error_message }}"
 
+  If ERROR contains STRUCTURED_REPAIR_CONTEXT, treat that JSON as authoritative.
+  Apply repair_hint and rename_hints exactly. A source column may have been
+  renamed or removed downstream even when it exists in AVAILABLE TABLES.
+
   ARCHITECT REASONING: "{{ arch_reasoning }}"
 
   {{ tables_info }}

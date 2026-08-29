@@ -317,6 +317,27 @@ def test_agentic_coder_returns_structured_execution_error(tmp_path):
     assert state.execution_error["column"] == "missing_total"
 
 
+def test_missing_column_error_reports_post_rename_label(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            None, "KeyError: 'EXPULSIONS'", code
+        ),
+    )
+
+    manager.run_code(
+        "result = df.rename(columns={'EXPULSIONS': 'Expulsions'})\n"
+        "print(result['EXPULSIONS'])"
+    )
+
+    assert state.execution_error["rename_hints"] == [{
+        "renamed_from": "EXPULSIONS", "renamed_to": "Expulsions"
+    }]
+    assert "post-rename label" in state.execution_error["repair_hint"]
+    assert "source_columns" in state.execution_error
+    assert "available_columns" not in state.execution_error
+
+
 def test_fenced_code_without_tool_call_uses_normal_run_and_inspection(tmp_path):
     state, manager = _agentic_tools(
         tmp_path,
