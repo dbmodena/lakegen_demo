@@ -12,6 +12,7 @@ class RetrievalMode(StrEnum):
     SEMANTIC = "semantic"
     HYBRID = "hybrid"
     PNEUMA = "pneuma"
+    DUCKDB_AGENTIC = "duckdb_agentic"
 
 
 class MissingSignalPolicy(StrEnum):
@@ -43,6 +44,10 @@ class RetrievalConfig:
     pneuma_index_name: str = "lakegen"
     pneuma_base_url: str = "http://localhost:8765"
     pneuma_timeout_seconds: float = 120.0
+    duckdb_max_files: int = 250
+    duckdb_max_columns_per_file: int = 40
+    duckdb_sample_rows: int = 3
+    duckdb_max_scan_rows_per_file: int = 100_000
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", RetrievalMode(self.mode))
@@ -62,6 +67,14 @@ class RetrievalConfig:
             raise ValueError("rrf_k must be greater than zero")
         if self.pneuma_timeout_seconds <= 0:
             raise ValueError("pneuma_timeout_seconds must be greater than zero")
+        for name in (
+            "duckdb_max_files",
+            "duckdb_max_columns_per_file",
+            "duckdb_sample_rows",
+            "duckdb_max_scan_rows_per_file",
+        ):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be greater than zero")
         for name in ("representation_version", "embedding_model", "vector_field"):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} must not be blank")
@@ -131,5 +144,15 @@ class RetrievalConfig:
             ),
             pneuma_timeout_seconds=float(
                 os.environ.get("LAKEGEN_PNEUMA_TIMEOUT_SECONDS", "120")
+            ),
+            duckdb_max_files=int(os.environ.get("LAKEGEN_DUCKDB_MAX_FILES", "250")),
+            duckdb_max_columns_per_file=int(
+                os.environ.get("LAKEGEN_DUCKDB_MAX_COLUMNS_PER_FILE", "40")
+            ),
+            duckdb_sample_rows=int(
+                os.environ.get("LAKEGEN_DUCKDB_SAMPLE_ROWS", "3")
+            ),
+            duckdb_max_scan_rows_per_file=int(
+                os.environ.get("LAKEGEN_DUCKDB_MAX_SCAN_ROWS_PER_FILE", "100000")
             ),
         )

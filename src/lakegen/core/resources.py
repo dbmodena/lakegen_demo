@@ -519,6 +519,7 @@ def log_retrieval_decision(
 def get_table_retrieval_service(
     solr: LocalSolrClient,
     config: RetrievalConfig,
+    table_dir: str | Path | None = None,
     *,
     observer: Callable[[RetrievalRun], None] | None = None,
 ) -> TableRetrievalService:
@@ -526,6 +527,7 @@ def get_table_retrieval_service(
         solr,
         config,
         observer=observer or _log_and_capture_retrieval_run,
+        table_dir=str(table_dir) if table_dir is not None else None,
     )
 
 

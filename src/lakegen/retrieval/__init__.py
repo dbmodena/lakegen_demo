@@ -21,6 +21,7 @@ from lakegen.retrieval.indexing import (
 )
 from lakegen.retrieval.models import RetrievalHit, RetrievalRun
 from lakegen.retrieval.pneuma import PneumaRetriever, SolrPneumaDocumentResolver
+from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
 from lakegen.retrieval.representation import METADATA_V1, represent_table
 from lakegen.retrieval.retrievers import (
     HybridRetriever,
@@ -44,6 +45,7 @@ __all__ = [
     "RetrievalRun",
     "RetrievalRunLogger",
     "PneumaRetriever",
+    "DuckDBAgenticRetriever",
     "SolrPneumaDocumentResolver",
     "SemanticRetriever",
     "SolrEmbeddingIndexer",

@@ -207,6 +207,7 @@ def run_unified_orchestrated_discovery(
     *, query: str, llm: LLM, solr_client, all_files: list[str],
     retrieval_config: RetrievalConfig, hint: str = "",
     stream_callback: StreamCallback | None = None, cancel_check=None,
+    table_dir=None,
 ) -> DiscoveryResult:
     """Run two turns of one logical tool-free agent with explicit chat history."""
     system = (
@@ -236,6 +237,7 @@ def run_unified_orchestrated_discovery(
         prepared, metadata = prepare_discovery_context(
             query=query, keywords=request.keywords, solr_client=solr_client,
             all_files=all_files, retrieval_config=retrieval_config,
+            table_dir=table_dir,
         )
         prepared.agent_json()
     except WorkflowCancelled:

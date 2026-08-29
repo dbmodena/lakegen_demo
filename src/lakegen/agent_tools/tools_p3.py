@@ -123,6 +123,8 @@ class P3State:
     analysis_contract: dict[str, Any] = field(default_factory=dict)
     contract_code_warnings: list[str] = field(default_factory=list)
     contract_advisories: list[str] = field(default_factory=list)
+    contract_evidence: list[dict[str, Any]] = field(default_factory=list)
+    contract_evidence_advisories: list[str] = field(default_factory=list)
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -694,6 +696,16 @@ class Phase3ToolsManager:
             marker in lowered for marker in ("nunique(", "drop_duplicates(", ".unique(")
         ):
             warnings.append("contract_distinct_count_missing_in_code")
+        question = self.question.casefold()
+        count_requested = bool(re.search(r"\b(?:how many|count|number of)\b", question))
+        distinct_requested = bool(re.search(r"\b(?:distinct|unique|different)\b", question))
+        if (count_requested or distinct_requested) and distinct_requested and not any(
+            marker in lowered for marker in ("nunique(", "drop_duplicates(", ".unique(")
+        ):
+            warnings.append(
+                "count_semantics_check: question requests distinct entities but "
+                "code does not show a distinct-count operation"
+            )
         measures = " ".join(contract.get("measures", [])).casefold()
         has_mean_aggregation = bool(re.search(
             r"(?:\.mean\s*\(|\b(?:np|numpy)\.mean\s*\(|['\"]mean['\"])",
@@ -709,6 +721,12 @@ class Phase3ToolsManager:
             marker in lowered for marker in (".groupby(", ".pivot(", ".pivot_table(")
         ):
             warnings.append("contract_grouping_missing_in_code")
+        requested_years = self._requested_filter_years(question)
+        for year in sorted(requested_years):
+            if not self._code_represents_year(code, year, requested_years):
+                warnings.append(
+                    f"time_range_check: requested year {year} is not evident in code"
+                )
         limit = contract.get("limit")
         if limit is not None:
             has_limit = bool(re.search(
@@ -718,9 +736,39 @@ class Phase3ToolsManager:
                 warnings.append(f"contract_limit_missing_in_code: {limit}")
             if not any(marker in lowered for marker in ("sort_values(", "nlargest(", "nsmallest(")):
                 warnings.append("contract_ordering_missing_in_code")
+        expected_top = self._expected_top_n(question)
+        if expected_top is not None and not re.search(
+            rf"(?:head|nlargest|nsmallest)\s*\(\s*{expected_top}\b", lowered
+        ):
+            warnings.append(
+                f"top_n_check: question requests exactly {expected_top} ranked items"
+            )
+        categorical_terms = (
+            "borough", "district", "category", "status", "type", "program"
+        )
+        if any(term in question for term in categorical_terms) and not any(
+            marker in lowered
+            for marker in (
+                ".str.casefold(", ".str.lower(", ".str.upper(",
+                ".casefold(", ".replace(", ".map(",
+            )
+        ):
+            warnings.append(
+                "category_normalization_check: verify case/alias normalization "
+                "for requested categorical filters or groups"
+            )
         unloaded = [table for table in self.tables if table.casefold() not in lowered]
         if unloaded:
             warnings.append("selected_tables_not_loaded_in_code: " + ", ".join(unloaded))
+        loaded_table_count = len(self.tables) - len(unloaded)
+        if loaded_table_count > 1 and not any(
+            marker in lowered
+            for marker in ("rename(", "columns =", "columns=", "reindex(")
+        ):
+            warnings.append(
+                "partition_schema_check: multiple tables are loaded; verify exact "
+                "column names and harmonize schema differences before combining"
+            )
         strategy = str(self.selection_plan.get("combination_strategy", ""))
         markers_by_strategy = {
             "join": (".merge(", ".join(", "pd.merge("),
@@ -1004,10 +1052,11 @@ class Phase3ToolsManager:
             *self.state.contract_code_warnings,
         ]))
         contract_evidence, evidence_advisories = self._contract_evidence(value)
-        contract_advisories = list(dict.fromkeys([
-            *contract_advisories,
-            *evidence_advisories,
-        ]))
+        # Preserve the detailed map for diagnostics/telemetry, but keep it out
+        # of the tool response. The paired A/B replay showed that exposing this
+        # verbose structure to the coder added tokens without improving results.
+        self.state.contract_evidence = contract_evidence
+        self.state.contract_evidence_advisories = evidence_advisories
         self.state.coverage_requirements = requirements
         self.state.coverage_warnings = warnings
         profile: dict[str, Any] = {
@@ -1019,7 +1068,6 @@ class Phase3ToolsManager:
             "requirements": requirements,
             "coverage_warnings": warnings,
             "contract_advisories": contract_advisories,
-            "contract_evidence": contract_evidence,
             "correction_required": bool(warnings),
         }
         if isinstance(value, dict):

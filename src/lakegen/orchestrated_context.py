@@ -8,6 +8,7 @@ discovery agent.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -93,10 +94,15 @@ def prepare_discovery_context(
     solr_client: LocalSolrClient,
     all_files: list[str],
     retrieval_config: RetrievalConfig,
+    table_dir: Path | None = None,
 ) -> tuple[PreparedDiscoveryContext, SolrMetadata]:
     """Run the existing retriever and map its ranked hits to local datasets."""
 
-    retriever = get_table_retrieval_service(solr_client, retrieval_config)
+    retriever = get_table_retrieval_service(
+        solr_client,
+        retrieval_config,
+        *([table_dir] if retrieval_config.mode.value == "duckdb_agentic" else []),
+    )
     hits = retriever.retrieve(
         question=query,
         keywords=keywords,

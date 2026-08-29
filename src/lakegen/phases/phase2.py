@@ -49,6 +49,7 @@ def _solr_and_search(
     solr_client: LocalSolrClient,
     all_files: list[str],
     retrieval_config: RetrievalConfig | None = None,
+    table_dir: Path | None = None,
 ) -> tuple[list[str], SolrMetadata]:
     """Execute the configured retriever and return candidates + metadata."""
     candidates: list[str] = []
@@ -56,7 +57,10 @@ def _solr_and_search(
     config = retrieval_config or RetrievalConfig()
 
     try:
-        retriever = get_table_retrieval_service(solr_client, config)
+        retriever = get_table_retrieval_service(
+            solr_client, config,
+            **({"table_dir": table_dir} if config.mode == RetrievalMode.DUCKDB_AGENTIC else {}),
+        )
         hits = retriever.retrieve(
             question=query,
             keywords=keywords,
@@ -128,6 +132,7 @@ def phase2_select_tables(
         solr_client,
         all_files,
         config,
+        csv_dir,
     )
 
     # ── Step 2: No results → reject keywords back to Phase 1 ─────────

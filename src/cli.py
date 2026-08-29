@@ -319,6 +319,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     discovery = run_unified_context(
                         query=question, llm=llm, solr_client=solr,
                         all_files=all_files, retrieval_config=runtime.retrieval,
+                        table_dir=runtime.csv_dir,
                         hint=keyword_hint, stream_callback=_stream_to_terminal,
                     )
                 except (RetrievalRequestProtocolError, OrchestratedContextPreparationError, OrchestratedSelectorError) as exc:
@@ -434,6 +435,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 prepared, solr_meta = prepare_context(
                     query=question, keywords=keywords, solr_client=solr,
                     all_files=all_files, retrieval_config=runtime.retrieval,
+                    table_dir=runtime.csv_dir,
                 )
             except OrchestratedContextPreparationError as exc:
                 tool_access_telemetry["llm_invocations"] += 1
@@ -655,6 +657,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                         prepared, solr_meta = prepare_context(
                             query=question, keywords=keywords, solr_client=solr,
                             all_files=all_files, retrieval_config=runtime.retrieval,
+                            table_dir=runtime.csv_dir,
                         )
                     except OrchestratedContextPreparationError as exc:
                         tool_access_telemetry["llm_invocations"] += 1

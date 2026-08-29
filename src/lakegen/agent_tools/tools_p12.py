@@ -57,6 +57,21 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
         default="single_table",
         description="How the coder should combine the selected tables.",
     )
+    uncovered_requirements: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Essential requirements still not proven by the selected tables. "
+            "Use an empty list when coverage is complete."
+        ),
+    )
+    alternatives_rejected: dict[str, dict[str, object] | str] = Field(
+        default_factory=dict,
+        description=(
+            "At most two inspected alternative filenames mapped to objects with "
+            "`matched_requirements` and one concrete `missing_requirement`. A "
+            "legacy plain missing-requirement string is also accepted."
+        ),
+    )
 
 
 class P12State:
@@ -185,11 +200,13 @@ class Phase12ToolsManager:
                 retriever = get_table_retrieval_service(
                     self.solr_client,
                     self.retrieval_config,
+                    *([self.csv_dir] if self.retrieval_config.mode == RetrievalMode.DUCKDB_AGENTIC else []),
                 )
             else:
                 retriever = get_table_retrieval_service(
                     self.solr_client,
                     self.retrieval_config,
+                    *([self.csv_dir] if self.retrieval_config.mode == RetrievalMode.DUCKDB_AGENTIC else []),
                     observer=self.retrieval_observer,
                 )
             # Solr candidates must first be mapped and de-duplicated against
@@ -449,6 +466,8 @@ class Phase12ToolsManager:
         requirement_coverage: dict[str, dict[str, object]] | None = None,
         table_roles: dict[str, str] | None = None,
         combination_strategy: str = "single_table",
+        uncovered_requirements: list[str] | None = None,
+        alternatives_rejected: dict[str, dict[str, object] | str] | None = None,
     ) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
@@ -498,6 +517,30 @@ class Phase12ToolsManager:
 
         requirement_coverage = requirement_coverage or {}
         table_roles = table_roles or {}
+        uncovered_requirements = list(dict.fromkeys(
+            str(item).strip() for item in (uncovered_requirements or [])
+            if str(item).strip()
+        ))
+        normalized_alternatives: dict[str, dict[str, object]] = {}
+        for raw_table, raw_evidence in (alternatives_rejected or {}).items():
+            table = str(raw_table).strip()
+            if not table:
+                continue
+            if isinstance(raw_evidence, dict):
+                matched = list(dict.fromkeys(
+                    str(item).strip()
+                    for item in raw_evidence.get("matched_requirements", [])
+                    if str(item).strip()
+                ))
+                missing = str(raw_evidence.get("missing_requirement", "")).strip()
+            else:
+                matched = []
+                missing = str(raw_evidence).strip()
+            normalized_alternatives[table] = {
+                "matched_requirements": matched,
+                "missing_requirement": missing,
+            }
+        alternatives_rejected = normalized_alternatives
         selected_set = set(normalized_tables)
         advisories: list[str] = []
 
@@ -549,11 +592,46 @@ class Phase12ToolsManager:
                 "One table was selected but the combination strategy is "
                 f"{combination_strategy}."
             )
+        if uncovered_requirements:
+            advisories.append(
+                "Selection was confirmed with requirements still marked uncovered: "
+                + ", ".join(uncovered_requirements)
+            )
+        if len(alternatives_rejected) > 2:
+            advisories.append(
+                "More than two rejected alternatives were supplied; keep only the "
+                "strongest inspected alternatives in future confirmations."
+            )
+        inspected_names = set(self.state.inspected_candidates())
+        unsupported_alternatives = [
+            table for table in alternatives_rejected
+            if table not in inspected_names
+        ]
+        if unsupported_alternatives:
+            advisories.append(
+                "Rejected alternative(s) were not inspected: "
+                + ", ".join(unsupported_alternatives)
+            )
+        vague_missing = {
+            "", "less relevant", "not relevant", "not needed", "weaker match",
+            "lower ranked", "redundant", "inferior",
+        }
+        for table, evidence in alternatives_rejected.items():
+            matched = evidence.get("matched_requirements", [])
+            missing = str(evidence.get("missing_requirement", "")).casefold()
+            if len(matched) >= 2 and missing in vague_missing:
+                advisories.append(
+                    f"{table} matches multiple essential requirements but no "
+                    "concrete missing requirement justifies excluding it. Reconsider "
+                    "including or preferring this inspected alternative."
+                )
 
         self.state.selection_plan = {
             "requirement_coverage": requirement_coverage,
             "table_roles": table_roles,
             "combination_strategy": combination_strategy,
+            "uncovered_requirements": uncovered_requirements,
+            "alternatives_rejected": alternatives_rejected,
         }
         self.state.selection_advisories = advisories
 

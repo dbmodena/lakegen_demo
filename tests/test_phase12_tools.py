@@ -370,6 +370,69 @@ def test_missing_agentic_plan_is_recovered_as_non_blocking_coder_context():
     assert "treat it as guidance, not as a blocking constraint" in context
 
 
+def test_selection_records_uncovered_requirements_and_rejected_alternatives(tmp_path):
+    state = P12State()
+    state.all_candidates = ["selected.parquet", "alternative.parquet"]
+    state.visible_candidate_count = 2
+    state.inspection_cache = {
+        "selected.parquet": "Schema for selected.parquet",
+        "alternative.parquet": "Schema for alternative.parquet",
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    result = manager.confirm_unified_selection(
+        "selected is the strongest available source",
+        ["selected.parquet"],
+        requirement_coverage={
+            "measure": {"table": "selected.parquet", "columns": ["value"]},
+        },
+        table_roles={"selected.parquet": "fact records"},
+        uncovered_requirements=["requested historical year"],
+        alternatives_rejected={
+            "alternative.parquet": "requested historical year",
+        },
+    )
+
+    payload = json.loads(result.split("FINAL_PAYLOAD: ", 1)[1])
+    plan = payload["selection_plan"]
+    assert plan["uncovered_requirements"] == ["requested historical year"]
+    assert plan["alternatives_rejected"] == {
+        "alternative.parquet": {
+            "matched_requirements": [],
+            "missing_requirement": "requested historical year",
+        }
+    }
+    assert any("still marked uncovered" in item for item in payload["advisories"])
+    context = _reasoning_with_selection_plan("selected", plan, payload["advisories"])
+    assert "alternative.parquet: matches []; lacks requested historical year" in context
+
+
+def test_strong_alternative_without_concrete_missing_requirement_is_advisory(tmp_path):
+    state = P12State()
+    state.all_candidates = ["selected.parquet", "strong-alternative.parquet"]
+    state.visible_candidate_count = 2
+    state.inspection_cache = {
+        "selected.parquet": "Schema for selected.parquet",
+        "strong-alternative.parquet": "Schema for strong-alternative.parquet",
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    result = manager.confirm_unified_selection(
+        "selected is preferred",
+        ["selected.parquet"],
+        alternatives_rejected={
+            "strong-alternative.parquet": {
+                "matched_requirements": ["hydrography subject", "2024 edition"],
+                "missing_requirement": "less relevant",
+            },
+        },
+    )
+
+    payload = json.loads(result.split("FINAL_PAYLOAD: ", 1)[1])
+    assert payload["tables"] == "selected.parquet"
+    assert any("Reconsider including or preferring" in item for item in payload["advisories"])
+
+
 def test_unified_selection_blocks_exact_coder_rejected_combination(tmp_path):
     state = P12State()
     state.all_candidates = ["a.parquet", "b.parquet"]

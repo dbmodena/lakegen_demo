@@ -16,6 +16,7 @@ from lakegen.retrieval.config import (
     RetrievalMode,
 )
 from lakegen.retrieval.embeddings import EmbeddingModel, get_embedding_model
+from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
 from lakegen.retrieval.models import RetrievalHit, RetrievalRun, document_key
 from lakegen.retrieval.pneuma import (
     DocumentResolver,
@@ -335,6 +336,7 @@ class TableRetrievalService:
         missing_score_resolver: MissingScoreResolver | None = None,
         pneuma_client: PneumaClient | None = None,
         pneuma_document_resolver: DocumentResolver | None = None,
+        table_dir: str | None = None,
     ) -> None:
         self.solr = solr
         self.config = config
@@ -368,6 +370,13 @@ class TableRetrievalService:
             if config.mode == RetrievalMode.PNEUMA
             else None
         )
+        self.duckdb_agentic = (
+            DuckDBAgenticRetriever(config, table_dir)
+            if config.mode == RetrievalMode.DUCKDB_AGENTIC and table_dir is not None
+            else None
+        )
+        if config.mode == RetrievalMode.DUCKDB_AGENTIC and self.duckdb_agentic is None:
+            raise ValueError("duckdb_agentic retrieval requires a local table_dir")
 
     def retrieve(
         self,
@@ -397,9 +406,14 @@ class TableRetrievalService:
             elif self.config.mode == RetrievalMode.HYBRID:
                 assert self.hybrid is not None
                 hits = self.hybrid.retrieve(question, keywords, top_k=requested_k)
-            else:
+            elif self.config.mode == RetrievalMode.PNEUMA:
                 assert self.pneuma is not None
                 hits = self.pneuma.retrieve(question, top_k=requested_k)
+            else:
+                assert self.duckdb_agentic is not None
+                hits = self.duckdb_agentic.retrieve(
+                    question, keywords, top_k=requested_k
+                )
         except Exception as exc:
             run = self._run_record(
                 question=question,

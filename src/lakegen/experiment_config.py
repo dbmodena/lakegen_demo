@@ -68,6 +68,10 @@ class RetrievalExperimentConfig(FrozenModel):
     pneuma_index_name: str = Field(default="lakegen", min_length=1)
     pneuma_base_url: str = Field(default="http://localhost:8765", min_length=1)
     pneuma_timeout_seconds: float = Field(default=120.0, gt=0)
+    duckdb_max_files: int = Field(default=250, gt=0)
+    duckdb_max_columns_per_file: int = Field(default=40, gt=0)
+    duckdb_sample_rows: int = Field(default=3, gt=0)
+    duckdb_max_scan_rows_per_file: int = Field(default=100_000, gt=0)
 
     @classmethod
     def from_runtime(cls, value: RetrievalConfig) -> "RetrievalExperimentConfig":

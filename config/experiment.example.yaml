@@ -34,6 +34,7 @@ retrieval:
   #   - semantic: vector KNN search using the complete question
   #   - hybrid: combines BM25 and KNN results
   #   - pneuma: original Pneuma index and ranking (optional environment)
+  #   - duckdb_agentic: index-free agentic keyword search over local Parquet files
   mode: hybrid
 
   # Ranked retrieval pool size. The selector initially sees 10 and can reveal
@@ -88,6 +89,14 @@ retrieval:
   pneuma_index_name: lakegen
   pneuma_base_url: http://localhost:8765
   pneuma_timeout_seconds: 120
+
+  # Controlled local Parquet search settings (mode: duckdb_agentic). The agent
+  # proposes/refines concepts; generated DuckDB queries return matches, counts,
+  # and bounded samples. No model-generated SQL is executed.
+  duckdb_max_files: 250
+  duckdb_max_columns_per_file: 40
+  duckdb_sample_rows: 3
+  duckdb_max_scan_rows_per_file: 100000
 
 # Enables an explicit planning phase.
 # Schema alternatives: false | true

@@ -355,6 +355,7 @@ def run_question(
                         discovery_result = run_unified_orchestrated_discovery(
                             query=question, llm=llm, solr_client=solr,
                             all_files=all_files, retrieval_config=runtime.retrieval,
+                            table_dir=runtime.csv_dir,
                             hint=hint,
                         )
                     except RetrievalRequestProtocolError as exc:
@@ -404,6 +405,7 @@ def run_question(
                         prepared, solr_meta = prepare_discovery_context(
                             query=question, keywords=keywords, solr_client=solr,
                             all_files=all_files, retrieval_config=runtime.retrieval,
+                            table_dir=runtime.csv_dir,
                         )
                     except Exception as preparation_error:
                         exc = OrchestratedContextPreparationError(str(preparation_error))
@@ -541,10 +543,19 @@ def run_question(
                             "coder_context_level": CoderContextLevel.FULL.value,
                         })
                         result.pipeline_stages["code_execution"] = "tables_rejected"
+                        previous_visible = [
+                            table for table in selection_state.all_candidates[
+                                : selection_state.visible_candidate_count
+                            ]
+                            if table not in selected
+                        ][:5]
                         hint = (
                             "The full-context code generator rejected the previous "
-                            "tables. Select different tables. Feedback: "
-                            f"{rejection_reason}"
+                            "table combination. First reassess these previously visible "
+                            "alternatives if retrieval returns them again: "
+                            f"{previous_visible}. Select a different combination. Start "
+                            "a genuinely new search only if none covers the missing "
+                            f"requirement. Feedback: {rejection_reason}"
                         )
                         error = rejection_reason
                         if table_attempt < MAX_TABLE_ATTEMPTS - 1:
@@ -672,9 +683,19 @@ def run_question(
                             "message": generated.rejected_reason,
                         })
                         result.pipeline_stages["code_execution"] = "tables_rejected"
+                        previous_visible = [
+                            table for table in selection_state.all_candidates[
+                                : selection_state.visible_candidate_count
+                            ]
+                            if table not in selected
+                        ][:5]
                         hint = (
-                            "The code generator rejected the previous tables. "
-                            f"Select different tables. Feedback: {generated.rejected_reason}"
+                            "The code generator rejected the previous table combination. "
+                            "First reassess these previously visible alternatives if "
+                            f"retrieval returns them again: {previous_visible}. Select a "
+                            "different combination. Start a genuinely new search only if "
+                            "none covers the missing requirement. Feedback: "
+                            f"{generated.rejected_reason}"
                         )
                         error = generated.rejected_reason
                         break

@@ -221,7 +221,7 @@ def test_inspection_maps_contract_to_code_and_result_evidence(tmp_path):
         "print(result)"
     )
     inspection = json.loads(manager.inspect_result())
-    evidence = inspection["profile"]["contract_evidence"]
+    evidence = state.contract_evidence
 
     grouping = next(row for row in evidence if row["kind"] == "grouping")
     measure = next(row for row in evidence if row["kind"] == "measure")
@@ -229,6 +229,7 @@ def test_inspection_maps_contract_to_code_and_result_evidence(tmp_path):
     assert grouping["result_evidence"] == ["borough"]
     assert measure["code_evidence"] == ["mean aggregation found"]
     assert measure["result_evidence"] == ["average_cases"]
+    assert "contract_evidence" not in inspection["profile"]
     assert inspection["profile"]["correction_required"] is False
 
 
@@ -239,10 +240,14 @@ def test_missing_contract_evidence_is_specific_but_non_blocking(tmp_path):
     manager.run_code("print(42)")
     inspection = json.loads(manager.inspect_result())
 
-    advisories = inspection["profile"]["contract_advisories"]
+    advisories = state.contract_evidence_advisories
     assert any(
         "No explicit code or result evidence for grouping requirement 'borough'"
         in advisory for advisory in advisories
+    )
+    assert not any(
+        str(advisory).startswith("No explicit ")
+        for advisory in inspection["profile"]["contract_advisories"]
     )
     assert inspection["profile"]["correction_required"] is False
 
@@ -269,6 +274,32 @@ def test_contract_accepts_named_pandas_mean_aggregation(tmp_path):
     )
 
     assert "contract_average_missing_in_code" not in warnings
+
+
+def test_frequent_semantic_error_checks_are_compact_and_non_blocking(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        question=(
+            "Which top five borough categories had the most distinct jobs "
+            "from 2018 to 2020?"
+        ),
+    )
+    state.analysis_contract.update({
+        "filters": ["2018 to 2020"],
+        "distinct_counts": ["jobs"],
+        "group_by": ["borough"],
+        "limit": 5,
+    })
+
+    manager.run_code("year = 2018\nresult = df.groupby('borough').size()\nprint(result)")
+    inspection = json.loads(manager.inspect_result())
+    advisories = inspection["profile"]["contract_advisories"]
+
+    assert any(item.startswith("count_semantics_check:") for item in advisories)
+    assert "time_range_check: requested year 2020 is not evident in code" in advisories
+    assert "top_n_check: question requests exactly 5 ranked items" in advisories
+    assert any(item.startswith("category_normalization_check:") for item in advisories)
+    assert inspection["profile"]["correction_required"] is False
 
 
 def test_agentic_coder_returns_structured_execution_error(tmp_path):

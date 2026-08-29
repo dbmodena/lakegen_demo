@@ -60,6 +60,19 @@ def _reasoning_with_selection_plan(
                 columns = evidence.get("columns", [])
                 columns_text = ", ".join(map(str, columns)) if isinstance(columns, list) else str(columns)
                 lines.append(f"- {requirement}: {table} [{columns_text}]")
+    uncovered = plan.get("uncovered_requirements", [])
+    if isinstance(uncovered, list) and uncovered:
+        lines.append("Uncovered requirements: " + "; ".join(map(str, uncovered)))
+    alternatives = plan.get("alternatives_rejected", {})
+    if isinstance(alternatives, dict) and alternatives:
+        lines.append("Inspected alternatives rejected:")
+        for table, evidence in list(alternatives.items())[:2]:
+            if isinstance(evidence, dict):
+                matched = ", ".join(map(str, evidence.get("matched_requirements", [])))
+                missing = evidence.get("missing_requirement", "not specified")
+                lines.append(f"- {table}: matches [{matched}]; lacks {missing}")
+            else:
+                lines.append(f"- {table}: lacks {evidence}")
     if advisories:
         lines.append("Non-blocking architect advisories:")
         lines.extend(f"- {advisory}" for advisory in advisories)
@@ -93,6 +106,8 @@ def _recover_minimal_selection_plan(
         "requirement_coverage": {},
         "table_roles": roles,
         "combination_strategy": strategy,
+        "uncovered_requirements": [],
+        "alternatives_rejected": {},
         "recovered_from_existing_discovery_context": True,
     }
     return plan, [
