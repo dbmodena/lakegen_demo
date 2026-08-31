@@ -19,12 +19,55 @@ from lakegen.agent_tools.tools_p2 import (
 from src.client_solr import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
 from lakegen.core.resources import get_table_retrieval_service
+from lakegen.core.table_io import read_table
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalConfig,
     RetrievalRun,
     RetrievalMode,
 )
+
+
+class SemanticFilterBinding(BaseModel):
+    requirement: str
+    table: str
+    column: str
+    operator: Literal["equals", "contains", "in", "range", "not_null", "other"]
+    value: str = ""
+    evidence: str
+
+
+class SemanticDimensionBinding(BaseModel):
+    output: str
+    table: str
+    column: str
+    evidence: str
+
+
+class SemanticMeasureBinding(BaseModel):
+    output: str
+    operation: Literal[
+        "count_rows", "count_distinct", "sum", "mean", "min", "max",
+        "ratio", "difference", "custom",
+    ]
+    table: str
+    columns: list[str]
+    evidence: str
+
+
+class SemanticOrdering(BaseModel):
+    output: str
+    direction: Literal["ascending", "descending"]
+
+
+class SemanticAnalysisPlan(BaseModel):
+    filters: list[SemanticFilterBinding] = Field(default_factory=list)
+    dimensions: list[SemanticDimensionBinding] = Field(default_factory=list)
+    measures: list[SemanticMeasureBinding]
+    joins: list[str] = Field(default_factory=list)
+    ordering: list[SemanticOrdering] = Field(default_factory=list)
+    limit: int | None = None
+    output_columns: list[str]
 
 
 class ConfirmUnifiedSelectionSchema(BaseModel):
@@ -71,6 +114,13 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
             "`matched_requirements` and one concrete `missing_requirement`. A "
             "legacy plain missing-requirement string is also accepted."
         ),
+    )
+    semantic_plan: SemanticAnalysisPlan = Field(
+        description=(
+            "Non-oracle executable semantics derived only from the question and "
+            "inspected table evidence. Bind every filter, dimension, and measure "
+            "to exact selected-table columns; never use benchmark expectations."
+        )
     )
 
 
@@ -468,6 +518,7 @@ class Phase12ToolsManager:
         combination_strategy: str = "single_table",
         uncovered_requirements: list[str] | None = None,
         alternatives_rejected: dict[str, dict[str, object] | str] | None = None,
+        semantic_plan: dict[str, object] | SemanticAnalysisPlan | None = None,
     ) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
@@ -543,6 +594,50 @@ class Phase12ToolsManager:
         alternatives_rejected = normalized_alternatives
         selected_set = set(normalized_tables)
         advisories: list[str] = []
+
+        contract_first = semantic_plan is not None
+        if isinstance(semantic_plan, SemanticAnalysisPlan):
+            semantic_plan = semantic_plan.model_dump()
+        if contract_first:
+            try:
+                semantic_plan = SemanticAnalysisPlan.model_validate(semantic_plan).model_dump()
+            except Exception as exc:
+                raise ValueError(f"Selection blocked: invalid semantic_plan: {exc}") from exc
+
+            schema_by_table: dict[str, set[str]] = {}
+            for table in normalized_tables:
+                try:
+                    schema_by_table[table] = {
+                        str(column) for column in read_table(
+                            self.csv_dir / table, nrows=0
+                        ).columns
+                    }
+                except Exception as exc:
+                    raise ValueError(
+                        f"Selection blocked: cannot validate schema for {table}: {exc}"
+                    ) from exc
+            invalid_bindings: list[str] = []
+            bindings = [
+                *semantic_plan["filters"],
+                *semantic_plan["dimensions"],
+                *semantic_plan["measures"],
+            ]
+            for binding in bindings:
+                table = str(binding.get("table", ""))
+                columns = binding.get("columns", [binding.get("column", "")])
+                if table not in selected_set:
+                    invalid_bindings.append(f"{table}: table is not selected")
+                    continue
+                for column in columns:
+                    if str(column) not in schema_by_table.get(table, set()):
+                        invalid_bindings.append(f"{table}.{column}: column not found")
+                if not str(binding.get("evidence", "")).strip():
+                    invalid_bindings.append(f"{table}: missing binding evidence")
+            if invalid_bindings:
+                raise ValueError(
+                    "Selection blocked: semantic bindings are not supported by the "
+                    "selected schemas: " + "; ".join(invalid_bindings)
+                )
 
         missing_roles = [table for table in normalized_tables if not table_roles.get(table)]
         if missing_roles:
@@ -626,12 +721,47 @@ class Phase12ToolsManager:
                     "including or preferring this inspected alternative."
                 )
 
+        selection_blockers: list[str] = []
+        if missing_roles:
+            selection_blockers.append("every selected table needs an explicit role")
+        if not requirement_coverage:
+            selection_blockers.append("requirement_coverage is required")
+        if malformed_requirements:
+            selection_blockers.append(
+                "requirement coverage must bind selected tables and columns"
+            )
+        if uncovered_tables:
+            selection_blockers.append(
+                "every selected table must support at least one requirement"
+            )
+        if uncovered_requirements:
+            selection_blockers.append(
+                "uncovered_requirements must be resolved before confirmation"
+            )
+        if (
+            len(normalized_tables) > 1
+            and combination_strategy == "single_table"
+        ) or (
+            len(normalized_tables) == 1
+            and combination_strategy != "single_table"
+        ):
+            selection_blockers.append(
+                "combination_strategy must match the selected table count"
+            )
+        if contract_first and selection_blockers:
+            raise ValueError(
+                "Selection blocked by contract-first validation: "
+                + "; ".join(selection_blockers)
+                + ". Inspect/expand the existing ranked candidates and confirm again."
+            )
+
         self.state.selection_plan = {
             "requirement_coverage": requirement_coverage,
             "table_roles": table_roles,
             "combination_strategy": combination_strategy,
             "uncovered_requirements": uncovered_requirements,
             "alternatives_rejected": alternatives_rejected,
+            "semantic_plan": semantic_plan if contract_first else {},
         }
         self.state.selection_advisories = advisories
 

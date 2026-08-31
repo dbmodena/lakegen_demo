@@ -22,6 +22,16 @@ uv run python src/cli.py --retrieval-mode pneuma "question"
 uv run python src/cli.py --retrieval-mode duckdb_agentic "question"
 ```
 
+`duckdb_agentic` ranks every local Parquet file from its inexpensive footer
+(filename, available descriptive metadata, real column names and types) before
+applying `duckdb_max_files`. To recover terms visible only in row values, it can
+also probe the next `duckdb_probe_files` files using at most
+`duckdb_probe_rows_per_file` rows each. Increasing these two settings improves
+recall for opaque datasets but adds bounded I/O and latency; the normal scan is
+still limited by `duckdb_max_files`, `duckdb_max_columns_per_file`, and
+`duckdb_max_scan_rows_per_file`. Environment overrides are
+`LAKEGEN_DUCKDB_PROBE_FILES` and `LAKEGEN_DUCKDB_PROBE_ROWS_PER_FILE`.
+
 ### Original Pneuma backend
 
 `retrieval.mode: pneuma` uses the original MIT-licensed Pneuma package rather
@@ -152,6 +162,18 @@ scores, normalized scores, ranks, configuration, embedding model, and
 representation version to `logs/retrieval_rankings.jsonl`. The standalone
 helpers in `lakegen.retrieval.evaluation` compute Hit@k, Recall@k, MRR, and
 nDCG@k before downstream table selection or answer generation.
+
+### UK cleaned data layout
+
+For the `uk` portal LakeGen uses the cleaned retained assets by default:
+
+- tables: `data/uk/clean_datasets/parquet`
+- filtered catalog: `data/uk/metadata/metadata_retrieved_cleaned.json`
+- table statistics: `data/uk/metadata/datasets_metadata.csv`
+
+The legacy `data/uk/datasets/*` and `metadata_retrieved_only.json` locations are
+kept only as compatibility fallbacks when the cleaned assets are unavailable.
+NYC continues to use `data/nyc/datasets/parquet`.
 
 ## OCI Generative AI
 

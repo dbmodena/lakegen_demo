@@ -72,6 +72,8 @@ class RetrievalExperimentConfig(FrozenModel):
     duckdb_max_columns_per_file: int = Field(default=40, gt=0)
     duckdb_sample_rows: int = Field(default=3, gt=0)
     duckdb_max_scan_rows_per_file: int = Field(default=100_000, gt=0)
+    duckdb_probe_files: int = Field(default=25, gt=0)
+    duckdb_probe_rows_per_file: int = Field(default=1_000, gt=0)
 
     @classmethod
     def from_runtime(cls, value: RetrievalConfig) -> "RetrievalExperimentConfig":

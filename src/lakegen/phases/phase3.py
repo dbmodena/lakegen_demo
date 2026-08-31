@@ -630,6 +630,7 @@ def phase3_generate_and_execute(
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL,
     evaluation_result_type: str | None = None,
     max_run_calls: int = 3,
+    selection_plan: dict[str, object] | None = None,
 ) -> Phase3Result:
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
@@ -637,27 +638,30 @@ def phase3_generate_and_execute(
     from lakegen.agents.agent_runner import run_agent_workflow
     from lakegen.phases.logging import Phase2AgentStall
 
-    selection_plan: dict[str, object] = {}
-    plan_match = re.search(
-        r"AGENTIC SELECTION PLAN\s*\nCombination strategy:\s*([^\n]+)",
-        reasoning,
-        flags=re.IGNORECASE,
-    )
-    if plan_match:
-        selection_plan["combination_strategy"] = plan_match.group(1).strip()
+    selection_plan = dict(selection_plan or {})
+    if "combination_strategy" not in selection_plan:
+        plan_match = re.search(
+            r"AGENTIC SELECTION PLAN\s*\nCombination strategy:\s*([^\n]+)",
+            reasoning,
+            flags=re.IGNORECASE,
+        )
+        if plan_match:
+            selection_plan["combination_strategy"] = plan_match.group(1).strip()
 
     context_level = CoderContextLevel(coder_context_level)
     tables_info = _build_coder_tables_info(
         tables, Path(csv_dir), context_level, solr_meta
     )
-    system_prompt = pm.render("code_generator", "system_prompt") + (
-        "\n\nYou are now a bounded coding agent. You may call set_analysis_contract "
-        "to record the requested filters, measures, "
-        "grouping, distinct counts, joins, ordering, limit, and semantic output columns. "
+    system_prompt = pm.render("code_generator", "agentic_system_prompt") + (
+        "\n\nYou are a bounded coding agent. The architect semantic plan, when "
+        "present, is already installed as the analysis contract and must not be "
+        "rewritten with set_analysis_contract. For legacy selections without a "
+        "semantic plan, set_analysis_contract may record filters, measures, "
+        "grouping, distinct counts, joins, ordering, limit, and output columns. "
         "Treat a year that names a dataset edition or release (for example, "
         "'using the 2024 ... dataset') as resource provenance, not as a row-level "
         "filter: omit it from filters and do not require a year/date column. "
-        "The contract wording may be concise, but it must preserve every semantic "
+        "The contract must preserve every semantic "
         "qualifier from the question (for example Community, completed, distinct, "
         "and the exact measure being averaged). Objective contract violations block "
         "finalization and require corrected code. "

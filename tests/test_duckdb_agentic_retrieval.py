@@ -171,3 +171,127 @@ def test_uk_ckan_catalog_maps_package_and_resource_ids(tmp_path):
     assert hits[0].document["title"] == "Prompt payments 2025 quarterly results"
     assert "Percentage of supplier invoices" in hits[0].document["description"]
     assert "HM Revenue and Customs" in hits[0].document["tags"]
+
+
+def test_uk_cleaned_catalog_is_preferred_over_legacy_metadata(tmp_path):
+    table_dir = tmp_path / "uk" / "clean_datasets" / "parquet"
+    metadata_dir = tmp_path / "uk" / "metadata"
+    table_dir.mkdir(parents=True)
+    metadata_dir.mkdir()
+    package_id = "11111111-1111-1111-1111-111111111111"
+    resource_id = "22222222-2222-2222-2222-222222222222"
+    filename = f"{package_id}___{resource_id}.parquet"
+    pd.DataFrame({"value": [1]}).to_parquet(table_dir / filename)
+    (metadata_dir / "metadata_retrieved_only.json").write_text(json.dumps([{
+        "id": package_id, "title": "Legacy title",
+        "resources": [{"id": resource_id, "name": "Legacy resource"}],
+    }]))
+    (metadata_dir / "metadata_retrieved_cleaned.json").write_text(json.dumps([{
+        "id": package_id, "title": "Clean title",
+        "resources": [{
+            "id": resource_id, "name": "Clean retained resource",
+            "description": "filtered retained table",
+        }],
+    }]))
+
+    hit = DuckDBAgenticRetriever(
+        RetrievalConfig(mode="duckdb_agentic"), table_dir
+    ).retrieve("retained filtered table", ["retained"], top_k=1)[0]
+
+    assert hit.document["title"] == "Clean retained resource"
+
+
+def test_global_footer_ranking_finds_schema_match_after_first_250(tmp_path):
+    for index in range(250):
+        pd.DataFrame({"opaque": ["unrelated"]}).to_parquet(
+            tmp_path / f"a{index:03d}.parquet"
+        )
+    pd.DataFrame({"bicycle_route": ["R1"]}).to_parquet(
+        tmp_path / "z_relevant.parquet"
+    )
+
+    retriever = DuckDBAgenticRetriever(
+        RetrievalConfig(mode="duckdb_agentic", duckdb_max_files=250), tmp_path
+    )
+    hits = retriever.retrieve("Find bicycle routes", ["bicycle", "route"], top_k=1)
+
+    assert hits[0].document["resource_id"] == "z_relevant.parquet"
+    assert "bicycle_route" in hits[0].document["duckdb_evidence"]["matched_columns"]
+
+
+def test_real_schema_ranks_files_without_descriptive_metadata(tmp_path):
+    pd.DataFrame({"value": ["none"]}).to_parquet(tmp_path / "a_first.parquet")
+    pd.DataFrame({"school_district": [12]}).to_parquet(tmp_path / "z_school.parquet")
+
+    retriever = DuckDBAgenticRetriever(
+        RetrievalConfig(
+            mode="duckdb_agentic",
+            duckdb_max_files=1,
+            duckdb_probe_files=1,
+            duckdb_probe_rows_per_file=1,
+        ),
+        tmp_path,
+    )
+
+    assert retriever._catalog(["school"])[0].path.name == "z_school.parquet"
+    hits = retriever.retrieve("school districts", ["school"], top_k=1)
+    assert hits[0].document["resource_id"] == "z_school.parquet"
+
+
+def test_bounded_probe_promotes_term_found_only_in_values(tmp_path):
+    pd.DataFrame({"opaque": ["unrelated"]}).to_parquet(tmp_path / "a.parquet")
+    pd.DataFrame({"opaque": ["hidden narwhal"]}).to_parquet(tmp_path / "b.parquet")
+
+    hits = DuckDBAgenticRetriever(
+        RetrievalConfig(
+            mode="duckdb_agentic",
+            duckdb_max_files=1,
+            duckdb_probe_files=1,
+            duckdb_probe_rows_per_file=1,
+        ),
+        tmp_path,
+    ).retrieve("Find narwhal records", ["narwhal"], top_k=1)
+
+    assert hits[0].document["resource_id"] == "b.parquet"
+    assert hits[0].document["duckdb_evidence"]["term_counts"]["narwhal"] == 1
+
+
+def test_max_files_is_applied_after_preliminary_ranking(tmp_path):
+    pd.DataFrame({"value": ["none"]}).to_parquet(tmp_path / "a.parquet")
+    pd.DataFrame({"permit_number": [1]}).to_parquet(tmp_path / "z.parquet")
+    retriever = DuckDBAgenticRetriever(
+        RetrievalConfig(mode="duckdb_agentic", duckdb_max_files=1), tmp_path
+    )
+
+    catalog = retriever._catalog(["permit"])
+    assert len(catalog) == 2
+    assert catalog[0].path.name == "z.parquet"
+    assert retriever.retrieve("permit", ["permit"], top_k=1)[0].document[
+        "resource_id"
+    ] == "z.parquet"
+
+
+def test_value_scans_respect_max_rows_per_file(tmp_path):
+    pd.DataFrame({"opaque": ["none", "none", "forbidden-tail-value"]}).to_parquet(
+        tmp_path / "opaque.parquet"
+    )
+    hits = DuckDBAgenticRetriever(
+        RetrievalConfig(
+            mode="duckdb_agentic",
+            duckdb_max_scan_rows_per_file=2,
+            duckdb_probe_rows_per_file=2,
+        ),
+        tmp_path,
+    ).retrieve("forbidden tail value", ["forbidden"], top_k=1)
+
+    assert hits == []
+
+
+def test_preliminary_catalog_order_is_deterministic(tmp_path):
+    for name in ("c.parquet", "a.parquet", "b.parquet"):
+        pd.DataFrame({"opaque": ["none"]}).to_parquet(tmp_path / name)
+    retriever = DuckDBAgenticRetriever(RetrievalConfig(), tmp_path)
+
+    first = [entry.path.name for entry in retriever._catalog(["missing"])]
+    second = [entry.path.name for entry in retriever._catalog(["missing"])]
+    assert first == second == ["a.parquet", "b.parquet", "c.parquet"]

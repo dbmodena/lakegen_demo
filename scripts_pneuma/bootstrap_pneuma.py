@@ -239,10 +239,19 @@ def main() -> None:
     args = build_parser().parse_args()
     tune_duckdb_connections()
     root = Path(__file__).resolve().parents[1]
-    table_dir = (args.table_dir or root / "data" / args.portal / "datasets" / "parquet").resolve()
+    default_dataset_dir = (
+        root / "data" / args.portal
+        / ("clean_datasets" if args.portal.casefold() == "uk" else "datasets")
+        / "parquet"
+    )
+    table_dir = (args.table_dir or default_dataset_dir).resolve()
     metadata_path = (
         args.metadata
-        or root / "data" / args.portal / "metadata" / "metadata_retrieved_only.json"
+        or root / "data" / args.portal / "metadata" / (
+            "metadata_retrieved_cleaned.json"
+            if args.portal.casefold() == "uk"
+            else "metadata_retrieved_only.json"
+        )
     ).resolve()
     out_path = (args.out_path or root / "pneuma-out" / args.portal).resolve()
     out_path.mkdir(parents=True, exist_ok=True)

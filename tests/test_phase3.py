@@ -142,6 +142,46 @@ def test_analysis_contract_requires_year_distinctness_and_top_limit(tmp_path):
     assert state.analysis_contract["limit"] == 3
 
 
+def test_architect_semantic_plan_is_installed_and_cannot_be_overwritten(tmp_path):
+    state = P3State()
+    semantic_plan = {
+        "filters": [{
+            "column": "Partner", "operator": "contains", "value": "Community"
+        }],
+        "dimensions": [{"output": "borough", "column": "BoroName"}],
+        "measures": [{
+            "output": "community_plaza_count", "operation": "count_rows",
+            "columns": ["PlazaName"],
+        }],
+        "joins": [],
+        "ordering": [{
+            "output": "community_plaza_count", "direction": "descending"
+        }],
+        "limit": 3,
+        "output_columns": ["borough", "community_plaza_count"],
+    }
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path,
+        run_dir=tmp_path / "run", evaluation_result_type=None,
+        resolve_code=lambda code, _tables, _csv_dir: (code, None),
+        execute_code=lambda code, **_kwargs: ("42", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+        selection_plan={"semantic_plan": semantic_plan},
+    )
+
+    assert state.architect_contract_locked is True
+    assert state.analysis_contract["filters"] == ["Partner contains Community"]
+    assert state.analysis_contract["limit"] == 3
+    response = json.loads(manager.set_analysis_contract(
+        filters=[], measures=["wrong"], group_by=[], distinct_counts=[],
+        joins=[], ordering="none", limit=None, output_columns=["wrong"],
+    ))
+    assert response["ok"] is False
+    assert state.analysis_contract["output_columns"] == [
+        "borough", "community_plaza_count"
+    ]
+
+
 def test_analysis_contract_treats_dataset_edition_year_as_provenance(tmp_path):
     state, manager = _agentic_tools(
         tmp_path,

@@ -176,6 +176,8 @@ class _CatalogEntry:
     description: str = ""
     tags: tuple[str, ...] = ()
     metadata_term_scores: tuple[tuple[str, float], ...] = ()
+    preliminary_score: float = 0.0
+    preliminary_coverage: int = 0
 
 
 @dataclass
@@ -209,6 +211,9 @@ class DuckDBAgenticRetriever:
 
     def _metadata_path(self) -> Path | None:
         for ancestor in (self.table_dir, *self.table_dir.parents):
+            candidate = ancestor / "metadata" / "metadata_retrieved_cleaned.json"
+            if candidate.is_file():
+                return candidate
             candidate = ancestor / "metadata" / "metadata_retrieved_only.json"
             if candidate.is_file():
                 return candidate
@@ -243,23 +248,30 @@ class DuckDBAgenticRetriever:
     def _catalog(self, terms: Sequence[str]) -> list[_CatalogEntry]:
         paths = sorted((*self.table_dir.glob("*.parquet"), *self.table_dir.glob("*.pq")))
         metadata_catalog = self._metadata_catalog()
-        ranked_paths: list[tuple[Path, dict[str, Any], dict[str, float]]] = []
+        entries: list[_CatalogEntry] = []
         for path in paths:
             metadata = metadata_catalog.get(path.stem.casefold(), {})
             scores = self._metadata_scores(metadata, terms)
-            ranked_paths.append((path, metadata, scores))
-        if metadata_catalog:
-            ranked_paths.sort(key=lambda item: (
-                -sum(item[2].values()),
-                -sum(score > 0 for score in item[2].values()),
-                item[0].name,
-            ))
-        entries: list[_CatalogEntry] = []
-        for path, metadata, scores in ranked_paths[: self.config.duckdb_max_files]:
             try:
                 parquet = pq.ParquetFile(path)
                 columns = tuple(
                     (field.name, str(field.type)) for field in parquet.schema_arrow
+                )
+                filename_terms = {
+                    term for term in terms
+                    if _contains_term(path.stem.casefold(), term)
+                }
+                schema_terms = {
+                    term for term in terms
+                    if any(_contains_term(name.casefold(), term) for name, _ in columns)
+                }
+                coverage = len(filename_terms | schema_terms | {
+                    term for term, score in scores.items() if score > 0
+                })
+                preliminary_score = (
+                    sum(scores.values())
+                    + 8.0 * len(filename_terms)
+                    + 5.0 * len(schema_terms)
                 )
                 entries.append(_CatalogEntry(
                     path,
@@ -269,10 +281,51 @@ class DuckDBAgenticRetriever:
                     description=str(metadata.get("description", "")),
                     tags=tuple(metadata.get("tags", ())),
                     metadata_term_scores=tuple(scores.items()),
+                    preliminary_score=preliminary_score,
+                    preliminary_coverage=coverage,
                 ))
             except (OSError, ValueError):
                 continue
+        entries.sort(key=lambda entry: (
+            -entry.preliminary_score,
+            -entry.preliminary_coverage,
+            entry.path.name,
+        ))
         return entries
+
+    def _probe_has_value_match(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        entry: _CatalogEntry,
+        terms: Sequence[str],
+    ) -> bool:
+        """Probe a small prefix using only internally generated identifiers/SQL."""
+        searchable = [
+            name for name, dtype in entry.columns
+            if any(token in dtype.casefold() for token in ("string", "varchar"))
+        ][: self.config.duckdb_max_columns_per_file]
+        if not searchable:
+            return False
+        projection = _search_projection(searchable)
+        field = _identifier("__lakegen_search_text")
+        variants = [variant for term in terms for variant in _term_variants(term)]
+        predicates = " OR ".join(f"{field} like ?" for _ in variants)
+        source = str(entry.path).replace("'", "''")
+        columns = ", ".join(_identifier(name) for name in searchable)
+        probe_rows = min(
+            self.config.duckdb_probe_rows_per_file,
+            self.config.duckdb_max_scan_rows_per_file,
+        )
+        try:
+            return bool(con.execute(
+                f"WITH source AS (SELECT {columns} FROM read_parquet('{source}') "
+                f"LIMIT {probe_rows}), searchable AS (SELECT {projection} AS "
+                f"{field} FROM source) SELECT count(*) FROM searchable WHERE "
+                f"{predicates} LIMIT 1",
+                [f"%{variant}%" for variant in variants],
+            ).fetchone()[0])
+        except duckdb.Error:
+            return False
 
     def retrieve(
         self, question: str, keywords: Sequence[str], *, top_k: int
@@ -285,7 +338,29 @@ class DuckDBAgenticRetriever:
         con = duckdb.connect(":memory:")
         evidence_rows: list[_SearchEvidence] = []
         try:
-            for entry in catalog:
+            primary_candidates = catalog[: self.config.duckdb_max_files]
+            probe_candidates = catalog[
+                self.config.duckdb_max_files:
+                self.config.duckdb_max_files + self.config.duckdb_probe_files
+            ]
+            probed_matches = [
+                entry for entry in probe_candidates
+                if self._probe_has_value_match(con, entry, terms)
+            ]
+            # Value-only matches get priority over equally opaque candidates, but
+            # the expensive second phase still scans at most duckdb_max_files.
+            candidate_pool = [(entry, False) for entry in primary_candidates]
+            candidate_pool.extend((entry, True) for entry in probed_matches)
+            candidate_pool.sort(key=lambda item: (
+                -int(item[1]),
+                -item[0].preliminary_score,
+                -item[0].preliminary_coverage,
+                item[0].path.name,
+            ))
+            selected_entries = [
+                entry for entry, _ in candidate_pool[: self.config.duckdb_max_files]
+            ]
+            for entry in selected_entries:
                 # Always search the bounded textual projection. Restricting content
                 # search to columns whose *names* match a term loses tables where a
                 # subject appears only in values (the failure found by the canary).

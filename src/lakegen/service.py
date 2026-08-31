@@ -659,6 +659,7 @@ def run_question(
                         evaluation_result_type=(
                             expected_result_type if code_evaluation_enabled else None
                         ),
+                        selection_plan=dict(selection_state.selection_plan),
                     )
                     phase_invocation_counts["code"] += 1
                     result.tokens["p3"] += generated.tokens

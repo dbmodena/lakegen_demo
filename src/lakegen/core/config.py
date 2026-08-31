@@ -33,11 +33,15 @@ LOG_DIR = BASE_DIR / paths.get("logs_dir", "logs")
 
 
 def resolve_portal_tables_dir(portal: str) -> Path:
-    datasets_dir = BASE_DIR / "data" / portal / "datasets"
-    candidates = (
-        datasets_dir / "parquets",
-        datasets_dir / "parquet",
-        datasets_dir / "csv",
+    portal_dir = BASE_DIR / "data" / portal
+    dataset_roots = (
+        portal_dir / "clean_datasets",
+        portal_dir / "datasets",
+    ) if portal.casefold() == "uk" else (portal_dir / "datasets",)
+    candidates = tuple(
+        root / name
+        for root in dataset_roots
+        for name in ("parquets", "parquet", "csv")
     )
     supported_suffixes = {".parquet", ".pq", ".csv"}
     for candidate in candidates:
@@ -47,3 +51,25 @@ def resolve_portal_tables_dir(portal: str) -> Path:
         ):
             return candidate
     return next((candidate for candidate in candidates if candidate.is_dir()), candidates[0])
+
+
+def resolve_portal_metadata_path(portal: str) -> Path:
+    """Return the filtered metadata catalog, preferring cleaned UK metadata."""
+    metadata_dir = BASE_DIR / "data" / portal / "metadata"
+    names = (
+        "metadata_retrieved_cleaned.json",
+        "metadata_retrieved_only.json",
+        "metadata.json",
+    ) if portal.casefold() == "uk" else (
+        "metadata_retrieved_only.json",
+        "metadata.json",
+    )
+    return next(
+        (metadata_dir / name for name in names if (metadata_dir / name).is_file()),
+        metadata_dir / names[0],
+    )
+
+
+def resolve_portal_dataset_statistics_path(portal: str) -> Path:
+    """Return the cleaned per-table statistics CSV for a portal."""
+    return BASE_DIR / "data" / portal / "metadata" / "datasets_metadata.csv"

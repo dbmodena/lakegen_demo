@@ -97,6 +97,11 @@ retrieval:
   duckdb_max_columns_per_file: 40
   duckdb_sample_rows: 3
   duckdb_max_scan_rows_per_file: 100000
+  # After global footer ranking, cheaply probe this many following files for
+  # terms that occur only in values. Higher values improve recall at the cost
+  # of extra I/O and latency; each probe remains row- and column-bounded.
+  duckdb_probe_files: 25
+  duckdb_probe_rows_per_file: 1000
 
 # Enables an explicit planning phase.
 # Schema alternatives: false | true

@@ -127,6 +127,7 @@ class P3State:
     contract_evidence: list[dict[str, Any]] = field(default_factory=list)
     contract_evidence_advisories: list[str] = field(default_factory=list)
     missing_column_failures: dict[str, int] = field(default_factory=dict)
+    architect_contract_locked: bool = False
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -184,6 +185,61 @@ class Phase3ToolsManager:
         self.resolve_code = resolve_code
         self.execute_code = execute_code
         self.extract_payload = extract_payload
+        semantic_plan = self.selection_plan.get("semantic_plan")
+        if isinstance(semantic_plan, dict):
+            self.state.analysis_contract = self._contract_from_semantic_plan(
+                semantic_plan
+            )
+            self.state.architect_contract_locked = True
+
+    @staticmethod
+    def _contract_from_semantic_plan(plan: dict[str, Any]) -> dict[str, Any]:
+        filters = []
+        for binding in plan.get("filters", []):
+            if not isinstance(binding, dict):
+                continue
+            expression = " ".join(filter(None, [
+                str(binding.get("column") or "").strip(),
+                str(binding.get("operator") or "").strip(),
+                str(binding.get("value") or "").strip(),
+            ]))
+            filters.append(expression)
+        measures = []
+        distinct_counts = []
+        for binding in plan.get("measures", []):
+            if not isinstance(binding, dict):
+                continue
+            operation = str(binding.get("operation") or "").strip()
+            output = str(binding.get("output") or "").strip()
+            columns = ", ".join(map(str, binding.get("columns", [])))
+            measures.append(" ".join(filter(None, [operation, columns, "as", output])))
+            if operation == "count_distinct":
+                distinct_counts.extend(map(str, binding.get("columns", [])))
+        dimensions = [
+            str(binding.get("output") or binding.get("column") or "").strip()
+            for binding in plan.get("dimensions", []) if isinstance(binding, dict)
+        ]
+        ordering = "; ".join(
+            " ".join(filter(None, [
+                str(item.get("output") or "").strip(),
+                str(item.get("direction") or "").strip(),
+            ]))
+            for item in plan.get("ordering", []) if isinstance(item, dict)
+        ) or "none"
+        return {
+            "filters": list(dict.fromkeys(filter(None, filters))),
+            "measures": list(dict.fromkeys(filter(None, measures))),
+            "group_by": list(dict.fromkeys(filter(None, dimensions))),
+            "distinct_counts": list(dict.fromkeys(filter(None, distinct_counts))),
+            "joins": [str(item).strip() for item in plan.get("joins", []) if str(item).strip()],
+            "ordering": ordering,
+            "limit": plan.get("limit"),
+            "output_columns": [
+                str(item).strip() for item in plan.get("output_columns", [])
+                if str(item).strip()
+            ],
+            "source": "architect_semantic_plan",
+        }
 
     def set_analysis_contract(
         self,
@@ -197,6 +253,13 @@ class Phase3ToolsManager:
         output_columns: list[str],
     ) -> str:
         """Declare the question semantics before writing or executing code."""
+        if self.state.architect_contract_locked:
+            return json.dumps({
+                "ok": False,
+                "error": "architect_semantic_plan_is_authoritative",
+                "contract": self.state.analysis_contract,
+                "next_action": "Write the program and call run_code.",
+            }, ensure_ascii=False)
         contract = {
             "filters": self._clean_contract_items(filters),
             "measures": self._clean_contract_items(measures),

@@ -63,6 +63,10 @@ def _reasoning_with_selection_plan(
     uncovered = plan.get("uncovered_requirements", [])
     if isinstance(uncovered, list) and uncovered:
         lines.append("Uncovered requirements: " + "; ".join(map(str, uncovered)))
+    semantic_plan = plan.get("semantic_plan")
+    if isinstance(semantic_plan, dict):
+        lines.append("Semantic analysis plan (authoritative, non-oracle JSON):")
+        lines.append(json.dumps(semantic_plan, ensure_ascii=False, sort_keys=True))
     alternatives = plan.get("alternatives_rejected", {})
     if isinstance(alternatives, dict) and alternatives:
         lines.append("Inspected alternatives rejected:")

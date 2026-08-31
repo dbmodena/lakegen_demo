@@ -48,6 +48,8 @@ class RetrievalConfig:
     duckdb_max_columns_per_file: int = 40
     duckdb_sample_rows: int = 3
     duckdb_max_scan_rows_per_file: int = 100_000
+    duckdb_probe_files: int = 25
+    duckdb_probe_rows_per_file: int = 1_000
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", RetrievalMode(self.mode))
@@ -72,6 +74,8 @@ class RetrievalConfig:
             "duckdb_max_columns_per_file",
             "duckdb_sample_rows",
             "duckdb_max_scan_rows_per_file",
+            "duckdb_probe_files",
+            "duckdb_probe_rows_per_file",
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be greater than zero")
@@ -154,5 +158,11 @@ class RetrievalConfig:
             ),
             duckdb_max_scan_rows_per_file=int(
                 os.environ.get("LAKEGEN_DUCKDB_MAX_SCAN_ROWS_PER_FILE", "100000")
+            ),
+            duckdb_probe_files=int(
+                os.environ.get("LAKEGEN_DUCKDB_PROBE_FILES", "25")
+            ),
+            duckdb_probe_rows_per_file=int(
+                os.environ.get("LAKEGEN_DUCKDB_PROBE_ROWS_PER_FILE", "1000")
             ),
         )

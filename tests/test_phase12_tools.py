@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import pandas as pd
 
 from lakegen.agent_tools import tools_p12
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
@@ -15,6 +16,58 @@ from lakegen.retrieval import (
     RetrievalHit,
     RetrievalMode,
 )
+
+
+def _semantic_plan(table="a.parquet", measure_column="value"):
+    return {
+        "filters": [{
+            "requirement": "year 2020", "table": table, "column": "year",
+            "operator": "equals", "value": "2020", "evidence": "observed schema",
+        }],
+        "dimensions": [{
+            "output": "district", "table": table, "column": "district",
+            "evidence": "observed schema",
+        }],
+        "measures": [{
+            "output": "average_value", "operation": "mean", "table": table,
+            "columns": [measure_column], "evidence": "numeric inspected column",
+        }],
+        "joins": [], "ordering": [], "limit": None,
+        "output_columns": ["district", "average_value"],
+    }
+
+
+def test_contract_first_selection_validates_and_records_semantic_bindings(tmp_path):
+    pd.DataFrame({
+        "year": [2020], "district": [1], "value": [2.0]
+    }).to_parquet(tmp_path / "a.parquet")
+    state = P12State()
+    state.all_candidates = ["a.parquet"]
+    state.visible_candidate_count = 1
+    state.inspection_cache["a.parquet"] = "inspected schema"
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+    kwargs = {
+        "requirement_coverage": {
+            "2020 district average": {
+                "table": "a.parquet", "columns": ["year", "district", "value"],
+            }
+        },
+        "table_roles": {"a.parquet": "fact records"},
+        "semantic_plan": _semantic_plan(),
+    }
+
+    result = manager.confirm_unified_selection(
+        "The table contains all required facts.", ["a.parquet"], **kwargs
+    )
+
+    assert "FINAL_PAYLOAD" in result
+    assert state.selection_plan["semantic_plan"]["measures"][0]["operation"] == "mean"
+
+    kwargs["semantic_plan"] = _semantic_plan(measure_column="invented")
+    with pytest.raises(ValueError, match="column not found"):
+        manager.confirm_unified_selection(
+            "The table contains all required facts.", ["a.parquet"], **kwargs
+        )
 
 
 def _hit(resource_id, rank, columns):
