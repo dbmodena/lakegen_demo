@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import ast
 import difflib
+import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -125,6 +126,7 @@ class P3State:
     contract_advisories: list[str] = field(default_factory=list)
     contract_evidence: list[dict[str, Any]] = field(default_factory=list)
     contract_evidence_advisories: list[str] = field(default_factory=list)
+    missing_column_failures: dict[str, int] = field(default_factory=dict)
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -399,6 +401,40 @@ class Phase3ToolsManager:
                 "The missing label was renamed earlier in the generated pipeline. "
                 f"Use the post-rename label in downstream expressions: {replacements}."
             )
+
+    def _reject_after_repeated_missing_column(self, error: dict[str, Any]) -> None:
+        """Escalate a repeated, genuinely absent column back to discovery."""
+        if error.get("category") != "missing_column":
+            return
+        column = str(error.get("column") or "").strip()
+        if not column or error.get("rename_hints"):
+            return
+        available = {
+            re.sub(r"[^a-z0-9]", "", item.casefold())
+            for item in error.get("source_columns", [])
+        }
+        normalized = re.sub(r"[^a-z0-9]", "", column.casefold())
+        if normalized in available or error.get("closest_columns"):
+            return
+        failures = self.state.missing_column_failures.get(normalized, 0) + 1
+        self.state.missing_column_failures[normalized] = failures
+        if failures < 2:
+            return
+        self.state.rejected_reason = (
+            f"Required column {column!r} is absent from every selected table after "
+            "two corrected execution attempts."
+        )
+        self.state.rejection_details = {
+            "missing_requirements": [f"source column {column}"],
+            "inspected_evidence": (
+                "The repeated KeyError has no exact, close, or rename-mapped match "
+                f"among {len(available)} selected-table columns."
+            ),
+        }
+        self.state.lifecycle = CoderLifecycle.TABLES_INSUFFICIENT
+        error["retryable"] = False
+        error["escalate_to_discovery"] = True
+        error["next_actions"] = ["retry_table_discovery"]
 
     def inspect_table(self, file_name: str, columns: str = "") -> str:
         """Inspect a selected table from one cached sample. Up to eight columns may be profiled progressively."""
@@ -675,6 +711,7 @@ class Phase3ToolsManager:
             self.state.raw_result = None
             self.state.execution_error = classify_execution_error(error)
             self._enrich_column_error(self.state.execution_error)
+            self._reject_after_repeated_missing_column(self.state.execution_error)
             return json.dumps({"ok": False, "attempt": self.state.run_count, "error": self.state.execution_error})
 
         self.state.error = None
@@ -748,6 +785,13 @@ class Phase3ToolsManager:
                 "count_semantics_check: question requests distinct entities but "
                 "code does not show a distinct-count operation"
             )
+        if not distinct_requested and any(
+            marker in lowered for marker in ("nunique(", "drop_duplicates(")
+        ):
+            warnings.append(
+                "unsupported_distinct_semantics: code deduplicates or counts unique "
+                "values although the question does not request distinct entities"
+            )
         measures = " ".join(contract.get("measures", [])).casefold()
         has_mean_aggregation = bool(re.search(
             r"(?:\.mean\s*\(|\b(?:np|numpy)\.mean\s*\(|['\"]mean['\"])",
@@ -755,6 +799,14 @@ class Phase3ToolsManager:
         ))
         if ("average" in measures or "mean" in measures) and not has_mean_aggregation:
             warnings.append("contract_average_missing_in_code")
+        if any(marker in lowered for marker in ("pd.qcut(", ".qcut(", "pd.cut(", ".cut(")) and not re.search(
+            r"\b(?:quantile|quartile|quintile|decile|tertile|equal[- ](?:sized|width)|bins?)\b",
+            question,
+        ):
+            warnings.append(
+                "unsupported_bucket_assumption: code invents statistical bucket "
+                "boundaries that are not specified by the question"
+            )
         if contract.get("joins") and not any(
             marker in lowered for marker in (".merge(", ".join(", "pd.merge(")
         ):
@@ -1087,6 +1139,7 @@ class Phase3ToolsManager:
         requirements, warnings, coverage = self._coverage(value)
         warnings = list(dict.fromkeys([
             *warnings,
+            *self._blocking_contract_code_warnings(),
             *self._validate_contract_result(value),
         ]))
         contract_advisories = list(dict.fromkeys([
@@ -1133,6 +1186,28 @@ class Phase3ToolsManager:
             "profile": profile,
         }, ensure_ascii=False, default=str)
 
+    def _blocking_contract_code_warnings(self) -> list[str]:
+        """Promote only objective code/contract violations to retry blockers."""
+        blocking_prefixes = (
+            "contract_filter_missing_in_code:",
+            "contract_distinct_count_missing_in_code",
+            "count_semantics_check:",
+            "unsupported_distinct_semantics:",
+            "contract_average_missing_in_code",
+            "unsupported_bucket_assumption:",
+            "contract_join_missing_in_code",
+            "contract_grouping_missing_in_code",
+            "time_range_check:",
+            "contract_limit_missing_in_code:",
+            "contract_ordering_missing_in_code",
+            "top_n_check:",
+            "selection_strategy_not_evident_in_code:",
+        )
+        return [
+            warning for warning in self.state.contract_code_warnings
+            if warning.startswith(blocking_prefixes)
+        ]
+
     def _validate_contract_result(self, value: Any) -> list[str]:
         contract = self.state.analysis_contract
         warnings: list[str] = []
@@ -1145,6 +1220,95 @@ class Phase3ToolsManager:
         if contract.get("group_by") and isinstance(value, list) and value:
             if not all(isinstance(item, dict) for item in value):
                 warnings.append("contract_grouped_result_requires_record_rows")
+                return warnings
+
+        if not isinstance(value, list) or not value or not all(
+            isinstance(item, dict) for item in value
+        ):
+            if isinstance(value, float) and not math.isfinite(value):
+                warnings.append("contract_result_non_finite_numeric_value")
+            return warnings
+
+        fields = list(dict.fromkeys(
+            str(field) for row in value for field in row
+        ))
+
+        def matching_fields(label: str) -> list[str]:
+            normalized = re.sub(r"[^a-z0-9]+", " ", label.casefold()).strip()
+            if normalized in {"", "result", "requested result", "value", "requested value"}:
+                return []
+            return [field for field in fields if self._label_is_evident(label, [field])]
+
+        for required in contract.get("output_columns", []):
+            if not matching_fields(str(required)) and str(required).casefold().strip() not in {
+                "requested result", "requested value", "result", "value",
+            }:
+                warnings.append(
+                    f"contract_result_missing_output_column: {required}; "
+                    f"available={fields[:20]}"
+                )
+
+        group_fields: list[str] = []
+        for dimension in contract.get("group_by", []):
+            matches = matching_fields(str(dimension))
+            if len(matches) == 1:
+                group_fields.append(matches[0])
+        if group_fields:
+            keys = [tuple(row.get(field) for field in group_fields) for row in value]
+            if len(set(keys)) != len(keys):
+                warnings.append(
+                    "contract_result_duplicate_group_keys: " + ", ".join(group_fields)
+                )
+
+        measure_fields: list[str] = []
+        for measure in [*contract.get("measures", []), *contract.get("output_columns", [])]:
+            for field in matching_fields(str(measure)):
+                if field not in measure_fields:
+                    measure_fields.append(field)
+        for field in measure_fields:
+            numeric = [
+                float(row[field]) for row in value
+                if field in row and isinstance(row[field], (int, float))
+                and not isinstance(row[field], bool)
+            ]
+            if numeric and not any(math.isfinite(number) for number in numeric):
+                warnings.append(f"contract_result_all_non_finite: {field}")
+
+        ordering = str(contract.get("ordering") or "none").casefold()
+        if ordering not in {"", "none", "not applicable", "n/a"}:
+            ordering_matches = [
+                field for field in measure_fields
+                if self._label_is_evident(ordering, [field])
+            ]
+            candidates = ordering_matches or measure_fields
+            numeric_candidates = []
+            for field in candidates:
+                values = [row.get(field) for row in value]
+                if values and all(
+                    isinstance(item, (int, float)) and not isinstance(item, bool)
+                    for item in values
+                ):
+                    numeric_candidates.append(field)
+            if len(numeric_candidates) == 1:
+                field = numeric_candidates[0]
+                numbers = [float(row[field]) for row in value]
+                descending = any(term in ordering for term in (
+                    "desc", "highest", "largest", "most", "top"
+                ))
+                ascending = any(term in ordering for term in (
+                    "asc", "lowest", "smallest", "least", "bottom"
+                ))
+                ordered = (
+                    all(left >= right for left, right in zip(numbers, numbers[1:]))
+                    if descending else
+                    all(left <= right for left, right in zip(numbers, numbers[1:]))
+                    if ascending else True
+                )
+                if not ordered:
+                    direction = "descending" if descending else "ascending"
+                    warnings.append(
+                        f"contract_result_order_mismatch: {field} is not {direction}"
+                    )
         return warnings
 
     def finish_code(

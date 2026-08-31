@@ -190,8 +190,88 @@ def test_contract_code_warnings_are_non_blocking_advisories(tmp_path):
     advisories = inspection["profile"]["contract_advisories"]
     assert "contract_distinct_count_missing_in_code" in advisories
     assert "contract_limit_missing_in_code: 3" in advisories
-    assert inspection["profile"]["coverage_warnings"] == []
-    assert inspection["state"] == "ready_to_finish"
+    assert "contract_distinct_count_missing_in_code" in inspection["profile"]["coverage_warnings"]
+    assert "contract_limit_missing_in_code: 3" in inspection["profile"]["coverage_warnings"]
+    assert inspection["state"] == "needs_revision"
+
+
+def test_contract_blocks_unrequested_distinct_and_quantile_assumptions(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        question="How does average duration differ for short, medium, and long segments?",
+        execute=lambda code, **_kwargs: (
+            '[{"length_category":"short","avg_duration":2}]', None, code
+        ),
+    )
+    state.analysis_contract = {
+        "filters": [], "measures": ["average duration"],
+        "group_by": ["length category"], "distinct_counts": [], "joins": [],
+        "ordering": "none", "limit": None,
+        "output_columns": ["length_category", "avg_duration"],
+    }
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda raw: (raw, json.loads(raw), None)
+
+    manager.run_code(
+        "bucket = pd.qcut(df['length'], 3)\n"
+        "df = df.drop_duplicates()\n"
+        "result = df.groupby(bucket).agg(avg_duration=('duration', 'mean'))\n"
+        "print(result)"
+    )
+    inspection = json.loads(manager.inspect_result())
+    warnings = inspection["profile"]["coverage_warnings"]
+
+    assert any(item.startswith("unsupported_distinct_semantics:") for item in warnings)
+    assert any(item.startswith("unsupported_bucket_assumption:") for item in warnings)
+    assert inspection["state"] == "needs_revision"
+
+
+def test_contract_result_blocks_missing_columns_order_and_duplicate_groups(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            '[{"borough":"Queens","score":1},'
+            '{"borough":"Queens","score":3}]', None, code
+        ),
+    )
+    state.analysis_contract = {
+        "filters": [], "measures": ["score"], "group_by": ["borough"],
+        "distinct_counts": [], "joins": [], "ordering": "score descending",
+        "limit": 2, "output_columns": ["borough", "score", "count"],
+    }
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda raw: (raw, json.loads(raw), None)
+
+    manager.run_code("print('result')")
+    inspection = json.loads(manager.inspect_result())
+    warnings = inspection["profile"]["coverage_warnings"]
+
+    assert inspection["profile"]["correction_required"] is True
+    assert any(item.startswith("contract_result_missing_output_column: count") for item in warnings)
+    assert "contract_result_duplicate_group_keys: borough" in warnings
+    assert "contract_result_order_mismatch: score is not descending" in warnings
+    assert inspection["allowed_actions"] == ["run_code", "reject_tables"]
+
+
+def test_contract_result_blocks_all_non_finite_measure_values(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            '[{"district":"A","ratio":NaN}]', None, code
+        ),
+    )
+    state.analysis_contract = {
+        "filters": [], "measures": ["ratio"], "group_by": ["district"],
+        "distinct_counts": [], "joins": [], "ordering": "none",
+        "limit": None, "output_columns": ["district", "ratio"],
+    }
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda raw: (raw, json.loads(raw), None)
+
+    manager.run_code("print('result')")
+    inspection = json.loads(manager.inspect_result())
+
+    assert "contract_result_all_non_finite: ratio" in inspection["profile"]["coverage_warnings"]
 
 
 def test_inspection_maps_contract_to_code_and_result_evidence(tmp_path):
@@ -233,7 +313,7 @@ def test_inspection_maps_contract_to_code_and_result_evidence(tmp_path):
     assert inspection["profile"]["correction_required"] is False
 
 
-def test_missing_contract_evidence_is_specific_but_non_blocking(tmp_path):
+def test_missing_contract_evidence_is_specific_and_objective_code_gap_blocks(tmp_path):
     state, manager = _agentic_tools(tmp_path)
     state.analysis_contract["group_by"] = ["borough"]
 
@@ -249,7 +329,8 @@ def test_missing_contract_evidence_is_specific_but_non_blocking(tmp_path):
         str(advisory).startswith("No explicit ")
         for advisory in inspection["profile"]["contract_advisories"]
     )
-    assert inspection["profile"]["correction_required"] is False
+    assert inspection["profile"]["correction_required"] is True
+    assert "contract_grouping_missing_in_code" in inspection["profile"]["coverage_warnings"]
 
 
 def test_contract_accepts_school_year_encoded_in_column_name(tmp_path):
@@ -276,7 +357,7 @@ def test_contract_accepts_named_pandas_mean_aggregation(tmp_path):
     assert "contract_average_missing_in_code" not in warnings
 
 
-def test_frequent_semantic_error_checks_are_compact_and_non_blocking(tmp_path):
+def test_frequent_semantic_error_checks_block_objective_gaps(tmp_path):
     state, manager = _agentic_tools(
         tmp_path,
         question=(
@@ -299,7 +380,7 @@ def test_frequent_semantic_error_checks_are_compact_and_non_blocking(tmp_path):
     assert "time_range_check: requested year 2020 is not evident in code" in advisories
     assert "top_n_check: question requests exactly 5 ranked items" in advisories
     assert any(item.startswith("category_normalization_check:") for item in advisories)
-    assert inspection["profile"]["correction_required"] is False
+    assert inspection["profile"]["correction_required"] is True
 
 
 def test_agentic_coder_returns_structured_execution_error(tmp_path):
@@ -315,6 +396,24 @@ def test_agentic_coder_returns_structured_execution_error(tmp_path):
     assert '"category": "missing_column"' in response
     assert state.execution_error["stage"] == "execution"
     assert state.execution_error["column"] == "missing_total"
+
+
+def test_repeated_unmapped_missing_column_escalates_to_discovery(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            None, "KeyError: 'EXPULSIONS'", code
+        ),
+    )
+
+    first = json.loads(manager.run_code("print(df['EXPULSIONS'])"))
+    second = json.loads(manager.run_code("print(df['EXPULSIONS'])"))
+
+    assert first["error"]["retryable"] is True
+    assert second["error"]["retryable"] is False
+    assert second["error"]["escalate_to_discovery"] is True
+    assert state.lifecycle.value == "tables_insufficient"
+    assert "absent from every selected table" in state.rejected_reason
 
 
 def test_missing_column_error_reports_post_rename_label(tmp_path):
@@ -452,7 +551,7 @@ def test_degraded_recovery_preserves_inspected_result_and_warnings(tmp_path):
     assert state.review["coverage_warnings"]
 
 
-def test_contract_semantic_checks_are_advisory_and_cover_plan_usage(tmp_path):
+def test_contract_semantic_checks_block_objective_plan_usage_gaps(tmp_path):
     state, manager = _agentic_tools(tmp_path)
     manager.tables = ["events.csv", "boroughs.csv"]
     manager.selection_plan = {"combination_strategy": "join"}
@@ -465,7 +564,7 @@ def test_contract_semantic_checks_are_advisory_and_cover_plan_usage(tmp_path):
     assert "contract_grouping_missing_in_code" in advisories
     assert "selected_tables_not_loaded_in_code: boroughs.csv" in advisories
     assert "selection_strategy_not_evident_in_code: join" in advisories
-    assert inspection["profile"]["correction_required"] is False
+    assert inspection["profile"]["correction_required"] is True
 
 
 def test_coverage_counts_nested_top_five_as_five_semantic_items(tmp_path):
@@ -544,7 +643,9 @@ def test_coverage_problem_blocks_finish_but_allows_corrected_run(tmp_path):
     else:
         raise AssertionError("coverage warning should block finish_code")
 
-    assert '"ok": true' in manager.run_code("print('corrected')")
+    assert '"ok": true' in manager.run_code(
+        "result = df.sort_values('score', ascending=False).head(3)\nprint(result)"
+    )
     second = json.loads(manager.inspect_result())
     assert second["profile"]["correction_required"] is False
     requirement = state.coverage_requirements[0]
