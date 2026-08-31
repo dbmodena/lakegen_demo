@@ -37,6 +37,17 @@ class SemanticFilterBinding(BaseModel):
     evidence: str
 
 
+class SemanticTemporalFilterBinding(SemanticFilterBinding):
+    """A row-level time constraint (dataset-edition years do not belong here)."""
+
+
+class SemanticJoinBinding(BaseModel):
+    tables: list[str]
+    keys: dict[str, str]
+    how: Literal["inner", "left", "right", "outer"] = "inner"
+    evidence: str
+
+
 class SemanticDimensionBinding(BaseModel):
     output: str
     table: str
@@ -52,6 +63,7 @@ class SemanticMeasureBinding(BaseModel):
     ]
     table: str
     columns: list[str]
+    distinct: bool = False
     evidence: str
 
 
@@ -62,12 +74,15 @@ class SemanticOrdering(BaseModel):
 
 class SemanticAnalysisPlan(BaseModel):
     filters: list[SemanticFilterBinding] = Field(default_factory=list)
+    temporal_filters: list[SemanticTemporalFilterBinding] = Field(default_factory=list)
     dimensions: list[SemanticDimensionBinding] = Field(default_factory=list)
     measures: list[SemanticMeasureBinding]
-    joins: list[str] = Field(default_factory=list)
+    joins: list[SemanticJoinBinding | str] = Field(default_factory=list)
     ordering: list[SemanticOrdering] = Field(default_factory=list)
     limit: int | None = None
     output_columns: list[str]
+    null_policy: str = "preserve nulls unless the requested operation requires exclusion"
+    table_roles: dict[str, str] = Field(default_factory=dict)
 
 
 class ConfirmUnifiedSelectionSchema(BaseModel):
@@ -619,6 +634,7 @@ class Phase12ToolsManager:
             invalid_bindings: list[str] = []
             bindings = [
                 *semantic_plan["filters"],
+                *semantic_plan["temporal_filters"],
                 *semantic_plan["dimensions"],
                 *semantic_plan["measures"],
             ]

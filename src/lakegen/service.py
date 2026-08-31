@@ -535,6 +535,8 @@ def run_question(
                         phase_invocation_counts=phase_invocation_counts,
                         max_attempts=MAX_CODE_ATTEMPTS,
                         context_levels=[CoderContextLevel.FULL],
+                        selection_plan=dict(selection_state.selection_plan),
+                        source_field_names=list((log_context or {}).keys()),
                     )
                     primary = variants[CoderContextLevel.FULL.value]
                     if primary["status"] == "tables_rejected":
@@ -586,6 +588,8 @@ def run_question(
                             CoderContextLevel.SCHEMA_ONLY,
                             CoderContextLevel.MINIMAL,
                         ],
+                        selection_plan=dict(selection_state.selection_plan),
+                        source_field_names=list((log_context or {}).keys()),
                     ))
                     result.coder_context_experiment = {
                         "shared_retrieval": True,
@@ -656,10 +660,9 @@ def run_question(
                         seed=reproducibility.effective_seed,
                         seed_instruction_recorder=record_seed_instruction,
                         coder_context_level=experiment.coder_context_level,
-                        evaluation_result_type=(
-                            expected_result_type if code_evaluation_enabled else None
-                        ),
+                        evaluation_result_type=None,
                         selection_plan=dict(selection_state.selection_plan),
+                        source_field_names=list((log_context or {}).keys()),
                     )
                     phase_invocation_counts["code"] += 1
                     result.tokens["p3"] += generated.tokens
@@ -860,6 +863,17 @@ def run_question(
                 for item in result.tool_calls
                 if item["actor"] == "agent"
             ]
+            if result.coder_context_experiment:
+                context_telemetry["coder_context_audit"] = {
+                    level: variant.get("coder_context_audit")
+                    for level, variant in result.coder_context_experiment.get(
+                        "variants", {}
+                    ).items()
+                }
+            else:
+                context_telemetry["coder_context_audit"] = getattr(
+                    locals().get("generated"), "coder_context_audit", None
+                )
             if experiment.tool_access != ToolAccess.ORCHESTRATED_CONTEXT:
                 orchestrator_calls: dict[str, int] = {}
                 for item in result.tool_calls:

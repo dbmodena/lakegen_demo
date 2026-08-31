@@ -59,6 +59,8 @@ def run_coder_context_sweep(
     phase_invocation_counts: dict[str, int],
     max_attempts: int,
     context_levels: list[CoderContextLevel] | None = None,
+    selection_plan: dict[str, Any] | None = None,
+    source_field_names: list[str] | None = None,
 ) -> dict[str, Any]:
     """Test every metadata level while reusing the same selected tables."""
     variants: dict[str, Any] = {}
@@ -90,8 +92,10 @@ def run_coder_context_sweep(
                 run_dir=run_dir / "coder_context" / context_level.value,
                 seed=seed, seed_instruction_recorder=record_seed_instruction,
                 coder_context_level=context_level,
-                evaluation_result_type=(expected_result_type if evaluation_enabled else None),
+                evaluation_result_type=None,
                 max_run_calls=remaining_runs,
+                selection_plan=dict(selection_plan or {}),
+                source_field_names=list(source_field_names or []),
             )
             phase_invocation_counts["code"] += 1
             tokens += generated.tokens
@@ -159,6 +163,7 @@ def run_coder_context_sweep(
             "attempts": len(attempts) if evaluation_enabled else attempt_index + 1,
             "elapsed_seconds": round(time.monotonic() - started, 6),
             "code_evaluation": evaluation,
+            "coder_context_audit": getattr(generated, "coder_context_audit", None),
         }
     result.phase_metrics["code"]["retries"] = result.retries
     return variants

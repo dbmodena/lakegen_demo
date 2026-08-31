@@ -26,6 +26,7 @@ from lakegen.core.token_usage import (
     get_llm_token_usage,
     reset_llm_token_usage,
 )
+from lakegen.coder_context import CoderContext
 
 from .phase1 import split_thinking_blocks
 
@@ -46,6 +47,8 @@ class Phase3Result:
     coder_lifecycle: str = ""
     stop_reason: str = ""
     finalization_mode: str = ""
+    operation_trace: dict[str, object] | None = None
+    coder_context_audit: dict[str, object] | None = None
 
 
 _ERROR_PATTERNS = [
@@ -631,6 +634,7 @@ def phase3_generate_and_execute(
     evaluation_result_type: str | None = None,
     max_run_calls: int = 3,
     selection_plan: dict[str, object] | None = None,
+    source_field_names: list[str] | None = None,
 ) -> Phase3Result:
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
@@ -638,7 +642,17 @@ def phase3_generate_and_execute(
     from lakegen.agents.agent_runner import run_agent_workflow
     from lakegen.phases.logging import Phase2AgentStall
 
-    selection_plan = dict(selection_plan or {})
+    coder_context = CoderContext.build(
+        question=query,
+        selected_tables=tables,
+        table_metadata=solr_meta,
+        selection_plan=selection_plan,
+        source_payload={name: None for name in (source_field_names or [])},
+        execution_error={"message": error_msg} if error_msg else {},
+    )
+    # From this point onward Phase 3 sees only the DTO's explicit allowlist.
+    selection_plan = dict(coder_context.selection_plan)
+    solr_meta = dict(coder_context.table_metadata)
     if "combination_strategy" not in selection_plan:
         plan_match = re.search(
             r"AGENTIC SELECTION PLAN\s*\nCombination strategy:\s*([^\n]+)",
@@ -653,9 +667,11 @@ def phase3_generate_and_execute(
         tables, Path(csv_dir), context_level, solr_meta
     )
     system_prompt = pm.render("code_generator", "agentic_system_prompt") + (
-        "\n\nYou are a bounded coding agent. The architect semantic plan, when "
-        "present, is already installed as the analysis contract and must not be "
-        "rewritten with set_analysis_contract. For legacy selections without a "
+        "\n\nYou are a bounded coding agent. A semantic plan is authoritative only "
+        "after deterministic runtime validation reports it locked. An invalid or "
+        "insufficiently evidenced plan must be inspected, revised through the "
+        "analysis contract, reported with plan_conflict, or rejected with concrete "
+        "evidence. For legacy selections without a validated "
         "semantic plan, set_analysis_contract may record filters, measures, "
         "grouping, distinct counts, joins, ordering, limit, and output columns. "
         "Treat a year that names a dataset edition or release (for example, "
@@ -700,23 +716,27 @@ def phase3_generate_and_execute(
     )
     if retries == 0:
         user_prompt = pm.render(
-            "code_generator", "initial_prompt", question=query,
+            "code_generator", "agentic_initial_prompt", question=query,
             arch_reasoning=reasoning, tables_info=tables_info,
         )
     else:
         user_prompt = pm.render(
-            "code_generator", "correction_prompt", question=query,
+            "code_generator", "agentic_correction_prompt", question=query,
             error_message=error_msg, previous_code=previous_code,
             arch_reasoning=reasoning, tables_info=tables_info,
         )
+    user_prompt += (
+        "\n\nQUESTION-DERIVED OUTPUT SHAPE (non-gold):\n"
+        + json.dumps(coder_context.output_shape, ensure_ascii=False, sort_keys=True)
+    )
     user_prompt += (
         "\n\n[REPRODUCIBILITY]\n"
         f"Use seed {seed} for every stochastic operation. "
         "Before finishing, inspect the actual output and check filters, measures, "
         "group coverage, ordering/limits, and output shape."
     )
-    if evaluation_result_type:
-        user_prompt += evaluation_output_instruction(evaluation_result_type)
+    coder_result_type = str(coder_context.output_shape["result_type"])
+    user_prompt += evaluation_output_instruction(coder_result_type)
     if force_execution:
         user_prompt += (
             "\nThe selected tables must be used for the best possible executable "
@@ -731,7 +751,7 @@ def phase3_generate_and_execute(
         tables=tables,
         csv_dir=Path(csv_dir),
         run_dir=run_dir,
-        evaluation_result_type=evaluation_result_type,
+        evaluation_result_type=coder_result_type,
         question=query,
         table_metadata={
             table: solr_meta.get(table, solr_meta.get(Path(table).stem, {}))
@@ -741,6 +761,14 @@ def phase3_generate_and_execute(
         resolve_code=_resolve_and_validate_columns,
         execute_code=_execute_code,
         extract_payload=extract_evaluation_payload,
+    )
+    user_prompt += (
+        "\n\nSEMANTIC PLAN RUNTIME VALIDATION (non-gold):\n"
+        + json.dumps(state.plan_validation or {
+            "valid": False,
+            "locked": False,
+            "diagnostics": ["No structured semantic plan was supplied."],
+        }, ensure_ascii=False, sort_keys=True, default=str)
     )
     reset_llm_token_usage(llm)
 
@@ -913,4 +941,13 @@ def phase3_generate_and_execute(
         coder_lifecycle=state.lifecycle.value,
         stop_reason=state.stop_reason,
         finalization_mode=state.finalization_mode,
+        operation_trace=state.operation_trace or None,
+        coder_context_audit={
+            **coder_context.audit(),
+            "semantic_plan_validated_before_lock": bool(
+                state.plan_validation.get("valid")
+            ),
+            "verified_requirements": list(state.coverage_requirements),
+            "inspect_result_executed": state.inspected_version > 0,
+        },
     )

@@ -47,6 +47,12 @@ class RejectTablesSchema(BaseModel):
     inspected_evidence: str = Field(description="Evidence observed through inspect_table or run_code.")
 
 
+class PlanConflictSchema(BaseModel):
+    reason: str
+    missing_requirements: list[str]
+    inspected_evidence: str
+
+
 class AnalysisContractSchema(BaseModel):
     filters: list[str] = Field(description="Requested filters and time ranges, using exact values from the question.")
     measures: list[str] = Field(description="Requested measures with aggregation, units, and distinctness semantics.")
@@ -128,6 +134,8 @@ class P3State:
     contract_evidence_advisories: list[str] = field(default_factory=list)
     missing_column_failures: dict[str, int] = field(default_factory=dict)
     architect_contract_locked: bool = False
+    operation_trace: dict[str, Any] = field(default_factory=dict)
+    plan_validation: dict[str, Any] = field(default_factory=dict)
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -190,12 +198,176 @@ class Phase3ToolsManager:
             self.state.analysis_contract = self._contract_from_semantic_plan(
                 semantic_plan
             )
-            self.state.architect_contract_locked = True
+            self.state.plan_validation = self._validate_semantic_plan_grounding(
+                semantic_plan
+            )
+            self.state.analysis_contract["evidence_map"] = list(
+                self.state.plan_validation.get("evidence", [])
+            )
+            self.state.architect_contract_locked = bool(
+                self.state.plan_validation.get("valid")
+            )
+
+    def _validate_semantic_plan_grounding(self, plan: dict[str, Any]) -> dict[str, Any]:
+        """Validate architect semantics using only selected runtime tables."""
+        diagnostics: list[dict[str, Any]] = []
+        evidence: list[dict[str, Any]] = []
+        frames: dict[str, pd.DataFrame] = {}
+        schemas: dict[str, set[str]] = {}
+        for table in self.tables:
+            try:
+                frame = read_table(self.csv_dir / table.strip(), nrows=500)
+                frames[table] = frame
+                schemas[table] = {str(column) for column in frame.columns}
+            except Exception as exc:
+                diagnostics.append({
+                    "requirement": "selected table is readable",
+                    "table": table, "category": "table_unreadable",
+                    "evidence": str(exc), "correction_required": "inspect_table or reject_tables",
+                })
+
+        def resolve_table(binding: dict[str, Any]) -> str:
+            table = str(binding.get("table") or "")
+            return table or (self.tables[0] if len(self.tables) == 1 else "")
+
+        for kind in ("filters", "temporal_filters", "dimensions", "measures"):
+            for binding in plan.get(kind, []):
+                if not isinstance(binding, dict):
+                    diagnostics.append({
+                        "requirement": kind, "category": "invalid_binding",
+                        "evidence": "binding is not structured",
+                        "correction_required": "revise semantic plan",
+                    })
+                    continue
+                table = resolve_table(binding)
+                columns = binding.get("columns") or [binding.get("column")]
+                columns = [str(column) for column in columns if column]
+                missing = [column for column in columns if column not in schemas.get(table, set())]
+                if table not in self.tables or missing:
+                    diagnostics.append({
+                        "requirement": binding.get("requirement") or kind,
+                        "table": table, "column": missing or columns,
+                        "category": "unknown_table_or_column",
+                        "evidence": sorted(schemas.get(table, set())),
+                        "correction_required": "inspect_table and revise the binding",
+                    })
+                    continue
+                observed: list[Any] = []
+                if columns and table in frames:
+                    observed = frames[table][columns[0]].dropna().drop_duplicates().head(25).tolist()
+                operator = str(binding.get("operator") or "")
+                value = str(binding.get("value") or "").strip()
+                if kind == "filters" and operator == "not_null" and re.search(
+                    r"\b(?:with|containing|contains|named|called|category|type|status)\s+[a-z][a-z-]{2,}",
+                    self.question.casefold(),
+                ):
+                    diagnostics.append({
+                        "requirement": binding.get("requirement") or "qualified categorical filter",
+                        "table": table, "column": columns[0] if columns else None,
+                        "category": "semantic_filter_too_weak",
+                        "evidence": {"question": self.question, "operator": operator},
+                        "correction_required": "inspect categorical values and bind the requested category explicitly",
+                    })
+                    continue
+                if kind in {"filters", "temporal_filters"} and value:
+                    normalized = [str(item).strip().casefold() for item in observed]
+                    target = value.casefold()
+                    compatible = (
+                        any(target in item for item in normalized)
+                        if operator == "contains" else target in normalized
+                    )
+                    if operator == "range":
+                        series = pd.to_datetime(frames[table][columns[0]], errors="coerce")
+                        compatible = bool(series.notna().any())
+                    if not compatible:
+                        diagnostics.append({
+                            "requirement": binding.get("requirement") or f"{columns[0]} {operator} {value}",
+                            "table": table, "column": columns[0],
+                            "category": "filter_value_not_observed",
+                            "evidence": observed,
+                            "correction_required": "inspect_table for the exact encoding or call plan_conflict",
+                        })
+                        continue
+                if kind == "measures" and str(binding.get("operation")) in {"sum", "mean", "min", "max"}:
+                    if columns and not pd.api.types.is_numeric_dtype(frames[table][columns[0]]):
+                        diagnostics.append({
+                            "requirement": binding.get("output") or "measure",
+                            "table": table, "column": columns[0],
+                            "category": "measure_type_incompatible",
+                            "evidence": str(frames[table][columns[0]].dtype),
+                            "correction_required": "choose a numeric measure or prove a safe conversion",
+                        })
+                        continue
+                if kind == "measures":
+                    operation = str(binding.get("operation") or "")
+                    distinct = bool(binding.get("distinct"))
+                    if operation == "count_rows" and distinct:
+                        diagnostics.append({
+                            "requirement": binding.get("output") or "count measure",
+                            "table": table, "column": columns,
+                            "category": "count_distinctness_conflict",
+                            "evidence": {"operation": operation, "distinct": distinct},
+                            "correction_required": "make operation and distinct semantics consistent",
+                        })
+                        continue
+                evidence.append({
+                    "requirement": binding.get("requirement") or binding.get("output") or kind,
+                    "table": table, "column": columns[0] if len(columns) == 1 else columns,
+                    "observed_values": observed[:12],
+                    "evidence": binding.get("evidence") or "verified against runtime schema/profile",
+                    "origin": "runtime_table_profile",
+                })
+
+        for join in plan.get("joins", []):
+            if not isinstance(join, dict):
+                diagnostics.append({
+                    "requirement": "join", "category": "join_not_structured",
+                    "evidence": str(join), "correction_required": "provide tables and keys",
+                })
+                continue
+            keys = join.get("keys", {})
+            tables = list(map(str, join.get("tables", [])))
+            if len(tables) < 2 or not isinstance(keys, dict) or any(table not in frames for table in tables):
+                diagnostics.append({
+                    "requirement": "join", "category": "join_tables_or_keys_missing",
+                    "evidence": {"tables": tables, "keys": keys},
+                    "correction_required": "inspect both tables and provide observable keys",
+                })
+                continue
+            series = []
+            invalid = False
+            for table in tables:
+                key = str(keys.get(table) or "")
+                if key not in schemas.get(table, set()):
+                    invalid = True
+                    break
+                series.append(set(frames[table][key].dropna().astype(str).str.strip().head(500)))
+            overlap = set.intersection(*series) if series and not invalid else set()
+            if invalid or not overlap:
+                diagnostics.append({
+                    "requirement": "join", "category": "join_key_not_verifiable",
+                    "evidence": {"keys": keys, "sample_overlap": list(overlap)[:10]},
+                    "correction_required": "inspect join cardinality/overlap or reject tables",
+                })
+            else:
+                evidence.append({
+                    "requirement": "join selected tables", "table": tables,
+                    "column": keys, "observed_values": list(overlap)[:10],
+                    "evidence": "sample key overlap observed", "origin": "runtime_join_profile",
+                })
+
+        return {
+            "valid": not diagnostics,
+            "locked": not diagnostics,
+            "diagnostics": diagnostics,
+            "evidence": evidence,
+            "required_action": None if not diagnostics else "inspect_table_or_plan_conflict",
+        }
 
     @staticmethod
     def _contract_from_semantic_plan(plan: dict[str, Any]) -> dict[str, Any]:
         filters = []
-        for binding in plan.get("filters", []):
+        for binding in [*plan.get("filters", []), *plan.get("temporal_filters", [])]:
             if not isinstance(binding, dict):
                 continue
             expression = " ".join(filter(None, [
@@ -226,18 +398,31 @@ class Phase3ToolsManager:
             ]))
             for item in plan.get("ordering", []) if isinstance(item, dict)
         ) or "none"
+        joins = []
+        join_bindings = []
+        for item in plan.get("joins", []):
+            if isinstance(item, dict):
+                tables = list(map(str, item.get("tables", [])))
+                keys = {str(k): str(v) for k, v in item.get("keys", {}).items()}
+                joins.append(f"{tables} on {keys}")
+                join_bindings.append(item)
+            elif str(item).strip():
+                joins.append(str(item).strip())
         return {
             "filters": list(dict.fromkeys(filter(None, filters))),
             "measures": list(dict.fromkeys(filter(None, measures))),
             "group_by": list(dict.fromkeys(filter(None, dimensions))),
             "distinct_counts": list(dict.fromkeys(filter(None, distinct_counts))),
-            "joins": [str(item).strip() for item in plan.get("joins", []) if str(item).strip()],
+            "joins": joins,
+            "join_bindings": join_bindings,
             "ordering": ordering,
             "limit": plan.get("limit"),
             "output_columns": [
                 str(item).strip() for item in plan.get("output_columns", [])
                 if str(item).strip()
             ],
+            "null_policy": str(plan.get("null_policy") or ""),
+            "table_roles": dict(plan.get("table_roles") or {}),
             "source": "architect_semantic_plan",
         }
 
@@ -260,6 +445,13 @@ class Phase3ToolsManager:
                 "contract": self.state.analysis_contract,
                 "next_action": "Write the program and call run_code.",
             }, ensure_ascii=False)
+        if self.state.plan_validation and not self.state.plan_validation.get("valid"):
+            # A failed architect plan is provisional and may be replaced after
+            # runtime inspection; its diagnostics remain available for audit.
+            self.state.contract_advisories.extend(
+                str(item.get("category"))
+                for item in self.state.plan_validation.get("diagnostics", [])
+            )
         contract = {
             "filters": self._clean_contract_items(filters),
             "measures": self._clean_contract_items(measures),
@@ -273,6 +465,13 @@ class Phase3ToolsManager:
         problems = self._contract_problems(contract)
         self.state.analysis_contract = contract
         self.state.contract_advisories = problems
+        if self.state.plan_validation and not self.state.plan_validation.get("valid"):
+            self.state.plan_validation = {
+                **self.state.plan_validation,
+                "valid": not problems and bool(self.state.inspected_tables),
+                "locked": False,
+                "revised_after_runtime_inspection": bool(self.state.inspected_tables),
+            }
         return json.dumps({
             "ok": True,
             "contract": contract,
@@ -643,6 +842,21 @@ class Phase3ToolsManager:
             **self.state.rejection_details,
         }, ensure_ascii=False)
 
+    def plan_conflict(
+        self, reason: str, missing_requirements: list[str], inspected_evidence: str
+    ) -> str:
+        """Stop when the locked semantic plan contradicts question or evidence."""
+        if not self.selection_plan.get("semantic_plan"):
+            return json.dumps({"ok": False, "error": "no_architect_plan"})
+        self.state.rejected_reason = "PLAN_CONFLICT: " + reason.strip()
+        self.state.rejection_details = {
+            "missing_requirements": missing_requirements,
+            "inspected_evidence": inspected_evidence,
+            "category": "PLAN_CONFLICT",
+        }
+        self.state.lifecycle = CoderLifecycle.TABLES_INSUFFICIENT
+        return json.dumps({"ok": True, "status": "PLAN_CONFLICT"})
+
     def _metadata_text(self) -> str:
         def flatten(value: Any) -> list[str]:
             if isinstance(value, dict):
@@ -748,6 +962,21 @@ class Phase3ToolsManager:
             return json.dumps({"ok": False, "error": {"category": "tables_already_rejected"}})
         if not self.state.analysis_contract:
             self.infer_analysis_contract()
+        if (
+            self.selection_plan.get("semantic_plan")
+            and self.state.plan_validation
+            and not self.state.plan_validation.get("valid")
+            and not self.state.inspected_tables
+        ):
+            return json.dumps({
+                "ok": False,
+                "error": {
+                    "category": "semantic_plan_not_grounded",
+                    "diagnostics": self.state.plan_validation.get("diagnostics", []),
+                    "correction_required": "Call inspect_table, then revise the analysis contract, call plan_conflict, or reject_tables.",
+                    "next_actions": ["inspect_table", "plan_conflict", "reject_tables"],
+                },
+            }, ensure_ascii=False, default=str)
         if self.state.run_count >= self.state.max_runs:
             return json.dumps({"ok": False, "error": {"category": "run_limit", "message": "Maximum of 3 executions reached."}})
 
@@ -815,6 +1044,7 @@ class Phase3ToolsManager:
                     "error": self.state.execution_error,
                 })
         self.state.result_version += 1
+        self.state.operation_trace = self._build_operation_trace(clean_code)
         self.state.lifecycle = CoderLifecycle.NEEDS_INSPECTION
         return json.dumps({
             "ok": True,
@@ -823,10 +1053,44 @@ class Phase3ToolsManager:
             "next_action": "Call inspect_result before finish_code.",
         })
 
+    def _build_operation_trace(self, code: str) -> dict[str, Any]:
+        """Build bounded, non-gold evidence from the executed program."""
+        lowered = code.casefold()
+        contract = self.state.analysis_contract
+        return {
+            "used_tables": [t for t in self.tables if t.casefold() in lowered],
+            "used_columns": [c for c in self._all_columns() if c.casefold() in lowered],
+            "applied_filters": list(contract.get("filters", [])),
+            "rows_before_filter": None,
+            "rows_after_filter": None,
+            "joins": list(contract.get("joins", [])) if any(m in lowered for m in (".merge(", ".join(", "pd.merge(")) else [],
+            "grouping_columns": list(contract.get("group_by", [])) if ".groupby(" in lowered else [],
+            "aggregations": list(contract.get("measures", [])),
+            "output_columns": list(contract.get("output_columns", [])),
+            "ordering": contract.get("ordering") if any(m in lowered for m in ("sort_values(", "nlargest(", "nsmallest(")) else None,
+            "limit": contract.get("limit") if any(m in lowered for m in ("head(", "nlargest(", "nsmallest(")) else None,
+        }
+
     def _validate_contract_code(self, code: str) -> list[str]:
         contract = self.state.analysis_contract
         lowered = code.casefold()
         warnings: list[str] = []
+        if re.search(r"if\s+[^:\n]*(?:empty|len\s*\([^)]*\)\s*==\s*0)[^:\n]*:[\s\S]{0,180}(?:=\s*df\b|\.copy\s*\()", code, re.IGNORECASE):
+            warnings.append("fallback_to_all_rows_detected: empty filter restores unfiltered rows")
+        qualifier_terms = {
+            term for term in re.findall(
+                r"\b(?:with|containing|contains|named|called|category|type|status)\s+([a-z][a-z-]{2,})",
+                self.question.casefold(),
+            )
+        }
+        nonempty_filter = bool(
+            re.search(r"\.notna\s*\(\)|\.notnull\s*\(\)|\.str\.strip\s*\(\)\s*!=\s*['\"]{2}", code)
+        )
+        if qualifier_terms and nonempty_filter and not any(term in lowered for term in qualifier_terms):
+            warnings.append(
+                "semantic_filter_weakened_to_nonempty: requested qualifier "
+                + ", ".join(sorted(qualifier_terms))
+            )
         contract_years = set(re.findall(
             r"\b(?:19|20)\d{2}\b",
             " ".join(contract.get("filters", [])),
@@ -862,6 +1126,10 @@ class Phase3ToolsManager:
         ))
         if ("average" in measures or "mean" in measures) and not has_mean_aggregation:
             warnings.append("contract_average_missing_in_code")
+        if "count_rows" in measures and any(marker in lowered for marker in ("nunique(", "drop_duplicates(")):
+            warnings.append("contract_count_rows_implemented_as_distinct")
+        if "count_distinct" in measures and not any(marker in lowered for marker in ("nunique(", "drop_duplicates(")):
+            warnings.append("contract_count_distinct_implemented_as_row_count")
         if any(marker in lowered for marker in ("pd.qcut(", ".qcut(", "pd.cut(", ".cut(")) and not re.search(
             r"\b(?:quantile|quartile|quintile|decile|tertile|equal[- ](?:sized|width)|bins?)\b",
             question,
@@ -874,6 +1142,10 @@ class Phase3ToolsManager:
             marker in lowered for marker in (".merge(", ".join(", "pd.merge(")
         ):
             warnings.append("contract_join_missing_in_code")
+        for join in contract.get("join_bindings", []):
+            for key in (join.get("keys", {}) if isinstance(join, dict) else {}).values():
+                if str(key).casefold() not in lowered:
+                    warnings.append(f"contract_join_key_missing_in_code: {key}")
         if contract.get("group_by") and not any(
             marker in lowered for marker in (".groupby(", ".pivot(", ".pivot_table(")
         ):
@@ -927,6 +1199,10 @@ class Phase3ToolsManager:
                 "column names and harmonize schema differences before combining"
             )
         strategy = str(self.selection_plan.get("combination_strategy", ""))
+        if "pd.concat(" in lowered and strategy not in {"concat_partitions", "aggregate_separately"}:
+            warnings.append(
+                "table_concat_without_explicit_strategy: concatenation is not justified by the selection plan"
+            )
         markers_by_strategy = {
             "join": (".merge(", ".join(", "pd.merge("),
             "lookup": (".merge(", ".join(", ".map(", ".replace("),
@@ -1227,6 +1503,15 @@ class Phase3ToolsManager:
             "coverage_warnings": warnings,
             "contract_advisories": contract_advisories,
             "correction_required": bool(warnings),
+            "warning_diagnostics": [
+                {
+                    "requirement": warning.split(":", 1)[0],
+                    "evidence": warning,
+                    "correction_required": "Revise the code/result to satisfy the analysis contract, then run and inspect again.",
+                }
+                for warning in warnings
+            ],
+            "semantic_plan_validation": self.state.plan_validation,
         }
         if isinstance(value, dict):
             profile["keys"] = list(value)[:30]
@@ -1265,6 +1550,12 @@ class Phase3ToolsManager:
             "contract_ordering_missing_in_code",
             "top_n_check:",
             "selection_strategy_not_evident_in_code:",
+            "fallback_to_all_rows_detected:",
+            "contract_count_rows_implemented_as_distinct",
+            "contract_count_distinct_implemented_as_row_count",
+            "contract_join_key_missing_in_code:",
+            "semantic_filter_weakened_to_nonempty:",
+            "table_concat_without_explicit_strategy:",
         )
         return [
             warning for warning in self.state.contract_code_warnings
@@ -1481,6 +1772,11 @@ class Phase3ToolsManager:
             FunctionTool.from_defaults(
                 fn=self.reject_tables,
                 fn_schema=RejectTablesSchema,
+                return_direct=True,
+            ),
+            FunctionTool.from_defaults(
+                fn=self.plan_conflict,
+                fn_schema=PlanConflictSchema,
                 return_direct=True,
             ),
             FunctionTool.from_defaults(fn=self.inspect_result),

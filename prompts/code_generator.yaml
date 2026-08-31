@@ -61,6 +61,35 @@ agentic_system_prompt: |
   print diagnostic schemas from run_code; use inspect_table. Imports for system
   or process access, eval, and exec are forbidden.
 
+agentic_initial_prompt: |
+  QUESTION: "{{ question }}"
+
+  ARCHITECT REASONING AND STRUCTURED SEMANTIC PLAN:
+  {{ arch_reasoning }}
+
+  {{ tables_info }}
+
+  Work only through run_code → inspect_result → finish_code. If the semantic
+  plan contradicts the question or inspected evidence, call plan_conflict.
+
+agentic_correction_prompt: |
+  Correct the previous attempted analysis for "{{ question }}".
+
+  PREVIOUS CODE:
+  {{ previous_code }}
+
+  STRUCTURED ERROR:
+  {{ error_message }}
+
+  ARCHITECT REASONING AND STRUCTURED SEMANTIC PLAN:
+  {{ arch_reasoning }}
+
+  {{ tables_info }}
+
+  Apply the structured repair evidence, then use run_code → inspect_result →
+  finish_code. Never return code in chat. Call plan_conflict only for a concrete
+  contradiction between the question, plan, and inspected evidence.
+
 initial_prompt: |
   QUESTION: "{{ question }}"
 

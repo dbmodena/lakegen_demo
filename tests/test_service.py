@@ -147,7 +147,11 @@ def test_run_question_evaluates_structured_benchmark_code_result(monkeypatch, tm
         },
     )
 
-    assert captured["evaluation_result_type"] == "number"
+    # Benchmark result type remains evaluator-only; Phase 3 derives its generic
+    # output shape from the question.
+    assert captured["evaluation_result_type"] is None
+    assert "expected_result_description" not in captured
+    assert "SOURCE_REFERENCE_RESULT" in captured["source_field_names"]
     assert result.code_evaluation["exact_result_match"] is True
     assert result.code_evaluation["pass_at_1"] is True
     assert result.code_evaluation["success_within_3"] is True
