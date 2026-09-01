@@ -55,6 +55,23 @@ class QueryResult:
     execution_outcome: dict[str, Any] = field(default_factory=dict)
     code_evaluation: dict[str, Any] = field(default_factory=dict)
     coder_context_experiment: dict[str, Any] = field(default_factory=dict)
+    semantic_plan_present: bool = False
+    semantic_plan_initial_status: str = "missing"
+    semantic_plan_final_status: str = "missing"
+    semantic_plan_coder_start_status: str = "not_started"
+    semantic_plan_status: str = "missing"
+    semantic_plan_locked: bool = False
+    semantic_plan_revised: bool = False
+    semantic_plan_rejected: bool = False
+    semantic_plan_validation_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    semantic_plan_evidence_count: int = 0
+    validation_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    evidence_count: int = 0
+    coder_started_after_verified_plan: bool = False
+    coder_blocked_before_start_count: int = 0
+    coder_brief_present: bool = False
+    coder_brief_status: str = "missing"
+    coder_brief_coder_start_status: str = "not_started"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

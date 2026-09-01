@@ -121,6 +121,7 @@ class ExperimentConfig(FrozenModel):
     max_revision_rounds: int = Field(default=3, ge=0)
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL
     automatic_test_coder: bool = False
+    require_semantic_plan: bool = True
     semantic_code_judge_enabled: bool = True
     semantic_code_judge_model: str = DEFAULT_MODEL
     interaction_mode: InteractionMode = InteractionMode.HUMAN_GATED
@@ -137,8 +138,6 @@ class ExperimentConfig(FrozenModel):
                 f"unsupported semantic_code_judge_model "
                 f"{self.semantic_code_judge_model!r}"
             )
-        if self.planner_enabled:
-            raise ValueError("planner_enabled=true is not implemented")
         enabled_reviewers = [
             name for name, enabled in self.reviewers.model_dump().items() if enabled
         ]

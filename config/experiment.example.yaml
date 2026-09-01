@@ -129,6 +129,10 @@ coder_context_level: full
 # Run full, schema_only, and minimal against one shared retrieval/selection.
 automatic_test_coder: true
 
+# Block Phase 3 until discovery supplies a complete plan verified exclusively
+# against runtime schemas and profiles. Set false only for legacy ablations.
+require_semantic_plan: true
+
 # Judge executable gold mismatches with one fixed model for comparable runs.
 semantic_code_judge_enabled: true
 semantic_code_judge_model: openai.gpt-oss-120b

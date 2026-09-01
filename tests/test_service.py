@@ -3,7 +3,44 @@ from types import SimpleNamespace
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.retrieval import RetrievalConfig
-from lakegen.service import extract_questions, run_question
+from lakegen.service import (
+    _record_semantic_plan_telemetry, _rejected_selection_signature,
+    extract_questions, run_question,
+)
+from lakegen.service_models import QueryResult
+
+
+def test_rejected_selection_signature_preserves_runtime_failure_requirements():
+    signature = _rejected_selection_signature(
+        ["B.parquet", "a.parquet"],
+        {
+            "category": "temporal_coverage_incompatible",
+            "missing_requirements": ["records for 2024", "join column school_id"],
+        },
+        "Missing column school_id and incompatible temporal coverage.",
+    )
+    assert signature["tables"] == ["a.parquet", "b.parquet"]
+    assert signature["category"] == "temporal_coverage_incompatible"
+    assert signature["missing_requirements"] == [
+        "join column school_id", "records for 2024"
+    ]
+
+
+def test_semantic_plan_telemetry_is_persisted_without_coder_sweep():
+    result = QueryResult(question="q", status="failed")
+    _record_semantic_plan_telemetry(result, {
+        "semantic_plan_present": True, "semantic_plan_status": "verified",
+        "semantic_plan_locked": True, "semantic_plan_revised": False,
+        "semantic_plan_rejected": False, "validation_diagnostics": [],
+        "evidence_count": 4, "coder_started_after_verified_plan": True,
+    })
+    payload = result.to_dict()
+    assert payload["semantic_plan_status"] == "verified"
+    assert payload["evidence_count"] == 4
+    assert payload["coder_started_after_verified_plan"] is True
+    assert payload["semantic_plan_initial_status"] == "verified"
+    assert payload["semantic_plan_final_status"] == "verified"
+    assert payload["semantic_plan_coder_start_status"] == "verified"
 
 
 def test_extracts_queries_old_shape_and_preserves_metadata():
@@ -142,7 +179,7 @@ def test_run_question_evaluates_structured_benchmark_code_result(monkeypatch, tm
         runtime,
         log_context={
             "SOURCE_EXPECTED_RESULT_TYPE": "number",
-            "SOURCE_EXPECTED_RESULT_DESCRIPTION": "One count.",
+            "SOURCE_EXPECTED_RESULT_DESCRIPTION": "BENCHMARK_SECRET_DO_NOT_LEAK",
             "SOURCE_REFERENCE_RESULT": [{"total": 42}],
         },
     )
@@ -152,6 +189,7 @@ def test_run_question_evaluates_structured_benchmark_code_result(monkeypatch, tm
     assert captured["evaluation_result_type"] is None
     assert "expected_result_description" not in captured
     assert "SOURCE_REFERENCE_RESULT" in captured["source_field_names"]
+    assert "BENCHMARK_SECRET_DO_NOT_LEAK" not in repr(captured)
     assert result.code_evaluation["exact_result_match"] is True
     assert result.code_evaluation["pass_at_1"] is True
     assert result.code_evaluation["success_within_3"] is True
@@ -306,6 +344,6 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
     assert result.tables == ["second.csv"]
     assert [attempt["outcome"] for attempt in result.discovery["selection_attempts"]] == [
         "tables_rejected",
-        "duplicate_selection_blocked",
+        "rejected_selection_excluded",
         "accepted",
     ]

@@ -461,6 +461,12 @@ def _update_job(job_id: str, **changes: Any) -> None:
     _persist_job(snapshot)
 
 
+def _batch_source_key(source: dict[str, Any]) -> str:
+    """Return a stable per-question key even when benchmark IDs are absent."""
+    source_id = source.get("source_id")
+    return str(source_id) if source_id is not None else str(source.get("source_path"))
+
+
 def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str, Any]) -> None:
     with _jobs_lock:
         current = _jobs[job_id]
@@ -468,12 +474,12 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
         started_at = current.get("started_at") or _now()
     attempts: dict[str, int] = {}
     for entry in existing_results:
-        source_key = str(entry.get("source_id"))
+        source_key = _batch_source_key(entry)
         attempts[source_key] = attempts.get(source_key, 0) + 1
     completed_source_ids = set(attempts)
     pending_questions = [
         source for source in questions
-        if str(source.get("source_id")) not in completed_source_ids
+        if _batch_source_key(source) not in completed_source_ids
     ]
     _update_job(
         job_id,
@@ -512,7 +518,7 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
         _update_job(job_id, reference_preparation=reference_metrics)
 
         for source in pending_questions:
-            source_key = str(source.get("source_id"))
+            source_key = _batch_source_key(source)
             execution_attempt = attempts.get(source_key, 0) + 1
             with _workflow_lock:
                 query_result = runner.run(
@@ -960,7 +966,7 @@ def _recover_incomplete_jobs() -> list[str]:
             job = _snapshot_job(job_id) or metadata
             results = job.get("results", [])
             unique_results = {
-                str(entry.get("source_id")): entry for entry in results
+                _batch_source_key(entry): entry for entry in results
             }
             job["results"] = list(unique_results.values())
             job["processed"] = len(unique_results)

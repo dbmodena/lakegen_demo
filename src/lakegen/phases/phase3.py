@@ -49,6 +49,7 @@ class Phase3Result:
     finalization_mode: str = ""
     operation_trace: dict[str, object] | None = None
     coder_context_audit: dict[str, object] | None = None
+    rejection_details: dict[str, object] | None = None
 
 
 _ERROR_PATTERNS = [
@@ -390,6 +391,11 @@ def phase3_generate_code(
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL,
     evaluation_result_type: str | None = None,
 ):
+    coder_context = CoderContext.build(
+        question=query, selected_tables=tables, table_metadata=solr_meta,
+        selection_plan={}, execution_error={"message": error_msg} if error_msg else {},
+    )
+    solr_meta = dict(coder_context.table_metadata)
     context_level = CoderContextLevel(coder_context_level)
     tables_info = _build_coder_tables_info(
         tables, Path(csv_dir), context_level, solr_meta
@@ -398,13 +404,13 @@ def phase3_generate_code(
     system_prompt = pm.render("code_generator", "system_prompt")
     if retries == 0:
         user_prompt = pm.render("code_generator", "initial_prompt",
-                                question=query, arch_reasoning=reasoning,
+                                question=query, arch_reasoning="",
                                 tables_info=tables_info)
     else:
         user_prompt = pm.render("code_generator", "correction_prompt",
                                 question=query, error_message=error_msg,
                                 previous_code=previous_code,
-                                arch_reasoning=reasoning,
+                                arch_reasoning="",
                                 tables_info=tables_info)
 
     user_prompt += (
@@ -415,8 +421,9 @@ def phase3_generate_code(
         "random_state parameters). Do not add a seed to deterministic operations. "
         "Do not use another fixed seed.\n"
     )
-    if evaluation_result_type:
-        user_prompt += evaluation_output_instruction(evaluation_result_type)
+    user_prompt += evaluation_output_instruction(
+        str(coder_context.output_shape["result_type"])
+    )
 
     # --- Optional TabPFN intent routing and task-specific hint injection ---
     tabpfn_intent = _detect_tabpfn_intent(query)
@@ -635,6 +642,7 @@ def phase3_generate_and_execute(
     max_run_calls: int = 3,
     selection_plan: dict[str, object] | None = None,
     source_field_names: list[str] | None = None,
+    require_semantic_plan: bool = True,
 ) -> Phase3Result:
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
@@ -653,15 +661,6 @@ def phase3_generate_and_execute(
     # From this point onward Phase 3 sees only the DTO's explicit allowlist.
     selection_plan = dict(coder_context.selection_plan)
     solr_meta = dict(coder_context.table_metadata)
-    if "combination_strategy" not in selection_plan:
-        plan_match = re.search(
-            r"AGENTIC SELECTION PLAN\s*\nCombination strategy:\s*([^\n]+)",
-            reasoning,
-            flags=re.IGNORECASE,
-        )
-        if plan_match:
-            selection_plan["combination_strategy"] = plan_match.group(1).strip()
-
     context_level = CoderContextLevel(coder_context_level)
     tables_info = _build_coder_tables_info(
         tables, Path(csv_dir), context_level, solr_meta
@@ -717,13 +716,13 @@ def phase3_generate_and_execute(
     if retries == 0:
         user_prompt = pm.render(
             "code_generator", "agentic_initial_prompt", question=query,
-            arch_reasoning=reasoning, tables_info=tables_info,
+            arch_reasoning="", tables_info=tables_info,
         )
     else:
         user_prompt = pm.render(
             "code_generator", "agentic_correction_prompt", question=query,
             error_message=error_msg, previous_code=previous_code,
-            arch_reasoning=reasoning, tables_info=tables_info,
+            arch_reasoning="", tables_info=tables_info,
         )
     user_prompt += (
         "\n\nQUESTION-DERIVED OUTPUT SHAPE (non-gold):\n"
@@ -761,13 +760,47 @@ def phase3_generate_and_execute(
         resolve_code=_resolve_and_validate_columns,
         execute_code=_execute_code,
         extract_payload=extract_evaluation_payload,
+        require_semantic_plan=require_semantic_plan,
+        # The executed-code trace is authoritative. A model-authored manifest is
+        # accepted as optional telemetry, never as a second blocking protocol.
+        require_analysis_manifest=False,
     )
+    plan_view = manager.coder_plan_view()
+    initial_plan_status = str(plan_view.get("status") or "missing")
+    if require_semantic_plan and plan_view.get("status") != "verified":
+        status = str(plan_view.get("status") or "invalid")
+        audit = {
+            **coder_context.audit(),
+            **plan_view,
+            "semantic_plan_status": status,
+            "semantic_plan_initial_status": initial_plan_status,
+            "semantic_plan_final_status": status,
+            "semantic_plan_coder_start_status": "not_started",
+            "validation_diagnostics": list(plan_view.get("diagnostics") or []),
+            "evidence_count": len(plan_view.get("evidence") or []),
+            "coder_started_after_verified_plan": False,
+        }
+        return Phase3Result(
+            code_raw="", tokens=0,
+            error=f"Selection contract gate blocked coder startup: {status}.",
+            execution_error={
+                "stage": "selection_contract_gate",
+                "category": "coder_brief_not_verified",
+                "status": status,
+                "retryable": status in {"missing", "invalid", "needs_runtime_evidence"},
+                "diagnostics": audit["validation_diagnostics"],
+            },
+            coder_runs=0, coder_lifecycle="blocked_before_start",
+            stop_reason="selection_contract_gate",
+            coder_context_audit=audit,
+        )
     user_prompt += (
-        "\n\nSEMANTIC PLAN RUNTIME VALIDATION (non-gold):\n"
-        + json.dumps(state.plan_validation or {
+        "\n\nSELECTION CONTRACT RUNTIME VALIDATION (non-gold):\n"
+        + json.dumps(plan_view or {
             "valid": False,
             "locked": False,
-            "diagnostics": ["No structured semantic plan was supplied."],
+            "status": "missing",
+            "required_action": "inspect_table_then_set_analysis_contract_or_reject_tables",
         }, ensure_ascii=False, sort_keys=True, default=str)
     )
     reset_llm_token_usage(llm)
@@ -944,10 +977,26 @@ def phase3_generate_and_execute(
         operation_trace=state.operation_trace or None,
         coder_context_audit={
             **coder_context.audit(),
-            "semantic_plan_validated_before_lock": bool(
-                state.plan_validation.get("valid")
+            **{
+                key: manager.coder_plan_view().get(key)
+                for key in (
+                    "semantic_plan_present", "semantic_plan_valid",
+                    "semantic_plan_locked", "semantic_plan_revised",
+                    "semantic_plan_rejected", "semantic_plan_missing",
+                )
+            },
+            "semantic_plan_validated_before_lock": bool(state.plan_validation.get("valid")),
+            "semantic_plan_status": state.plan_validation.get("status"),
+            "semantic_plan_initial_status": initial_plan_status,
+            "semantic_plan_final_status": state.plan_validation.get("status"),
+            "semantic_plan_coder_start_status": initial_plan_status,
+            "validation_diagnostics": list(state.plan_validation.get("diagnostics", [])),
+            "evidence_count": len(state.plan_validation.get("evidence", [])),
+            "coder_started_after_verified_plan": (
+                not require_semantic_plan or initial_plan_status == "verified"
             ),
             "verified_requirements": list(state.coverage_requirements),
             "inspect_result_executed": state.inspected_version > 0,
         },
+        rejection_details=state.rejection_details or None,
     )

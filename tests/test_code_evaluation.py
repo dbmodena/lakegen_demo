@@ -333,8 +333,25 @@ def test_batch_summary_aggregates_only_applicable_code_evaluations():
     assert summary["supported_result_rate"] == 0.5
     assert summary["ambiguous_result_rate"] == 0.0
     assert summary["evaluation_dispositions"] == {
-        "gold_correct": 1,
+        "correct": 1,
         "incorrect": 1,
     }
     assert summary["mean_attempts"] == 2.0
     assert summary["error_categories"] == {"execution_error": 1}
+
+
+def test_batch_summary_separates_blocked_and_not_evaluated():
+    results = [
+        {"result": {"code_evaluation": {
+            "applicable": True, "attempt_count": 0,
+            "evaluation_disposition": "blocked",
+        }}},
+        {"result": {"code_evaluation": {
+            "applicable": True, "attempt_count": 0,
+            "evaluation_disposition": "not_evaluated",
+        }}},
+    ]
+    summary = summarize_code_evaluations(results)
+    assert summary["evaluation_dispositions"] == {
+        "blocked": 1, "not_evaluated": 1,
+    }

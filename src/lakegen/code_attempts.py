@@ -37,6 +37,7 @@ class CodeAttemptEvaluator:
             "attempt_count": 0,
             "attempts": [],
             "error_category": None,
+            "evaluation_disposition": "not_evaluated",
         }
 
     def evaluate(self, generated: Any, attempt_number: int) -> dict[str, Any]:
@@ -80,7 +81,7 @@ class CodeAttemptEvaluator:
             "attempt_count": len(attempts),
             "attempts": attempts,
             "error_category": None,
-            "evaluation_disposition": "incorrect",
+            "evaluation_disposition": "not_evaluated" if not attempts else "incorrect",
             "supported_correct": False,
             "semantic_judge_used": False,
             "semantic_judge_tokens": 0,
@@ -95,7 +96,7 @@ class CodeAttemptEvaluator:
         if latest.get("exact_result_match") or latest.get("representation_equivalent_match"):
             summary.update({
                 "error_category": None,
-                "evaluation_disposition": "gold_correct",
+                "evaluation_disposition": "correct",
                 "supported_correct": True,
             })
         elif not latest["generation_success"]:

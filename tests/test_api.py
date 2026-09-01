@@ -22,6 +22,12 @@ class FakeUpload:
         self.closed = True
 
 
+def test_batch_source_key_uses_path_when_source_id_is_missing():
+    first = {"source_id": None, "source_path": "$.questions[0]"}
+    second = {"source_id": None, "source_path": "$.questions[1]"}
+    assert api._batch_source_key(first) != api._batch_source_key(second)
+
+
 def test_benchmark_catalog_queues_its_complete_case_metadata(tmp_path, monkeypatch):
     benchmark = tmp_path / "sample.json"
     benchmark.write_text(

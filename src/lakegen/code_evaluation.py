@@ -728,7 +728,9 @@ def summarize_code_evaluations(
         explicit = item.get("evaluation_disposition")
         if explicit:
             return str(explicit)
-        return "gold_correct" if item.get("exact_result_match") else "incorrect"
+        if not int(item.get("attempt_count") or 0):
+            return "not_evaluated"
+        return "correct" if item.get("exact_result_match") else "incorrect"
 
     dispositions = Counter(disposition(item) for item in applicable)
     supported_count = sum(
@@ -749,7 +751,7 @@ def summarize_code_evaluations(
         ),
         "supported_result_rate": round(supported_count / count, 6) if count else 0.0,
         "ambiguous_result_rate": round(
-            dispositions.get("indeterminate", 0) / count, 6
+            dispositions.get("completed_with_warnings", 0) / count, 6
         ) if count else 0.0,
         "pass_at_1": rate("pass_at_1"),
         "success_within_3": rate("success_within_3"),

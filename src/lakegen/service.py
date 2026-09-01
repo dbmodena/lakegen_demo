@@ -65,6 +65,69 @@ MAX_TABLE_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
 
 
+def _rejected_selection_signature(
+    tables: list[str], details: Mapping[str, Any] | None, reason: str
+) -> dict[str, Any]:
+    """Build stable feedback for retry exclusion without benchmark metadata."""
+    details = details or {}
+    missing = sorted({
+        str(item).strip() for item in details.get("missing_requirements", [])
+        if str(item).strip()
+    })
+    columns = sorted(set(re.findall(
+        r"(?:column|columns?)\s+['\"]?([A-Za-z0-9 _/-]{2,80})",
+        " ".join([reason, *missing]), flags=re.IGNORECASE,
+    )))
+    return {
+        "tables": sorted(table.casefold() for table in tables),
+        "missing_requirements": missing,
+        "category": str(details.get("category") or "tables_rejected"),
+        "incompatible_columns": columns[:20],
+    }
+
+
+def _record_semantic_plan_telemetry(result: QueryResult, audit: Mapping[str, Any] | None) -> None:
+    audit = audit or {}
+    status = str(
+        audit.get("semantic_plan_final_status")
+        or audit.get("semantic_plan_status") or audit.get("status") or "missing"
+    )
+    initial_status = str(audit.get("semantic_plan_initial_status") or status)
+    coder_start_status = str(
+        audit.get("semantic_plan_coder_start_status")
+        or (initial_status if audit.get("coder_started_after_verified_plan") else "not_started")
+    )
+    if result.semantic_plan_initial_status == "missing" and not result.semantic_plan_present:
+        result.semantic_plan_initial_status = initial_status
+    result.semantic_plan_final_status = status
+    result.semantic_plan_present = bool(audit.get("semantic_plan_present"))
+    result.semantic_plan_status = status
+    result.semantic_plan_locked = bool(audit.get("semantic_plan_locked"))
+    result.semantic_plan_revised = bool(audit.get("semantic_plan_revised"))
+    result.semantic_plan_rejected = bool(audit.get("semantic_plan_rejected"))
+    result.semantic_plan_validation_diagnostics = list(
+        audit.get("validation_diagnostics") or audit.get("diagnostics") or []
+    )
+    result.validation_diagnostics = list(result.semantic_plan_validation_diagnostics)
+    result.semantic_plan_evidence_count = int(
+        audit.get("evidence_count", len(audit.get("evidence") or []))
+    )
+    result.evidence_count = result.semantic_plan_evidence_count
+    brief = audit.get("coder_brief")
+    result.coder_brief_present = isinstance(brief, Mapping) and bool(brief)
+    if result.coder_brief_present or audit.get("contract_type") == "coder_brief":
+        result.coder_brief_status = status
+    result.coder_started_after_verified_plan = bool(
+        audit.get("coder_started_after_verified_plan")
+    )
+    if result.coder_started_after_verified_plan:
+        result.semantic_plan_coder_start_status = coder_start_status
+        if result.coder_brief_present or audit.get("contract_type") == "coder_brief":
+            result.coder_brief_coder_start_status = coder_start_status
+    if audit and not result.coder_started_after_verified_plan:
+        result.coder_blocked_before_start_count += 1
+
+
 def make_runtime_settings(
     *,
     core: str,
@@ -201,6 +264,7 @@ def run_question(
     selection_states: list[P12State] = []
     selection_attempts: list[dict[str, Any]] = []
     rejected_selection_keys: set[tuple[str, ...]] = set()
+    rejected_selection_signatures: list[dict[str, Any]] = []
     attempted_keywords: list[str] = []
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
     generated_code_seed_instruction_provided = False
@@ -254,8 +318,13 @@ def run_question(
             prompt_manager=prompt_manager,
         )
         disposition = judgment["disposition"]
+        canonical_disposition = {
+            "alternative_correct": "correct",
+            "incorrect": "incorrect",
+            "indeterminate": "completed_with_warnings",
+        }.get(disposition, "completed_with_warnings")
         evaluation.update({
-            "evaluation_disposition": disposition,
+            "evaluation_disposition": canonical_disposition,
             "supported_correct": disposition == "alternative_correct",
             "semantic_judge_used": True,
             "semantic_judge_model": experiment.semantic_code_judge_model,
@@ -318,6 +387,8 @@ def run_question(
                         retrieval_config=runtime.retrieval,
                         state=selection_state,
                         retrieval_observer=agentic_retrieval_observer,
+                        planner_enabled=experiment.planner_enabled,
+                        require_semantic_plan=experiment.require_semantic_plan,
                     )
                     phase_invocation_counts["discovery"] += 1
                     context_telemetry["llm_invocations"] += 1
@@ -468,9 +539,16 @@ def run_question(
                 selection_record.update({
                     "selected_datasets": list(selected),
                     "keywords": list(keywords),
-                    "reasoning": reasoning,
+                    "reasoning_available_to_coder": False,
                     "selection_plan": dict(selection_state.selection_plan),
                     "selection_advisories": list(selection_state.selection_advisories),
+                    "semantic_plan_failure": selection_state.semantic_failure,
+                    "initial_stall_reason": selection_state.initial_stall_reason,
+                    "recovery_started": selection_state.recovery_started,
+                    "recovery_stop_reason": selection_state.recovery_stop_reason,
+                    "selection_plan_source": selection_state.selection_plan_source,
+                    "semantic_planner_attempts": selection_state.semantic_planner_attempts,
+                    "semantic_draft_present": bool(selection_state.semantic_draft),
                     "outcome": "keywords_rejected" if keywords_rejected else "selected",
                 })
                 if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:
@@ -502,11 +580,16 @@ def run_question(
 
                 selection_key = tuple(sorted(table.casefold() for table in selected))
                 if selected and selection_key in rejected_selection_keys:
-                    selection_record["outcome"] = "duplicate_selection_blocked"
-                    error = (
-                        "Discovery repeated an exact table combination already "
-                        f"rejected by the coder: {selected}."
+                    selection_record["outcome"] = (
+                        "rejected_selection_excluded"
+                        if table_attempt < MAX_TABLE_ATTEMPTS - 1
+                        else "tables_rejected_no_alternative"
                     )
+                    prior = next((
+                        item for item in reversed(rejected_selection_signatures)
+                        if tuple(item["tables"]) == selection_key
+                    ), {})
+                    error = "No verified alternative selection remains. " + str(prior)
                     hint = (
                         error
                         + " Select at least one different table. Use these missing "
@@ -514,6 +597,8 @@ def run_question(
                     )
                     if table_attempt < MAX_TABLE_ATTEMPTS - 1:
                         continue
+                    result.status = "rejected"
+                    result.pipeline_stages["code_execution"] = "tables_rejected"
                     break
 
                 if experiment.automatic_test_coder:
@@ -537,11 +622,46 @@ def run_question(
                         context_levels=[CoderContextLevel.FULL],
                         selection_plan=dict(selection_state.selection_plan),
                         source_field_names=list((log_context or {}).keys()),
+                        require_semantic_plan=experiment.require_semantic_plan,
                     )
                     primary = variants[CoderContextLevel.FULL.value]
+                    _record_semantic_plan_telemetry(
+                        result, primary.get("coder_context_audit")
+                    )
+                    coder_audit = primary.get("coder_context_audit") or {}
+                    selection_record["coder_brief_status"] = str(
+                        coder_audit.get("status") or "missing"
+                    )
+                    selection_record["coder_started"] = bool(
+                        coder_audit.get("coder_started_after_verified_plan")
+                    )
+                    selection_record["coder_outcome"] = primary.get("status")
+                    if (
+                        experiment.require_semantic_plan
+                        and (primary.get("execution_error") or {}).get("stage") == "selection_contract_gate"
+                    ):
+                        selection_record["outcome"] = "selection_contract_blocked"
+                        result.pipeline_stages["code_execution"] = "blocked_by_selection"
+                        result.code_evaluation.update({
+                            "evaluation_disposition": "blocked",
+                            "error_category": "selection_contract_gate",
+                        })
+                        error = primary["error"]
+                        hint = error + (
+                            " Retry discovery with exact inspected column choices "
+                            "and explicit join keys when joining tables."
+                        )
+                        if table_attempt < MAX_TABLE_ATTEMPTS - 1:
+                            continue
+                        break
                     if primary["status"] == "tables_rejected":
                         rejection_reason = primary["error"]
                         rejected_selection_keys.add(selection_key)
+                        rejected_selection_signatures.append(
+                            _rejected_selection_signature(
+                                selected, primary.get("rejection_details"), rejection_reason
+                            )
+                        )
                         selection_record["outcome"] = "tables_rejected"
                         selection_record["rejection_feedback"] = rejection_reason
                         result.errors.append({
@@ -590,12 +710,13 @@ def run_question(
                         ],
                         selection_plan=dict(selection_state.selection_plan),
                         source_field_names=list((log_context or {}).keys()),
+                        require_semantic_plan=experiment.require_semantic_plan,
                     ))
                     result.coder_context_experiment = {
                         "shared_retrieval": True,
                         "shared_tables": list(selected),
                         "shared_keywords": list(keywords),
-                        "shared_reasoning": reasoning,
+                        "shared_reasoning": None,
                         "primary_level": CoderContextLevel.FULL.value,
                         "variants": variants,
                     }
@@ -663,8 +784,12 @@ def run_question(
                         evaluation_result_type=None,
                         selection_plan=dict(selection_state.selection_plan),
                         source_field_names=list((log_context or {}).keys()),
+                        require_semantic_plan=experiment.require_semantic_plan,
                     )
                     phase_invocation_counts["code"] += 1
+                    _record_semantic_plan_telemetry(
+                        result, getattr(generated, "coder_context_audit", None)
+                    )
                     result.tokens["p3"] += generated.tokens
                     code_metric = result.phase_metrics.setdefault(
                         "code", {"latency_seconds": 0.0, "retries": 0}
@@ -679,6 +804,20 @@ def run_question(
                     previous_code = generated.clean_code or generated.code_raw
                     result.code = previous_code
 
+                    if (
+                        experiment.require_semantic_plan
+                        and (getattr(generated, "execution_error", None) or {}).get("stage") == "selection_contract_gate"
+                    ):
+                        selection_record["outcome"] = "selection_contract_blocked"
+                        result.pipeline_stages["code_execution"] = "blocked_by_selection"
+                        result.code_evaluation.update({
+                            "evaluation_disposition": "blocked",
+                            "error_category": "selection_contract_gate",
+                        })
+                        error = generated.error or "The selection contract was not verified."
+                        hint = error + " Retry discovery with exact inspected columns and join keys."
+                        break
+
                     if code_evaluation_enabled:
                         attempts = result.code_evaluation["attempts"]
                         attempts.append(attempt_evaluator.evaluate(
@@ -687,6 +826,13 @@ def run_question(
                         result.code_evaluation = attempt_evaluator.summarize(attempts)
 
                     if generated.rejected_reason:
+                        rejected_selection_keys.add(selection_key)
+                        rejected_selection_signatures.append(
+                            _rejected_selection_signature(
+                                selected, generated.rejection_details,
+                                generated.rejected_reason,
+                            )
+                        )
                         result.errors.append({
                             "phase": "code",
                             "type": "tables_rejected",
@@ -781,7 +927,11 @@ def run_question(
                 if table_attempt == MAX_TABLE_ATTEMPTS - 1:
                     break
 
-            result.status = "failed"
+            result.status = (
+                "blocked_by_selection"
+                if result.pipeline_stages["code_execution"] == "blocked_by_selection"
+                else "failed"
+            )
             result.error = error or "LakeGen could not produce an executable answer."
             return result
         except Exception as exc:
@@ -815,7 +965,7 @@ def run_question(
                 "outcome": result.pipeline_stages["table_selection"],
                 "keywords": list(keywords),
                 "selected_datasets": list(selected),
-                "reasoning": reasoning,
+                "reasoning_available_to_coder": False,
                 "search_attempt_count": sum(
                     len(state.search_attempts) for state in p12_states
                 ),

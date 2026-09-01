@@ -28,11 +28,12 @@ from lakegen.phases.logging import (
 )
 from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
+from lakegen.core.table_io import read_table
 from lakegen.ui.state import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
-from lakegen.agent_tools.tools_p12 import P12State, make_p12_tools
+from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
 from lakegen.retrieval import RetrievalConfig
 from lakegen.retrieval.models import RetrievalRun
 
@@ -119,6 +120,121 @@ def _recover_minimal_selection_plan(
         "decision; treat it as guidance, not as a blocking constraint."
     ]
 
+
+def _inspected_runtime_evidence(state: P12State, max_chars: int = 24000) -> str:
+    """Serialize benchmark-blind cached inspections for a fresh recovery agent."""
+    evidence: dict[str, str] = {}
+    remaining = max_chars
+    for table in state.inspected_candidates():
+        inspection = str(state.inspection_cache.get(table.casefold(), "")).strip()
+        if not inspection or remaining <= 0:
+            continue
+        excerpt = inspection[:remaining]
+        evidence[table] = excerpt
+        remaining -= len(excerpt)
+    return json.dumps(evidence, ensure_ascii=False, sort_keys=True)
+
+
+def _extract_plausible_json(text: str) -> dict[str, object] | None:
+    """Recover one complete JSON object from assistant text without accepting it."""
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _conservative_draft_from_requirements(
+    requirements: dict[str, object], selected: list[str], schema: set[str]
+) -> dict[str, object] | None:
+    """Build only a single-table draft whose choices are explicit and unambiguous."""
+    if len(selected) != 1:
+        return None
+    canonical = {column.casefold(): column for column in schema}
+    grouping: list[list[object]] = []
+    for raw in requirements.get("grouping", []) if isinstance(requirements.get("grouping"), list) else []:
+        column = canonical.get(str(raw).strip().casefold())
+        if not column:
+            return None
+        grouping.append([column, column])
+    measures: list[list[object]] = []
+    for index, raw in enumerate(
+        requirements.get("measures", []) if isinstance(requirements.get("measures"), list) else []
+    ):
+        text = str(raw).strip()
+        lowered = text.casefold()
+        if lowered in {"count rows", "row count", "count_rows"}:
+            measures.append(["row_count", "count_rows", []])
+            continue
+        operation = next((
+            normalized for term, normalized in (
+                ("average", "mean"), ("mean", "mean"), ("sum", "sum"),
+                ("distinct", "count_distinct"), ("minimum", "min"),
+                ("maximum", "max"),
+            ) if term in lowered
+        ), "")
+        matched = [column for folded, column in canonical.items() if folded in lowered]
+        if not operation or len(matched) != 1:
+            return None
+        measures.append([f"{operation}_{matched[0]}", operation, matched])
+    if not measures:
+        return None
+    filters: list[list[object]] = []
+    for raw in requirements.get("filters", []) if isinstance(requirements.get("filters"), list) else []:
+        match = re.fullmatch(r"\s*([^=<>]+?)\s*(=|contains)\s*(.+?)\s*", str(raw), re.I)
+        if not match:
+            return None
+        column = canonical.get(match.group(1).strip().casefold())
+        if not column:
+            return None
+        filters.append([
+            column, "equals" if match.group(2) == "=" else "contains",
+            match.group(3).strip(),
+        ])
+    ordering: list[list[object]] = []
+    ordering_text = str(requirements.get("ordering") or "").casefold()
+    if ordering_text:
+        direction = "descending" if "desc" in ordering_text else (
+            "ascending" if "asc" in ordering_text else ""
+        )
+        if not direction:
+            return None
+        output = next((str(item[0]) for item in measures if str(item[0]).casefold() in ordering_text), str(measures[0][0]))
+        ordering.append([output, direction])
+    return {
+        "filters": filters, "temporal_filters": [], "dimensions": grouping,
+        "measures": measures, "joins": [], "ordering": ordering,
+        "limit": requirements.get("limit"),
+    }
+
+
+def _semantic_planner_prompt(query: str, state: P12State) -> str:
+    """Build the complete planner context from runtime-only allowlisted inputs."""
+    return (
+        "Create a compact SemanticPlanDraft for the confirmed selection. "
+        "You cannot search or change tables. Call submit_semantic_plan_draft. "
+        "Use only these forms: filters [[column, operator, value]], "
+        "dimensions [[output, column]], measures [[output, operation, [columns]]], "
+        "ordering [[output, direction]], limit, and structured joins. "
+        "Allowed operations: count_rows, count_distinct, sum, mean, min, max, "
+        "ratio, difference, custom. Correct only fields reported by validation; "
+        "at most two tool attempts. Never use benchmark, gold, reference, expected "
+        "answer, evaluator, judge, or prior results.\n\n"
+        f"QUESTION:\n{query}\n\n"
+        "CONFIRMED TABLES:\n"
+        + json.dumps(state.confirmed_tables, ensure_ascii=False)
+        + "\n\nDECLARED REQUIREMENTS:\n"
+        + json.dumps(state.selection_requirements, ensure_ascii=False)
+        + "\n\nINSPECTED RUNTIME EVIDENCE:\n"
+        + _inspected_runtime_evidence(state)
+    )
+
 def phase12_agent(
     query: str,
     llm: LLM,
@@ -133,10 +249,12 @@ def phase12_agent(
     retrieval_config: RetrievalConfig | None = None,
     state: P12State | None = None,
     retrieval_observer: Callable[[RetrievalRun], None] | None = None,
+    planner_enabled: bool = False,
+    require_semantic_plan: bool = True,
 ) -> tuple[list[str], list[str], SolrMetadata, str, str, int]:
 
     state = state or P12State()
-    agent_tools = make_p12_tools(
+    tools_manager = Phase12ToolsManager(
         state,
         solr_client,
         all_files,
@@ -145,6 +263,7 @@ def phase12_agent(
         retrieval_config=retrieval_config,
         retrieval_observer=retrieval_observer,
     )
+    agent_tools = tools_manager.get_tools()
 
     system_prompt = pm.render(
         "unified_architect",
@@ -196,43 +315,177 @@ def phase12_agent(
             emit_stream=emit_stream,
             cancel_check=cancel_check,
             tools=agent_tools,
-            max_iterations=10,
+            max_iterations=16 if planner_enabled else 10,
             max_repeats=3,
-            max_tool_calls=8,
+            max_tool_calls=12 if planner_enabled else 8,
             timeout_seconds=300,
         )
     except Phase2AgentStall as stall_err:
-        inspected_fallback = state.inspected_candidates()[:2]
-        fallback_payload = {
-            "tables": ", ".join(inspected_fallback),
-            "reasoning": (
-                f"Phase loop guard triggered: {stall_err}. "
-                "Fallback restricted to inspected candidates."
-            ),
-        }
-        emit_stream(
-            "\n\n**Loop guard triggered**\n"
-            f"- Reason: `{str(stall_err)}`\n"
-            "- Action: using only inspected candidates.\n"
-        )
-        agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
+        state.initial_stall_reason = str(stall_err)
+        if planner_enabled and require_semantic_plan and state.inspected_candidates():
+            state.recovery_started = True
+            emit_stream(
+                "\n\n**Semantic planner recovery started**\n"
+                "- Using only the question and already inspected runtime evidence.\n"
+            )
+            planner_prompt = (
+                "The discovery exploration stopped before producing its required typed "
+                "semantic plan. Do not search again. Using only the user question and "
+                "the schemas/values already obtained through prior tool calls, inspect "
+                "a selected table only if essential evidence is still missing, then call "
+                "confirm_unified_selection. The semantic_plan must explicitly contain "
+                "filters, temporal_filters, dimensions, measures, joins, ordering, limit, "
+                "output_columns, null_policy, and table_roles. If runtime evidence proves "
+                "the selection cannot answer the question, return REJECT_KEYWORDS with a "
+                "concrete missing requirement. Never use benchmark, gold, expected answer, "
+                "reference output, or prior evaluator output.\n\n"
+                "INSPECTED RUNTIME EVIDENCE (authoritative, benchmark-blind):\n"
+                + _inspected_runtime_evidence(state)
+            )
+            try:
+                agent_resp = run_agent_workflow(
+                    llm=llm, system_prompt=system_prompt, user_prompt=planner_prompt,
+                    agent_name="semantic_planner_recovery", emit_stream=emit_stream,
+                    cancel_check=cancel_check, tools=agent_tools,
+                    max_iterations=6, max_repeats=2, max_tool_calls=4,
+                    timeout_seconds=180,
+                )
+            except Phase2AgentStall as planner_stall:
+                state.recovery_stop_reason = str(planner_stall)
+                agent_resp = "FINAL_PAYLOAD: " + json.dumps({
+                    "tables": "",
+                    "reasoning": (
+                        "REJECT_KEYWORDS: semantic planner could not establish a "
+                        "complete runtime-grounded plan after bounded recovery: "
+                        f"{planner_stall}"
+                    ),
+                })
+        else:
+            inspected_fallback = state.inspected_candidates()[:2]
+            fallback_payload = {
+                "tables": ", ".join(inspected_fallback),
+                "reasoning": (
+                    f"Phase loop guard triggered: {stall_err}. "
+                    "Fallback restricted to inspected candidates."
+                ),
+            }
+            emit_stream(
+                "\n\n**Loop guard triggered**\n"
+                f"- Reason: `{str(stall_err)}`\n"
+                "- Action: using only inspected candidates.\n"
+            )
+            agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
     except WorkflowCancelled:
         raise
     except Exception as agent_err:
         err_msg = str(agent_err)
-        if "Max iterations" in err_msg:
+        state.initial_stall_reason = f"{type(agent_err).__name__}: {err_msg}"
+        if planner_enabled and require_semantic_plan and state.inspected_candidates():
+            state.recovery_started = True
+            emit_stream(
+                "\n\n**Semantic planner recovery started after discovery error**\n"
+                "- Using only the question and already inspected runtime evidence.\n"
+            )
+            planner_prompt = (
+                "Discovery ended without its required semantic plan. Do not search "
+                "again. Using only the user question and already inspected runtime "
+                "schemas/values, call confirm_unified_selection now. Supply every "
+                "semantic_plan field: filters, temporal_filters, dimensions, measures, "
+                "joins, ordering, limit, output_columns, null_policy, and table_roles. "
+                "Never use benchmark, reference, gold, expected-answer, evaluator, or "
+                "prior-judge data. If the inspected tables are insufficient, return "
+                "REJECT_KEYWORDS with the concrete missing runtime requirement.\n\n"
+                "INSPECTED RUNTIME EVIDENCE (authoritative, benchmark-blind):\n"
+                + _inspected_runtime_evidence(state)
+            )
+            try:
+                agent_resp = run_agent_workflow(
+                    llm=llm, system_prompt=system_prompt, user_prompt=planner_prompt,
+                    agent_name="semantic_planner_recovery", emit_stream=emit_stream,
+                    cancel_check=cancel_check, tools=agent_tools,
+                    max_iterations=6, max_repeats=2, max_tool_calls=4,
+                    timeout_seconds=180,
+                )
+                err_msg = ""
+            except Phase2AgentStall as planner_stall:
+                state.recovery_stop_reason = str(planner_stall)
+                agent_resp = "FINAL_PAYLOAD: " + json.dumps({
+                    "tables": "",
+                    "reasoning": (
+                        "REJECT_KEYWORDS: semantic planner could not establish a "
+                        "complete runtime-grounded plan after bounded recovery: "
+                        f"{planner_stall}"
+                    ),
+                })
+                err_msg = ""
+        if not err_msg:
+            pass
+        elif "Max iterations" in err_msg:
             reason = "Agent exceeded maximum iterations without a final decision. Fallback to top candidates."
         else:
             reason = f"Agent error: {err_msg[:120]}. Fallback to top 2."
-            
-        inspected_fallback = state.inspected_candidates()[:2]
-        fallback_payload = {
-            "tables": ", ".join(inspected_fallback),
-            "reasoning": reason,
-        }
-        emit_stream(f"\n[agent error] {str(agent_err)[:160]}\n")
-        agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
+        if err_msg:
+            inspected_fallback = state.inspected_candidates()[:2]
+            fallback_payload = {
+                "tables": ", ".join(inspected_fallback),
+                "reasoning": reason,
+            }
+            emit_stream(f"\n[agent error] {str(agent_err)[:160]}\n")
+            agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
     finally:
+        if (
+            planner_enabled and require_semantic_plan
+            and state.confirmed_tables
+            and not state.selection_plan.get("coder_brief")
+            and not state.selection_plan.get("semantic_plan")
+        ):
+            state.recovery_started = True
+            emit_stream(
+                "\n\n**Dedicated semantic planner started**\n"
+                "- Search tools are unavailable; using only confirmed selection and runtime evidence.\n"
+            )
+            planner_prompt = _semantic_planner_prompt(query, state)
+            try:
+                planner_response = run_agent_workflow(
+                    llm=llm, system_prompt=(
+                        "You are a benchmark-blind semantic planner. Compile explicit "
+                        "question semantics against inspected runtime schemas."
+                    ),
+                    user_prompt=planner_prompt,
+                    agent_name="dedicated_semantic_planner", emit_stream=emit_stream,
+                    cancel_check=cancel_check,
+                    tools=tools_manager.get_semantic_planner_tools(),
+                    max_iterations=5, max_repeats=3, max_tool_calls=2,
+                    timeout_seconds=180,
+                )
+                if state.selection_plan.get("semantic_plan"):
+                    agent_resp = planner_response
+                elif state.semantic_planner_attempts < 2:
+                    candidate = _extract_plausible_json(planner_response)
+                    if isinstance(candidate, dict):
+                        draft = candidate.get(
+                            "draft", candidate.get("semantic_plan", candidate)
+                        )
+                        if isinstance(draft, dict):
+                            agent_resp = tools_manager.submit_semantic_plan_draft(draft)
+            except (Phase2AgentStall, ValueError) as planner_error:
+                state.recovery_stop_reason = str(planner_error)
+
+            if not state.selection_plan.get("semantic_plan"):
+                try:
+                    table = state.confirmed_tables[0] if len(state.confirmed_tables) == 1 else ""
+                    schema = (
+                        {str(column) for column in read_table(csv_dir / table, nrows=0).columns}
+                        if table else set()
+                    )
+                    fallback_draft = _conservative_draft_from_requirements(
+                        state.selection_requirements, state.confirmed_tables, schema
+                    )
+                    if fallback_draft and state.semantic_planner_attempts < 2:
+                        agent_resp = tools_manager.submit_semantic_plan_draft(fallback_draft)
+                        state.selection_plan_source = "semantic_requirements_fallback"
+                except ValueError as fallback_error:
+                    state.recovery_stop_reason = str(fallback_error)
         agent_stream_trace = stream_trace.getvalue()
         full_trace = "--- Unified Phase Activity Log ---\n" + agent_stream_trace
         stream_trace.close()
@@ -274,9 +527,12 @@ def phase12_agent(
             selected, reasoning
         )
         parsed_advisories.extend(recovered_advisories)
+        state.selection_plan_source = "minimal_fallback"
     if parsed_plan:
         state.selection_plan = parsed_plan
         state.selection_advisories = parsed_advisories
+        if state.selection_plan_source == "none":
+            state.selection_plan_source = "final_payload"
     reasoning = _reasoning_with_selection_plan(
         reasoning, parsed_plan, parsed_advisories
     )

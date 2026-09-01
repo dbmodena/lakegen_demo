@@ -12,18 +12,63 @@ _COLUMN_FIELDS = frozenset({"name", "description", "data_type", "dtype"})
 _PLAN_FIELDS = frozenset({
     "requirement_coverage", "table_roles", "combination_strategy",
     "uncovered_requirements", "alternatives_rejected", "semantic_plan",
-    "recovered_from_existing_discovery_context",
+    "recovered_from_existing_discovery_context", "coder_brief",
+})
+_CODER_BRIEF_FIELDS = frozenset({
+    "tables", "selected_columns", "task", "filters", "operations", "result_type",
+    "ordering", "limit", "joins", "combination_strategy", "normalization_errors",
 })
 _SEMANTIC_PLAN_FIELDS = frozenset({
     "filters", "temporal_filters", "dimensions", "measures", "joins",
     "ordering", "limit", "output_columns", "null_policy", "table_roles",
-    "evidence_map",
 })
 _BINDING_FIELDS = frozenset({
-    "requirement", "table", "column", "columns", "operator", "value",
-    "output", "operation", "distinct", "evidence", "tables", "keys",
-    "how", "direction", "observed_values", "observed_range", "origin",
+    "table", "column", "columns", "operator", "value",
+    "operation", "distinct", "tables", "keys", "how", "direction",
+    "requirement", "output", "evidence",
 })
+
+
+def _strings(value: Any) -> set[str]:
+    if isinstance(value, Mapping):
+        return {item for child in value.values() for item in _strings(child)}
+    if isinstance(value, (list, tuple, set)):
+        return {item for child in value for item in _strings(child)}
+    return {value} if isinstance(value, str) and len(value) >= 8 else set()
+
+
+def _scrub_sensitive(value: Any, sensitive: set[str]) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _scrub_sensitive(item, sensitive) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_scrub_sensitive(item, sensitive) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_sensitive(item, sensitive) for item in value)
+    if isinstance(value, str):
+        marker = re.search(
+            r"(?:benchmark|reference|gold).{0,40}(?:secret|do.?not.?leak)|do.?not.?leak",
+            value, re.IGNORECASE,
+        )
+        if marker or any(secret and secret in value for secret in sensitive):
+            return "[excluded_untrusted_value]"
+    return value
+
+
+def _disallowed_field_names(value: Any) -> set[str]:
+    blocked = re.compile(
+        r"(?:reference|gold|benchmark|expected|evaluator|semantic.?judge|history|reasoning)",
+        re.IGNORECASE,
+    )
+    found: set[str] = set()
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if blocked.search(str(key)):
+                found.add(str(key))
+            found.update(_disallowed_field_names(child))
+    elif isinstance(value, (list, tuple, set)):
+        for child in value:
+            found.update(_disallowed_field_names(child))
+    return found
 
 
 def infer_output_shape(question: str) -> dict[str, Any]:
@@ -66,7 +111,12 @@ def _allowlisted_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         if key not in plan:
             continue
         value = plan[key]
-        if key == "semantic_plan" and isinstance(value, Mapping):
+        if key == "coder_brief" and isinstance(value, Mapping):
+            clean[key] = {
+                field: value[field] for field in _CODER_BRIEF_FIELDS
+                if field in value
+            }
+        elif key == "semantic_plan" and isinstance(value, Mapping):
             semantic: dict[str, Any] = {}
             for semantic_key in _SEMANTIC_PLAN_FIELDS:
                 if semantic_key not in value:
@@ -114,16 +164,23 @@ class CoderContext:
             )
             for table in selected_tables
         }
-        forbidden = []
+        forbidden = list(_disallowed_field_names(table_metadata or {}))
+        forbidden.extend(_disallowed_field_names(selection_plan or {}))
+        sensitive: set[str] = set()
         allowed_source = {"question"}
         for key in (source_payload or {}):
             if str(key).casefold() not in allowed_source:
                 forbidden.append(str(key))
+                sensitive.update(_strings((source_payload or {})[key]))
+        metadata = _scrub_sensitive(metadata, sensitive)
+        clean_plan = _scrub_sensitive(
+            _allowlisted_plan(selection_plan or {}), sensitive
+        )
         return cls(
             question=question,
             selected_tables=tuple(selected_tables),
             table_metadata=metadata,
-            selection_plan=_allowlisted_plan(selection_plan or {}),
+            selection_plan=clean_plan,
             output_shape=infer_output_shape(question),
             execution_error=dict(execution_error or {}),
             excluded_fields=tuple(sorted(set(forbidden))),

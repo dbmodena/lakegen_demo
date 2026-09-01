@@ -78,7 +78,14 @@ def _agentic_tools(tmp_path, *, execute=None, question="", table_metadata=None):
         resolve_code=lambda code, _tables, _csv_dir: (code, None),
         execute_code=execute or (lambda code, **_kwargs: ("value: 42", None, code)),
         extract_payload=lambda raw: (raw, None, None),
+        require_semantic_plan=False,
     )
+    # Most tool-unit tests exercise an already established legacy contract.
+    # Missing-plan behavior has dedicated tests below.
+    state.plan_validation = {
+        "valid": True, "locked": False, "status": "verified",
+        "revised_after_runtime_inspection": True,
+    }
     return state, manager
 
 
@@ -150,6 +157,7 @@ def test_architect_semantic_plan_is_installed_and_cannot_be_overwritten(tmp_path
     )
     state = P3State()
     semantic_plan = {
+        "temporal_filters": [],
         "filters": [{
             "column": "Partner", "operator": "contains", "value": "Community"
         }],
@@ -164,6 +172,7 @@ def test_architect_semantic_plan_is_installed_and_cannot_be_overwritten(tmp_path
         }],
         "limit": 3,
         "output_columns": ["borough", "community_plaza_count"],
+        "null_policy": "preserve nulls", "table_roles": {"table.csv": "facts"},
     }
     manager = Phase3ToolsManager(
         state, tables=["table.csv"], csv_dir=tmp_path,
@@ -188,13 +197,16 @@ def test_architect_semantic_plan_is_installed_and_cannot_be_overwritten(tmp_path
 
 
 def test_semantic_plan_preserves_temporal_join_null_and_table_roles(tmp_path):
+    (tmp_path / "a.csv").write_text("id,Year\n1,2023\n", encoding="utf-8")
+    (tmp_path / "b.csv").write_text("fk,label\n1,x\n", encoding="utf-8")
     state = P3State()
     plan = {
         "filters": [],
-        "temporal_filters": [{"column": "Year", "operator": "equals", "value": "2023"}],
+        "temporal_filters": [{"table": "a.csv", "column": "Year", "operator": "equals", "value": "2023"}],
         "dimensions": [],
-        "measures": [{"output": "n", "operation": "count_rows", "columns": ["id"]}],
+        "measures": [{"table": "a.csv", "output": "n", "operation": "count_rows", "columns": ["id"]}],
         "joins": [{"tables": ["a.csv", "b.csv"], "keys": {"a.csv": "id", "b.csv": "fk"}}],
+        "ordering": [], "limit": None,
         "output_columns": ["n"], "null_policy": "exclude null ids",
         "table_roles": {"a.csv": "facts", "b.csv": "lookup"},
     }
@@ -211,7 +223,7 @@ def test_semantic_plan_preserves_temporal_join_null_and_table_roles(tmp_path):
     assert state.analysis_contract["table_roles"]["a.csv"] == "facts"
 
 
-def test_plan_conflict_is_structured_terminal_state(tmp_path):
+def test_plan_conflict_records_revision_path_without_terminal_rejection(tmp_path):
     state, manager = _agentic_tools(tmp_path)
     state.architect_contract_locked = True
     manager.selection_plan = {"semantic_plan": {"filters": []}}
@@ -220,8 +232,10 @@ def test_plan_conflict_is_structured_terminal_state(tmp_path):
         ["Partner contains Community"],
         "The question explicitly requires Community but filters is empty.",
     ))
-    assert payload["status"] == "PLAN_CONFLICT"
-    assert state.rejected_reason.startswith("PLAN_CONFLICT:")
+    assert payload["status"] == "PLAN_CONFLICT_RECORDED"
+    assert state.rejected_reason == ""
+    assert state.lifecycle == CoderLifecycle.NEEDS_REVISION
+    assert "set_analysis_contract" in payload["next_actions"]
 
 
 def test_contract_blocks_filter_fallback_and_count_semantic_swap(tmp_path):
@@ -260,7 +274,10 @@ def test_semantic_plan_with_unknown_column_is_not_locked(tmp_path):
         evaluation_result_type=None,
         selection_plan={"semantic_plan": {
             "filters": [{"table": "table.csv", "column": "missing", "operator": "equals", "value": "x"}],
-            "dimensions": [], "measures": [], "joins": [], "output_columns": ["value"],
+            "temporal_filters": [], "dimensions": [],
+            "measures": [{"table": "table.csv", "operation": "count_rows", "columns": ["value"]}],
+            "joins": [], "ordering": [], "limit": None, "output_columns": ["value"],
+            "null_policy": "preserve nulls", "table_roles": {"table.csv": "facts"},
         }},
         resolve_code=lambda code, *_: (code, None),
         execute_code=lambda code, **_: ("1", None, code),
@@ -272,7 +289,102 @@ def test_semantic_plan_with_unknown_column_is_not_locked(tmp_path):
     assert response["error"]["category"] == "semantic_plan_not_grounded"
 
 
-def test_semantic_plan_with_unobserved_filter_value_is_not_locked(tmp_path):
+@pytest.mark.parametrize("semantic_plan,status", [(None, "missing"), ({}, "invalid")])
+def test_missing_or_empty_semantic_plan_requires_inspection_and_contract(
+    tmp_path, semantic_plan, status
+):
+    (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type=None,
+        selection_plan={} if semantic_plan is None else {"semantic_plan": semantic_plan},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+    )
+    assert state.plan_validation["status"] == status
+    assert state.architect_contract_locked is False
+    response = json.loads(manager.run_code("print(1)"))
+    assert response["error"]["category"] == "semantic_plan_not_grounded"
+
+
+def test_minimal_coder_brief_unlocks_coder_with_runtime_columns(tmp_path):
+    (tmp_path / "table.csv").write_text("borough,status,id\nA,completed,1\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type=None,
+        selection_plan={"coder_brief": {
+            "tables": ["table.csv"],
+            "selected_columns": {"table.csv": ["borough", "status", "id"]},
+            "task": {"grouping": ["borough"], "measures": ["count rows"]},
+            "filters": [], "operations": ["count rows"],
+            "result_type": "table", "ordering": None, "limit": None,
+            "joins": [],
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+    )
+    assert state.plan_validation["status"] == "verified"
+    assert state.architect_contract_locked is True
+    assert manager.coder_plan_view()["coder_brief"]["selected_columns"]["table.csv"] == [
+        "borough", "status", "id"
+    ]
+
+
+def test_minimal_coder_brief_blocks_unknown_runtime_column(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
+    state = P3State()
+    Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type=None,
+        selection_plan={"coder_brief": {
+            "tables": ["table.csv"],
+            "selected_columns": {"table.csv": ["invented"]}, "joins": [],
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+    )
+    assert state.plan_validation["valid"] is False
+    assert state.plan_validation["diagnostics"][0]["category"] == "unknown_column"
+
+
+def test_plan_can_be_revised_after_runtime_inspection(tmp_path):
+    (tmp_path / "table.csv").write_text("status,value\ncompleted,1\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type=None,
+        selection_plan={"semantic_plan": {
+            "filters": [{"table": "table.csv", "column": "status", "operator": "equals", "value": "missing"}],
+            "temporal_filters": [], "dimensions": [], "measures": [{"table": "table.csv", "operation": "count_rows", "columns": ["value"]}],
+            "joins": [], "ordering": [], "limit": None, "output_columns": ["value"],
+            "null_policy": "preserve nulls", "table_roles": {"table.csv": "facts"},
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+    )
+    manager.inspect_table("table.csv", "status,value")
+    manager.plan_conflict(
+        "The requested runtime value differs from the initial binding.",
+        ["use the observed completed status"],
+        "Runtime inspection observed completed and did not observe missing.",
+    )
+    payload = json.loads(manager.set_analysis_contract(
+        filters=["status equals completed"], measures=["count_rows value"],
+        group_by=[], distinct_counts=[], joins=[], ordering="none",
+        limit=None, output_columns=["count_rows_value"],
+    ))
+    assert payload["ok"] is True
+    assert state.plan_validation["revised_after_runtime_inspection"] is True
+    assert state.plan_validation["valid"] is True
+
+
+def test_semantic_plan_with_unobserved_filter_value_is_verified_with_warning(tmp_path):
     (tmp_path / "table.csv").write_text("status,value\ncompleted,1\npending,2\n", encoding="utf-8")
     state = P3State()
     Phase3ToolsManager(
@@ -280,14 +392,17 @@ def test_semantic_plan_with_unobserved_filter_value_is_not_locked(tmp_path):
         evaluation_result_type=None,
         selection_plan={"semantic_plan": {
             "filters": [{"table": "table.csv", "column": "status", "operator": "equals", "value": "cancelled"}],
-            "dimensions": [], "measures": [], "joins": [], "output_columns": ["value"],
+            "temporal_filters": [], "dimensions": [], "measures": [{"table": "table.csv", "operation": "count_rows", "columns": ["value"]}],
+            "joins": [], "ordering": [], "limit": None, "output_columns": ["value"],
+            "null_policy": "preserve nulls", "table_roles": {"table.csv": "facts"},
         }},
         resolve_code=lambda code, *_: (code, None),
         execute_code=lambda code, **_: ("1", None, code),
         extract_payload=lambda raw: (raw, None, None),
     )
-    assert state.architect_contract_locked is False
-    assert state.plan_validation["diagnostics"][0]["category"] == "filter_value_not_observed"
+    assert state.architect_contract_locked is True
+    assert state.plan_validation["status"] == "verified"
+    assert state.plan_validation["warnings"][0]["category"] == "filter_value_not_observed"
 
 
 def test_semantically_weak_not_null_filter_is_not_locked(tmp_path):
@@ -301,7 +416,9 @@ def test_semantically_weak_not_null_filter_is_not_locked(tmp_path):
         question="Show plazas partnered with Community organizations",
         selection_plan={"semantic_plan": {
             "filters": [{"table": "table.csv", "column": "Partner", "operator": "not_null", "value": ""}],
-            "dimensions": [], "measures": [], "joins": [], "output_columns": ["Partner"],
+            "temporal_filters": [], "dimensions": [], "measures": [{"table": "table.csv", "operation": "count_rows", "columns": ["Partner"]}],
+            "joins": [], "ordering": [], "limit": None, "output_columns": ["Partner"],
+            "null_policy": "preserve nulls", "table_roles": {"table.csv": "facts"},
         }},
         resolve_code=lambda code, *_: (code, None),
         execute_code=lambda code, **_: ("1", None, code),
@@ -311,7 +428,7 @@ def test_semantically_weak_not_null_filter_is_not_locked(tmp_path):
     assert state.plan_validation["diagnostics"][0]["category"] == "semantic_filter_too_weak"
 
 
-def test_semantic_plan_join_requires_observed_key_overlap(tmp_path):
+def test_semantic_plan_join_without_observed_overlap_is_warning(tmp_path):
     (tmp_path / "a.csv").write_text("id,value\n1,10\n", encoding="utf-8")
     (tmp_path / "b.csv").write_text("fk,label\n2,x\n", encoding="utf-8")
     state = P3State()
@@ -319,16 +436,18 @@ def test_semantic_plan_join_requires_observed_key_overlap(tmp_path):
         state, tables=["a.csv", "b.csv"], csv_dir=tmp_path, run_dir=tmp_path,
         evaluation_result_type=None,
         selection_plan={"semantic_plan": {
-            "filters": [], "dimensions": [], "measures": [],
+            "filters": [], "temporal_filters": [], "dimensions": [],
+            "measures": [{"table": "a.csv", "operation": "count_rows", "columns": ["value"]}],
             "joins": [{"tables": ["a.csv", "b.csv"], "keys": {"a.csv": "id", "b.csv": "fk"}}],
-            "output_columns": ["value"],
+            "ordering": [], "limit": None, "output_columns": ["value"],
+            "null_policy": "preserve nulls", "table_roles": {"a.csv": "facts", "b.csv": "lookup"},
         }},
         resolve_code=lambda code, *_: (code, None),
         execute_code=lambda code, **_: ("1", None, code),
         extract_payload=lambda raw: (raw, None, None),
     )
-    assert state.architect_contract_locked is False
-    assert any(item["category"] == "join_key_not_verifiable" for item in state.plan_validation["diagnostics"])
+    assert state.architect_contract_locked is True
+    assert any(item["category"] == "join_key_not_verifiable" for item in state.plan_validation["warnings"])
 
 
 def test_analysis_contract_treats_dataset_edition_year_as_provenance(tmp_path):
@@ -663,7 +782,16 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
         by_name = {tool.metadata.name: tool for tool in kwargs["tools"]}
         if "run_code" in by_name:
             by_name["run_code"].call(
-                code="import json\nprint('__LAKEGEN_EVAL_JSON__' + json.dumps(1))"
+                code=(
+                    "import json\n"
+                    "print('__LAKEGEN_ANALYSIS_MANIFEST__' + json.dumps({"
+                    "'used_tables':['table.csv'],'used_columns':['value'],"
+                    "'filters':[],'joins':[],'grouping':[],"
+                    "'aggregations':['count_rows'],'ordering':[],"
+                    "'limit':None,'output_columns':['count'],"
+                    "'result_type':'number'}))\n"
+                    "print('__LAKEGEN_EVAL_JSON__' + json.dumps(1))"
+                )
             )
             return ""
         finish = by_name["finish_code"]
@@ -693,6 +821,16 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
         "How many records are there?", ["table.csv"], ["table.csv"],
         {"table.csv": {"title": "Runtime table"}}, "runtime reasoning",
         SimpleNamespace(), PM(), tmp_path, max_run_calls=1,
+        selection_plan={"semantic_plan": {
+            "filters": [], "temporal_filters": [], "dimensions": [],
+            "measures": [{
+                "table": "table.csv", "operation": "count_rows",
+                "columns": ["value"], "distinct": False,
+            }],
+                "joins": [], "ordering": [], "limit": None,
+                "output_columns": ["count"],
+                "null_policy": "preserve nulls", "table_roles": {"table.csv": "facts"},
+        }},
     )
 
     assert result.error is None
@@ -722,7 +860,7 @@ def test_benchmark_secret_never_enters_agent_prompts(tmp_path, monkeypatch):
     result = phase3_generate_and_execute(
         "How many records are there?", ["table.csv"], ["table.csv"],
         {"table.csv": {"title": "Runtime", "reference_result": secret}},
-        "runtime reasoning", SimpleNamespace(), PM(), tmp_path,
+        secret, SimpleNamespace(), PM(), tmp_path,
         selection_plan={"semantic_plan": {"filters": [], "dimensions": [], "measures": [], "joins": [], "output_columns": ["value"], "reference_code": secret}},
         source_field_names=["SOURCE_REFERENCE_RESULT", "SOURCE_REFERENCE_CODE"],
     )
@@ -730,9 +868,10 @@ def test_benchmark_secret_never_enters_agent_prompts(tmp_path, monkeypatch):
     assert secret not in "\n".join(prompts)
     assert secret not in (result.code_raw or "")
     assert result.coder_context_audit["reference_accessed_by_coder"] is False
-    assert set(result.coder_context_audit["excluded_field_names"]) == {
-        "SOURCE_REFERENCE_CODE", "SOURCE_REFERENCE_RESULT"
-    }
+    assert {
+        "SOURCE_REFERENCE_CODE", "SOURCE_REFERENCE_RESULT",
+        "reference_code", "reference_result",
+    }.issubset(set(result.coder_context_audit["excluded_field_names"]))
 
 
 def test_execution_error_classifier_marks_security_failures_non_retryable():
@@ -1076,6 +1215,62 @@ def test_diagnostic_output_is_retryable_and_not_inspectable_as_result(tmp_path):
     assert response["error"]["category"] == "diagnostic_output"
     assert state.raw_result is None
     assert json.loads(manager.inspect_result())["ok"] is False
+
+
+def test_runtime_analysis_manifest_enriches_operation_trace(tmp_path):
+    (tmp_path / "table.csv").write_text("group,value\na,1\nb,2\n", encoding="utf-8")
+    manifest = {
+        "used_tables": ["table.csv"],
+        "used_columns": ["group", "value"],
+        "filters": [{"column": "value", "rows_before": 2, "rows_after": 2}],
+        "grouping": ["group"], "aggregations": ["sum(value)"],
+        "joins": [], "ordering": "value descending", "limit": 2,
+        "output_columns": ["group", "value"], "result_type": "table",
+    }
+    raw = (
+        "__LAKEGEN_ANALYSIS_MANIFEST__" + json.dumps(manifest) + "\n"
+        "__LAKEGEN_EVAL_JSON__" + json.dumps([
+            {"group": "b", "value": 2}, {"group": "a", "value": 1}
+        ])
+    )
+    state, manager = _agentic_tools(
+        tmp_path, execute=lambda code, **_: (raw, None, code)
+    )
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda value: (
+        '[{"group":"b","value":2},{"group":"a","value":1}]',
+        [{"group": "b", "value": 2}, {"group": "a", "value": 1}], None,
+    )
+    response = json.loads(manager.run_code("print('runtime payload')"))
+    assert response["ok"] is True
+    assert state.operation_trace["manifest_provided"] is True
+    assert state.operation_trace["filter_steps"][0]["rows_before"] == 2
+    assert state.operation_trace["grouping_columns"] == ["group"]
+
+
+def test_missing_analysis_manifest_is_retryable_protocol_failure(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n42\n", encoding="utf-8")
+    state, manager = _agentic_tools(tmp_path)
+    manager.require_analysis_manifest = True
+    response = json.loads(manager.run_code("print(42)"))
+    assert response["ok"] is False
+    assert response["error"]["category"] == "manifest_missing"
+    assert state.raw_result is None
+
+
+def test_partial_analysis_manifest_is_rejected_with_diagnostics(tmp_path):
+    raw = (
+        '__LAKEGEN_ANALYSIS_MANIFEST__{"used_tables":["table.csv"]}\n'
+        '__LAKEGEN_EVAL_JSON__42'
+    )
+    state, manager = _agentic_tools(
+        tmp_path, execute=lambda code, **_: (raw, None, code)
+    )
+    manager.require_analysis_manifest = True
+    response = json.loads(manager.run_code("print('table.csv')"))
+    assert response["ok"] is False
+    assert response["error"]["category"] == "manifest_invalid"
+    assert "missing required field: aggregations" in response["error"]["diagnostics"]
 
 
 def test_run_code_rejects_hallucinated_table_path_with_allowed_command(tmp_path):

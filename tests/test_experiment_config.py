@@ -31,6 +31,7 @@ def test_default_config_matches_existing_interactive_workflow(monkeypatch):
     assert config.max_revision_rounds == 3
     assert config.coder_context_level == "full"
     assert config.automatic_test_coder is False
+    assert config.require_semantic_plan is True
     assert config.interaction_mode == "human_gated"
     assert config.gates.model_dump() == {
         "keywords": True,
@@ -79,7 +80,6 @@ def test_yaml_json_and_cli_overrides_resolve_identically(tmp_path):
 @pytest.mark.parametrize(
     "update",
     [
-        {"planner_enabled": True},
         {"reviewers": {"dataset": True}},
         {"max_revision_rounds": 4},
         {"gates": {"result": True}},
@@ -88,6 +88,10 @@ def test_yaml_json_and_cli_overrides_resolve_identically(tmp_path):
 def test_unimplemented_combinations_are_rejected(update):
     with pytest.raises(ValidationError):
         ExperimentConfig.model_validate(update)
+
+
+def test_semantic_planner_is_supported():
+    assert ExperimentConfig(planner_enabled=True).planner_enabled is True
 
 
 @pytest.mark.parametrize("level", ["full", "schema_only", "minimal"])

@@ -1,7 +1,8 @@
 import json
+import re
 from pathlib import Path
 from typing import Callable, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from llama_index.core.tools import FunctionTool
 from llama_index.core import VectorStoreIndex
@@ -84,6 +85,18 @@ class SemanticAnalysisPlan(BaseModel):
     null_policy: str = "preserve nulls unless the requested operation requires exclusion"
     table_roles: dict[str, str] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def validate_complete_non_empty_plan(self) -> "SemanticAnalysisPlan":
+        if not self.measures:
+            raise ValueError("measures must contain at least one structured binding")
+        if not self.output_columns:
+            raise ValueError("output_columns must not be empty")
+        if not self.table_roles:
+            raise ValueError("table_roles must cover the selected runtime tables")
+        if self.limit is not None and self.limit <= 0:
+            raise ValueError("limit must be a positive integer or null")
+        return self
+
 
 class ConfirmUnifiedSelectionSchema(BaseModel):
     reasoning: str = Field(description="MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question.")
@@ -130,13 +143,194 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
             "legacy plain missing-requirement string is also accepted."
         ),
     )
-    semantic_plan: SemanticAnalysisPlan = Field(
+    requirements: dict[str, object] = Field(
+        default_factory=dict,
+        description=(
+            "Compact semantic requirements only: grouping, measures, filters, "
+            "ordering, limit, and optional explicit joins with left_table, "
+            "left_columns, right_table, right_columns, and how."
+        ),
+    )
+    semantic_plan: dict[str, object] | None = Field(
+        default=None,
         description=(
             "Non-oracle executable semantics derived only from the question and "
             "inspected table evidence. Bind every filter, dimension, and measure "
             "to exact selected-table columns; never use benchmark expectations."
         )
     )
+
+
+class SubmitSemanticPlanDraftSchema(BaseModel):
+    draft: dict[str, object] = Field(
+        description=(
+            "Compact draft with filters [column, operator, value], dimensions "
+            "[output, column], measures [output, operation, columns], optional "
+            "joins, ordering [output, direction], and limit."
+        )
+    )
+
+
+def _normalize_semantic_plan(
+    plan: dict[str, object], selected_tables: list[str]
+) -> dict[str, object]:
+    """Normalize harmless tool-input variants without inventing semantic evidence."""
+    normalized = dict(plan)
+    operation_aliases = {
+        "count": "count_rows", "avg": "mean", "average": "mean",
+    }
+    operator_aliases = {
+        "is_not_null": "not_null", "year_eq": "equals", "year_equals": "equals",
+    }
+    default_table = selected_tables[0] if len(selected_tables) == 1 else ""
+    for key in ("filters", "temporal_filters", "dimensions", "measures"):
+        items: list[object] = []
+        for raw in normalized.get(key, []) if isinstance(normalized.get(key), list) else []:
+            if not isinstance(raw, dict):
+                items.append(raw)
+                continue
+            item = dict(raw)
+            if default_table and not item.get("table"):
+                item["table"] = default_table
+            if key in {"filters", "temporal_filters"}:
+                operator = str(item.get("operator") or "").casefold()
+                item["operator"] = operator_aliases.get(operator, operator)
+                value = item.get("value", "")
+                if not isinstance(value, str):
+                    item["value"] = json.dumps(value, ensure_ascii=False)
+            elif key == "measures":
+                operation = str(item.get("operation") or item.pop("aggregation", "")).casefold()
+                item["operation"] = operation_aliases.get(operation, operation)
+                if "columns" not in item and item.get("column"):
+                    item["columns"] = [item.pop("column")]
+            items.append(item)
+        normalized[key] = items
+    joins: list[object] = []
+    for raw in normalized.get("joins", []) if isinstance(normalized.get("joins"), list) else []:
+        if not isinstance(raw, dict):
+            joins.append(raw)
+            continue
+        join = dict(raw)
+        if not join.get("tables") and join.get("left_table") and join.get("right_table"):
+            join["tables"] = [join.pop("left_table"), join.pop("right_table")]
+        if not join.get("keys") and join.get("left_key") and join.get("right_key"):
+            tables = list(join.get("tables") or [])
+            if len(tables) == 2:
+                join["keys"] = {
+                    str(tables[0]): join.pop("left_key"),
+                    str(tables[1]): join.pop("right_key"),
+                }
+        joins.append(join)
+    normalized["joins"] = joins
+    return normalized
+
+
+def _draft_item(raw: object, names: tuple[str, ...]) -> dict[str, object]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, (list, tuple)):
+        return {name: raw[index] for index, name in enumerate(names) if index < len(raw)}
+    return {}
+
+
+def compile_semantic_plan_draft(
+    draft: dict[str, object], selected_tables: list[str],
+    table_roles: dict[str, str], schema_by_table: dict[str, set[str]],
+) -> dict[str, object]:
+    """Compile an explicit model draft; never infer missing semantic choices."""
+    default_table = selected_tables[0] if len(selected_tables) == 1 else ""
+
+    def bind(raw: object, names: tuple[str, ...], kind: str) -> dict[str, object]:
+        item = _draft_item(raw, names)
+        table = str(item.get("table") or default_table)
+        if not table:
+            raise ValueError(f"{kind} binding must name a table for multi-table plans")
+        column_names = item.get("columns")
+        if column_names is None and item.get("column"):
+            column_names = [item["column"]]
+        columns = [str(value) for value in (column_names or [])]
+        evidence_columns = columns or [str(item.get("column") or "")]
+        evidence_columns = [column for column in evidence_columns if column]
+        missing = [column for column in evidence_columns if column not in schema_by_table.get(table, set())]
+        if table not in selected_tables or missing:
+            raise ValueError(
+                f"{kind} binding is not supported by inspected schema: "
+                f"table={table!r}, missing_columns={missing}"
+            )
+        output = str(item.get("output") or "").strip()
+        column = str(item.get("column") or "").strip()
+        requirement = str(item.get("requirement") or output or column).strip()
+        if not requirement:
+            raise ValueError(f"{kind} binding needs an explicit output or requirement")
+        item["table"] = table
+        item["requirement"] = requirement
+        item["evidence"] = (
+            f"Inspected runtime schema for {table} contains: "
+            + ", ".join(evidence_columns)
+        )
+        return item
+
+    filters = [bind(raw, ("column", "operator", "value"), "filter")
+               for raw in draft.get("filters", []) if raw is not None]
+    temporal = [bind(raw, ("column", "operator", "value"), "temporal_filter")
+                for raw in draft.get("temporal_filters", []) if raw is not None]
+    dimensions = [bind(raw, ("output", "column"), "dimension")
+                  for raw in draft.get("dimensions", []) if raw is not None]
+    measures = [bind(raw, ("output", "operation", "columns"), "measure")
+                for raw in draft.get("measures", []) if raw is not None]
+    if not measures:
+        raise ValueError("draft must contain at least one explicit measure")
+    output_columns = [
+        str(item.get("output")) for item in [*dimensions, *measures]
+        if str(item.get("output") or "").strip()
+    ]
+    if not output_columns:
+        raise ValueError("draft bindings must declare output names")
+    normalized_join_plan = _normalize_semantic_plan(
+        {"joins": list(draft.get("joins", []))}, selected_tables
+    )
+    joins: list[dict[str, object] | str] = []
+    for raw in normalized_join_plan.get("joins", []):
+        if isinstance(raw, str):
+            joins.append(raw)
+            continue
+        if not isinstance(raw, dict):
+            raise ValueError("join must be a structured object or explicit legacy string")
+        join = dict(raw)
+        tables = [str(table) for table in join.get("tables", [])]
+        keys = {str(table): str(column) for table, column in dict(join.get("keys") or {}).items()}
+        if len(tables) < 2 or any(table not in selected_tables for table in tables):
+            raise ValueError("join tables must be explicitly selected")
+        missing_keys = [
+            f"{table}.{keys.get(table, '')}" for table in tables
+            if not keys.get(table) or keys[table] not in schema_by_table.get(table, set())
+        ]
+        if missing_keys:
+            raise ValueError("join keys missing from inspected schemas: " + ", ".join(missing_keys))
+        join["tables"] = tables
+        join["keys"] = keys
+        join["evidence"] = "Inspected runtime schemas contain join keys: " + ", ".join(
+            f"{table}.{keys[table]}" for table in tables
+        )
+        joins.append(join)
+    plan = {
+        "filters": filters,
+        "temporal_filters": temporal,
+        "dimensions": dimensions,
+        "measures": measures,
+        "joins": joins,
+        "ordering": [
+            _draft_item(raw, ("output", "direction"))
+            for raw in draft.get("ordering", []) if raw is not None
+        ],
+        "limit": draft.get("limit"),
+        "output_columns": output_columns,
+        "null_policy": str(draft.get("null_policy") or (
+            "preserve nulls unless the requested operation requires exclusion"
+        )),
+        "table_roles": dict(table_roles),
+    }
+    return _normalize_semantic_plan(plan, selected_tables)
 
 
 class P12State:
@@ -151,6 +345,15 @@ class P12State:
         self.search_cache: dict[tuple[str, ...], str] = {}
         self.search_attempts: list[dict[str, object]] = []
         self.semantic_failure: str | None = None
+        self.initial_stall_reason: str | None = None
+        self.recovery_started = False
+        self.recovery_stop_reason: str | None = None
+        self.selection_plan_source = "none"
+        self.confirmed_tables: list[str] = []
+        self.selection_reasoning = ""
+        self.selection_requirements: dict[str, object] = {}
+        self.semantic_draft: dict[str, object] = {}
+        self.semantic_planner_attempts = 0
         self.inspection_cache: dict[str, str] = {}
         self.inspection_counts: dict[str, int] = {}
         self.visible_candidate_count = 0
@@ -533,6 +736,7 @@ class Phase12ToolsManager:
         combination_strategy: str = "single_table",
         uncovered_requirements: list[str] | None = None,
         alternatives_rejected: dict[str, dict[str, object] | str] | None = None,
+        requirements: dict[str, object] | None = None,
         semantic_plan: dict[str, object] | SemanticAnalysisPlan | None = None,
     ) -> str:
         """
@@ -614,10 +818,22 @@ class Phase12ToolsManager:
         if isinstance(semantic_plan, SemanticAnalysisPlan):
             semantic_plan = semantic_plan.model_dump()
         if contract_first:
+            if isinstance(semantic_plan, dict) and not semantic_plan.get("table_roles"):
+                semantic_plan = {**semantic_plan, "table_roles": dict(table_roles)}
+            if isinstance(semantic_plan, dict):
+                semantic_plan = _normalize_semantic_plan(
+                    semantic_plan, normalized_tables
+                )
             try:
                 semantic_plan = SemanticAnalysisPlan.model_validate(semantic_plan).model_dump()
             except Exception as exc:
-                raise ValueError(f"Selection blocked: invalid semantic_plan: {exc}") from exc
+                self.state.semantic_failure = str(exc)
+                raise ValueError(
+                    "Selection blocked: invalid semantic_plan: "
+                    f"{exc}\nCorrect the listed fields and call "
+                    "confirm_unified_selection again. Do not return the corrected "
+                    "JSON only as assistant text."
+                ) from exc
 
             schema_by_table: dict[str, set[str]] = {}
             for table in normalized_tables:
@@ -777,8 +993,23 @@ class Phase12ToolsManager:
             "combination_strategy": combination_strategy,
             "uncovered_requirements": uncovered_requirements,
             "alternatives_rejected": alternatives_rejected,
-            "semantic_plan": semantic_plan if contract_first else {},
+            "requirements": dict(requirements or {}),
+            "coder_brief": self._build_coder_brief(
+                normalized_tables,
+                requirement_coverage,
+                dict(requirements or {}),
+                combination_strategy,
+                semantic_plan if isinstance(semantic_plan, dict) else None,
+            ),
+            **({"semantic_plan": semantic_plan} if contract_first else {}),
         }
+        self.state.semantic_failure = None
+        self.state.selection_plan_source = (
+            "confirm_unified_selection" if contract_first else "selection_only"
+        )
+        self.state.confirmed_tables = list(normalized_tables)
+        self.state.selection_reasoning = reasoning
+        self.state.selection_requirements = dict(requirements or {})
         self.state.selection_advisories = advisories
 
         final_tables = ", ".join(normalized_tables)
@@ -790,6 +1021,167 @@ class Phase12ToolsManager:
             "advisories": advisories,
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
+
+    def _build_coder_brief(
+        self,
+        tables: list[str],
+        coverage: dict[str, dict[str, object]],
+        requirements: dict[str, object],
+        combination_strategy: str,
+        semantic_plan: dict[str, object] | None,
+    ) -> dict[str, object]:
+        """Normalize the agent's explicit choices without making new choices."""
+        schemas: dict[str, list[str]] = {}
+        for table in tables:
+            try:
+                schemas[table] = [str(column) for column in read_table(
+                    self.csv_dir / table, nrows=0
+                ).columns]
+            except Exception:
+                # Phase 3 remains the authoritative readability gate. Discovery
+                # tests and remote adapters may expose inspection text only.
+                schemas[table] = []
+        selected_columns: dict[str, list[str]] = {table: [] for table in tables}
+        normalization_errors: list[str] = []
+
+        def canonical(value: str) -> str:
+            return re.sub(r"[^a-z0-9]", "", value.casefold())
+
+        def resolve(table: str, raw_column: object) -> str | None:
+            raw = str(raw_column).strip()
+            if not raw or table not in schemas:
+                return None
+            annotated = re.fullmatch(r"(.+?)\s*\(([^()]+\.(?:parquet|csv))\)\s*", raw)
+            if annotated:
+                raw = annotated.group(1).strip()
+                annotated_table = annotated.group(2).strip()
+                if annotated_table != table:
+                    return None
+            exact = [column for column in schemas[table] if column == raw]
+            if len(exact) == 1:
+                return exact[0]
+            folded = [column for column in schemas[table] if column.casefold() == raw.casefold()]
+            if len(folded) == 1:
+                return folded[0]
+            mechanical = [column for column in schemas[table] if canonical(column) == canonical(raw)]
+            return mechanical[0] if len(mechanical) == 1 else None
+
+        annotated_join_columns: list[tuple[str, str]] = []
+        for requirement, evidence in coverage.items():
+            if not isinstance(evidence, dict):
+                continue
+            evidence_table = str(evidence.get("table", "")).strip()
+            for raw_column in evidence.get("columns", []):
+                annotation = re.fullmatch(
+                    r"(.+?)\s*\(([^()]+\.(?:parquet|csv))\)\s*",
+                    str(raw_column).strip(),
+                )
+                table = annotation.group(2).strip() if annotation else evidence_table
+                column = resolve(table, raw_column)
+                if column and table in selected_columns:
+                    if column not in selected_columns[table]:
+                        selected_columns[table].append(column)
+                    if evidence_table not in tables or "join" in requirement.casefold():
+                        annotated_join_columns.append((table, column))
+                else:
+                    normalization_errors.append(
+                        f"{requirement}: {raw_column!s} is not one unambiguous column of {table or 'a selected table'}"
+                    )
+
+        joins = list(requirements.get("joins", [])) if isinstance(
+            requirements.get("joins"), list
+        ) else []
+        if not joins and len({table for table, _ in annotated_join_columns}) == 2:
+            left, right = annotated_join_columns[:2]
+            if left[0] != right[0]:
+                joins = [{
+                    "left_table": left[0], "left_columns": [left[1]],
+                    "right_table": right[0], "right_columns": [right[1]],
+                    "how": "inner",
+                }]
+        brief: dict[str, object] = {
+            "tables": list(tables),
+            "selected_columns": selected_columns,
+            "task": dict(requirements),
+            "filters": list(requirements.get("filters", []))
+            if isinstance(requirements.get("filters"), list) else [],
+            "operations": list(requirements.get("measures", []))
+            if isinstance(requirements.get("measures"), list) else [],
+            "result_type": str(requirements.get("result_type") or "auto"),
+            "ordering": requirements.get("ordering"),
+            "limit": requirements.get("limit"),
+            "joins": joins,
+            "normalization_errors": normalization_errors,
+        }
+        if semantic_plan:
+            brief["filters"] = list(semantic_plan.get("filters", []))
+            brief["operations"] = list(semantic_plan.get("measures", []))
+            brief["ordering"] = semantic_plan.get("ordering")
+            brief["limit"] = semantic_plan.get("limit")
+            brief["joins"] = list(semantic_plan.get("joins", []))
+            for group in ("dimensions", "measures", "filters", "temporal_filters"):
+                for binding in semantic_plan.get(group, []):
+                    if not isinstance(binding, dict):
+                        continue
+                    table = str(binding.get("table") or (tables[0] if len(tables) == 1 else ""))
+                    for raw_column in binding.get("columns", [binding.get("column")]):
+                        column = resolve(table, raw_column)
+                        if column and column not in selected_columns.get(table, []):
+                            selected_columns[table].append(column)
+        if len(tables) > 1 and combination_strategy != "single_table":
+            brief["combination_strategy"] = combination_strategy
+        return brief
+
+    def submit_semantic_plan_draft(self, draft: dict[str, object]) -> str:
+        """Compile and validate a compact benchmark-blind semantic draft."""
+        self.state.semantic_planner_attempts += 1
+        if self.state.semantic_planner_attempts > 2:
+            raise ValueError("semantic planner correction limit reached (2)")
+        tables = list(self.state.confirmed_tables)
+        if not tables:
+            raise ValueError("table selection must be confirmed before semantic planning")
+        roles = dict(self.state.selection_plan.get("table_roles") or {})
+        schema_by_table = {
+            table: {str(column) for column in read_table(self.csv_dir / table, nrows=0).columns}
+            for table in tables
+        }
+        try:
+            compiled = compile_semantic_plan_draft(
+                draft, tables, roles, schema_by_table
+            )
+            self.state.semantic_draft = dict(draft)
+            return self.confirm_unified_selection(
+                self.state.selection_reasoning,
+                tables,
+                requirement_coverage=dict(
+                    self.state.selection_plan.get("requirement_coverage") or {}
+                ),
+                table_roles=roles,
+                combination_strategy=str(
+                    self.state.selection_plan.get("combination_strategy") or "single_table"
+                ),
+                uncovered_requirements=list(
+                    self.state.selection_plan.get("uncovered_requirements") or []
+                ),
+                alternatives_rejected=dict(
+                    self.state.selection_plan.get("alternatives_rejected") or {}
+                ),
+                requirements=dict(self.state.selection_requirements),
+                semantic_plan=compiled,
+            )
+        except Exception as exc:
+            self.state.semantic_failure = str(exc)
+            raise ValueError(
+                "Semantic draft validation failed. Correct only the reported fields "
+                f"and call submit_semantic_plan_draft again. Error: {exc}"
+            ) from exc
+
+    def get_semantic_planner_tools(self) -> list[FunctionTool]:
+        return [FunctionTool.from_defaults(
+            fn=self.submit_semantic_plan_draft,
+            fn_schema=SubmitSemanticPlanDraftSchema,
+            return_direct=True,
+        )]
 
     def get_tools(self) -> list[FunctionTool]:
         return [

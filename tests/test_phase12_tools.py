@@ -4,11 +4,18 @@ import pytest
 import pandas as pd
 
 from lakegen.agent_tools import tools_p12
-from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
+from lakegen.agent_tools.tools_p12 import (
+    P12State, Phase12ToolsManager, _normalize_semantic_plan,
+    compile_semantic_plan_draft,
+)
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.phases.phase12 import (
+    _conservative_draft_from_requirements,
+    _extract_plausible_json,
+    _inspected_runtime_evidence,
     _reasoning_with_selection_plan,
     _recover_minimal_selection_plan,
+    _semantic_planner_prompt,
 )
 from lakegen.retrieval import (
     EmbeddingGenerationError,
@@ -421,6 +428,245 @@ def test_missing_agentic_plan_is_recovered_as_non_blocking_coder_context():
     assert plan["recovered_from_existing_discovery_context"] is True
     assert set(plan["table_roles"]) == {"events.parquet", "boroughs.parquet"}
     assert "treat it as guidance, not as a blocking constraint" in context
+
+
+def test_recovery_evidence_serializes_cached_inspections_without_external_context():
+    state = P12State()
+    state.all_candidates = ["events.parquet", "broken.parquet"]
+    state.inspection_cache = {
+        "events.parquet": "Schema for events.parquet: borough, category",
+        "broken.parquet": "Error: unreadable",
+    }
+
+    evidence = json.loads(_inspected_runtime_evidence(state))
+
+    assert evidence == {
+        "events.parquet": "Schema for events.parquet: borough, category"
+    }
+
+
+def test_semantic_plan_normalizes_reasonable_aliases_and_join_shape():
+    normalized = _normalize_semantic_plan({
+        "filters": [{"column": "year", "operator": "year_eq", "value": 2020}],
+        "measures": [{"column": "value", "operation": "average"}],
+        "dimensions": [], "temporal_filters": [],
+        "joins": [{
+            "left_table": "facts.parquet", "right_table": "lookup.parquet",
+            "left_key": "district_id", "right_key": "id", "how": "left",
+        }],
+    }, ["facts.parquet", "lookup.parquet"])
+    assert normalized["filters"][0]["operator"] == "equals"
+    assert normalized["filters"][0]["value"] == "2020"
+    assert normalized["measures"][0]["operation"] == "mean"
+    assert normalized["measures"][0]["columns"] == ["value"]
+    assert normalized["joins"][0]["tables"] == ["facts.parquet", "lookup.parquet"]
+    assert normalized["joins"][0]["keys"] == {
+        "facts.parquet": "district_id", "lookup.parquet": "id"
+    }
+
+
+def test_draft_compiler_adds_only_runtime_verifiable_fields():
+    compiled = compile_semantic_plan_draft(
+        {
+            "filters": [["status", "equals", "completed"]],
+            "dimensions": [["borough_name", "borough"]],
+            "measures": [["event_count", "count", ["id"]]],
+            "ordering": [["event_count", "descending"]], "limit": 3,
+        },
+        ["events.parquet"], {"events.parquet": "fact records"},
+        {"events.parquet": {"status", "borough", "id"}},
+    )
+    assert compiled["measures"][0]["operation"] == "count_rows"
+    assert compiled["measures"][0]["table"] == "events.parquet"
+    assert compiled["measures"][0]["output"] == "event_count"
+    assert compiled["dimensions"][0]["evidence"].startswith(
+        "Inspected runtime schema"
+    )
+    assert compiled["output_columns"] == ["borough_name", "event_count"]
+
+
+def test_draft_compiler_refuses_to_infer_table_for_multi_table_binding():
+    with pytest.raises(ValueError, match="must name a table"):
+        compile_semantic_plan_draft(
+            {"measures": [["row_count", "count_rows", []]]},
+            ["a.parquet", "b.parquet"],
+            {"a.parquet": "facts", "b.parquet": "lookup"},
+            {"a.parquet": {"id"}, "b.parquet": {"id"}},
+        )
+
+
+def test_draft_compiler_normalizes_and_evidences_join():
+    compiled = compile_semantic_plan_draft(
+        {
+            "measures": [{
+                "output": "row_count", "operation": "count_rows", "columns": [],
+                "table": "facts.parquet",
+            }],
+            "joins": [{
+                "left_table": "facts.parquet", "right_table": "lookup.parquet",
+                "left_key": "district_id", "right_key": "id", "how": "left",
+            }],
+        },
+        ["facts.parquet", "lookup.parquet"],
+        {"facts.parquet": "facts", "lookup.parquet": "lookup"},
+        {"facts.parquet": {"district_id"}, "lookup.parquet": {"id"}},
+    )
+    assert compiled["joins"][0]["keys"] == {
+        "facts.parquet": "district_id", "lookup.parquet": "id"
+    }
+    assert "facts.parquet.district_id" in compiled["joins"][0]["evidence"]
+
+
+def test_selection_only_is_followed_by_compiled_draft(tmp_path):
+    pd.DataFrame({"borough": ["Queens"], "id": [1]}).to_parquet(
+        tmp_path / "events.parquet"
+    )
+    state = P12State()
+    state.all_candidates = ["events.parquet"]
+    state.visible_candidate_count = 1
+    state.inspection_cache["events.parquet"] = "Schema: borough, id"
+    manager = Phase12ToolsManager(
+        state, object(), state.all_candidates, tmp_path, question="Count by borough"
+    )
+    selection = manager.confirm_unified_selection(
+        "Events contain borough records.", ["events.parquet"],
+        requirement_coverage={
+            "group by borough": {"table": "events.parquet", "columns": ["borough"]}
+        },
+        table_roles={"events.parquet": "fact records"},
+        requirements={
+            "grouping": ["borough"], "measures": ["count rows"],
+            "filters": [], "ordering": "row_count descending", "limit": 3,
+        },
+    )
+    selection_plan = json.loads(
+        selection.split("FINAL_PAYLOAD: ", 1)[1]
+    )["selection_plan"]
+    assert "semantic_plan" not in selection_plan
+    assert selection_plan["coder_brief"] == {
+        "tables": ["events.parquet"],
+        "selected_columns": {"events.parquet": ["borough"]},
+        "task": {
+            "grouping": ["borough"], "measures": ["count rows"],
+            "filters": [], "ordering": "row_count descending", "limit": 3,
+        },
+        "filters": [], "operations": ["count rows"],
+        "result_type": "auto", "ordering": "row_count descending",
+        "limit": 3, "joins": [], "normalization_errors": [],
+    }
+    planned = manager.submit_semantic_plan_draft({
+        "filters": [], "dimensions": [["borough", "borough"]],
+        "measures": [["row_count", "count_rows", []]],
+        "ordering": [["row_count", "descending"]], "limit": 3,
+    })
+    payload = json.loads(planned.split("FINAL_PAYLOAD: ", 1)[1])
+    assert payload["selection_plan"]["semantic_plan"]["measures"][0]["operation"] == "count_rows"
+    assert state.semantic_planner_attempts == 1
+
+
+def test_coder_brief_normalizes_annotated_join_columns_without_fuzzy_matching(tmp_path):
+    pd.DataFrame({"Partner": ["Community A"], "PlazaName": ["One"]}).to_parquet(
+        tmp_path / "plazas.parquet"
+    )
+    pd.DataFrame({"Organization name": ["Community A"]}).to_parquet(
+        tmp_path / "organizations.parquet"
+    )
+    state = P12State()
+    state.all_candidates = ["plazas.parquet", "organizations.parquet"]
+    state.visible_candidate_count = 2
+    state.inspection_cache = {
+        "plazas.parquet": "Schema: Partner, PlazaName",
+        "organizations.parquet": "Schema: Organization name",
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+    result = manager.confirm_unified_selection(
+        "Join explicitly chosen organization names to plaza partners.",
+        state.all_candidates,
+        requirement_coverage={
+            "join organization": {
+                "table": "join",
+                "columns": [
+                    "partner (plazas.parquet)",
+                    "Organization name (organizations.parquet)",
+                ],
+            },
+        },
+        table_roles={"plazas.parquet": "facts", "organizations.parquet": "lookup"},
+        combination_strategy="join",
+    )
+    brief = json.loads(result.split("FINAL_PAYLOAD: ", 1)[1])["selection_plan"]["coder_brief"]
+    assert brief["selected_columns"] == {
+        "plazas.parquet": ["Partner"],
+        "organizations.parquet": ["Organization name"],
+    }
+    assert brief["joins"] == [{
+        "left_table": "plazas.parquet", "left_columns": ["Partner"],
+        "right_table": "organizations.parquet", "right_columns": ["Organization name"],
+        "how": "inner",
+    }]
+    assert brief["normalization_errors"] == []
+
+
+def test_coder_brief_does_not_semantically_expand_short_column_names(tmp_path):
+    pd.DataFrame({
+        "Home Broadband Adoption (Percentage of Households)": [70.0]
+    }).to_parquet(tmp_path / "connectivity.parquet")
+    state = P12State()
+    state.all_candidates = ["connectivity.parquet"]
+    state.visible_candidate_count = 1
+    state.inspection_cache["connectivity.parquet"] = "Schema inspected"
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+    result = manager.confirm_unified_selection(
+        "Use broadband adoption.", ["connectivity.parquet"],
+        requirement_coverage={
+            "measure": {
+                "table": "connectivity.parquet",
+                "columns": ["Home Broadband Adoption"],
+            },
+        },
+        table_roles={"connectivity.parquet": "facts"},
+    )
+    brief = json.loads(result.split("FINAL_PAYLOAD: ", 1)[1])["selection_plan"]["coder_brief"]
+    assert brief["selected_columns"] == {"connectivity.parquet": []}
+    assert "not one unambiguous column" in brief["normalization_errors"][0]
+
+
+def test_textual_json_is_recovered_but_still_requires_validation():
+    recovered = _extract_plausible_json(
+        'I corrected it: {"draft":{"measures":[["count","count_rows",[]]]}}'
+    )
+    assert recovered == {"draft": {"measures": [["count", "count_rows", []]]}}
+
+
+def test_conservative_fallback_requires_exact_runtime_columns():
+    draft = _conservative_draft_from_requirements({
+        "grouping": ["borough"], "measures": ["count rows"],
+        "filters": ["status = completed"],
+        "ordering": "row_count descending", "limit": 3,
+    }, ["events.parquet"], {"borough", "status"})
+    assert draft == {
+        "filters": [["status", "equals", "completed"]],
+        "temporal_filters": [], "dimensions": [["borough", "borough"]],
+        "measures": [["row_count", "count_rows", []]], "joins": [],
+        "ordering": [["row_count", "descending"]], "limit": 3,
+    }
+    assert _conservative_draft_from_requirements(
+        {"grouping": ["neighborhood"], "measures": ["count rows"]},
+        ["events.parquet"], {"borough"},
+    ) is None
+
+
+def test_semantic_planner_prompt_contains_runtime_only_context():
+    state = P12State()
+    state.all_candidates = ["events.parquet"]
+    state.confirmed_tables = ["events.parquet"]
+    state.selection_requirements = {"measures": ["count rows"]}
+    state.inspection_cache["events.parquet"] = "Schema: id"
+    prompt = _semantic_planner_prompt("Count events", state)
+    assert "Schema: id" in prompt
+    assert "SOURCE_REFERENCE_RESULT" not in prompt
+    assert "BENCHMARK_SECRET_DO_NOT_LEAK" not in prompt
+    assert "expected_result" not in prompt
 
 
 def test_selection_records_uncovered_requirements_and_rejected_alternatives(tmp_path):
