@@ -61,9 +61,14 @@ agentic_system_prompt: |
   print diagnostic schemas from run_code; use inspect_table. Imports for system
   or process access, eval, and exec are forbidden.
 
-  The runtime records tables, columns, and operations from the executed code.
-  Do not emit an analysis manifest. Never include benchmark, reference,
-  expected-answer, evaluator, or gold data.
+  Every program must print exactly one compact JSON analysis manifest line
+  before the evaluation payload. Prefix it with
+  `__LAKEGEN_ANALYSIS_MANIFEST__`. It must contain `used_tables`,
+  `used_columns`, `filters`, `aggregations`, and `result_type`; the first four
+  fields are arrays. It may also contain `joins`, `grouping`, `ordering`,
+  `limit`, and `output_columns`. Report only operations the program actually
+  performs and exact selected table/column names. Never include benchmark,
+  reference, expected-answer, evaluator, or gold data.
 
 agentic_initial_prompt: |
   QUESTION: "{{ question }}"

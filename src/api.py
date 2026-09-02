@@ -360,6 +360,13 @@ def _append_batch_table_metrics(
             len(reference_successes) / len(reference_executions), 6
         ) if reference_executions else 0.0,
     }
+    reference_metrics["stable_reference_count"] = (
+        reference_metrics["execution_success_count"]
+        - reference_metrics["reference_drift_count"]
+    )
+    reference_metrics["reference_drift_rate"] = round(
+        reference_metrics["reference_drift_count"] / len(reference_successes), 6
+    ) if reference_successes else 0.0
     levels = (
         list(CoderContextLevel)
         if automatic_test_coder
@@ -613,6 +620,7 @@ def _prepare_dynamic_references(
         "execution_success_count": 0,
         "invalid_reference_count": 0,
         "reference_drift_count": 0,
+        "stable_reference_count": 0,
         "cache_hit_count": 0,
         "processed_case_count": 0,
         "prevalidated_case_count": 0,
@@ -705,6 +713,12 @@ def _prepare_dynamic_references(
     metrics["execution_success_rate"] = round(
         metrics["execution_success_count"] / eligible, 6
     ) if eligible else 0.0
+    metrics["stable_reference_count"] = (
+        metrics["execution_success_count"] - metrics["reference_drift_count"]
+    )
+    metrics["reference_drift_rate"] = round(
+        metrics["reference_drift_count"] / metrics["execution_success_count"], 6
+    ) if metrics["execution_success_count"] else 0.0
     return metrics
 
 

@@ -329,6 +329,7 @@ def test_minimal_coder_brief_unlocks_coder_with_runtime_columns(tmp_path):
     )
     assert state.plan_validation["status"] == "verified"
     assert state.architect_contract_locked is True
+    assert state.analysis_contract["group_by"] == ["borough"]
     assert manager.coder_plan_view()["coder_brief"]["selected_columns"]["table.csv"] == [
         "borough", "status", "id"
     ]
@@ -619,6 +620,31 @@ def test_inspection_maps_contract_to_code_and_result_evidence(tmp_path):
     assert measure["result_evidence"] == ["average_cases"]
     assert "contract_evidence" not in inspection["profile"]
     assert inspection["profile"]["correction_required"] is False
+
+
+def test_inspection_accepts_structured_semantic_contract_items(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: ('{"value": 4.5}', None, code),
+    )
+    state.analysis_contract.update({
+        "filters": [{"column": "year", "operator": "equals", "value": "2020"}],
+        "measures": [{"output": "average_cases", "operation": "mean", "columns": ["cases"]}],
+        "group_by": [{"column": "borough", "output": "borough"}],
+        "joins": [{"left": "events", "right": "boroughs", "on": ["borough_id"]}],
+    })
+    manager.extract_payload = lambda raw: (raw, {"value": 4.5}, None)
+
+    manager.run_code(
+        "year = 2020\n"
+        "joined = events.merge(boroughs, on='borough_id')\n"
+        "result = joined.groupby('borough').agg(average_cases=('cases', 'mean'))\n"
+        "print(result)"
+    )
+    inspection = json.loads(manager.inspect_result())
+
+    assert inspection["ok"] is True
+    assert any(row["kind"] == "join" for row in state.contract_evidence)
 
 
 def test_missing_contract_evidence_is_specific_and_objective_code_gap_blocks(tmp_path):

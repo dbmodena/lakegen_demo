@@ -74,7 +74,23 @@ def _extract_json(text: str) -> Mapping[str, Any]:
     fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", stripped, re.DOTALL)
     if fenced:
         stripped = fenced.group(1)
-    loaded = json.loads(stripped)
+    try:
+        loaded = json.loads(stripped)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        loaded = None
+        for index, character in enumerate(stripped):
+            if character != "{":
+                continue
+            try:
+                candidate, _ = decoder.raw_decode(stripped[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, Mapping):
+                loaded = candidate
+                break
+        if loaded is None:
+            raise
     if not isinstance(loaded, Mapping):
         raise ValueError("semantic judge response must be a JSON object")
     return loaded
@@ -112,8 +128,21 @@ def judge_semantic_code_result(
             ),
         )
         response = llm.chat([ChatMessage(role="user", content=prompt)])
+        responses = [response]
         raw_content = str(response.message.content).strip()
-        payload = dict(_extract_json(raw_content))
+        try:
+            payload = dict(_extract_json(raw_content))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            repair_prompt = (
+                "Return only one valid JSON object for the semantic judgment. "
+                "Preserve the intended judgment, with fields disposition, "
+                "confidence, all_requirements_verified, rationale, "
+                "requirements_met, and requirements_missing. Invalid response:\n"
+                + raw_content[:6000]
+            )
+            response = llm.chat([ChatMessage(role="user", content=repair_prompt)])
+            responses.append(response)
+            payload = dict(_extract_json(str(response.message.content).strip()))
         disposition = str(payload.get("disposition", "")).casefold()
         if disposition not in SEMANTIC_DISPOSITIONS:
             raise ValueError(f"unsupported semantic disposition {disposition!r}")
@@ -139,9 +168,12 @@ def judge_semantic_code_result(
             ],
             "judge_error": "",
         }
+        response_tokens = sum(max(
+            extract_total_tokens(item.raw),
+            extract_total_tokens(item.message.additional_kwargs),
+        ) for item in responses)
         tokens = max(
-            extract_total_tokens(response.raw),
-            extract_total_tokens(response.message.additional_kwargs),
+            response_tokens,
             get_llm_token_usage(llm),
         )
         return result, tokens

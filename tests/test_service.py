@@ -135,6 +135,51 @@ def test_run_question_does_not_mark_synthesized_refusal_completed(monkeypatch, t
     assert result.pipeline_stages["final_answer"] == "rejected"
 
 
+def test_coder_revision_failure_does_not_restart_discovery(monkeypatch, tmp_path):
+    runtime = SimpleNamespace(
+        model_name="fake", solr_core="nyc", csv_dir=tmp_path,
+        portal_name="NYC", retrieval=RetrievalConfig(),
+    )
+    (tmp_path / "selected.csv").write_text("value\n42\n", encoding="utf-8")
+    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
+    monkeypatch.setattr(
+        "lakegen.service.get_all_table_files", lambda _path: ["selected.csv"]
+    )
+    discovery_calls = []
+
+    def discover(**_kwargs):
+        discovery_calls.append("called")
+        return ["selected.csv"], ["selected"], {}, "verified selection", "trace", 0
+
+    monkeypatch.setattr("lakegen.service.phase12_agent", discover)
+    coder_calls = []
+
+    def generate(*_args, **_kwargs):
+        coder_calls.append("called")
+        retryable = len(coder_calls) == 1
+        return SimpleNamespace(
+            tokens=0, clean_code="print(42)", code_raw="print(42)",
+            rejected_reason="", error="result needs revision", raw_result=None,
+            coder_runs=1, execution_error={
+                "stage": "result_validation", "category": "result_needs_revision",
+                "retryable": retryable,
+            }, coder_context_audit=None,
+        )
+
+    monkeypatch.setattr("lakegen.service.phase3_generate_and_execute", generate)
+    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+
+    result = run_question("What is the value?", runtime)
+
+    assert result.status == "failed"
+    assert discovery_calls == ["called"]
+    assert coder_calls == ["called", "called"]
+    assert result.discovery["selection_attempts"][0]["outcome"] == "selected"
+
+
 def test_run_question_evaluates_structured_benchmark_code_result(monkeypatch, tmp_path):
     runtime = SimpleNamespace(
         model_name="fake",

@@ -5,7 +5,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -50,6 +50,7 @@ class Phase3Result:
     operation_trace: dict[str, object] | None = None
     coder_context_audit: dict[str, object] | None = None
     rejection_details: dict[str, object] | None = None
+    coder_attempt_trace: list[dict[str, object]] = field(default_factory=list)
 
 
 _ERROR_PATTERNS = [
@@ -761,9 +762,7 @@ def phase3_generate_and_execute(
         execute_code=_execute_code,
         extract_payload=extract_evaluation_payload,
         require_semantic_plan=require_semantic_plan,
-        # The executed-code trace is authoritative. A model-authored manifest is
-        # accepted as optional telemetry, never as a second blocking protocol.
-        require_analysis_manifest=False,
+        require_analysis_manifest=True,
     )
     plan_view = manager.coder_plan_view()
     initial_plan_status = str(plan_view.get("status") or "missing")
@@ -871,6 +870,21 @@ def phase3_generate_and_execute(
     else:
         rejected_reason = _rejected_tables_reason(response)
     # A model can exhaust its normal reasoning turn immediately after inspection.
+    # Inspection is deterministic bookkeeping over the latest runtime result.
+    # Do it when the model executed successfully but omitted the protocol call.
+    if (
+        not state.finished
+        and state.lifecycle.value == "needs_inspection"
+        and state.raw_result is not None
+        and not rejected_reason
+    ):
+        try:
+            manager.inspect_result()
+        except Exception as exc:
+            state.stop_reason = (
+                "automatic_inspection_failed: " f"{type(exc).__name__}: {exc}"
+            )
+
     # Allow one tightly-scoped closure turn only for a structured result that was
     # successfully executed and whose latest version was actually inspected.
     eligible_for_finalization = (
@@ -999,4 +1013,5 @@ def phase3_generate_and_execute(
             "inspect_result_executed": state.inspected_version > 0,
         },
         rejection_details=state.rejection_details or None,
+        coder_attempt_trace=list(state.execution_attempts),
     )

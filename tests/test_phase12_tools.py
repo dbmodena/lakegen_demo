@@ -8,6 +8,21 @@ from lakegen.agent_tools.tools_p12 import (
     P12State, Phase12ToolsManager, _normalize_semantic_plan,
     compile_semantic_plan_draft,
 )
+
+
+def test_inspected_candidates_accepts_structured_recovery_candidates():
+    state = P12State()
+    state.all_candidates = [
+        {"file": "events.parquet", "score": 0.9},
+        {"filename": "boroughs.parquet"},
+        {"unexpected": "ignored"},
+    ]
+    state.inspection_cache = {
+        "events.parquet": "columns: id, borough",
+        "boroughs.parquet": "Error: unreadable",
+    }
+
+    assert state.inspected_candidates() == ["events.parquet"]
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.phases.phase12 import (
     _conservative_draft_from_requirements,

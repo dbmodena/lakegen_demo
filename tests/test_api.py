@@ -439,6 +439,8 @@ def test_dynamic_reference_replaces_declared_gold_and_records_drift(
     assert fields["SOURCE_REFERENCE_EXECUTION"]["declared_result_drift"] is True
     assert metrics["execution_success_count"] == 1
     assert metrics["reference_drift_count"] == 1
+    assert metrics["stable_reference_count"] == 0
+    assert metrics["reference_drift_rate"] == 1.0
     assert metrics["processed_case_count"] == 1
     assert progress[0]["processed_case_count"] == 0
     assert progress[-1]["processed_case_count"] == 1

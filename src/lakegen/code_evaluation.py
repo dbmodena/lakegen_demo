@@ -743,6 +743,10 @@ def summarize_code_evaluations(
         "non_applicable_case_count": total - count,
         "generation_success_rate": rate("generation_success"),
         "execution_success_rate": rate("execution_success"),
+        "any_attempt_execution_success_rate": rate(
+            "any_attempt_execution_success"
+        ),
+        "final_execution_success_rate": rate("final_execution_success"),
         "structured_output_rate": rate("structured_output_valid"),
         "result_type_match_rate": rate("result_type_match"),
         "exact_result_match_rate": rate("exact_result_match"),
@@ -756,6 +760,8 @@ def summarize_code_evaluations(
         "pass_at_1": rate("pass_at_1"),
         "success_within_3": rate("success_within_3"),
         "mean_attempts": mean("attempt_count"),
+        "mean_generation_attempts": mean("generation_attempt_count"),
+        "mean_execution_attempts": mean("execution_attempt_count"),
         "mean_column_f1": mean("column_f1"),
         "mean_row_f1": mean("row_f1"),
         "mean_cell_accuracy": mean("cell_accuracy"),
@@ -777,5 +783,15 @@ def summarize_code_evaluations(
         ),
         "semantic_judge_total_tokens": sum(
             int(item.get("semantic_judge_tokens") or 0) for item in applicable
+        ),
+        "semantic_judge_parse_success_rate": (
+            round(
+                sum(bool(item.get("semantic_judge_parse_success")) for item in applicable
+                    if item.get("semantic_judge_used"))
+                / sum(bool(item.get("semantic_judge_used")) for item in applicable),
+                6,
+            )
+            if any(item.get("semantic_judge_used") for item in applicable)
+            else None
         ),
     }

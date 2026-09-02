@@ -522,6 +522,15 @@ def phase12_agent(
     if not selected:
         selected = state.inspected_candidates()[:3]
 
+    # confirm_unified_selection persists the validated contract before returning
+    # its terminal payload. Prefer that authoritative state if the surrounding
+    # agent response was truncated or its FINAL_PAYLOAD wrapper was malformed.
+    if not parsed_plan and state.selection_plan:
+        parsed_plan = dict(state.selection_plan)
+        parsed_advisories.extend(state.selection_advisories)
+        if state.selection_plan_source == "none":
+            state.selection_plan_source = "confirmed_state_recovery"
+
     if not parsed_plan:
         parsed_plan, recovered_advisories = _recover_minimal_selection_plan(
             selected, reasoning

@@ -112,7 +112,9 @@ def run_coder_context_sweep(
             previous_code = generated.clean_code or generated.code_raw
             total_coder_runs += int(getattr(generated, "coder_runs", 0) or 0)
             if evaluation_enabled:
-                attempts.append(evaluator.evaluate(generated, attempt_index + 1))
+                attempts.extend(evaluator.evaluate_generated_attempts(
+                    generated, len(attempts) + 1
+                ))
             if generated.rejected_reason:
                 status, error = "tables_rejected", generated.rejected_reason
                 break
@@ -138,6 +140,7 @@ def run_coder_context_sweep(
 
         if evaluation_enabled:
             evaluation = evaluator.summarize(attempts)
+            evaluation["generation_attempt_count"] = attempt_index + 1
             if generated is not None and status == "completed":
                 evaluation = adjudicate(evaluation, generated)
         else:

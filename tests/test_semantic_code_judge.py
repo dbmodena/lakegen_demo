@@ -42,6 +42,29 @@ def test_semantic_judge_accepts_supported_alternative():
     assert tokens == 17
 
 
+def test_semantic_judge_extracts_json_from_explanatory_text():
+    judgment, tokens = judge_semantic_code_result(
+        question="How many records?",
+        expected_description="A count",
+        reference_result=10,
+        selected_tables=["events.parquet"],
+        selected_metadata={},
+        generated_code="print(10)",
+        generated_result=10,
+        deterministic_evaluation={"exact_result_match": False},
+        llm=FakeLlm(
+            'Judgment follows: {"disposition":"incorrect","confidence":0.8,'
+            '"all_requirements_verified":true,"rationale":"Mismatch",'
+            '"requirements_met":[],"requirements_missing":["count"]} done.'
+        ),
+        prompt_manager=FakePromptManager(),
+    )
+
+    assert judgment["disposition"] == "incorrect"
+    assert judgment["judge_error"] == ""
+    assert tokens == 17
+
+
 def test_semantic_judge_fails_closed_on_invalid_response():
     judgment, tokens = judge_semantic_code_result(
         question="Question",

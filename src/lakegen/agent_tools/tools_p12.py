@@ -1,7 +1,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Literal, Mapping
 from pydantic import BaseModel, Field, model_validator
 
 from llama_index.core.tools import FunctionTool
@@ -365,14 +365,24 @@ class P12State:
 
     def inspected_candidates(self) -> list[str]:
         """Return successfully inspected candidates in retrieval order."""
-        return [
-            candidate
-            for candidate in self.all_candidates
-            if (
-                candidate.casefold() in self.inspection_cache
-                and not self.inspection_cache[candidate.casefold()].startswith("Error:")
-            )
-        ]
+        inspected: list[str] = []
+        for candidate in self.all_candidates:
+            filename: str | None = None
+            if isinstance(candidate, str):
+                filename = candidate.strip()
+            elif isinstance(candidate, Mapping):
+                filename = next((
+                    str(candidate[key]).strip()
+                    for key in ("file", "filename", "dataset")
+                    if isinstance(candidate.get(key), str)
+                    and str(candidate[key]).strip()
+                ), None)
+            if not filename:
+                continue
+            cached = self.inspection_cache.get(filename.casefold())
+            if isinstance(cached, str) and not cached.startswith("Error:"):
+                inspected.append(filename)
+        return list(dict.fromkeys(inspected))
 
 
 class Phase12ToolsManager:

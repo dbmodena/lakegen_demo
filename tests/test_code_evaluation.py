@@ -305,6 +305,10 @@ def test_batch_summary_aggregates_only_applicable_code_evaluations():
             "pass_at_1": True,
             "success_within_3": True,
             "attempt_count": 1,
+            "generation_attempt_count": 1,
+            "execution_attempt_count": 2,
+            "any_attempt_execution_success": True,
+            "final_execution_success": True,
             "column_f1": 1.0,
             "row_f1": 1.0,
             "cell_accuracy": 1.0,
@@ -319,6 +323,10 @@ def test_batch_summary_aggregates_only_applicable_code_evaluations():
             "pass_at_1": False,
             "success_within_3": False,
             "attempt_count": 3,
+            "generation_attempt_count": 2,
+            "execution_attempt_count": 3,
+            "any_attempt_execution_success": True,
+            "final_execution_success": False,
             "error_category": "execution_error",
         }}},
         {"result": {"code_evaluation": {"applicable": False}}},
@@ -337,6 +345,10 @@ def test_batch_summary_aggregates_only_applicable_code_evaluations():
         "incorrect": 1,
     }
     assert summary["mean_attempts"] == 2.0
+    assert summary["mean_generation_attempts"] == 1.5
+    assert summary["mean_execution_attempts"] == 2.5
+    assert summary["any_attempt_execution_success_rate"] == 1.0
+    assert summary["final_execution_success_rate"] == 0.5
     assert summary["error_categories"] == {"execution_error": 1}
 
 

@@ -318,17 +318,22 @@ def run_question(
             prompt_manager=prompt_manager,
         )
         disposition = judgment["disposition"]
+        judge_error = str(judgment.get("judge_error") or "")
         canonical_disposition = {
             "alternative_correct": "correct",
             "incorrect": "incorrect",
             "indeterminate": "completed_with_warnings",
         }.get(disposition, "completed_with_warnings")
+        if judge_error:
+            canonical_disposition = "completed_with_warnings"
         evaluation.update({
             "evaluation_disposition": canonical_disposition,
             "supported_correct": disposition == "alternative_correct",
             "semantic_judge_used": True,
             "semantic_judge_model": experiment.semantic_code_judge_model,
             "semantic_judge_tokens": judge_tokens,
+            "semantic_judge_parse_success": not bool(judge_error),
+            "semantic_judge_status": "parse_failed" if judge_error else "completed",
             "semantic_judgment": judgment,
         })
         return evaluation
@@ -727,6 +732,7 @@ def run_question(
                     primary_status = primary["status"]
                     if primary_status == "completed":
                         result.pipeline_stages["code_execution"] = "succeeded"
+                        result.code_evaluation["final_execution_success"] = True
                         synthesis_started = time.monotonic()
                         answer, synthesis_tokens = phase4_synthesize(
                             question, result.raw_result, llm, prompt_manager
@@ -820,10 +826,11 @@ def run_question(
 
                     if code_evaluation_enabled:
                         attempts = result.code_evaluation["attempts"]
-                        attempts.append(attempt_evaluator.evaluate(
-                            generated, code_attempt + 1
+                        attempts.extend(attempt_evaluator.evaluate_generated_attempts(
+                            generated, len(attempts) + 1
                         ))
                         result.code_evaluation = attempt_evaluator.summarize(attempts)
+                        result.code_evaluation["generation_attempt_count"] = code_attempt + 1
 
                     if generated.rejected_reason:
                         rejected_selection_keys.add(selection_key)
@@ -876,6 +883,7 @@ def run_question(
                                 result.code_evaluation, generated
                             )
                         result.pipeline_stages["code_execution"] = "succeeded"
+                        result.code_evaluation["final_execution_success"] = True
                         synthesis_started = time.monotonic()
                         answer, synthesis_tokens = phase4_synthesize(
                             question, generated.raw_result, llm, prompt_manager
@@ -920,8 +928,22 @@ def run_question(
                     result.errors.append(error_record)
                     result.pipeline_stages["code_execution"] = "failed"
                     if getattr(generated, "coder_runs", 0):
+                        retryable = bool(
+                            (structured_execution_error or {}).get("retryable")
+                        )
+                        if retryable and code_attempt < MAX_CODE_ATTEMPTS - 1:
+                            continue
                         break
                 else:
+                    break
+
+                # A coder execution/revision failure is not evidence that table
+                # discovery was wrong. Preserve the verified selection; only a
+                # table rejection or an incomplete selection contract may start
+                # another discovery turn.
+                if result.pipeline_stages["code_execution"] not in {
+                    "tables_rejected", "blocked_by_selection",
+                }:
                     break
 
                 if table_attempt == MAX_TABLE_ATTEMPTS - 1:

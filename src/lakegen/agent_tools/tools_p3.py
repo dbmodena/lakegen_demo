@@ -139,6 +139,7 @@ class P3State:
     plan_validation: dict[str, Any] = field(default_factory=dict)
     analysis_manifest: dict[str, Any] = field(default_factory=dict)
     analysis_manifest_validation: dict[str, Any] = field(default_factory=dict)
+    execution_attempts: list[dict[str, Any]] = field(default_factory=list)
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -380,17 +381,32 @@ class Phase3ToolsManager:
 
     @staticmethod
     def _contract_from_coder_brief(brief: dict[str, Any]) -> dict[str, Any]:
+        task = brief.get("task") if isinstance(brief.get("task"), dict) else {}
         return {
             "tables": list(brief.get("tables", [])),
             "columns": dict(brief.get("selected_columns", {})),
             "filters": list(brief.get("filters", [])),
             "measures": list(brief.get("operations", [])),
+            "group_by": list(task.get("grouping", []))
+            if isinstance(task.get("grouping"), list) else [],
             "joins": list(brief.get("joins", [])),
             "ordering": brief.get("ordering"),
             "limit": brief.get("limit"),
             "result_type": brief.get("result_type", "auto"),
             "source": "validated_coder_brief",
         }
+
+    def _record_execution_attempt(self) -> None:
+        """Persist one benchmark-blind snapshot for post-hoc attempt metrics."""
+        self.state.execution_attempts.append({
+            "attempt": self.state.run_count,
+            "generation_success": True,
+            "execution_success": self.state.error is None and self.state.raw_result is not None,
+            "structured_output_valid": self.state.structured_result is not None,
+            "structured_result": copy.deepcopy(self.state.structured_result),
+            "error": self.state.error or self.state.structured_result_error,
+            "execution_error": copy.deepcopy(self.state.execution_error),
+        })
 
     def _validate_semantic_plan_grounding(self, plan: dict[str, Any]) -> dict[str, Any]:
         """Validate architect semantics using only selected runtime tables."""
@@ -1313,6 +1329,7 @@ class Phase3ToolsManager:
         if path_error:
             self.state.error = path_error["message"]
             self.state.execution_error = path_error
+            self._record_execution_attempt()
             return json.dumps({"ok": False, "attempt": self.state.run_count, "error": path_error})
         resolved, preflight_error = self.resolve_code(code, self.tables, self.csv_dir)
         self.state.clean_code = resolved
@@ -1320,6 +1337,7 @@ class Phase3ToolsManager:
         if preflight_error:
             self.state.error = preflight_error
             self.state.execution_error = classify_execution_error(preflight_error, stage="preflight")
+            self._record_execution_attempt()
             return json.dumps({"ok": False, "attempt": self.state.run_count, "error": self.state.execution_error})
 
         raw_result, error, clean_code = self.execute_code(resolved, run_dir=self.run_dir)
@@ -1330,6 +1348,7 @@ class Phase3ToolsManager:
             self.state.execution_error = classify_execution_error(error)
             self._enrich_column_error(self.state.execution_error)
             self._reject_after_repeated_missing_column(self.state.execution_error)
+            self._record_execution_attempt()
             return json.dumps({"ok": False, "attempt": self.state.run_count, "error": self.state.execution_error})
 
         self.state.error = None
@@ -1389,6 +1408,7 @@ class Phase3ToolsManager:
                         "__LAKEGEN_ANALYSIS_MANIFEST__ before the evaluation payload."
                     ),
                 }
+                self._record_execution_attempt()
                 return json.dumps({
                     "ok": False, "attempt": self.state.run_count,
                     "error": self.state.execution_error,
@@ -1420,6 +1440,7 @@ class Phase3ToolsManager:
                     "next_actions": ["inspect_table", "run_code", "reject_tables"],
                 }
                 self.state.raw_result = None
+                self._record_execution_attempt()
                 return json.dumps({
                     "ok": False,
                     "attempt": self.state.run_count,
@@ -1428,6 +1449,7 @@ class Phase3ToolsManager:
         self.state.result_version += 1
         self.state.operation_trace = self._build_operation_trace(clean_code)
         self.state.lifecycle = CoderLifecycle.NEEDS_INSPECTION
+        self._record_execution_attempt()
         return json.dumps({
             "ok": True,
             "attempt": self.state.run_count,
@@ -1532,7 +1554,7 @@ class Phase3ToolsManager:
             )
         contract_years = set(re.findall(
             r"\b(?:19|20)\d{2}\b",
-            " ".join(contract.get("filters", [])),
+            json.dumps(contract.get("filters", []), ensure_ascii=False, default=str),
         ))
         for year in contract_years:
             if not self._code_represents_year(code, year, contract_years):
@@ -1558,7 +1580,9 @@ class Phase3ToolsManager:
                 "unsupported_distinct_semantics: code deduplicates or counts unique "
                 "values although the question does not request distinct entities"
             )
-        measures = " ".join(contract.get("measures", [])).casefold()
+        measures = json.dumps(
+            contract.get("measures", []), ensure_ascii=False, default=str
+        ).casefold()
         has_mean_aggregation = bool(re.search(
             r"(?:\.mean\s*\(|\b(?:np|numpy)\.mean\s*\(|['\"]mean['\"])",
             lowered,
@@ -1771,44 +1795,56 @@ class Phase3ToolsManager:
                 "advisory": advisory,
             })
 
-        years = set(re.findall(r"\b(?:19|20)\d{2}\b", " ".join(contract.get("filters", []))))
+        def contract_text(item: Any) -> str:
+            return item if isinstance(item, str) else json.dumps(
+                item, ensure_ascii=False, sort_keys=True, default=str
+            )
+
+        years = set(re.findall(
+            r"\b(?:19|20)\d{2}\b",
+            " ".join(map(contract_text, contract.get("filters", []))),
+        ))
         for item in contract.get("filters", []):
-            item_years = set(re.findall(r"\b(?:19|20)\d{2}\b", item))
+            item_text = contract_text(item)
+            item_years = set(re.findall(r"\b(?:19|20)\d{2}\b", item_text))
             evident = (
                 all(self._code_represents_year(code, year, years) for year in item_years)
-                if item_years else self._label_is_evident(item, [code])
+                if item_years else self._label_is_evident(item_text, [code])
             )
-            add("filter", item, ["filter expression found in code"] if evident else [], ["filter affects computed structured result"] if evident else [])
+            add("filter", item_text, ["filter expression found in code"] if evident else [], ["filter affects computed structured result"] if evident else [])
 
         measures = contract.get("measures", [])
         for item in measures:
-            item_lower = item.casefold()
+            item_text = contract_text(item)
+            item_lower = item_text.casefold()
             operation = ""
             if any(term in item_lower for term in ("average", "mean")) and re.search(r"\.mean\s*\(|['\"]mean['\"]", lowered):
                 operation = "mean aggregation found"
             elif any(term in item_lower for term in ("count", "number", "total")) and any(marker in lowered for marker in (".count(", ".size(", "nunique(", "len(")):
                 operation = "count aggregation found"
-            elif self._label_is_evident(item, [code]):
+            elif self._label_is_evident(item_text, [code]):
                 operation = "measure terms found in code"
-            result_match = [field for field in result_fields if self._label_is_evident(item, [field])]
+            result_match = [field for field in result_fields if self._label_is_evident(item_text, [field])]
             if not result_match and len(measures) == 1 and value is not None and not result_fields:
                 result_match = ["structured scalar result"]
-            add("measure", item, [operation] if operation else [], result_match)
+            add("measure", item_text, [operation] if operation else [], result_match)
 
         for item in contract.get("group_by", []):
+            item_text = contract_text(item)
             grouped = any(marker in lowered for marker in (".groupby(", ".pivot(", ".pivot_table("))
-            label_in_code = self._label_is_evident(item, [code])
-            result_match = [field for field in result_fields if self._label_is_evident(item, [field])]
-            add("grouping", item, ["grouping operation and dimension found"] if grouped and label_in_code else [], result_match)
+            label_in_code = self._label_is_evident(item_text, [code])
+            result_match = [field for field in result_fields if self._label_is_evident(item_text, [field])]
+            add("grouping", item_text, ["grouping operation and dimension found"] if grouped and label_in_code else [], result_match)
 
         for item in contract.get("distinct_counts", []):
+            item_text = contract_text(item)
             distinct = any(marker in lowered for marker in ("nunique(", "drop_duplicates(", ".unique("))
-            result_match = [field for field in result_fields if self._label_is_evident(item, [field])]
-            add("distinct count", item, ["distinct-count operation found"] if distinct else [], result_match or (["structured result"] if distinct and value is not None else []))
+            result_match = [field for field in result_fields if self._label_is_evident(item_text, [field])]
+            add("distinct count", item_text, ["distinct-count operation found"] if distinct else [], result_match or (["structured result"] if distinct and value is not None else []))
 
         for item in contract.get("joins", []):
             joined = any(marker in lowered for marker in (".merge(", ".join(", "pd.merge("))
-            add("join", item, ["table join operation found"] if joined else [], ["joined structured result"] if joined and value is not None else [])
+            add("join", contract_text(item), ["table join operation found"] if joined else [], ["joined structured result"] if joined and value is not None else [])
 
         limit = contract.get("limit")
         if limit is not None:
