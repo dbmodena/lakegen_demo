@@ -21,9 +21,21 @@ from lakegen.phases.orchestrated_discovery import (
 )
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.models import RetrievalHit
+from lakegen.retrieval.intent import parse_retrieval_intent
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.service import run_question
 from prompts.prompt_manager import PromptManager
+
+
+def _intent(concepts, **overrides):
+    payload = {
+        "status": "resolved", "concepts": concepts, "entities": [],
+        "measures": [], "filters": [], "time_constraints": [],
+        "group_by": [], "order_by": [], "limit": None,
+        "join_requirements": [], "missing_evidence": [],
+    }
+    payload.update(overrides)
+    return "RETRIEVAL_INTENT: " + json.dumps(payload)
 
 
 @pytest.mark.parametrize(
@@ -235,21 +247,54 @@ def test_preparation_error_is_explicit_without_agentic_fallback(monkeypatch):
 
 
 def test_retrieval_request_is_strict_and_normalizes_concepts():
-    request = parse_retrieval_request(
-        'RETRIEVAL_REQUEST: {"concepts":[" road   safety ","", "ROAD SAFETY","crashes"]}'
-    )
+    request = parse_retrieval_request(_intent(
+        [" road   safety ", "", "ROAD SAFETY", "crashes"]
+    ))
     assert request.concepts == ["road safety", "crashes"]
     assert request.keywords == ["road safety", "crashes"]
-    for malformed in ("hello", 'RETRIEVAL_REQUEST: {"concepts":[]}',
-                      'RETRIEVAL_REQUEST: {"concepts":[1]}'):
+    for malformed in ("hello", "RETRIEVAL_INTENT: {}", _intent([1])):
         with pytest.raises(ValueError):
             parse_retrieval_request(malformed)
+
+
+def test_canonical_intent_preserves_filters_and_years_as_structured_fields():
+    intent = parse_retrieval_intent(_intent(
+        ["road incidents"], entities=["incidents"], measures=["count"],
+        filters=[{"field": "borough", "operator": "=", "value": "Queens"}],
+        time_constraints=[{"field": "year", "operator": "=", "value": 2024}],
+        group_by=["borough"], order_by=[{"field": "count", "direction": "desc"}],
+        limit=5,
+    ))
+    assert intent.concepts == ["road incidents"]
+    assert intent.time_constraints[0].value == 2024
+    assert intent.filters[0].value == "Queens"
+    assert "2024" not in intent.concepts
+
+
+def test_unresolved_intent_is_structured_and_skips_retrieval(monkeypatch):
+    calls = []
+    response = _intent([], status="unresolved", missing_evidence=["dataset subject"])
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **_kwargs: (response, "trace", 1),
+    )
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    result = run_unified_orchestrated_discovery(
+        query="How many?", llm=object(), solr_client=object(), all_files=[],
+        retrieval_config=RetrievalConfig(),
+    )
+    assert result.reasoning == "UNRESOLVED_RETRIEVAL_INTENT: dataset subject"
+    assert result.selected_datasets == []
+    assert calls == []
 
 
 def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monkeypatch):
     calls = []
     responses = iter([
-        'RETRIEVAL_REQUEST: {"concepts":["roads"]}',
+        _intent(["roads"]),
         'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
     ])
 
@@ -279,7 +324,7 @@ def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monke
     assert calls[0]["agent_name"] == calls[1]["agent_name"]
     history = calls[1]["chat_history"]
     assert len(history) == 2
-    assert "RETRIEVAL_REQUEST" in history[1].content
+    assert "RETRIEVAL_INTENT" in history[1].content
     forbidden = re.compile(r"\b(keyword|semantic|hybrid|bm25|knn)\b", re.IGNORECASE)
     for call in calls:
         assert forbidden.search(call["system_prompt"]) is None
@@ -290,7 +335,7 @@ def test_unified_empty_context_skips_second_turn(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
-        lambda **kwargs: (calls.append(kwargs) or ('RETRIEVAL_REQUEST: {"concepts":["x"]}', "", 1)),
+        lambda **kwargs: (calls.append(kwargs) or (_intent(["x"]), "", 1)),
     )
     prepared = PreparedDiscoveryContext(
         query="q", retrieval_mode="keyword", candidates=[],
@@ -320,7 +365,7 @@ def test_unified_selector_without_valid_datasets_requests_retry(
     selector_response, monkeypatch
 ):
     responses = iter([
-        'RETRIEVAL_REQUEST: {"concepts":["roads"]}', selector_response,
+        _intent(["roads"]), selector_response,
     ])
     monkeypatch.setattr(
         "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
@@ -357,7 +402,7 @@ def test_unified_errors_are_typed_by_stage(monkeypatch):
             retrieval_config=RetrievalConfig(),
         )
 
-    responses = iter(['RETRIEVAL_REQUEST: {"concepts":["x"]}'])
+    responses = iter([_intent(["x"])])
     monkeypatch.setattr(
         "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
         lambda **_kwargs: (next(responses), "", 1),

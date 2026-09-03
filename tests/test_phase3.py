@@ -292,9 +292,9 @@ def test_semantic_plan_with_unknown_column_is_not_locked(tmp_path):
     assert response["error"]["category"] == "semantic_plan_not_grounded"
 
 
-@pytest.mark.parametrize("semantic_plan,status", [(None, "missing"), ({}, "invalid")])
-def test_missing_or_empty_semantic_plan_requires_inspection_and_contract(
-    tmp_path, semantic_plan, status
+@pytest.mark.parametrize("semantic_plan", [None, {}])
+def test_missing_or_empty_semantic_plan_uses_runtime_fallback(
+    tmp_path, semantic_plan
 ):
     (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
     state = P3State()
@@ -306,10 +306,10 @@ def test_missing_or_empty_semantic_plan_requires_inspection_and_contract(
         execute_code=lambda code, **_: ("1", None, code),
         extract_payload=lambda raw: (raw, None, None),
     )
-    assert state.plan_validation["status"] == status
-    assert state.architect_contract_locked is False
-    response = json.loads(manager.run_code("print(1)"))
-    assert response["error"]["category"] == "semantic_plan_not_grounded"
+    assert state.plan_validation["status"] == "executable_with_obligations"
+    assert state.architect_contract_locked is True
+    assert state.analysis_contract["columns"] == {"table.csv": ["value"]}
+    assert manager.coder_plan_view()["coder_brief"]["source"] == "runtime_fallback"
 
 
 def test_minimal_coder_brief_unlocks_coder_with_runtime_columns(tmp_path):

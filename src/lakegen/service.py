@@ -439,6 +439,7 @@ def run_question(
                             query=question, llm=llm, solr_client=solr,
                             all_files=all_files, retrieval_config=runtime.retrieval,
                             table_dir=runtime.csv_dir,
+                            portal_name=runtime.portal_name,
                             hint=hint,
                         )
                     except RetrievalRequestProtocolError as exc:

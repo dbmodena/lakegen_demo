@@ -155,7 +155,7 @@ def test_search_returns_bounded_schema_preview_in_solr_order(
     assert "3 additional columns omitted" in result
 
 
-def test_unified_search_allows_one_distinct_refinement_and_merges_candidates(
+def test_unified_search_allows_one_initial_search_then_guided_expansion(
     monkeypatch, tmp_path
 ):
     calls = []
@@ -185,11 +185,11 @@ def test_unified_search_allows_one_distinct_refinement_and_merges_candidates(
     repeated = manager.search_solr("bandwidth")
 
     assert "generic.parquet" in first
-    assert "gold.parquet" in second
-    assert state.best_ranks == {"generic.parquet": 1, "gold.parquet": 3}
-    assert len(state.search_attempts) == 2
-    assert repeated.startswith("Search skipped")
-    assert calls == [["school"], ["bandwidth"]]
+    assert second.startswith("Search limit reached")
+    assert repeated.startswith("Search limit reached")
+    assert state.best_ranks == {"generic.parquet": 1}
+    assert len(state.search_attempts) == 1
+    assert calls == [["school"]]
 
     limited = manager.search_solr("third distinct concept")
     assert limited.startswith("Search limit reached")
@@ -302,7 +302,7 @@ def test_search_tool_description_is_identical_for_all_retrieval_modes(tmp_path):
 
 
 @pytest.mark.parametrize("mode", list(RetrievalMode))
-def test_search_tool_allows_at_most_two_distinct_calls(
+def test_search_tool_allows_one_initial_call_for_every_backend(
     mode, monkeypatch, tmp_path
 ):
     calls = []
@@ -325,10 +325,7 @@ def test_search_tool_allows_at_most_two_distinct_calls(
     second = manager.search_solr("traffic crashes")
 
     assert "table.parquet" in first
-    expected_calls = (
-        1 if mode in (RetrievalMode.SEMANTIC, RetrievalMode.PNEUMA) else 2
-    )
-    assert len(calls) == expected_calls
+    assert len(calls) == 1
     assert calls[0]["question"] == "Count road incidents"
     expected_concepts = (
         []

@@ -9,7 +9,7 @@ from typing import Any
 
 from llama_index.core import Settings
 from llama_index.core.llms import ChatMessage, MessageRole, LLM
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from lakegen.agents.agent_runner import run_agent_workflow
 from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
@@ -20,6 +20,8 @@ from lakegen.orchestrated_context import (
     prepare_discovery_context,
 )
 from lakegen.retrieval import RetrievalConfig
+from lakegen.retrieval.intent import RetrievalIntent, parse_retrieval_intent
+from prompts.prompt_manager import PromptManager
 from lakegen.ui.state import WorkflowCancelled
 
 
@@ -35,37 +37,7 @@ class OrchestratedSelectorError(RuntimeError):
     """The tool-free selector invocation or response protocol failed."""
 
 
-class RetrievalRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    concepts: list[str] = Field(min_length=1, max_length=2)
-
-    @field_validator("concepts", mode="before")
-    @classmethod
-    def normalize_concepts(cls, value: Any) -> list[str]:
-        if not isinstance(value, list):
-            raise ValueError("concepts must be a list")
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            if not isinstance(item, str):
-                raise ValueError("each concept must be a string")
-            concept = " ".join(item.split())
-            if not concept:
-                continue
-            if len(concept) > 100:
-                raise ValueError("concepts must be at most 100 characters")
-            identity = concept.casefold()
-            if identity not in seen:
-                seen.add(identity)
-                normalized.append(concept)
-        if not normalized:
-            raise ValueError("at least one non-empty concept is required")
-        return normalized
-
-    @property
-    def keywords(self) -> list[str]:
-        """Internal compatibility name used by existing retriever calls."""
-        return list(self.concepts)
+RetrievalRequest = RetrievalIntent
 
 
 class DiscoveryResult(BaseModel):
@@ -85,15 +57,8 @@ class DiscoveryResult(BaseModel):
 
 
 def parse_retrieval_request(response: str) -> RetrievalRequest:
-    match = re.fullmatch(r"\s*RETRIEVAL_REQUEST:\s*(\{.*\})\s*", response, re.DOTALL)
-    if match is None:
-        raise RetrievalRequestProtocolError("invalid RETRIEVAL_REQUEST envelope")
     try:
-        payload = json.loads(match.group(1))
-    except json.JSONDecodeError as exc:
-        raise RetrievalRequestProtocolError(f"invalid RETRIEVAL_REQUEST JSON: {exc}") from exc
-    try:
-        return RetrievalRequest.model_validate(payload)
+        return parse_retrieval_intent(response)
     except ValueError as exc:
         raise RetrievalRequestProtocolError(str(exc)) from exc
 
@@ -207,19 +172,15 @@ def run_unified_orchestrated_discovery(
     *, query: str, llm: LLM, solr_client, all_files: list[str],
     retrieval_config: RetrievalConfig, hint: str = "",
     stream_callback: StreamCallback | None = None, cancel_check=None,
-    table_dir=None,
+    table_dir=None, portal_name: str = "",
 ) -> DiscoveryResult:
     """Run two turns of one logical tool-free agent with explicit chat history."""
-    system = (
-        "You are the unified LakeGen discovery agent. You have no tools. First request "
-        "retrieval using exactly RETRIEVAL_REQUEST: {\"concepts\":[...]}, containing "
-        "one or two concise dataset concepts. Do not choose system parameters. After "
-        "context arrives, return exactly "
-        "FINAL_PAYLOAD: {\"tables\":\"comma-separated exact names\",\"reasoning\":\"...\"}."
+    pm = PromptManager()
+    system = pm.render("retrieval_intent", "system_prompt")
+    first_user = pm.render(
+        "retrieval_intent", "user_prompt", question=query,
+        catalog=portal_name, schema="not supplied",
     )
-    first_user = f"Question: {query}\nFormulate the metadata retrieval request."
-    if hint:
-        first_user += f"\nPrevious-attempt constraint: {hint}"
     try:
         request_text, first_trace, first_tokens = _run_tool_free_turn(
             llm=llm, system_prompt=system, user_prompt=first_user,
@@ -233,6 +194,14 @@ def run_unified_orchestrated_discovery(
         if isinstance(exc, RetrievalRequestProtocolError):
             raise
         raise RetrievalRequestProtocolError(str(exc)) from exc
+    if request.status == "unresolved":
+        reason = "UNRESOLVED_RETRIEVAL_INTENT: " + "; ".join(request.missing_evidence)
+        return DiscoveryResult(
+            selected_datasets=[], candidates=[], keywords=[], metadata={},
+            reasoning=reason, trace="--- Unified Orchestrated Turn 1 ---\n" + first_trace,
+            tokens=first_tokens, llm_invocations=1, agent_count=1,
+            retry_keywords=False, retry_reason=reason,
+        )
     try:
         prepared, metadata = prepare_discovery_context(
             query=query, keywords=request.keywords, solr_client=solr_client,
@@ -254,14 +223,14 @@ def run_unified_orchestrated_discovery(
             tokens=first_tokens, llm_invocations=1, agent_count=1,
             retry_keywords=True, retry_reason=reason, prepared_context=prepared,
         )
-    second_user = "Orchestrator-prepared context:\n" + prepared.agent_json()
+    selection_system, second_user = _selector_prompts(prepared, "")
     history = [
         ChatMessage(role=MessageRole.USER, content=first_user),
         ChatMessage(role=MessageRole.ASSISTANT, content=request_text),
     ]
     try:
         final_text, second_trace, second_tokens = _run_tool_free_turn(
-            llm=llm, system_prompt=system, user_prompt=second_user,
+            llm=llm, system_prompt=selection_system, user_prompt=second_user,
             agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
             cancel_check=cancel_check, chat_history=history,
         )

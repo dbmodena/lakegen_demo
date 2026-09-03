@@ -761,7 +761,10 @@ def phase3_generate_and_execute(
         execute_code=_execute_code,
         extract_payload=extract_evaluation_payload,
         require_semantic_plan=require_semantic_plan,
-        require_analysis_manifest=True,
+        # The coder brief is the sole semantic contract. Runtime code/result
+        # inspection supplies independent evidence without a duplicate model-
+        # authored manifest.
+        require_analysis_manifest=False,
     )
     plan_view = manager.coder_plan_view()
     initial_plan_status = str(plan_view.get("status") or "missing")

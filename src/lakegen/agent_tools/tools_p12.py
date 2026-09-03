@@ -402,7 +402,7 @@ class Phase12ToolsManager:
     INITIAL_CANDIDATES = 10
     EXPANSION_SIZE = 5
     MAX_EXPANSIONS = 1
-    MAX_SEARCH_ATTEMPTS = 2
+    MAX_SEARCH_ATTEMPTS = 1
     INITIAL_SHORTLIST_SIZE = 3
     MAX_INSPECTED_CANDIDATES = 5
     
@@ -434,9 +434,8 @@ class Phase12ToolsManager:
             "Search for relevant tables using the retrieval strategy configured by "
             "the experiment. Provide 1-2 concise dataset concepts in the portal's "
             "native language. The tool applies the original question and the "
-            "configured retrieval parameters automatically. One refinement with "
-            "genuinely different concepts is allowed before inspecting any table; "
-            "identical or later searches are blocked. Use the bounded metadata and "
+            "configured retrieval parameters automatically. Exactly one initial "
+            "search is allowed. Use the bounded metadata and "
             "schema previews to shortlist the strongest candidates, then verify "
             "them with inspect_columns before selecting tables."
         )
@@ -478,7 +477,7 @@ class Phase12ToolsManager:
                 )
             if len(self.state.search_attempts) >= self.MAX_SEARCH_ATTEMPTS:
                 return (
-                    "Search limit reached (2 distinct attempts). Do not call "
+                    "Search limit reached (1 initial attempt). Do not call "
                     "search_solr again; inspect, expand once if needed, then select."
                 )
             self.state.used_keywords = supplied_concepts

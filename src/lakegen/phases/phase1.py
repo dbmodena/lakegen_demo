@@ -15,6 +15,7 @@ from lakegen.core.token_usage import (
     get_llm_token_usage,
     reset_llm_token_usage,
 )
+from lakegen.retrieval.intent import parse_retrieval_intent
 
 
 def extract_wordnet_query_keywords(query: str) -> str:
@@ -74,24 +75,19 @@ def phase1_generate_keywords(
     cancel_check: Callable[[], None] | None = None,
     avoid_keywords: list[str] | None = None,
 ) -> tuple[list[str], str, int, str]:
-    wordnet_keywords_str = extract_wordnet_query_keywords(query)
-    wordnet_keywords = [k.strip() for k in wordnet_keywords_str.split(",") if k.strip()]
-
     system_prompt = pm.render(
-        "keyword_generator",
+        "retrieval_intent",
         "system_prompt"
     )
 
     avoid_keywords_str = ", ".join(avoid_keywords) if avoid_keywords else ""
 
     user_prompt = pm.render(
-        "keyword_generator",
+        "retrieval_intent",
         "user_prompt",
         question=query,
-        portal_name=portal_name,
-        raw_keywords_str=wordnet_keywords_str,
-        keyword_hint=hint,
-        avoid_keywords_str=avoid_keywords_str,
+        catalog=portal_name,
+        schema="not supplied",
     )
 
     messages = [
@@ -209,26 +205,14 @@ def phase1_generate_keywords(
         if part.strip()
     )
 
-    keywords_match = re.search(r"<concepts>\s*(.*?)\s*</concepts>", raw_stream, re.IGNORECASE | re.DOTALL)
-    if keywords_match:
-        raw_content = keywords_match.group(1).strip().lower()
-    else:
-        raw_content = re.sub(r"<reasoning>.*?</reasoning>", "", visible_content, flags=re.IGNORECASE | re.DOTALL).strip().lower()
-        if not raw_content:
-            fallback_match = re.search(r"concepts?[:\s]+(.*)", raw_stream, flags=re.IGNORECASE | re.DOTALL)
-            raw_content = fallback_match.group(1).strip().lower() if fallback_match else raw_stream.strip().lower()
-
-    model_keywords = re.findall(r"(?u)\b[\w-]+\b", raw_content)
-    query_numbers = re.findall(r"\b\d+\b", query)
-    extracted = list(dict.fromkeys(model_keywords + query_numbers))#[:3]
-
-    # Fallback: if the model looped or produced no keywords, use WordNet
-    if not extracted or loop_detected:
-        if loop_detected:
-            print(f"[phase1] Loop fallback → using WordNet keywords: {wordnet_keywords[:3]}")
-        extracted = wordnet_keywords[:3]
+    raw_content = visible_content.strip()
+    try:
+        intent = parse_retrieval_intent(raw_content)
+        extracted = intent.keywords if intent.status == "resolved" else []
+    except ValueError:
+        extracted = []
 
     if loop_detected:
-        reasoning_content += "\n\n⚠️ **[Phase 1] Warning: A repetition loop was detected in the model reasoning. The stream was stopped and the WordNet keyword fallback was activated.**"
+        reasoning_content += "\n\n⚠️ **[Phase 1] The model looped; retrieval intent is unresolved.**"
 
     return extracted, raw_content, tokens, reasoning_content

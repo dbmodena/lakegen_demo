@@ -186,7 +186,7 @@ class Phase3ToolsManager:
         execute_code: Callable[..., tuple[str | None, str | None, str]],
         extract_payload: Callable[[str], tuple[str, object | None, str | None]],
         require_semantic_plan: bool = True,
-        require_analysis_manifest: bool = True,
+        require_analysis_manifest: bool = False,
     ):
         self.state = state
         self.tables = tables
@@ -202,13 +202,33 @@ class Phase3ToolsManager:
         self.require_semantic_plan = require_semantic_plan
         self.require_analysis_manifest = require_analysis_manifest
         coder_brief = self.selection_plan.get("coder_brief")
-        if not coder_brief and isinstance(self.selection_plan.get("semantic_plan"), dict):
+        if (
+            not coder_brief
+            and isinstance(self.selection_plan.get("semantic_plan"), dict)
+            and self.selection_plan["semantic_plan"]
+        ):
             coder_brief = self._legacy_semantic_plan_to_coder_brief(
                 self.selection_plan["semantic_plan"]
             )
             self.selection_plan["coder_brief"] = coder_brief
+        if not coder_brief and self.tables and self.require_semantic_plan:
+            coder_brief = self._runtime_fallback_coder_brief()
+            self.selection_plan["coder_brief"] = coder_brief
         if isinstance(coder_brief, dict):
             coder_brief = self._normalize_coder_brief(coder_brief)
+            selected = coder_brief.get("selected_columns")
+            if not isinstance(selected, dict) or not any(
+                isinstance(columns, list) and columns for columns in selected.values()
+            ):
+                coder_brief["selected_columns"] = {
+                    table: [str(column) for column in read_table(
+                        self.csv_dir / table.strip(), nrows=0
+                    ).columns]
+                    for table in self.tables
+                }
+                coder_brief.setdefault("runtime_obligations", []).append(
+                    "Choose the exact columns needed by the question from the runtime schema."
+                )
             if (
                 evaluation_result_type
                 and str(coder_brief.get("result_type") or "auto") == "auto"
@@ -218,6 +238,15 @@ class Phase3ToolsManager:
         brief_validation = self._validate_coder_brief_grounding(coder_brief)
         if brief_validation.get("valid"):
             semantic_validation = self._validate_semantic_plan_grounding(coder_brief)
+            combined_warnings = [
+                *brief_validation.get("warnings", []),
+                *semantic_validation.get("warnings", []),
+            ]
+            if combined_warnings and semantic_validation.get("status") == "verified":
+                semantic_validation["status"] = "executable_with_obligations"
+                semantic_validation["required_action"] = "resolve_runtime_obligations"
+            semantic_validation["warnings"] = combined_warnings
+            semantic_validation["runtime_obligations"] = combined_warnings
             self.state.plan_validation = {
                 **semantic_validation,
                 "contract_type": "coder_brief",
@@ -230,6 +259,29 @@ class Phase3ToolsManager:
                 self.state.analysis_contract = self._contract_from_coder_brief(coder_brief)
         else:
             self.state.plan_validation = brief_validation
+
+    def _runtime_fallback_coder_brief(self) -> dict[str, Any]:
+        """Build a safe minimal brief when selection produced tables but no plan."""
+        return {
+            "tables": list(self.tables),
+            "selected_columns": {
+                table: [str(column) for column in read_table(
+                    self.csv_dir / table.strip(), nrows=0
+                ).columns]
+                for table in self.tables
+            },
+            "filters": [], "temporal_filters": [], "dimensions": [],
+            "measures": [], "joins": [], "ordering": [], "limit": None,
+            "output_columns": [], "null_policy": "",
+            "table_roles": {},
+            "result_type": self.evaluation_result_type or "auto",
+            "normalization_errors": [],
+            "source": "runtime_fallback",
+            "runtime_obligations": [
+                "Derive filters, grouping, measures, joins, units, and output labels "
+                "from the question and verify them against the selected runtime tables."
+            ],
+        }
 
     def coder_plan_view(self) -> dict[str, Any]:
         """Return the validated benchmark-blind architect plan without rewriting it."""
@@ -275,6 +327,7 @@ class Phase3ToolsManager:
         declared_tables = [str(item) for item in brief.get("tables", [])]
         selected_columns = brief.get("selected_columns", {})
         diagnostics: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
         evidence: list[dict[str, Any]] = []
         if not declared_tables or set(declared_tables) != set(self.tables):
             diagnostics.append({
@@ -307,9 +360,9 @@ class Phase3ToolsManager:
             for column in columns
         ]
         if not declared_columns:
-            diagnostics.append({
-                "status": "contradicted", "category": "missing_columns",
-                "evidence": "the agent must choose at least one inspected column",
+            warnings.append({
+                "status": "unknown", "category": "missing_columns",
+                "evidence": "coder must choose columns from the runtime schema",
             })
         unknown_columns = sorted(
             f"{table}.{column}" for table, column in declared_columns
@@ -326,21 +379,21 @@ class Phase3ToolsManager:
                 },
             })
         for error in brief.get("normalization_errors", []):
-            diagnostics.append({
-                "status": "contradicted", "category": "ambiguous_column",
+            warnings.append({
+                "status": "unknown", "category": "ambiguous_column",
                 "evidence": str(error),
             })
         joins = brief.get("joins", [])
         strategy = str(brief.get("combination_strategy") or "single_table")
         if len(self.tables) > 1 and strategy in {"join", "lookup"} and not joins:
-            diagnostics.append({
-                "status": "contradicted", "category": "missing_join",
+            warnings.append({
+                "status": "unknown", "category": "missing_join",
                 "evidence": "multi-table briefs require explicit join keys",
             })
         for join in joins if isinstance(joins, list) else []:
             if not isinstance(join, dict):
-                diagnostics.append({
-                    "status": "contradicted", "category": "invalid_join",
+                warnings.append({
+                    "status": "unknown", "category": "invalid_join",
                     "evidence": "join must be a structured object",
                 })
                 continue
@@ -371,9 +424,12 @@ class Phase3ToolsManager:
         valid = not diagnostics
         return {
             "valid": valid, "locked": valid,
-            "status": "verified" if valid else status,
+            "status": (
+                "executable_with_obligations" if valid and warnings else
+                "verified" if valid else status
+            ),
             "diagnostics": diagnostics, "evidence": evidence,
-            "warnings": [],
+            "warnings": warnings,
             "required_action": None if valid else "revise coder brief data references",
             "contract_type": "coder_brief",
         }
@@ -505,6 +561,13 @@ class Phase3ToolsManager:
     def _validate_semantic_plan_grounding(self, plan: dict[str, Any]) -> dict[str, Any]:
         """Validate architect semantics using only selected runtime tables."""
         diagnostics: list[dict[str, Any]] = []
+        for obligation in plan.get("runtime_obligations", []):
+            diagnostics.append({
+                "requirement": "runtime plan completion",
+                "status": "unknown", "category": "runtime_plan_obligation",
+                "evidence": str(obligation),
+                "correction_required": str(obligation),
+            })
         evidence: list[dict[str, Any]] = []
         frames: dict[str, pd.DataFrame] = {}
         profiled_frames: dict[str, pd.DataFrame] = {}
@@ -1489,6 +1552,8 @@ class Phase3ToolsManager:
         self.state.raw_result = raw_result
         self.state.structured_result = None
         self.state.structured_result_error = ""
+        self.state.analysis_manifest = {}
+        self.state.analysis_manifest_validation = {}
         if raw_result is not None:
             manifest_match = re.search(
                 r"^__LAKEGEN_ANALYSIS_MANIFEST__(\{.*\})$",
