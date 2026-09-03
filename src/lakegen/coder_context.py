@@ -16,7 +16,9 @@ _PLAN_FIELDS = frozenset({
 })
 _CODER_BRIEF_FIELDS = frozenset({
     "tables", "selected_columns", "task", "filters", "operations", "result_type",
-    "ordering", "limit", "joins", "combination_strategy", "normalization_errors",
+    "temporal_filters", "dimensions", "measures", "output_columns", "null_policy",
+    "table_roles", "ordering", "limit", "joins", "combination_strategy",
+    "normalization_errors",
 })
 _SEMANTIC_PLAN_FIELDS = frozenset({
     "filters", "temporal_filters", "dimensions", "measures", "joins",

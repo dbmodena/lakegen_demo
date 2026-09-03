@@ -69,7 +69,7 @@ def test_non_execution_turns_do_not_consume_execution_repair_budget(tmp_path):
     assert full["generation_turns"] == 4
     assert full["coder_runs"] == 2
     assert full["repair_attempts"] == 1
-    assert calls == [3, 3, 3, 2]
+    assert calls == [2, 2, 2, 1]
     assert "STRUCTURED_REPAIR_CONTEXT" in retry_messages[3]
     assert '"renamed_to": "Expulsions"' in retry_messages[3]
     assert "Use Expulsions downstream." in retry_messages[3]

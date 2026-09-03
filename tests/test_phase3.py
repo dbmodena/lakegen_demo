@@ -79,6 +79,9 @@ def _agentic_tools(tmp_path, *, execute=None, question="", table_metadata=None):
         execute_code=execute or (lambda code, **_kwargs: ("value: 42", None, code)),
         extract_payload=lambda raw: (raw, None, None),
         require_semantic_plan=False,
+        # Unit tests below isolate execution/inspection behavior with synthetic
+        # stdout. Production Phase 3 explicitly requires the runtime manifest.
+        require_analysis_manifest=False,
     )
     # Most tool-unit tests exercise an already established legacy contract.
     # Missing-plan behavior has dedicated tests below.
@@ -284,7 +287,7 @@ def test_semantic_plan_with_unknown_column_is_not_locked(tmp_path):
         extract_payload=lambda raw: (raw, None, None),
     )
     assert state.architect_contract_locked is False
-    assert state.plan_validation["diagnostics"][0]["category"] == "unknown_table_or_column"
+    assert state.plan_validation["diagnostics"][0]["category"] == "unknown_column"
     response = json.loads(manager.run_code("print(1)"))
     assert response["error"]["category"] == "semantic_plan_not_grounded"
 
@@ -385,7 +388,7 @@ def test_plan_can_be_revised_after_runtime_inspection(tmp_path):
     assert state.plan_validation["valid"] is True
 
 
-def test_semantic_plan_with_unobserved_filter_value_is_verified_with_warning(tmp_path):
+def test_semantic_plan_with_unobserved_filter_value_is_executable_with_obligation(tmp_path):
     (tmp_path / "table.csv").write_text("status,value\ncompleted,1\npending,2\n", encoding="utf-8")
     state = P3State()
     Phase3ToolsManager(
@@ -402,7 +405,7 @@ def test_semantic_plan_with_unobserved_filter_value_is_verified_with_warning(tmp
         extract_payload=lambda raw: (raw, None, None),
     )
     assert state.architect_contract_locked is True
-    assert state.plan_validation["status"] == "verified"
+    assert state.plan_validation["status"] == "executable_with_obligations"
     assert state.plan_validation["warnings"][0]["category"] == "filter_value_not_observed"
 
 
@@ -448,7 +451,80 @@ def test_semantic_plan_join_without_observed_overlap_is_warning(tmp_path):
         extract_payload=lambda raw: (raw, None, None),
     )
     assert state.architect_contract_locked is True
-    assert any(item["category"] == "join_key_not_verifiable" for item in state.plan_validation["warnings"])
+    assert any(
+        item["category"] == "join_key_not_verifiable"
+        for item in state.plan_validation["warnings"]
+    )
+
+
+def test_coder_brief_accepts_unstructured_measure_and_normalizes_join_variant(tmp_path):
+    (tmp_path / "sales.csv").write_text("BBL,value\n1,10\n", encoding="utf-8")
+    (tmp_path / "properties.csv").write_text("BBL,name\n1,A\n", encoding="utf-8")
+    state = P3State()
+    Phase3ToolsManager(
+        state, tables=["sales.csv", "properties.csv"], csv_dir=tmp_path,
+        run_dir=tmp_path, evaluation_result_type=None,
+        selection_plan={"coder_brief": {
+            "tables": ["sales.csv", "properties.csv"],
+            "selected_columns": {
+                "sales.csv": ["BBL", "value"],
+                "properties.csv": ["BBL", "name"],
+            },
+            "filters": [], "temporal_filters": [], "dimensions": [],
+            "measures": ["average transaction value"],
+            "joins": [{
+                "left_table": "sales.csv", "left_columns": ["BBL"],
+                "right_table": "properties.csv", "right_columns": ["BBL"],
+                "how": "inner",
+            }],
+            "ordering": [], "limit": None,
+            "output_columns": ["average_transaction_value"],
+            "null_policy": "exclude null join keys",
+            "table_roles": {"sales.csv": "facts", "properties.csv": "lookup"},
+            "combination_strategy": "join", "normalization_errors": [],
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+    )
+
+    assert state.architect_contract_locked is True
+    assert state.analysis_contract["measures"] == ["average transaction value"]
+    assert state.analysis_contract["join_bindings"][0]["keys"] == {
+        "sales.csv": "BBL", "properties.csv": "BBL",
+    }
+    assert state.plan_validation["warnings"][0]["category"] == "unstructured_binding"
+    assert state.plan_validation["status"] == "executable_with_obligations"
+
+
+def test_filter_without_columns_becomes_runtime_obligation_not_index_error(tmp_path):
+    (tmp_path / "broadband.csv").write_text(
+        "area,year,value\nA,2020,10\n", encoding="utf-8"
+    )
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["broadband.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="number",
+        selection_plan={"coder_brief": {
+            "tables": ["broadband.csv"],
+            "selected_columns": {"broadband.csv": ["area", "year", "value"]},
+            "filters": [{"type": "year", "value": "2020", "columns": []}],
+            "temporal_filters": [], "dimensions": [],
+            "measures": [{"type": "average", "column": "value"}],
+            "joins": [], "ordering": [], "limit": None,
+            "output_columns": [], "result_type": "auto",
+            "normalization_errors": [],
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+    )
+
+    assert state.architect_contract_locked is True
+    assert state.plan_validation["status"] == "executable_with_obligations"
+    assert state.analysis_contract["result_type"] == "number"
+    assert state.analysis_contract["measures"] == ["mean value as mean_value"]
+    assert manager.coder_plan_view()["runtime_obligations"][0]["category"] == "missing_binding_columns"
 
 
 def test_analysis_contract_treats_dataset_edition_year_as_provenance(tmp_path):
@@ -862,6 +938,8 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
     assert result.error is None
     assert result.coder_context_audit["inspect_result_executed"] is True
     assert result.coder_lifecycle == "finished"
+    assert result.finalization_mode == "deterministic_validation"
+    assert len(captured_prompts) == 1
 
 
 def test_benchmark_secret_never_enters_agent_prompts(tmp_path, monkeypatch):

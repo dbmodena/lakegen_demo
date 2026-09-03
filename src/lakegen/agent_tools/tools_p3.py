@@ -105,7 +105,7 @@ def classify_execution_error(message: str, *, stage: str = "execution") -> dict[
 
 @dataclass
 class P3State:
-    max_runs: int = 3
+    max_runs: int = 2
     run_count: int = 0
     result_version: int = 0
     inspected_version: int = 0
@@ -186,7 +186,7 @@ class Phase3ToolsManager:
         execute_code: Callable[..., tuple[str | None, str | None, str]],
         extract_payload: Callable[[str], tuple[str, object | None, str | None]],
         require_semantic_plan: bool = True,
-        require_analysis_manifest: bool = False,
+        require_analysis_manifest: bool = True,
     ):
         self.state = state
         self.tables = tables
@@ -201,44 +201,33 @@ class Phase3ToolsManager:
         self.extract_payload = extract_payload
         self.require_semantic_plan = require_semantic_plan
         self.require_analysis_manifest = require_analysis_manifest
-        semantic_plan = self.selection_plan.get("semantic_plan")
         coder_brief = self.selection_plan.get("coder_brief")
-        required_plan_fields = {
-            "filters", "temporal_filters", "dimensions", "measures", "joins",
-            "ordering", "limit", "output_columns", "null_policy", "table_roles",
-        }
-        semantic_plan_present = isinstance(semantic_plan, dict) and bool(semantic_plan)
+        if not coder_brief and isinstance(self.selection_plan.get("semantic_plan"), dict):
+            coder_brief = self._legacy_semantic_plan_to_coder_brief(
+                self.selection_plan["semantic_plan"]
+            )
+            self.selection_plan["coder_brief"] = coder_brief
+        if isinstance(coder_brief, dict):
+            coder_brief = self._normalize_coder_brief(coder_brief)
+            if (
+                evaluation_result_type
+                and str(coder_brief.get("result_type") or "auto") == "auto"
+            ):
+                coder_brief["result_type"] = evaluation_result_type
+            self.selection_plan["coder_brief"] = coder_brief
         brief_validation = self._validate_coder_brief_grounding(coder_brief)
         if brief_validation.get("valid"):
-            self.state.plan_validation = brief_validation
-            self.state.architect_contract_locked = True
-            self.state.analysis_contract = self._contract_from_coder_brief(coder_brief)
-        elif semantic_plan_present:
-            missing_fields = sorted(required_plan_fields - set(semantic_plan))
-            if missing_fields or not semantic_plan.get("measures") or not semantic_plan.get("output_columns") or not semantic_plan.get("table_roles"):
-                self.state.plan_validation = {
-                    "valid": False, "locked": False, "status": "invalid",
-                    "diagnostics": [{
-                        "status": "contradicted", "category": "incomplete_semantic_plan",
-                        "evidence": {"missing_fields": missing_fields},
-                        "correction_required": "retry discovery with a complete typed semantic plan",
-                    }],
-                    "evidence": [], "required_action": "retry_discovery",
-                }
-            else:
-                self.state.plan_validation = self._validate_semantic_plan_grounding(
-                    semantic_plan
-                )
+            semantic_validation = self._validate_semantic_plan_grounding(coder_brief)
+            self.state.plan_validation = {
+                **semantic_validation,
+                "contract_type": "coder_brief",
+                "data_reference_evidence": brief_validation.get("evidence", []),
+            }
             self.state.architect_contract_locked = bool(
                 self.state.plan_validation.get("valid")
             )
             if self.state.architect_contract_locked:
-                self.state.analysis_contract = self._contract_from_semantic_plan(
-                    semantic_plan
-                )
-                self.state.analysis_contract["evidence_map"] = list(
-                    self.state.plan_validation.get("evidence", [])
-                )
+                self.state.analysis_contract = self._contract_from_coder_brief(coder_brief)
         else:
             self.state.plan_validation = brief_validation
 
@@ -256,6 +245,7 @@ class Phase3ToolsManager:
             "evidence": validation.get("evidence", []),
             "diagnostics": validation.get("diagnostics", []),
             "warnings": validation.get("warnings", []),
+            "runtime_obligations": validation.get("runtime_obligations", []),
             "required_action": validation.get("required_action"),
             "contract_type": validation.get("contract_type"),
             "coder_brief": copy.deepcopy(self.selection_plan.get("coder_brief", {})),
@@ -354,6 +344,15 @@ class Phase3ToolsManager:
                     "evidence": "join must be a structured object",
                 })
                 continue
+            if isinstance(join.get("tables"), list) and isinstance(join.get("keys"), dict):
+                for table in join["tables"]:
+                    key = str(join["keys"].get(table) or "")
+                    if table not in self.tables or key not in schemas.get(str(table), set()):
+                        diagnostics.append({
+                            "status": "contradicted", "category": "unknown_join_column",
+                            "evidence": {"table": table, "columns": [key]},
+                        })
+                continue
             for side in ("left", "right"):
                 table = str(join.get(f"{side}_table") or "")
                 columns = join.get(f"{side}_columns", [])
@@ -380,21 +379,116 @@ class Phase3ToolsManager:
         }
 
     @staticmethod
-    def _contract_from_coder_brief(brief: dict[str, Any]) -> dict[str, Any]:
-        task = brief.get("task") if isinstance(brief.get("task"), dict) else {}
+    def _normalize_coder_brief(brief: dict[str, Any]) -> dict[str, Any]:
+        """Canonicalize equivalent syntax without inventing semantic choices."""
+        normalized = copy.deepcopy(brief)
+        operation_aliases = {"count": "count_rows", "avg": "mean", "average": "mean"}
+        for key in ("filters", "temporal_filters", "measures"):
+            canonical_items: list[Any] = []
+            for raw in normalized.get(key, []):
+                if not isinstance(raw, dict):
+                    canonical_items.append(raw)
+                    continue
+                item = dict(raw)
+                if key in {"filters", "temporal_filters"} and not item.get("operator"):
+                    item["operator"] = str(item.get("type") or "").casefold()
+                if key == "measures":
+                    operation = str(
+                        item.get("operation") or item.get("aggregation") or item.get("type") or ""
+                    ).casefold()
+                    item["operation"] = operation_aliases.get(operation, operation)
+                    if "columns" not in item and item.get("column"):
+                        item["columns"] = [item["column"]]
+                canonical_items.append(item)
+            normalized[key] = canonical_items
+        joins: list[Any] = []
+        for raw in normalized.get("joins", []):
+            if not isinstance(raw, dict):
+                joins.append(raw)
+                continue
+            join = dict(raw)
+            if not join.get("tables") and join.get("left_table") and join.get("right_table"):
+                join["tables"] = [join["left_table"], join["right_table"]]
+            tables = [str(item) for item in join.get("tables", [])]
+            if not join.get("keys"):
+                left = join.get("left_columns") or (
+                    [join.get("left_key")] if join.get("left_key") else []
+                )
+                right = join.get("right_columns") or (
+                    [join.get("right_key")] if join.get("right_key") else []
+                )
+                if len(tables) == 2 and len(left) == len(right) == 1:
+                    join["keys"] = {
+                        tables[0]: str(left[0]), tables[1]: str(right[0]),
+                    }
+            joins.append(join)
+        normalized["joins"] = joins
+        return normalized
+
+    @staticmethod
+    def _legacy_semantic_plan_to_coder_brief(plan: dict[str, Any]) -> dict[str, Any]:
+        """Compile the legacy architect artifact into the sole runtime contract."""
+        tables = list(dict.fromkeys([
+            *map(str, (plan.get("table_roles") or {}).keys()),
+            *(
+                str(binding.get("table"))
+                for kind in ("filters", "temporal_filters", "dimensions", "measures")
+                for binding in plan.get(kind, [])
+                if isinstance(binding, dict) and binding.get("table")
+            ),
+        ]))
+        selected_columns: dict[str, list[str]] = {table: [] for table in tables}
+        for kind in ("filters", "temporal_filters", "dimensions", "measures"):
+            for binding in plan.get(kind, []):
+                if not isinstance(binding, dict):
+                    continue
+                table = str(binding.get("table") or (tables[0] if len(tables) == 1 else ""))
+                columns = binding.get("columns") or [binding.get("column")]
+                for column in columns:
+                    if column and table in selected_columns and str(column) not in selected_columns[table]:
+                        selected_columns[table].append(str(column))
+        for join in plan.get("joins", []):
+            if not isinstance(join, dict):
+                continue
+            for table, column in (join.get("keys") or {}).items():
+                table, column = str(table), str(column)
+                if table in selected_columns and column not in selected_columns[table]:
+                    selected_columns[table].append(column)
         return {
+            "tables": tables,
+            "selected_columns": selected_columns,
+            "filters": list(plan.get("filters", [])),
+            "temporal_filters": list(plan.get("temporal_filters", [])),
+            "dimensions": list(plan.get("dimensions", [])),
+            "measures": list(plan.get("measures", [])),
+            "joins": list(plan.get("joins", [])),
+            "ordering": plan.get("ordering") or [],
+            "limit": plan.get("limit"),
+            "output_columns": list(plan.get("output_columns", [])),
+            "null_policy": str(plan.get("null_policy") or ""),
+            "table_roles": dict(plan.get("table_roles") or {}),
+            "result_type": str(plan.get("result_type") or "auto"),
+            "normalization_errors": [],
+        }
+
+    @staticmethod
+    def _contract_from_coder_brief(brief: dict[str, Any]) -> dict[str, Any]:
+        canonical = dict(brief)
+        task = brief.get("task") if isinstance(brief.get("task"), dict) else {}
+        canonical.setdefault("measures", list(brief.get("operations", [])))
+        canonical.setdefault("dimensions", [
+            {"output": item, "column": item}
+            for item in task.get("grouping", [])
+        ])
+        canonical["ordering"] = canonical.get("ordering") or []
+        contract = Phase3ToolsManager._contract_from_semantic_plan(canonical)
+        contract.update({
             "tables": list(brief.get("tables", [])),
             "columns": dict(brief.get("selected_columns", {})),
-            "filters": list(brief.get("filters", [])),
-            "measures": list(brief.get("operations", [])),
-            "group_by": list(task.get("grouping", []))
-            if isinstance(task.get("grouping"), list) else [],
-            "joins": list(brief.get("joins", [])),
-            "ordering": brief.get("ordering"),
-            "limit": brief.get("limit"),
             "result_type": brief.get("result_type", "auto"),
             "source": "validated_coder_brief",
-        }
+        })
+        return contract
 
     def _record_execution_attempt(self) -> None:
         """Persist one benchmark-blind snapshot for post-hoc attempt metrics."""
@@ -442,14 +536,30 @@ class Phase3ToolsManager:
             for binding in plan.get(kind, []):
                 if not isinstance(binding, dict):
                     diagnostics.append({
-                        "requirement": kind, "status": "contradicted", "category": "invalid_binding",
-                        "evidence": "binding is not structured",
-                        "correction_required": "revise semantic plan",
+                        "requirement": kind, "status": "unknown",
+                        "category": "unstructured_binding",
+                        "evidence": str(binding),
+                        "correction_required": (
+                            "Coder must resolve this requirement against the exact "
+                            "selected columns; runtime references remain gated."
+                        ),
                     })
                     continue
                 table = resolve_table(binding)
                 columns = binding.get("columns") or [binding.get("column")]
                 columns = [str(column) for column in columns if column]
+                if not columns:
+                    diagnostics.append({
+                        "requirement": str(binding.get("requirement") or binding.get("type") or kind),
+                        "status": "unknown", "category": "missing_binding_columns",
+                        "table": table if table in self.tables else None,
+                        "evidence": {"binding": binding},
+                        "correction_required": (
+                            "Resolve this requirement using selected columns or "
+                            "prove that it is dataset-level metadata."
+                        ),
+                    })
+                    continue
                 missing = [column for column in columns if column not in schemas.get(table, set())]
                 if table not in self.tables or missing:
                     diagnostics.append({
@@ -488,7 +598,7 @@ class Phase3ToolsManager:
                         any(target in item for item in normalized)
                         if operator == "contains" else target in normalized
                     )
-                    if operator == "range":
+                    if operator == "range" and columns:
                         series = pd.to_datetime(profiled(table)[columns[0]], errors="coerce")
                         requested_years = [int(year) for year in re.findall(r"(?:19|20)\d{2}", value)]
                         observed_years = series.dropna().dt.year
@@ -556,8 +666,10 @@ class Phase3ToolsManager:
         for join in plan.get("joins", []):
             if not isinstance(join, dict):
                 diagnostics.append({
-                    "requirement": "join", "status": "contradicted", "category": "join_not_structured",
-                    "evidence": str(join), "correction_required": "provide tables and keys",
+                    "requirement": "join", "status": "unknown",
+                    "category": "unstructured_join",
+                    "evidence": str(join),
+                    "correction_required": "resolve against selected tables before execution",
                 })
                 continue
             keys = join.get("keys", {})
@@ -653,20 +765,32 @@ class Phase3ToolsManager:
 
         blockers = [item for item in diagnostics if item.get("status") == "contradicted"]
         warnings = [item for item in diagnostics if item.get("status") != "contradicted"]
+        status = (
+            "rejected" if blockers else
+            "executable_with_obligations" if warnings else
+            "verified"
+        )
         return {
             "valid": not blockers,
             "locked": not blockers,
-            "status": "verified" if not blockers else "rejected",
+            "status": status,
             "diagnostics": blockers,
             "warnings": warnings,
             "evidence": evidence,
-            "required_action": None if not blockers else "inspect_table_or_plan_conflict",
+            "required_action": (
+                "resolve_runtime_obligations" if warnings and not blockers else
+                None if not blockers else "inspect_table_or_plan_conflict"
+            ),
+            "runtime_obligations": warnings,
         }
 
     @staticmethod
     def _contract_from_semantic_plan(plan: dict[str, Any]) -> dict[str, Any]:
         filters = []
         for binding in [*plan.get("filters", []), *plan.get("temporal_filters", [])]:
+            if isinstance(binding, str) and binding.strip():
+                filters.append(binding.strip())
+                continue
             if not isinstance(binding, dict):
                 continue
             expression = " ".join(filter(None, [
@@ -678,6 +802,9 @@ class Phase3ToolsManager:
         measures = []
         distinct_counts = []
         for binding in plan.get("measures", []):
+            if isinstance(binding, str) and binding.strip():
+                measures.append(binding.strip())
+                continue
             if not isinstance(binding, dict):
                 continue
             operation = str(binding.get("operation") or "").strip()
@@ -689,8 +816,12 @@ class Phase3ToolsManager:
             if operation == "count_distinct":
                 distinct_counts.extend(map(str, binding.get("columns", [])))
         dimensions = [
-            str(binding.get("output") or binding.get("column") or "").strip()
-            for binding in plan.get("dimensions", []) if isinstance(binding, dict)
+            (
+                binding.strip() if isinstance(binding, str) else
+                str(binding.get("output") or binding.get("column") or "").strip()
+            )
+            for binding in plan.get("dimensions", [])
+            if isinstance(binding, (dict, str))
         ]
         ordering = "; ".join(
             " ".join(filter(None, [
@@ -1288,7 +1419,7 @@ class Phase3ToolsManager:
         return list(dict.fromkeys(blockers))
 
     def run_code(self, code: str) -> str:
-        """Execute a complete Python analysis. At most three calls are allowed; fix structured errors before retrying."""
+        """Execute analysis after a verified plan or an executable plan with obligations."""
         if self.state.finished:
             return json.dumps({"ok": False, "error": {"category": "already_finished"}})
         if self.state.rejected_reason:
@@ -1297,7 +1428,9 @@ class Phase3ToolsManager:
             self.require_semantic_plan
             and (
                 not self.state.plan_validation.get("valid")
-                or self.state.plan_validation.get("status") != "verified"
+                or self.state.plan_validation.get("status") not in {
+                    "verified", "executable_with_obligations",
+                }
                 or not self.state.architect_contract_locked
             )
         ):
@@ -1454,7 +1587,7 @@ class Phase3ToolsManager:
             "ok": True,
             "attempt": self.state.run_count,
             "result_available": self.state.raw_result is not None,
-            "next_action": "Call inspect_result before finish_code.",
+            "next_action": "Call inspect_result; finalization is automatic when validation passes.",
         })
 
     def _validate_analysis_manifest(
@@ -2004,8 +2137,8 @@ class Phase3ToolsManager:
         return json.dumps({
             "ok": True,
             "state": self.state.lifecycle.value,
-            "required_action": "run_code_or_reject_tables" if warnings else "finish_code",
-            "allowed_actions": ["run_code", "reject_tables"] if warnings else ["finish_code"],
+            "required_action": "run_code_or_reject_tables" if warnings else "automatic_finalization",
+            "allowed_actions": ["run_code", "reject_tables"] if warnings else [],
             "profile": profile,
         }, ensure_ascii=False, default=str)
 
@@ -2216,6 +2349,15 @@ class Phase3ToolsManager:
             },
             "review": reason,
         }
+
+    def finalize_validated_result(self, reason: str) -> None:
+        """Finalize deterministically after the latest result passes all gates."""
+        self.recover_finish(reason)
+        self.state.finalization_mode = "deterministic_validation"
+        self.state.review.update({
+            "finalization_mode": "deterministic_validation",
+            "semantic_self_review": "deterministic_contract_checks",
+        })
 
     def recover_degraded_finish(self, reason: str) -> None:
         """Preserve an inspected structured result without declaring it correct."""

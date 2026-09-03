@@ -60,7 +60,7 @@ from lakegen.tracing import (
 )
 
 
-MAX_CODE_ATTEMPTS = 3
+MAX_CODE_ATTEMPTS = 2
 MAX_TABLE_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
 
@@ -265,6 +265,7 @@ def run_question(
     selection_attempts: list[dict[str, Any]] = []
     rejected_selection_keys: set[tuple[str, ...]] = set()
     rejected_selection_signatures: list[dict[str, Any]] = []
+    last_coder_rejection: dict[str, Any] | None = None
     attempted_keywords: list[str] = []
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
     generated_code_seed_instruction_provided = False
@@ -652,6 +653,18 @@ def run_question(
                             "error_category": "selection_contract_gate",
                         })
                         error = primary["error"]
+                        if (
+                            coder_audit.get("status") == "missing"
+                            and last_coder_rejection
+                        ):
+                            selection_record["recovery_from_rejection"] = dict(
+                                last_coder_rejection
+                            )
+                            error = (
+                                "Selection recovery produced no contract. Original "
+                                f"coder rejection: {last_coder_rejection['reason']} "
+                                f"Current gate: {primary['error']}"
+                            )
                         hint = error + (
                             " Retry discovery with exact inspected column choices "
                             "and explicit join keys when joining tables."
@@ -661,6 +674,11 @@ def run_question(
                         break
                     if primary["status"] == "tables_rejected":
                         rejection_reason = primary["error"]
+                        last_coder_rejection = {
+                            "reason": rejection_reason,
+                            "details": primary.get("rejection_details") or {},
+                            "tables": list(selected),
+                        }
                         rejected_selection_keys.add(selection_key)
                         rejected_selection_signatures.append(
                             _rejected_selection_signature(
@@ -769,6 +787,7 @@ def run_question(
                     return result
 
                 previous_code = ""
+                total_code_runs = 0
                 for code_attempt in range(MAX_CODE_ATTEMPTS):
                     code_started = time.monotonic()
                     generated = phase3_generate_and_execute(
@@ -788,6 +807,7 @@ def run_question(
                         seed_instruction_recorder=record_seed_instruction,
                         coder_context_level=experiment.coder_context_level,
                         evaluation_result_type=None,
+                        max_run_calls=max(1, MAX_CODE_ATTEMPTS - total_code_runs),
                         selection_plan=dict(selection_state.selection_plan),
                         source_field_names=list((log_context or {}).keys()),
                         require_semantic_plan=experiment.require_semantic_plan,
@@ -807,6 +827,7 @@ def run_question(
                     )
                     code_metric["retries"] = code_attempt
                     result.retries += int(code_attempt > 0)
+                    total_code_runs += int(getattr(generated, "coder_runs", 0) or 0)
                     previous_code = generated.clean_code or generated.code_raw
                     result.code = previous_code
 
@@ -821,6 +842,16 @@ def run_question(
                             "error_category": "selection_contract_gate",
                         })
                         error = generated.error or "The selection contract was not verified."
+                        audit = getattr(generated, "coder_context_audit", None) or {}
+                        if audit.get("status") == "missing" and last_coder_rejection:
+                            selection_record["recovery_from_rejection"] = dict(
+                                last_coder_rejection
+                            )
+                            error = (
+                                "Selection recovery produced no contract. Original "
+                                f"coder rejection: {last_coder_rejection['reason']} "
+                                f"Current gate: {error}"
+                            )
                         hint = error + " Retry discovery with exact inspected columns and join keys."
                         break
 
@@ -833,6 +864,11 @@ def run_question(
                         result.code_evaluation["generation_attempt_count"] = code_attempt + 1
 
                     if generated.rejected_reason:
+                        last_coder_rejection = {
+                            "reason": generated.rejected_reason,
+                            "details": generated.rejection_details or {},
+                            "tables": list(selected),
+                        }
                         rejected_selection_keys.add(selection_key)
                         rejected_selection_signatures.append(
                             _rejected_selection_signature(

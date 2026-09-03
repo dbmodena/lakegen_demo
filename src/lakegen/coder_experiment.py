@@ -79,6 +79,7 @@ def run_coder_context_sweep(
         repair_attempts = 0
         # A model turn that never executes code must not consume the scarce
         # execution/repair budget. Keep both budgets bounded independently.
+        max_attempts = min(max_attempts, 2)
         max_generation_turns = max_attempts * 2
 
         for attempt_index in range(max_generation_turns):

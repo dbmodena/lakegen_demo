@@ -696,9 +696,10 @@ def phase3_generate_and_execute(
         "Then write a complete Python program and "
         "call run_code with it. If execution fails, use the structured error to "
         "correct the program. After every successful run, call inspect_result and "
-        "verify that the result answers the whole question. Finish only by calling "
-        "finish_code with the self-review checklist. You have at most "
-        f"{max_run_calls} "
+        "verify that the result answers the whole question. A warning-free "
+        "inspection is finalized automatically; do not spend another turn on a "
+        "closure protocol. You have at most "
+        f"{min(2, max_run_calls)} "
         "run_code calls. You may call inspect_table once per selected table when "
         "you need exact columns, category values, null counts, or temporal coverage; "
         "the same cached sample supports progressive profiling of up to 8 columns. "
@@ -707,10 +708,7 @@ def phase3_generate_and_execute(
         "specific missing requirements and evidence if it is insufficient. If a "
         "run reports diagnostic_output, do not print more diagnostics: use "
         "inspect_table, then correct the analysis or reject the tables. Never "
-        "infer correctness from benchmark gold: it is not available. In "
-        "finish_code, pass requirement_reviews as a JSON object mapping each exact "
-        "requirement string from inspect_result to its concrete evidence, for "
-        "example {\"return 3 ranked semantic items\": \"The result contains 3 items.\"}. "
+        "infer correctness from benchmark gold: it is not available. "
         "Do not import sys; it is unnecessary and forbidden by the execution sandbox. "
         "Do not merely describe code in chat."
     )
@@ -745,7 +743,8 @@ def phase3_generate_and_execute(
     if seed_instruction_recorder is not None:
         seed_instruction_recorder()
 
-    state = P3State(max_runs=max(1, min(3, max_run_calls)))
+    # One initial analysis plus at most one evidence-directed revision.
+    state = P3State(max_runs=max(1, min(2, max_run_calls)))
     manager = Phase3ToolsManager(
         state,
         tables=tables,
@@ -766,7 +765,8 @@ def phase3_generate_and_execute(
     )
     plan_view = manager.coder_plan_view()
     initial_plan_status = str(plan_view.get("status") or "missing")
-    if require_semantic_plan and plan_view.get("status") != "verified":
+    runnable_plan_statuses = {"verified", "executable_with_obligations"}
+    if require_semantic_plan and plan_view.get("status") not in runnable_plan_statuses:
         status = str(plan_view.get("status") or "invalid")
         audit = {
             **coder_context.audit(),
@@ -819,15 +819,18 @@ def phase3_generate_and_execute(
             agent_name="coder",
             emit_stream=emit_stream,
             cancel_check=cancel_check,
-            tools=manager.get_tools(),
-            max_iterations=14,
-            # inspect_result has no arguments and may legitimately follow each
-            # of the three distinct executions.
+            tools=[
+                tool for tool in manager.get_tools()
+                if tool.metadata.name != "finish_code"
+            ],
+            max_iterations=10,
+            # inspect_result has no arguments and may legitimately follow both
+            # the initial execution and its single revision.
             # Repeated inspect_table calls are served from a cache and no longer
             # justify aborting the whole coder. The global tool budget still
             # bounds unproductive loops.
             max_repeats=8,
-            max_tool_calls=12,
+            max_tool_calls=10,
             timeout_seconds=600,
         )
     except Phase2AgentStall as exc:
@@ -885,56 +888,10 @@ def phase3_generate_and_execute(
                 "automatic_inspection_failed: " f"{type(exc).__name__}: {exc}"
             )
 
-    # Allow one tightly-scoped closure turn only for a structured result that was
-    # successfully executed and whose latest version was actually inspected.
-    eligible_for_finalization = (
-        state.ready_for_finalization()
-        and not rejected_reason
-    )
-    if eligible_for_finalization:
-        finish_tool = manager.get_tools()[-1]
-        finalization_prompt = (
-            f"Question: {query}\n\n"
-            f"Requirements reported by inspect_result: "
-            f"{json.dumps(state.coverage_requirements, ensure_ascii=False)}\n\n"
-            "The latest structured result executed successfully and has already "
-            "been inspected. Perform the mandatory final self-review now. Call "
-            "finish_code exactly once. Pass requirement_reviews as a JSON object "
-            "mapping every exact requirement above to concrete evidence. Mark a "
-            "dimension not_applicable only when "
-            "the question genuinely does not request it; use needs_revision if "
-            "the inspected result does not fully answer the question. Do not run "
-            "or inspect code and do not provide a prose-only answer."
-        )
-        try:
-            run_agent_workflow(
-                llm=llm,
-                system_prompt=(
-                    "You are the finalization step of a coding agent. Your only "
-                    "available action is finish_code, which records an explicit "
-                    "evidence-based review of the already inspected result."
-                ),
-                user_prompt=finalization_prompt,
-                agent_name="coder_finalizer",
-                emit_stream=emit_stream,
-                cancel_check=cancel_check,
-                tools=[finish_tool],
-                max_iterations=3,
-                max_repeats=2,
-                max_tool_calls=2,
-                timeout_seconds=120,
-            )
-        except Exception as exc:
-            state.stop_reason = (
-                "finalizer_failed: " f"{type(exc).__name__}: {exc}"
-            )
-
-    # A warning-free latest inspection is sufficient to preserve a computed
-    # result even if the model omitted or malformed the protocol-only finish
-    # call. Correctness is still decided by the normal evaluator downstream.
+    # Deterministic validation is the terminal gate; no second LLM is needed.
     if not state.finished and state.ready_for_finalization() and not rejected_reason:
-        manager.recover_finish(
-            "System recovery after a valid, structured, warning-free latest-result inspection."
+        manager.finalize_validated_result(
+            "Automatically finalized after a valid, structured, warning-free inspection."
         )
 
     # A latest inspected structured result remains useful even when semantic
@@ -944,6 +901,7 @@ def phase3_generate_and_execute(
     if (
         not state.finished
         and state.ready_for_degraded_finalization()
+        and state.run_count >= state.max_runs
         and not rejected_reason
     ):
         manager.recover_degraded_finish(
@@ -1007,7 +965,7 @@ def phase3_generate_and_execute(
             "validation_diagnostics": list(state.plan_validation.get("diagnostics", [])),
             "evidence_count": len(state.plan_validation.get("evidence", [])),
             "coder_started_after_verified_plan": (
-                not require_semantic_plan or initial_plan_status == "verified"
+                not require_semantic_plan or initial_plan_status in runnable_plan_statuses
             ),
             "verified_requirements": list(state.coverage_requirements),
             "inspect_result_executed": state.inspected_version > 0,

@@ -558,7 +558,8 @@ def test_selection_only_is_followed_by_compiled_draft(tmp_path):
         selection.split("FINAL_PAYLOAD: ", 1)[1]
     )["selection_plan"]
     assert "semantic_plan" not in selection_plan
-    assert selection_plan["coder_brief"] == {
+    brief = selection_plan["coder_brief"]
+    assert brief == {
         "tables": ["events.parquet"],
         "selected_columns": {"events.parquet": ["borough"]},
         "task": {
@@ -568,6 +569,11 @@ def test_selection_only_is_followed_by_compiled_draft(tmp_path):
         "filters": [], "operations": ["count rows"],
         "result_type": "auto", "ordering": "row_count descending",
         "limit": 3, "joins": [], "normalization_errors": [],
+        "temporal_filters": [], "dimensions": [{
+            "table": "events.parquet", "column": "borough", "output": "borough",
+        }],
+        "measures": ["count rows"], "output_columns": [],
+        "null_policy": "", "table_roles": {"events.parquet": "fact records"},
     }
     planned = manager.submit_semantic_plan_draft({
         "filters": [], "dimensions": [["borough", "borough"]],
@@ -615,8 +621,11 @@ def test_coder_brief_normalizes_annotated_join_columns_without_fuzzy_matching(tm
         "organizations.parquet": ["Organization name"],
     }
     assert brief["joins"] == [{
-        "left_table": "plazas.parquet", "left_columns": ["Partner"],
-        "right_table": "organizations.parquet", "right_columns": ["Organization name"],
+        "tables": ["plazas.parquet", "organizations.parquet"],
+        "keys": {
+            "plazas.parquet": "Partner",
+            "organizations.parquet": "Organization name",
+        },
         "how": "inner",
     }]
     assert brief["normalization_errors"] == []

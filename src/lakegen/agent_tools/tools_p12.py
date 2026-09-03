@@ -193,13 +193,15 @@ def _normalize_semantic_plan(
             if default_table and not item.get("table"):
                 item["table"] = default_table
             if key in {"filters", "temporal_filters"}:
-                operator = str(item.get("operator") or "").casefold()
+                operator = str(item.get("operator") or item.get("type") or "").casefold()
                 item["operator"] = operator_aliases.get(operator, operator)
                 value = item.get("value", "")
                 if not isinstance(value, str):
                     item["value"] = json.dumps(value, ensure_ascii=False)
             elif key == "measures":
-                operation = str(item.get("operation") or item.pop("aggregation", "")).casefold()
+                operation = str(
+                    item.get("operation") or item.get("aggregation") or item.get("type") or ""
+                ).casefold()
                 item["operation"] = operation_aliases.get(operation, operation)
                 if "columns" not in item and item.get("column"):
                     item["columns"] = [item.pop("column")]
@@ -213,6 +215,15 @@ def _normalize_semantic_plan(
         join = dict(raw)
         if not join.get("tables") and join.get("left_table") and join.get("right_table"):
             join["tables"] = [join.pop("left_table"), join.pop("right_table")]
+        if not join.get("keys") and join.get("left_columns") and join.get("right_columns"):
+            tables = list(join.get("tables") or [])
+            left_columns = list(join.pop("left_columns") or [])
+            right_columns = list(join.pop("right_columns") or [])
+            if len(tables) == 2 and len(left_columns) == len(right_columns) == 1:
+                join["keys"] = {
+                    str(tables[0]): str(left_columns[0]),
+                    str(tables[1]): str(right_columns[0]),
+                }
         if not join.get("keys") and join.get("left_key") and join.get("right_key"):
             tables = list(join.get("tables") or [])
             if len(tables) == 2:
@@ -1009,6 +1020,7 @@ class Phase12ToolsManager:
                 requirement_coverage,
                 dict(requirements or {}),
                 combination_strategy,
+                table_roles,
                 semantic_plan if isinstance(semantic_plan, dict) else None,
             ),
             **({"semantic_plan": semantic_plan} if contract_first else {}),
@@ -1038,6 +1050,7 @@ class Phase12ToolsManager:
         coverage: dict[str, dict[str, object]],
         requirements: dict[str, object],
         combination_strategy: str,
+        table_roles: dict[str, str],
         semantic_plan: dict[str, object] | None,
     ) -> dict[str, object]:
         """Normalize the agent's explicit choices without making new choices."""
@@ -1076,6 +1089,14 @@ class Phase12ToolsManager:
             mechanical = [column for column in schemas[table] if canonical(column) == canonical(raw)]
             return mechanical[0] if len(mechanical) == 1 else None
 
+        def resolve_unique(raw_column: object) -> tuple[str, str] | None:
+            matches = [
+                (table, column)
+                for table in tables
+                if (column := resolve(table, raw_column)) is not None
+            ]
+            return matches[0] if len(matches) == 1 else None
+
         annotated_join_columns: list[tuple[str, str]] = []
         for requirement, evidence in coverage.items():
             if not isinstance(evidence, dict):
@@ -1109,26 +1130,49 @@ class Phase12ToolsManager:
                     "right_table": right[0], "right_columns": [right[1]],
                     "how": "inner",
                 }]
+        dimensions: list[object] = []
+        raw_grouping = requirements.get("grouping", [])
+        if isinstance(raw_grouping, list):
+            for grouping in raw_grouping:
+                if not isinstance(grouping, str):
+                    dimensions.append(grouping)
+                    continue
+                match = resolve_unique(grouping)
+                dimensions.append(
+                    {"table": match[0], "column": match[1], "output": grouping}
+                    if match else grouping
+                )
+
         brief: dict[str, object] = {
             "tables": list(tables),
             "selected_columns": selected_columns,
-            "task": dict(requirements),
             "filters": list(requirements.get("filters", []))
             if isinstance(requirements.get("filters"), list) else [],
-            "operations": list(requirements.get("measures", []))
+            "temporal_filters": [],
+            "dimensions": dimensions,
+            "measures": list(requirements.get("measures", []))
             if isinstance(requirements.get("measures"), list) else [],
             "result_type": str(requirements.get("result_type") or "auto"),
             "ordering": requirements.get("ordering"),
             "limit": requirements.get("limit"),
             "joins": joins,
+            "output_columns": list(requirements.get("output_columns", []))
+            if isinstance(requirements.get("output_columns"), list) else [],
+            "null_policy": str(requirements.get("null_policy") or ""),
+            "table_roles": dict(table_roles),
             "normalization_errors": normalization_errors,
         }
         if semantic_plan:
             brief["filters"] = list(semantic_plan.get("filters", []))
-            brief["operations"] = list(semantic_plan.get("measures", []))
+            brief["temporal_filters"] = list(semantic_plan.get("temporal_filters", []))
+            brief["dimensions"] = list(semantic_plan.get("dimensions", []))
+            brief["measures"] = list(semantic_plan.get("measures", []))
             brief["ordering"] = semantic_plan.get("ordering")
             brief["limit"] = semantic_plan.get("limit")
             brief["joins"] = list(semantic_plan.get("joins", []))
+            brief["output_columns"] = list(semantic_plan.get("output_columns", []))
+            brief["null_policy"] = str(semantic_plan.get("null_policy") or "")
+            brief["table_roles"] = dict(semantic_plan.get("table_roles") or {})
             for group in ("dimensions", "measures", "filters", "temporal_filters"):
                 for binding in semantic_plan.get(group, []):
                     if not isinstance(binding, dict):
@@ -1140,6 +1184,19 @@ class Phase12ToolsManager:
                             selected_columns[table].append(column)
         if len(tables) > 1 and combination_strategy != "single_table":
             brief["combination_strategy"] = combination_strategy
+        # Canonicalize harmless join-shape variants before the brief crosses
+        # the Phase 2/3 boundary. Semantic strings are preserved verbatim.
+        brief = _normalize_semantic_plan(brief, tables)
+        # Temporary read compatibility for consumers of the old brief shape.
+        # Phase 3 uses only the canonical fields above.
+        brief["operations"] = list(brief["measures"])
+        brief["task"] = {
+            **dict(requirements),
+            "grouping": ([
+                str(item.get("output") or item.get("column") or "")
+                for item in brief["dimensions"] if isinstance(item, dict)
+            ] or list(requirements.get("grouping", []))),
+        }
         return brief
 
     def submit_semantic_plan_draft(self, draft: dict[str, object]) -> str:
