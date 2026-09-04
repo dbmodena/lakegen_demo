@@ -72,9 +72,17 @@ class QueryResult:
     coder_brief_present: bool = False
     coder_brief_status: str = "missing"
     coder_brief_coder_start_status: str = "not_started"
+    selection_brief_status: str = "missing"
+    effective_coder_brief_status: str = "missing"
+    effective_coder_brief_source: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        # This is the experiment/reproducibility manifest, not a coder analysis
+        # manifest. Use an unambiguous public name while retaining the internal
+        # attribute consumed by structured logging.
+        payload["experiment_manifest"] = payload.pop("manifest")
+        return payload
 
 
 def _json_path(parent: str, component: str | int) -> str:

@@ -43,6 +43,25 @@ def test_semantic_plan_telemetry_is_persisted_without_coder_sweep():
     assert payload["semantic_plan_coder_start_status"] == "verified"
 
 
+def test_coder_brief_telemetry_separates_selection_and_effective_status():
+    result = QueryResult(question="q", status="completed")
+    _record_semantic_plan_telemetry(result, {
+        "coder_brief": {"source": "runtime_fallback"},
+        "contract_type": "coder_brief",
+        "selection_brief_status": "missing",
+        "effective_coder_brief_status": "executable_with_obligations",
+        "effective_coder_brief_source": "runtime_fallback",
+        "semantic_plan_status": "executable_with_obligations",
+        "coder_started_after_verified_plan": True,
+        "semantic_plan_coder_start_status": "executable_with_obligations",
+    })
+    payload = result.to_dict()
+    assert payload["selection_brief_status"] == "missing"
+    assert payload["effective_coder_brief_status"] == "executable_with_obligations"
+    assert payload["effective_coder_brief_source"] == "runtime_fallback"
+    assert payload["coder_brief_status"] == "executable_with_obligations"
+
+
 def test_extracts_queries_old_shape_and_preserves_metadata():
     payload = {
         "model": {

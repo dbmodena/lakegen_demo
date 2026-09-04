@@ -538,6 +538,19 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
                         **source["log_fields"],
                     },
                 ).to_dict()
+            reference_execution = source.get("log_fields", {}).get(
+                "SOURCE_REFERENCE_EXECUTION", {}
+            )
+            if reference_execution.get("status") == "success":
+                stability = (
+                    "drift" if reference_execution.get("declared_result_drift")
+                    else "stable"
+                )
+            else:
+                stability = "unknown"
+            query_result.setdefault("code_evaluation", {})[
+                "reference_stability"
+            ] = stability
             entry = {
                 "question": source["question"],
                 "source_path": source["source_path"],

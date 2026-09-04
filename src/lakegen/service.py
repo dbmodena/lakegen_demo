@@ -115,8 +115,17 @@ def _record_semantic_plan_telemetry(result: QueryResult, audit: Mapping[str, Any
     result.evidence_count = result.semantic_plan_evidence_count
     brief = audit.get("coder_brief")
     result.coder_brief_present = isinstance(brief, Mapping) and bool(brief)
+    result.selection_brief_status = str(
+        audit.get("selection_brief_status") or initial_status
+    )
+    result.effective_coder_brief_status = str(
+        audit.get("effective_coder_brief_status") or status
+    )
+    result.effective_coder_brief_source = str(
+        audit.get("effective_coder_brief_source") or ""
+    )
     if result.coder_brief_present or audit.get("contract_type") == "coder_brief":
-        result.coder_brief_status = status
+        result.coder_brief_status = result.effective_coder_brief_status
     result.coder_started_after_verified_plan = bool(
         audit.get("coder_started_after_verified_plan")
     )
@@ -637,7 +646,8 @@ def run_question(
                     )
                     coder_audit = primary.get("coder_context_audit") or {}
                     selection_record["coder_brief_status"] = str(
-                        coder_audit.get("status") or "missing"
+                        coder_audit.get("effective_coder_brief_status")
+                        or coder_audit.get("status") or "missing"
                     )
                     selection_record["coder_started"] = bool(
                         coder_audit.get("coder_started_after_verified_plan")

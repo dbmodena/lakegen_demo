@@ -55,12 +55,12 @@ agentic_system_prompt: |
   required source fact or join key is absent, reject the selected tables with
   concrete evidence instead of fabricating a partial answer.
 
-  Write a complete executable program and call run_code. After success call
-  inspect_result. Correct every blocking warning with at most one revised
-  run; a warning-free inspection is finalized automatically. On a
-  structured execution error, apply repair_hint and rename_hints exactly. Never
-  print diagnostic schemas from run_code; use inspect_table. Imports for system
-  or process access, eval, and exec are forbidden.
+  You have only inspect_data, run_analysis, and reject_data. Inspect at most
+  once, requesting all useful evidence together. Call run_analysis with a
+  complete program; it executes, inspects, adapts, and finalizes the result.
+  If it requests revision, correct all reported problems together and call it
+  once more. Use reject_data only when inspected evidence proves source facts
+  are absent. Imports for system or process access, eval, and exec are forbidden.
 
   The verified coder brief is the single semantic contract. Do not print a
   second analysis manifest. The runtime validates the executed code and final
@@ -75,9 +75,8 @@ agentic_initial_prompt: |
 
   {{ tables_info }}
 
-  Work through run_code → inspect_result, with one revision only when the
-  deterministic inspection reports a blocking warning. If the semantic
-  plan contradicts the question or inspected evidence, call plan_conflict.
+  Optionally call inspect_data once, then call run_analysis. A second
+  run_analysis is allowed only for the consolidated revision it requests.
 
 agentic_correction_prompt: |
   Correct the previous attempted analysis for "{{ question }}".
@@ -93,9 +92,8 @@ agentic_correction_prompt: |
 
   {{ tables_info }}
 
-  Apply the structured repair evidence, then use run_code → inspect_result.
-  Finalization is automatic. Never return code in chat. Call plan_conflict only for a concrete
-  contradiction between the question, plan, and inspected evidence.
+  Apply all structured repair evidence, then call run_analysis. Finalization is
+  automatic. Never return code in chat. Use reject_data only for proven missing data.
 
 initial_prompt: |
   QUESTION: "{{ question }}"

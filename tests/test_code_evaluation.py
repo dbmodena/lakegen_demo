@@ -367,3 +367,23 @@ def test_batch_summary_separates_blocked_and_not_evaluated():
     assert summary["evaluation_dispositions"] == {
         "blocked": 1, "not_evaluated": 1,
     }
+
+
+def test_batch_summary_separates_stable_and_drift_reference_accuracy():
+    results = [
+        {"result": {"code_evaluation": {
+            "applicable": True, "exact_result_match": True,
+            "representation_equivalent_match": True,
+            "reference_stability": "stable",
+        }}},
+        {"result": {"code_evaluation": {
+            "applicable": True, "exact_result_match": False,
+            "representation_equivalent_match": True,
+            "reference_stability": "drift",
+        }}},
+    ]
+    split = summarize_code_evaluations(results)["reference_stability"]
+    assert split["stable"]["case_count"] == 1
+    assert split["stable"]["exact_result_match_rate"] == 1.0
+    assert split["drift"]["exact_result_match_rate"] == 0.0
+    assert split["drift"]["representation_equivalent_match_rate"] == 1.0

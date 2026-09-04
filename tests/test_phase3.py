@@ -527,6 +527,110 @@ def test_filter_without_columns_becomes_runtime_obligation_not_index_error(tmp_p
     assert manager.coder_plan_view()["runtime_obligations"][0]["category"] == "missing_binding_columns"
 
 
+def test_pre_execution_contract_gap_does_not_consume_run(tmp_path):
+    (tmp_path / "values.csv").write_text("year,value\n2020,10\n", encoding="utf-8")
+    executions = []
+    state = P3State(max_runs=2)
+    manager = Phase3ToolsManager(
+        state, tables=["values.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="number", question="What is the average value in 2020?",
+        selection_plan={"coder_brief": {
+            "tables": ["values.csv"],
+            "selected_columns": {"values.csv": ["year", "value"]},
+            "filters": [{"column": "year", "operator": "equals", "value": "2020"}],
+            "temporal_filters": [], "dimensions": [],
+            "measures": [{"operation": "mean", "columns": ["value"]}],
+            "joins": [], "ordering": [], "limit": None,
+            "output_columns": [], "result_type": "number", "normalization_errors": [],
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: (executions.append(code) or "1", None, code),
+        extract_payload=lambda raw: (raw, 1, None),
+    )
+
+    response = json.loads(manager.run_code("year = 2020\nprint(1)"))
+    assert response["error"]["category"] == "pre_execution_contract_gap"
+    assert "contract_average_missing_in_code" in response["error"]["missing"]
+    assert response["execution_consumed"] is False
+    assert state.run_count == 0
+    assert executions == []
+    second = json.loads(manager.run_code("year = 2020\nprint(1)"))
+    assert second["ok"] is True
+    assert state.run_count == 1
+    assert len(executions) == 1
+
+
+def test_unique_schema_and_sample_overlap_infers_join(tmp_path):
+    (tmp_path / "left.csv").write_text("PermitNumber,value\nP1,10\n", encoding="utf-8")
+    (tmp_path / "right.csv").write_text("PermitNumber,agency\nP1,DOT\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["left.csv", "right.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="table",
+        selection_plan={"coder_brief": {
+            "tables": ["left.csv", "right.csv"],
+            "selected_columns": {
+                "left.csv": ["PermitNumber", "value"],
+                "right.csv": ["PermitNumber", "agency"],
+            },
+            "filters": [], "temporal_filters": [], "dimensions": [], "measures": [],
+            "joins": [], "ordering": [], "limit": None, "output_columns": [],
+            "result_type": "table", "normalization_errors": [],
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("[]", None, code),
+        extract_payload=lambda raw: (raw, [], None),
+    )
+
+    brief = manager.coder_plan_view()["coder_brief"]
+    assert brief["combination_strategy"] == "join"
+    assert brief["joins"][0]["keys"] == {
+        "left.csv": "PermitNumber", "right.csv": "PermitNumber",
+    }
+    assert manager.coder_plan_view()["runtime_checklist"]["joins"]
+
+
+def test_result_adapter_unwraps_single_scalar(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    manager.evaluation_result_type = "number"
+    value, adaptations = manager._adapt_structured_result([{"average": 5.5}])
+    assert value == 5.5
+    assert adaptations == ["unwrapped_single_scalar"]
+
+
+def test_plan_view_separates_missing_selection_brief_from_runtime_fallback(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="number", selection_plan={},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, 1, None),
+    )
+    view = manager.coder_plan_view()
+    assert view["selection_brief_status"] == "missing"
+    assert view["effective_coder_brief_status"] == "executable_with_obligations"
+    assert view["effective_coder_brief_source"] == "runtime_fallback"
+
+
+def test_dataset_edition_year_is_classified_from_metadata(tmp_path):
+    (tmp_path / "hydro.csv").write_text("subcode\nA\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["hydro.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="table",
+        question="Using the 2024 hydrography dataset, count features by subcode.",
+        table_metadata={"hydro.csv": {"title": "2024 hydrography dataset"}},
+        selection_plan={}, resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("[]", None, code),
+        extract_payload=lambda raw: (raw, [], None),
+    )
+    temporal = manager.coder_plan_view()["temporal_requirement_classification"]
+    assert temporal["status"] == "metadata_period_match"
+    assert temporal["edition_years"] == ["2024"]
+
+
 def test_analysis_contract_treats_dataset_edition_year_as_provenance(tmp_path):
     state, manager = _agentic_tools(
         tmp_path,
@@ -634,7 +738,8 @@ def test_contract_result_blocks_missing_columns_order_and_duplicate_groups(tmp_p
     assert inspection["profile"]["correction_required"] is True
     assert any(item.startswith("contract_result_missing_output_column: count") for item in warnings)
     assert "contract_result_duplicate_group_keys: borough" in warnings
-    assert "contract_result_order_mismatch: score is not descending" in warnings
+    assert "contract_result_order_mismatch: score is not descending" not in warnings
+    assert "applied_explicit_ordering" in state.result_adaptations
     assert inspection["allowed_actions"] == ["run_code", "reject_tables"]
 
 
@@ -867,8 +972,8 @@ print('__LAKEGEN_EVAL_JSON__' + json.dumps(evaluation_value))
     assert recovered is True
     assert state.run_count == 1
     assert state.inspected_version == state.result_version == 1
-    assert state.lifecycle == CoderLifecycle.READY_TO_FINISH
-    assert state.stop_reason == "recovered_fenced_code_without_run_code_call"
+    assert state.lifecycle == CoderLifecycle.FINISHED
+    assert state.stop_reason == "recovered_fenced_code_without_run_analysis_call"
 
 
 def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
@@ -882,30 +987,15 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
     def fake_workflow(**kwargs):
         captured_prompts.append((kwargs["system_prompt"], kwargs["user_prompt"]))
         by_name = {tool.metadata.name: tool for tool in kwargs["tools"]}
-        if "run_code" in by_name:
-            by_name["run_code"].call(
+        if "run_analysis" in by_name:
+            by_name["run_analysis"].call(
                 code=(
                     "import json\n"
-                    "print('__LAKEGEN_ANALYSIS_MANIFEST__' + json.dumps({"
-                    "'used_tables':['table.csv'],'used_columns':['value'],"
-                    "'filters':[],'joins':[],'grouping':[],"
-                    "'aggregations':['count_rows'],'ordering':[],"
-                    "'limit':None,'output_columns':['count'],"
-                    "'result_type':'number'}))\n"
                     "print('__LAKEGEN_EVAL_JSON__' + json.dumps(1))"
                 )
             )
             return ""
-        finish = by_name["finish_code"]
-        state = finish.fn.__self__.state
-        finish.call(
-            filters="not_applicable", measures="verified",
-            grouping="not_applicable", ordering="not_applicable",
-            output_shape="verified",
-            requirement_reviews={item: "Scalar result observed." for item in state.coverage_requirements},
-            review="The inspected scalar result satisfies the question-derived contract.",
-        )
-        return ""
+        raise AssertionError(f"unexpected toolset: {sorted(by_name)}")
 
     monkeypatch.setattr(
         "lakegen.agents.agent_runner.run_agent_workflow", fake_workflow
@@ -940,6 +1030,56 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
     assert result.coder_lifecycle == "finished"
     assert result.finalization_mode == "deterministic_validation"
     assert len(captured_prompts) == 1
+
+
+def test_coder_exposes_only_three_aggregate_tools(tmp_path):
+    _state, manager = _agentic_tools(tmp_path)
+    assert [tool.metadata.name for tool in manager.get_tools()] == [
+        "inspect_data", "run_analysis", "reject_data",
+    ]
+
+
+def test_run_analysis_preserves_best_result_when_final_repair_fails(tmp_path):
+    outputs = iter([
+        ('[{"agency":"A"}]', None),
+        (None, "ValueError: final repair failed"),
+    ])
+
+    def execute(code, **_kwargs):
+        raw, error = next(outputs)
+        return raw, error, code
+
+    state, manager = _agentic_tools(
+        tmp_path, execute=execute, question="Show the top 3 agencies"
+    )
+    manager.evaluation_result_type = "table"
+    manager.extract_payload = lambda raw: (raw, json.loads(raw), None)
+
+    first = json.loads(manager.run_analysis("print('first')"))
+    assert first["status"] == "revision_required"
+    second = json.loads(manager.run_analysis("print('repair')"))
+    assert second["status"] == "completed_with_warnings"
+    assert second["selected_best_previous_result"] is True
+    assert state.finished is True
+    assert state.structured_result == [{"agency": "A"}]
+
+
+def test_inspect_data_is_one_consolidated_call(tmp_path):
+    (tmp_path / "table.csv").write_text("year,value\n2020,1\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="number", selection_plan={},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, 1, None),
+    )
+    first = json.loads(manager.inspect_data(
+        ["table.csv"], {"table.csv": ["year", "value"]}
+    ))
+    second = json.loads(manager.inspect_data(["table.csv"]))
+    assert first["status"] == "inspected"
+    assert second["status"] == "inspection_limit_reached"
 
 
 def test_benchmark_secret_never_enters_agent_prompts(tmp_path, monkeypatch):
@@ -1340,6 +1480,7 @@ def test_runtime_analysis_manifest_enriches_operation_trace(tmp_path):
     state, manager = _agentic_tools(
         tmp_path, execute=lambda code, **_: (raw, None, code)
     )
+    manager.require_analysis_manifest = True
     manager.evaluation_result_type = "table"
     manager.extract_payload = lambda value: (
         '[{"group":"b","value":2},{"group":"a","value":1}]',

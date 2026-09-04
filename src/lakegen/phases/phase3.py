@@ -142,7 +142,7 @@ def _extract_code(code_raw: str) -> str:
 
 
 def _recover_fenced_agent_code(response: str, manager, state) -> bool:
-    """Execute and inspect a complete program emitted without a run_code call."""
+    """Execute a complete program emitted without a run_analysis call."""
     if (
         state.run_count != 0
         or state.error is not None
@@ -158,11 +158,10 @@ def _recover_fenced_agent_code(response: str, manager, state) -> bool:
         return False
     if not state.analysis_contract:
         manager.infer_analysis_contract()
-    fallback_run = json.loads(manager.run_code(fallback_code))
-    if not fallback_run.get("ok"):
+    fallback_run = json.loads(manager.run_analysis(fallback_code))
+    if fallback_run.get("status") not in {"completed", "completed_with_warnings"}:
         return False
-    manager.inspect_result()
-    state.stop_reason = "recovered_fenced_code_without_run_code_call"
+    state.stop_reason = "recovered_fenced_code_without_run_analysis_call"
     return True
 
 
@@ -669,11 +668,9 @@ def phase3_generate_and_execute(
     system_prompt = pm.render("code_generator", "agentic_system_prompt") + (
         "\n\nYou are a bounded coding agent. A semantic plan is authoritative only "
         "after deterministic runtime validation reports it locked. An invalid or "
-        "insufficiently evidenced plan must be inspected, revised through the "
-        "analysis contract, reported with plan_conflict, or rejected with concrete "
-        "evidence. For legacy selections without a validated "
-        "semantic plan, set_analysis_contract may record filters, measures, "
-        "grouping, distinct counts, joins, ordering, limit, and output columns. "
+        "insufficiently evidenced plan must be resolved using inspect_data or "
+        "rejected with concrete evidence through reject_data. The validated coder "
+        "brief remains the sole semantic contract. "
         "Treat a year that names a dataset edition or release (for example, "
         "'using the 2024 ... dataset') as resource provenance, not as a row-level "
         "filter: omit it from filters and do not require a year/date column. "
@@ -693,21 +690,15 @@ def phase3_generate_and_execute(
         "For distinct counts of categories or types, use the column whose meaning "
         "represents the requested category; do not automatically prefer an identifier "
         "code when an explicit descriptive column is available. "
-        "Then write a complete Python program and "
-        "call run_code with it. If execution fails, use the structured error to "
-        "correct the program. After every successful run, call inspect_result and "
-        "verify that the result answers the whole question. A warning-free "
-        "inspection is finalized automatically; do not spend another turn on a "
-        "closure protocol. You have at most "
-        f"{min(2, max_run_calls)} "
-        "run_code calls. You may call inspect_table once per selected table when "
-        "you need exact columns, category values, null counts, or temporal coverage; "
-        "the same cached sample supports progressive profiling of up to 8 columns. "
-        "Do this instead of spending run_code on diagnostic prints. After inspection "
-        "you MUST choose: run_code if the data is sufficient, or reject_tables with "
-        "specific missing requirements and evidence if it is insufficient. If a "
-        "run reports diagnostic_output, do not print more diagnostics: use "
-        "inspect_table, then correct the analysis or reject the tables. Never "
+        "You have exactly three tools: inspect_data, run_analysis, and reject_data. "
+        "Use inspect_data at most once and request all needed tables/columns together. "
+        "Then write a complete Python program and call run_analysis. That tool performs "
+        "preflight, execution, result inspection, adaptation, and finalization. If it "
+        "returns revision_required, correct every reported problem together and call "
+        "run_analysis once more. The second executed analysis is terminal, including "
+        "when warnings remain. Do not call any separate inspection, contract, or finish "
+        "tool. Call reject_data only when inspected evidence proves fundamental source "
+        "facts are absent. Never print diagnostic schemas from analysis code. Never "
         "infer correctness from benchmark gold: it is not available. "
         "Do not import sys; it is unnecessary and forbidden by the execution sandbox. "
         "Do not merely describe code in chat."
@@ -822,18 +813,10 @@ def phase3_generate_and_execute(
             agent_name="coder",
             emit_stream=emit_stream,
             cancel_check=cancel_check,
-            tools=[
-                tool for tool in manager.get_tools()
-                if tool.metadata.name != "finish_code"
-            ],
-            max_iterations=10,
-            # inspect_result has no arguments and may legitimately follow both
-            # the initial execution and its single revision.
-            # Repeated inspect_table calls are served from a cache and no longer
-            # justify aborting the whole coder. The global tool budget still
-            # bounds unproductive loops.
-            max_repeats=8,
-            max_tool_calls=10,
+            tools=manager.get_tools(),
+            max_iterations=6,
+            max_repeats=3,
+            max_tool_calls=4,
             timeout_seconds=600,
         )
     except Phase2AgentStall as exc:
@@ -934,6 +917,7 @@ def phase3_generate_and_execute(
             "retryable": state.run_count < state.max_runs,
             "coverage_warnings": list(state.coverage_warnings),
         }
+    final_plan_view = manager.coder_plan_view()
     return Phase3Result(
         code_raw=state.code_raw or response,
         tokens=tokens,
@@ -952,14 +936,7 @@ def phase3_generate_and_execute(
         operation_trace=state.operation_trace or None,
         coder_context_audit={
             **coder_context.audit(),
-            **{
-                key: manager.coder_plan_view().get(key)
-                for key in (
-                    "semantic_plan_present", "semantic_plan_valid",
-                    "semantic_plan_locked", "semantic_plan_revised",
-                    "semantic_plan_rejected", "semantic_plan_missing",
-                )
-            },
+            **final_plan_view,
             "semantic_plan_validated_before_lock": bool(state.plan_validation.get("valid")),
             "semantic_plan_status": state.plan_validation.get("status"),
             "semantic_plan_initial_status": initial_plan_status,

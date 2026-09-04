@@ -114,6 +114,9 @@ class P3State:
     raw_result: str | None = None
     structured_result: object | None = None
     structured_result_error: str = ""
+    result_adaptations: list[str] = field(default_factory=list)
+    result_adaptation_notes: list[str] = field(default_factory=list)
+    preflight_revision_used: bool = False
     error: str | None = None
     execution_error: dict[str, Any] = field(default_factory=dict)
     finished: bool = False
@@ -140,6 +143,8 @@ class P3State:
     analysis_manifest: dict[str, Any] = field(default_factory=dict)
     analysis_manifest_validation: dict[str, Any] = field(default_factory=dict)
     execution_attempts: list[dict[str, Any]] = field(default_factory=list)
+    best_result_snapshot: dict[str, Any] = field(default_factory=dict)
+    data_inspection_used: bool = False
 
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
@@ -201,6 +206,13 @@ class Phase3ToolsManager:
         self.extract_payload = extract_payload
         self.require_semantic_plan = require_semantic_plan
         self.require_analysis_manifest = require_analysis_manifest
+        self.original_coder_brief_status = (
+            "provided" if isinstance(self.selection_plan.get("coder_brief"), dict)
+            and bool(self.selection_plan.get("coder_brief")) else
+            "legacy_plan" if isinstance(self.selection_plan.get("semantic_plan"), dict)
+            and bool(self.selection_plan.get("semantic_plan")) else
+            "missing"
+        )
         coder_brief = self.selection_plan.get("coder_brief")
         if (
             not coder_brief
@@ -229,6 +241,7 @@ class Phase3ToolsManager:
                 coder_brief.setdefault("runtime_obligations", []).append(
                     "Choose the exact columns needed by the question from the runtime schema."
                 )
+            self._infer_unique_join(coder_brief)
             if (
                 evaluation_result_type
                 and str(coder_brief.get("result_type") or "auto") == "auto"
@@ -301,6 +314,14 @@ class Phase3ToolsManager:
             "required_action": validation.get("required_action"),
             "contract_type": validation.get("contract_type"),
             "coder_brief": copy.deepcopy(self.selection_plan.get("coder_brief", {})),
+            "runtime_checklist": self._runtime_checklist(),
+            "selection_brief_status": self.original_coder_brief_status,
+            "effective_coder_brief_status": validation.get("status", "unknown"),
+            "effective_coder_brief_source": str(
+                (self.selection_plan.get("coder_brief") or {}).get("source")
+                or ("legacy_semantic_plan" if self.original_coder_brief_status == "legacy_plan" else "selection")
+            ),
+            "temporal_requirement_classification": self._temporal_requirement_classification(),
         }
         if not self.state.architect_contract_locked:
             return view
@@ -309,6 +330,87 @@ class Phase3ToolsManager:
             or self.selection_plan.get("semantic_plan", {})
         )
         return view
+
+    def _temporal_requirement_classification(self) -> dict[str, Any]:
+        all_years = set(re.findall(r"\b(?:19|20)\d{2}\b", self.question))
+        filter_years = self._requested_filter_years(self.question)
+        edition_years = all_years - filter_years
+        metadata = self._metadata_text()
+        temporal_columns = [
+            column for column in self._all_columns()
+            if re.search(r"(?:year|date|time|period|fiscal|school|^fy|^sy)", column, re.IGNORECASE)
+        ]
+        if edition_years and all(year in metadata for year in edition_years):
+            status = "metadata_period_match"
+        elif filter_years:
+            status = "runtime_resolution_needed"
+        elif all_years:
+            status = "runtime_resolution_needed"
+        else:
+            status = "not_applicable"
+        return {
+            "status": status,
+            "filter_years": sorted(filter_years),
+            "edition_years": sorted(edition_years),
+            "temporal_columns": temporal_columns[:20],
+        }
+
+    def _runtime_checklist(self) -> dict[str, Any]:
+        """Compile objective, locally checkable requirements from the sole contract."""
+        contract = self.state.analysis_contract
+        requested_years = sorted(self._requested_filter_years(self.question))
+        exact_rows = contract.get("limit") or self._expected_top_n(self.question)
+        return {
+            "required_years": requested_years,
+            "result_type": self.evaluation_result_type or contract.get("result_type", "auto"),
+            "required_columns": list(contract.get("output_columns", [])),
+            "exact_row_count": exact_rows,
+            "ordering": contract.get("ordering"),
+            "aggregations": list(contract.get("measures", [])),
+            "group_by": list(contract.get("group_by", [])),
+            "joins": list(contract.get("join_bindings", [])),
+        }
+
+    def _infer_unique_join(self, brief: dict[str, Any]) -> None:
+        """Fill a join only when schema names and sampled values identify one pair."""
+        if len(self.tables) != 2 or brief.get("joins"):
+            return
+        left, right = self.tables
+        try:
+            left_frame = read_table(self.csv_dir / left.strip(), nrows=500)
+            right_frame = read_table(self.csv_dir / right.strip(), nrows=500)
+        except Exception:
+            return
+
+        def canonical(value: Any) -> str:
+            return re.sub(r"[^a-z0-9]", "", str(value).casefold())
+
+        candidates: list[tuple[str, str]] = []
+        for left_column in left_frame.columns:
+            for right_column in right_frame.columns:
+                if canonical(left_column) != canonical(right_column):
+                    continue
+                left_values = set(left_frame[left_column].dropna().astype(str).str.strip())
+                right_values = set(right_frame[right_column].dropna().astype(str).str.strip())
+                if left_values & right_values:
+                    candidates.append((str(left_column), str(right_column)))
+        if len(candidates) == 1:
+            left_column, right_column = candidates[0]
+            brief["joins"] = [{
+                "tables": [left, right],
+                "keys": {left: left_column, right: right_column},
+                "how": "inner", "source": "unique_schema_and_sample_overlap",
+            }]
+            brief["combination_strategy"] = "join"
+            for table, column in ((left, left_column), (right, right_column)):
+                selected = brief.setdefault("selected_columns", {}).setdefault(table, [])
+                if column not in selected:
+                    selected.append(column)
+        elif len(candidates) != 1:
+            brief.setdefault("runtime_obligations", []).append(
+                "Resolve the relationship between the selected tables; no unique "
+                "join key was established from schema names and sampled overlap."
+            )
 
     def _validate_coder_brief_grounding(self, brief: Any) -> dict[str, Any]:
         """Verify only the data references needed to let the coder start."""
@@ -1343,6 +1445,7 @@ class Phase3ToolsManager:
         self.state.rejection_details = {
             "missing_requirements": missing,
             "inspected_evidence": inspected_evidence.strip(),
+            "category": "data_proven_missing",
         }
         self.state.plan_validation = {
             **self.state.plan_validation,
@@ -1457,6 +1560,16 @@ class Phase3ToolsManager:
             blockers.append(
                 "The requested period appears in selected-table metadata; a dedicated year column is not required."
             )
+        if requested_years and re.search(r"(?:year|date|period|temporal)", claim):
+            temporal_columns = [
+                column for column in self._all_columns()
+                if re.search(r"(?:year|date|time|period|fiscal|school|^fy|^sy)", column, re.IGNORECASE)
+            ]
+            if temporal_columns:
+                blockers.append(
+                    "Temporal requirements still need runtime resolution against "
+                    f"candidate columns: {temporal_columns[:8]}."
+                )
         if re.search(
             r"(?:only|lack|missing|without)[^.]*(?:all five|five nyc)?[^.]*(?:borough|boro)",
             claim,
@@ -1516,26 +1629,51 @@ class Phase3ToolsManager:
         if not self.state.analysis_contract:
             self.infer_analysis_contract()
         if self.state.run_count >= self.state.max_runs:
-            return json.dumps({"ok": False, "error": {"category": "run_limit", "message": "Maximum of 3 executions reached."}})
+            return json.dumps({"ok": False, "error": {
+                "category": "run_limit",
+                "message": f"Maximum of {self.state.max_runs} executions reached.",
+            }})
 
-        self.state.run_count += 1
         self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
         self.state.code_raw = code
         path_error = self._validate_load_paths(code)
         if path_error:
             self.state.error = path_error["message"]
             self.state.execution_error = path_error
-            self._record_execution_attempt()
-            return json.dumps({"ok": False, "attempt": self.state.run_count, "error": path_error})
+            return json.dumps({
+                "ok": False, "attempt": self.state.run_count,
+                "execution_consumed": False, "error": path_error,
+            })
         resolved, preflight_error = self.resolve_code(code, self.tables, self.csv_dir)
         self.state.clean_code = resolved
         self.state.contract_code_warnings = self._validate_contract_code(resolved)
         if preflight_error:
             self.state.error = preflight_error
             self.state.execution_error = classify_execution_error(preflight_error, stage="preflight")
-            self._record_execution_attempt()
-            return json.dumps({"ok": False, "attempt": self.state.run_count, "error": self.state.execution_error})
+            return json.dumps({
+                "ok": False, "attempt": self.state.run_count,
+                "execution_consumed": False, "error": self.state.execution_error,
+            })
+        contract_gaps = (
+            self._blocking_contract_code_warnings()
+            if self.require_semantic_plan else []
+        )
+        if contract_gaps and not self.state.preflight_revision_used:
+            self.state.preflight_revision_used = True
+            self.state.error = "Code does not yet satisfy the compiled runtime checklist."
+            self.state.execution_error = {
+                "stage": "preflight", "category": "pre_execution_contract_gap",
+                "message": self.state.error, "missing": contract_gaps,
+                "runtime_checklist": self._runtime_checklist(),
+                "retryable": True, "revision_budget_remaining": 0,
+                "repair_hint": "Correct every listed gap in one revision, then call run_code again.",
+            }
+            return json.dumps({
+                "ok": False, "attempt": self.state.run_count,
+                "execution_consumed": False, "error": self.state.execution_error,
+            }, ensure_ascii=False, default=str)
 
+        self.state.run_count += 1
         raw_result, error, clean_code = self.execute_code(resolved, run_dir=self.run_dir)
         self.state.clean_code = clean_code
         if error is not None:
@@ -1552,6 +1690,8 @@ class Phase3ToolsManager:
         self.state.raw_result = raw_result
         self.state.structured_result = None
         self.state.structured_result_error = ""
+        self.state.result_adaptations = []
+        self.state.result_adaptation_notes = []
         self.state.analysis_manifest = {}
         self.state.analysis_manifest_validation = {}
         if raw_result is not None:
@@ -1559,7 +1699,7 @@ class Phase3ToolsManager:
                 r"^__LAKEGEN_ANALYSIS_MANIFEST__(\{.*\})$",
                 raw_result, flags=re.MULTILINE,
             )
-            if manifest_match:
+            if self.require_analysis_manifest and manifest_match:
                 try:
                     candidate = json.loads(manifest_match.group(1))
                     if isinstance(candidate, dict):
@@ -1613,8 +1753,13 @@ class Phase3ToolsManager:
                 }, ensure_ascii=False)
         if raw_result is not None and self.evaluation_result_type:
             display, structured, payload_error = self.extract_payload(raw_result)
+            structured, adaptations = self._adapt_structured_result(structured)
             self.state.raw_result = display
             self.state.structured_result = structured
+            self.state.result_adaptations = adaptations
+            self.state.result_adaptation_notes = self._result_adapter_notes(
+                structured, adaptations
+            )
             self.state.structured_result_error = payload_error or ""
             diagnostic_text = display.strip().casefold()
             diagnostic_markers = (
@@ -1705,11 +1850,17 @@ class Phase3ToolsManager:
             "ordering": contract.get("ordering") if any(m in lowered for m in ("sort_values(", "nlargest(", "nsmallest(")) else None,
             "limit": contract.get("limit") if any(m in lowered for m in ("head(", "nlargest(", "nsmallest(")) else None,
             "result_type": type(self.state.structured_result).__name__ if self.state.structured_result is not None else "text",
-            "manifest_provided": bool(self.state.analysis_manifest),
-            "manifest_validation": dict(self.state.analysis_manifest_validation),
+            "contract_source": "coder_brief",
+            "result_adapter_attempted": True,
+            "result_adaptations": list(self.state.result_adaptations),
+            "result_adapter_not_applied_reasons": list(self.state.result_adaptation_notes),
         }
-        manifest = self.state.analysis_manifest
+        manifest = self.state.analysis_manifest if self.require_analysis_manifest else {}
         if manifest:
+            trace.update({
+                "manifest_provided": True,
+                "manifest_validation": dict(self.state.analysis_manifest_validation),
+            })
             declared_tables = [
                 table for table in manifest.get("used_tables", []) if table in self.tables
             ]
@@ -1729,6 +1880,22 @@ class Phase3ToolsManager:
                 "result_type": manifest.get("result_type", trace["result_type"]),
             })
         return trace
+
+    def _result_adapter_notes(
+        self, value: Any, adaptations: list[str]
+    ) -> list[str]:
+        if adaptations:
+            return []
+        expected = self.evaluation_result_type or self.state.analysis_contract.get("result_type")
+        notes = ["result already matched a supported runtime representation"]
+        if expected == "number" and not isinstance(value, (int, float)):
+            notes = ["scalar unwrapping was ambiguous or unsafe"]
+        elif expected == "table" and not isinstance(value, (list, dict)):
+            notes = ["table normalization was not applicable"]
+        ordering = str(self.state.analysis_contract.get("ordering") or "").strip().casefold()
+        if ordering and ordering not in {"none", "n/a", "not applicable"}:
+            notes.append("ordering field was absent, non-numeric, or ambiguous")
+        return notes
 
     def _validate_contract_code(self, code: str) -> list[str]:
         contract = self.state.analysis_contract
@@ -1912,6 +2079,59 @@ class Phase3ToolsManager:
         if value is not None:
             return 1
         return None
+
+    def _adapt_structured_result(self, value: Any) -> tuple[Any, list[str]]:
+        """Apply only lossless or contract-explicit output normalizations."""
+        adaptations: list[str] = []
+        expected = self.evaluation_result_type or self.state.analysis_contract.get("result_type")
+        if expected == "number":
+            candidate = value
+            if isinstance(candidate, list) and len(candidate) == 1:
+                candidate = candidate[0]
+            if isinstance(candidate, dict) and len(candidate) == 1:
+                candidate = next(iter(candidate.values()))
+            if isinstance(candidate, list) and len(candidate) == 1:
+                candidate = candidate[0]
+            if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
+                if candidate is not value:
+                    adaptations.append("unwrapped_single_scalar")
+                value = candidate
+
+        if expected == "table" and isinstance(value, dict) and value:
+            if all(isinstance(item, list) for item in value.values()):
+                lengths = {len(item) for item in value.values()}
+                if len(lengths) == 1:
+                    keys = list(value)
+                    value = [dict(zip(keys, row)) for row in zip(*(value[key] for key in keys))]
+                    adaptations.append("columnar_mapping_to_records")
+
+        contract = self.state.analysis_contract
+        limit = contract.get("limit") or self._expected_top_n(self.question)
+        if isinstance(value, list) and value and all(isinstance(row, dict) for row in value):
+            ordering = str(contract.get("ordering") or "").casefold()
+            fields = list(value[0])
+            numeric_fields = [
+                field for field in fields
+                if all(
+                    isinstance(row.get(field), (int, float))
+                    and not isinstance(row.get(field), bool)
+                    for row in value
+                )
+            ]
+            ordered_fields = [
+                field for field in numeric_fields
+                if self._label_is_evident(ordering, [field])
+            ]
+            if len(ordered_fields) == 1 and any(
+                token in ordering for token in ("asc", "desc", "top", "bottom", "highest", "lowest", "most", "least")
+            ):
+                reverse = any(token in ordering for token in ("desc", "top", "highest", "most", "largest"))
+                value = sorted(value, key=lambda row: row[ordered_fields[0]], reverse=reverse)
+                adaptations.append("applied_explicit_ordering")
+            if isinstance(limit, int) and limit > 0 and len(value) > limit:
+                value = value[:limit]
+                adaptations.append(f"applied_explicit_limit:{limit}")
+        return value, adaptations
 
     def _flatten_values(self, value: Any) -> list[str]:
         if isinstance(value, dict):
@@ -2443,23 +2663,139 @@ class Phase3ToolsManager:
             "review": reason,
         }
 
+    def inspect_data(
+        self,
+        tables: list[str],
+        columns: dict[str, list[str]] | None = None,
+        include: list[str] | None = None,
+    ) -> str:
+        """Inspect selected tables in one bounded, consolidated tool call."""
+        if self.state.data_inspection_used:
+            return json.dumps({
+                "ok": False, "status": "inspection_limit_reached",
+                "message": "inspect_data is available once; use the cached evidence and run_analysis.",
+            })
+        self.state.data_inspection_used = True
+        requested = list(dict.fromkeys(map(str, tables)))
+        invalid = [table for table in requested if table not in self.tables]
+        if invalid:
+            return json.dumps({
+                "ok": False, "status": "invalid_table", "tables": invalid,
+                "available_tables": self.tables,
+            })
+        profiles = []
+        for table in requested:
+            requested_columns = (columns or {}).get(table, [])
+            profiles.append(json.loads(self.inspect_table(
+                table, ",".join(map(str, requested_columns))
+            )))
+        return json.dumps({
+            "ok": True, "status": "inspected", "profiles": profiles,
+            "include": include or ["schema", "sample_values", "null_counts", "temporal_range"],
+            "next_actions": ["run_analysis", "reject_data"],
+        }, ensure_ascii=False, default=str)
+
+    def _remember_best_result(self) -> None:
+        if self.state.structured_result is None:
+            return
+        snapshot = {
+            "score": (
+                -len(self.state.coverage_warnings),
+                -len(self.state.contract_advisories),
+            ),
+            "raw_result": self.state.raw_result,
+            "structured_result": copy.deepcopy(self.state.structured_result),
+            "structured_result_error": self.state.structured_result_error,
+            "code_raw": self.state.code_raw,
+            "clean_code": self.state.clean_code,
+            "coverage_requirements": list(self.state.coverage_requirements),
+            "coverage_warnings": list(self.state.coverage_warnings),
+            "contract_advisories": list(self.state.contract_advisories),
+            "operation_trace": copy.deepcopy(self.state.operation_trace),
+            "result_adaptations": list(self.state.result_adaptations),
+        }
+        if not self.state.best_result_snapshot or snapshot["score"] > self.state.best_result_snapshot["score"]:
+            self.state.best_result_snapshot = snapshot
+
+    def _restore_best_result(self) -> None:
+        snapshot = self.state.best_result_snapshot
+        if not snapshot:
+            return
+        for key in (
+            "raw_result", "structured_result", "structured_result_error",
+            "code_raw", "clean_code", "coverage_requirements", "coverage_warnings",
+            "contract_advisories", "operation_trace", "result_adaptations",
+        ):
+            setattr(self.state, key, copy.deepcopy(snapshot[key]))
+        self.state.error = None
+        self.state.execution_error = {}
+        self.state.result_version += 1
+        self.state.inspected_version = self.state.result_version
+        self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
+
+    def run_analysis(self, code: str) -> str:
+        """Run code, inspect its result, and return one compact agent decision."""
+        execution = json.loads(self.run_code(code))
+        if not execution.get("ok"):
+            error = execution.get("error", {})
+            category = str(error.get("category") or "execution_error")
+            if category == "security_error":
+                return json.dumps({"status": "security_blocked", "error": error})
+            if self.state.run_count >= self.state.max_runs and self.state.best_result_snapshot:
+                self._restore_best_result()
+                self.recover_degraded_finish(
+                    "Preserved the best executed result after the final repair failed."
+                )
+                return json.dumps({
+                    "status": "completed_with_warnings",
+                    "warnings": self.state.coverage_warnings,
+                    "selected_best_previous_result": True,
+                }, ensure_ascii=False)
+            return json.dumps({
+                "status": "revision_required", "all_problems": [error],
+                "remaining_runs": self.state.max_runs - self.state.run_count,
+            }, ensure_ascii=False, default=str)
+
+        inspection = json.loads(self.inspect_result())
+        self._remember_best_result()
+        warnings = list(self.state.coverage_warnings)
+        if not warnings:
+            self.finalize_validated_result(
+                "run_analysis finalized a warning-free inspected result."
+            )
+            return json.dumps({
+                "status": "completed", "warnings": [],
+                "adaptations": self.state.result_adaptations,
+            }, ensure_ascii=False)
+        if self.state.run_count >= self.state.max_runs:
+            self._restore_best_result()
+            self.recover_degraded_finish(
+                "run_analysis finalized the best result after two executions."
+            )
+            return json.dumps({
+                "status": "completed_with_warnings",
+                "warnings": self.state.coverage_warnings,
+                "adaptations": self.state.result_adaptations,
+            }, ensure_ascii=False)
+        return json.dumps({
+            "status": "revision_required",
+            "all_problems": inspection.get("profile", {}).get("correction_items", warnings),
+            "remaining_runs": self.state.max_runs - self.state.run_count,
+        }, ensure_ascii=False, default=str)
+
+    def reject_data(
+        self, reason: str, missing_requirements: list[str], inspected_evidence: str
+    ) -> str:
+        """Terminally reject data only after consolidated inspection evidence."""
+        return self.reject_tables(reason, missing_requirements, inspected_evidence)
+
     def get_tools(self) -> list[FunctionTool]:
         return [
+            FunctionTool.from_defaults(fn=self.inspect_data),
+            FunctionTool.from_defaults(fn=self.run_analysis),
             FunctionTool.from_defaults(
-                fn=self.set_analysis_contract,
-                fn_schema=AnalysisContractSchema,
-            ),
-            FunctionTool.from_defaults(fn=self.inspect_table),
-            FunctionTool.from_defaults(fn=self.run_code),
-            FunctionTool.from_defaults(
-                fn=self.reject_tables,
+                fn=self.reject_data,
                 fn_schema=RejectTablesSchema,
                 return_direct=True,
             ),
-            FunctionTool.from_defaults(
-                fn=self.plan_conflict,
-                fn_schema=PlanConflictSchema,
-            ),
-            FunctionTool.from_defaults(fn=self.inspect_result),
-            FunctionTool.from_defaults(fn=self.finish_code, fn_schema=FinishCodeSchema, return_direct=True),
         ]

@@ -733,6 +733,23 @@ def summarize_code_evaluations(
         return "correct" if item.get("exact_result_match") else "incorrect"
 
     dispositions = Counter(disposition(item) for item in applicable)
+    def stability_metrics(label: str) -> dict[str, Any]:
+        items = [
+            item for item in applicable
+            if str(item.get("reference_stability") or "unknown") == label
+        ]
+        return {
+            "case_count": len(items),
+            "exact_result_match_rate": round(
+                sum(bool(item.get("exact_result_match")) for item in items) / len(items), 6
+            ) if items else None,
+            "representation_equivalent_match_rate": round(
+                sum(bool(item.get("representation_equivalent_match")) for item in items) / len(items), 6
+            ) if items else None,
+            "supported_result_rate": round(
+                sum(bool(item.get("supported_correct", item.get("exact_result_match"))) for item in items) / len(items), 6
+            ) if items else None,
+        }
     supported_count = sum(
         bool(item.get("supported_correct", item.get("exact_result_match")))
         for item in applicable
@@ -778,6 +795,10 @@ def summarize_code_evaluations(
         },
         "error_categories": dict(sorted(errors.items())),
         "evaluation_dispositions": dict(sorted(dispositions.items())),
+        "reference_stability": {
+            label: stability_metrics(label)
+            for label in ("stable", "drift", "unknown")
+        },
         "semantic_judge_case_count": sum(
             bool(item.get("semantic_judge_used")) for item in applicable
         ),
