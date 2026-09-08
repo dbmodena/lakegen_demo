@@ -12,6 +12,7 @@ from lakegen.phases.phase3 import (
     _exact_column_labels,
     _execute_code,
     _recover_fenced_agent_code,
+    _recover_structured_rejection,
     _tabpfn_enabled,
     phase3_generate_and_execute,
 )
@@ -310,6 +311,35 @@ def test_missing_or_empty_semantic_plan_uses_runtime_fallback(
     assert state.architect_contract_locked is True
     assert state.analysis_contract["columns"] == {"table.csv": ["value"]}
     assert manager.coder_plan_view()["coder_brief"]["source"] == "runtime_fallback"
+
+
+def test_runtime_fallback_preserves_selection_requirements(tmp_path):
+    (tmp_path / "table.csv").write_text("borough,value\nA,1\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="table",
+        selection_plan={"requirements": {
+            "filters": ["value > 0"], "grouping": ["borough"],
+            "measures": ["count rows"], "ordering": "count descending",
+            "limit": 3,
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("[]", None, code),
+        extract_payload=lambda raw: (raw, [], None),
+    )
+
+    brief = manager.coder_plan_view()["coder_brief"]
+    assert brief["filters"] == ["value > 0"]
+    assert brief["dimensions"] == [{"column": "borough", "output": "borough"}]
+    assert brief["measures"] == ["count rows"]
+    assert brief["ordering"] == "count descending"
+    assert brief["limit"] == 3
+    ledger = manager.coder_plan_view()["requirement_ledger"]
+    assert any(
+        item["kind"] == "measure" and item["request"] == "count rows"
+        for item in ledger
+    )
 
 
 def test_minimal_coder_brief_unlocks_coder_with_runtime_columns(tmp_path):
@@ -612,6 +642,98 @@ def test_plan_view_separates_missing_selection_brief_from_runtime_fallback(tmp_p
     assert view["selection_brief_status"] == "missing"
     assert view["effective_coder_brief_status"] == "executable_with_obligations"
     assert view["effective_coder_brief_source"] == "runtime_fallback"
+    policy = view["plan_completion_policy"]
+    assert policy["mode"] == "soft_computational_completion"
+    assert policy["completion_is_inferred_from_code"] is True
+    assert any("no computational brief" in item for item in policy["obligations"])
+
+
+def test_plan_completion_policy_requires_final_correlation_and_scalar_reduction(tmp_path):
+    (tmp_path / "closings.csv").write_text(
+        "Year,Closing Count\n2020,10\n2021,12\n", encoding="utf-8"
+    )
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["closings.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="number",
+        question="Is there a correlation between year and total case closings?",
+        selection_plan={"coder_brief": {
+            "tables": ["closings.csv"],
+            "selected_columns": {"closings.csv": ["Year", "Closing Count"]},
+            "filters": [], "temporal_filters": [],
+            "dimensions": [{"table": "closings.csv", "column": "Year"}],
+            "measures": [{
+                "table": "closings.csv", "operation": "sum",
+                "columns": ["Closing Count"],
+            }],
+            "joins": [], "ordering": ["Year"], "limit": None,
+            "output_columns": [], "result_type": "number",
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, 1, None),
+    )
+
+    policy = manager.coder_plan_view()["plan_completion_policy"]
+    assert any("requested correlation" in item for item in policy["obligations"])
+    assert any("one scalar number" in item for item in policy["obligations"])
+    final_contract = manager.coder_plan_view()["final_result_contract"]
+    assert final_contract["derived_operations"] == ["correlation"]
+    assert final_contract["mode"] == "soft_semantic_shape"
+
+
+def test_soft_final_contract_accepts_aliases_and_equivalent_numeric_measures(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        question="Give total protected length and high identifier count for each borough.",
+    )
+    state.analysis_contract.update({
+        "group_by": ["borough"],
+        "measures": ["total protected street length", "unusually high identifier count"],
+    })
+
+    warnings = manager._validate_final_result_contract([
+        {"boro": "Brooklyn", "protected_len": 12.5, "high_id_segments": 3}
+    ])
+
+    assert warnings == []
+
+
+def test_soft_final_contract_blocks_only_clear_derived_shape_contradictions(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        question="How strongly do the two measures correlate?",
+    )
+    assert manager._validate_final_result_contract(
+        [{"borough": "Brooklyn", "value": 3}]
+    ) == ["final_contract_correlation_requires_one_numeric_value"]
+    assert manager._validate_final_result_contract(
+        [{"correlation": 0.75}]
+    ) == []
+
+
+def test_soft_final_contract_accepts_coordinate_aliases(tmp_path):
+    _state, manager = _agentic_tools(
+        tmp_path,
+        question="Where is the geographic center of these properties?",
+    )
+    assert manager._validate_final_result_contract(
+        [{"center_lat": 40.6, "center_lng": -74.1}]
+    ) == []
+
+
+def test_operation_trace_infers_plan_completion_from_executed_code(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
+    state, manager = _agentic_tools(tmp_path)
+    state.structured_result = 0.8
+
+    trace = manager._build_operation_trace("result = frame['a'].corr(frame['b'])")
+
+    assert trace["inferred_plan_completion"] == {
+        "added_operations": ["correlation"],
+        "final_result_type": "float",
+        "source": "executed_code",
+    }
 
 
 def test_dataset_edition_year_is_classified_from_metadata(tmp_path):
@@ -709,10 +831,24 @@ def test_contract_blocks_unrequested_distinct_and_quantile_assumptions(tmp_path)
     )
     inspection = json.loads(manager.inspect_result())
     warnings = inspection["profile"]["coverage_warnings"]
+    advisories = inspection["profile"]["contract_advisories"]
 
-    assert any(item.startswith("unsupported_distinct_semantics:") for item in warnings)
+    assert any(item.startswith("unsupported_distinct_semantics:") for item in advisories)
     assert any(item.startswith("unsupported_bucket_assumption:") for item in warnings)
     assert inspection["state"] == "needs_revision"
+
+
+def test_heuristic_distinct_and_time_warnings_are_not_preflight_blockers(tmp_path):
+    state, manager = _agentic_tools(tmp_path)
+    state.contract_code_warnings = [
+        "unsupported_distinct_semantics: drop_duplicates",
+        "time_range_check: requested year 2020 is not evident in code",
+        "contract_grouping_missing_in_code",
+    ]
+
+    assert manager._blocking_contract_code_warnings() == [
+        "contract_grouping_missing_in_code"
+    ]
 
 
 def test_contract_result_blocks_missing_columns_order_and_duplicate_groups(tmp_path):
@@ -976,6 +1112,41 @@ print('__LAKEGEN_EVAL_JSON__' + json.dumps(evaluation_value))
     assert state.stop_reason == "recovered_fenced_code_without_run_analysis_call"
 
 
+def test_structured_rejection_without_tool_call_uses_normal_evidence_gate(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
+    state, manager = _agentic_tools(
+        tmp_path, question="What is the average maintenance code?"
+    )
+    manager.inspect_table("table.csv")
+    response = "assistant: " + json.dumps({
+        "reason": "The selected table has no maintenance-code field required by the question.",
+        "missing_requirements": ["a maintenance code column"],
+        "inspected_evidence": (
+            "The inspected schema contains value only and does not contain a maintenance code column."
+        ),
+    })
+
+    recovered = _recover_structured_rejection(response, manager, state)
+
+    assert recovered is True
+    assert state.rejected_reason.startswith("The selected table")
+    assert state.stop_reason == "recovered_structured_rejection_without_tool_call"
+
+
+def test_structured_rejection_recovery_does_not_bypass_rejection_blockers(tmp_path):
+    (tmp_path / "table.csv").write_text("borough\nBrooklyn\n", encoding="utf-8")
+    state, manager = _agentic_tools(tmp_path, question="Show each borough")
+    manager.inspect_table("table.csv")
+    response = json.dumps({
+        "reason": "The selected table does not contain rows for all five boroughs.",
+        "missing_requirements": ["rows for all five NYC boroughs"],
+        "inspected_evidence": "The inspected sample contains only one borough and has zero-count gaps.",
+    })
+
+    assert _recover_structured_rejection(response, manager, state) is False
+    assert state.rejected_reason == ""
+
+
 def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
     tmp_path, monkeypatch
 ):
@@ -1032,6 +1203,60 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
     assert len(captured_prompts) == 1
 
 
+def test_iteration_limit_preserves_latest_structured_result_with_warnings(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    (tmp_path / "table.csv").write_text("agency\nA\n", encoding="utf-8")
+
+    def fake_workflow(**kwargs):
+        by_name = {tool.metadata.name: tool for tool in kwargs["tools"]}
+        by_name["run_analysis"].call(
+            code=(
+                "import pandas as pd, json\n"
+                f"df = pd.read_csv({str(tmp_path / 'table.csv')!r})\n"
+                "result = (df.groupby('agency').size().reset_index(name='count')\n"
+                "          .sort_values('count', ascending=False).head(3))\n"
+                "print('__LAKEGEN_EVAL_JSON__' + "
+                "json.dumps(result.to_dict(orient='records')))"
+            )
+        )
+        raise RuntimeError("Max iterations of 6 reached!")
+
+    monkeypatch.setattr(
+        "lakegen.agents.agent_runner.run_agent_workflow", fake_workflow
+    )
+    monkeypatch.setattr("lakegen.phases.phase3.reset_llm_token_usage", lambda _llm: None)
+    monkeypatch.setattr("lakegen.phases.phase3.get_llm_token_usage", lambda _llm: 0)
+
+    class PM:
+        def render(self, _name, key, **kwargs):
+            return "agentic only" if key == "agentic_system_prompt" else "runtime prompt"
+
+    result = phase3_generate_and_execute(
+        "Show the top 3 agencies", ["table.csv"], ["table.csv"],
+        {"table.csv": {"title": "Runtime table"}}, "runtime reasoning",
+        SimpleNamespace(), PM(), tmp_path, max_run_calls=2,
+        selection_plan={"semantic_plan": {
+            "filters": [], "temporal_filters": [],
+            "dimensions": [{"table": "table.csv", "column": "agency"}],
+            "measures": [{
+                "table": "table.csv", "operation": "count_rows",
+                "columns": ["agency"], "distinct": False,
+            }],
+            "joins": [], "ordering": ["count descending"], "limit": 3,
+            "output_columns": ["agency", "count"],
+            "null_policy": "preserve nulls", "table_roles": {"table.csv": "facts"},
+        }},
+    )
+
+    assert result.error is None
+    assert result.coder_lifecycle == "finished"
+    assert result.finalization_mode == "system_recovery_with_advisories"
+    assert "Max iterations" in result.stop_reason
+
+
 def test_coder_exposes_only_three_aggregate_tools(tmp_path):
     _state, manager = _agentic_tools(tmp_path)
     assert [tool.metadata.name for tool in manager.get_tools()] == [
@@ -1080,6 +1305,17 @@ def test_inspect_data_is_one_consolidated_call(tmp_path):
     second = json.loads(manager.inspect_data(["table.csv"]))
     assert first["status"] == "inspected"
     assert second["status"] == "inspection_limit_reached"
+
+
+def test_invalid_inspect_data_arguments_do_not_consume_inspection(tmp_path):
+    (tmp_path / "table.csv").write_text("year,value\n2020,1\n", encoding="utf-8")
+    state, manager = _agentic_tools(tmp_path)
+
+    invalid = json.loads(manager.inspect_data(["table.csv"], {"table.csv": "year"}))
+    valid = json.loads(manager.inspect_data(["table.csv"], {"table.csv": ["year"]}))
+
+    assert invalid["status"] == "invalid_arguments"
+    assert valid["status"] == "inspected"
 
 
 def test_benchmark_secret_never_enters_agent_prompts(tmp_path, monkeypatch):
@@ -1443,6 +1679,25 @@ def test_reject_tables_blocks_missing_borough_rows_as_insufficient_evidence(tmp_
     else:
         raise AssertionError("Missing borough rows alone must not reject tables")
     assert state.rejected_reason == ""
+
+
+def test_proven_missing_essential_column_is_not_blocked_by_other_temporal_columns(tmp_path):
+    (tmp_path / "table.csv").write_text(
+        "Year,Value\n2023,1\n", encoding="utf-8"
+    )
+    state, manager = _agentic_tools(
+        tmp_path,
+        question="How many records did each agency report in 2023?",
+    )
+    manager.inspect_table("table.csv", "Year")
+
+    response = manager.reject_tables(
+        "The required agency column is missing from the selected schema.",
+        ["an agency column"],
+        "The inspected schema contains only Year and Value and does not contain an agency column.",
+    )
+
+    assert response.startswith("REJECT_TABLES:")
 
 
 def test_diagnostic_output_is_retryable_and_not_inspectable_as_result(tmp_path):

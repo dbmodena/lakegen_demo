@@ -92,6 +92,79 @@ def test_contract_first_selection_validates_and_records_semantic_bindings(tmp_pa
         )
 
 
+def test_selection_builds_shared_requirement_ledger_without_blocking_computation(tmp_path):
+    pd.DataFrame({
+        "year": [2020], "district": [1], "value": [2.0]
+    }).to_parquet(tmp_path / "a.parquet")
+    state = P12State()
+    state.all_candidates = ["a.parquet"]
+    state.visible_candidate_count = 1
+    state.inspection_cache["a.parquet"] = "inspected schema"
+    manager = Phase12ToolsManager(
+        state, object(), state.all_candidates, tmp_path,
+        question="What is the correlation by district in 2020?",
+    )
+
+    manager.confirm_unified_selection(
+        "The table supplies the requested facts.", ["a.parquet"],
+        requirement_coverage={
+            "district and year 2020": {
+                "table": "a.parquet", "columns": ["district", "year"],
+            }
+        },
+        table_roles={"a.parquet": "fact records"},
+        requirements={
+            "grouping": ["district"], "measures": ["correlation"],
+            "result_type": "number",
+        },
+        semantic_plan=_semantic_plan(),
+    )
+
+    ledger = state.selection_plan["requirement_ledger"]
+    assert "requirement_ledger" not in state.selection_plan["coder_brief"]
+    assert any(
+        item["status"] == "bound" and item["request"] == "district and year 2020"
+        for item in ledger
+    )
+    assert any(
+        item["status"] == "computational"
+        and item["kind"] == "derived_operation"
+        and item["request"] == "correlation"
+        for item in ledger
+    )
+    assert any(
+        item["status"] == "bound"
+        and item["kind"] == "temporal_scope"
+        and item["request"] == "2020"
+        for item in ledger
+    )
+
+
+def test_requirement_ledger_merges_bound_computation_and_avoids_inferred_gaps(tmp_path):
+    manager = Phase12ToolsManager(
+        P12State(), object(), [], tmp_path,
+        question="Count partnered plazas in Brooklyn in 2023.",
+    )
+    ledger = manager._build_requirement_ledger(
+        {"measure count partnered plazas": {
+            "table": "plazas.parquet", "columns": ["PlazaName"],
+        }},
+        {"measures": [{
+            "type": "count", "column": "PlazaName",
+            "alias": "partnered_plaza_count",
+        }]},
+        [], None,
+    )
+
+    assert len(ledger) <= 10
+    assert not any(item["status"] == "unresolved" for item in ledger)
+    assert not any("{" in item["request"] for item in ledger)
+    measure_items = [item for item in ledger if item["kind"] == "measure"]
+    assert len(measure_items) == 1
+    assert measure_items[0]["status"] == "bound"
+    assert measure_items[0]["computation"] == "partnered_plaza_count count PlazaName"
+
+
 def _hit(resource_id, rank, columns):
     return RetrievalHit(
         document={

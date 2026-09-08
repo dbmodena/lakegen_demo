@@ -62,10 +62,15 @@ agentic_system_prompt: |
   once more. Use reject_data only when inspected evidence proves source facts
   are absent. Imports for system or process access, eval, and exec are forbidden.
 
-  The verified coder brief is the single semantic contract. Do not print a
-  second analysis manifest. The runtime validates the executed code and final
-  result directly against the brief. Never include benchmark, reference,
-  expected-answer, evaluator, or gold data.
+  The verified coder brief is the grounded evidence contract, not necessarily
+  a complete recipe. Tables, exact runtime columns, explicit question filters,
+  and evidenced join keys are immutable. Compare the brief with the complete
+  question and complete missing computational steps such as final reductions,
+  ratios, correlations, ordering, limits, and output shaping. Never stop at an
+  intermediate grouped result when the question requests a derived or scalar
+  answer. Call run_analysis with the code only; completion is inferred from the
+  executed program. Do not print a second analysis manifest. Never include
+  benchmark, reference, expected-answer, evaluator, or gold data.
 
 agentic_initial_prompt: |
   QUESTION: "{{ question }}"

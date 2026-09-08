@@ -1007,21 +1007,30 @@ class Phase12ToolsManager:
                 + ". Inspect/expand the existing ranked candidates and confirm again."
             )
 
+        normalized_requirements = dict(requirements or {})
+        coder_brief = self._build_coder_brief(
+            normalized_tables,
+            requirement_coverage,
+            normalized_requirements,
+            combination_strategy,
+            table_roles,
+            semantic_plan if isinstance(semantic_plan, dict) else None,
+        )
+        requirement_ledger = self._build_requirement_ledger(
+            requirement_coverage,
+            normalized_requirements,
+            uncovered_requirements,
+            semantic_plan if isinstance(semantic_plan, dict) else None,
+        )
         self.state.selection_plan = {
             "requirement_coverage": requirement_coverage,
             "table_roles": table_roles,
             "combination_strategy": combination_strategy,
             "uncovered_requirements": uncovered_requirements,
             "alternatives_rejected": alternatives_rejected,
-            "requirements": dict(requirements or {}),
-            "coder_brief": self._build_coder_brief(
-                normalized_tables,
-                requirement_coverage,
-                dict(requirements or {}),
-                combination_strategy,
-                table_roles,
-                semantic_plan if isinstance(semantic_plan, dict) else None,
-            ),
+            "requirements": normalized_requirements,
+            "requirement_ledger": requirement_ledger,
+            "coder_brief": coder_brief,
             **({"semantic_plan": semantic_plan} if contract_first else {}),
         }
         self.state.semantic_failure = None
@@ -1030,7 +1039,7 @@ class Phase12ToolsManager:
         )
         self.state.confirmed_tables = list(normalized_tables)
         self.state.selection_reasoning = reasoning
-        self.state.selection_requirements = dict(requirements or {})
+        self.state.selection_requirements = normalized_requirements
         self.state.selection_advisories = advisories
 
         final_tables = ", ".join(normalized_tables)
@@ -1197,6 +1206,139 @@ class Phase12ToolsManager:
             ] or list(requirements.get("grouping", []))),
         }
         return brief
+
+    def _build_requirement_ledger(
+        self,
+        coverage: dict[str, dict[str, object]],
+        requirements: dict[str, object],
+        uncovered: list[str],
+        semantic_plan: dict[str, object] | None,
+    ) -> list[dict[str, object]]:
+        """Create one compact mode-independent, non-prescriptive checklist."""
+        ledger: list[dict[str, object]] = []
+        stopwords = {
+            "a", "an", "and", "by", "for", "from", "in", "of", "per",
+            "requested", "the", "to", "with", "measure", "dimension", "filter",
+        }
+
+        def text_for(value: object) -> str:
+            if isinstance(value, dict):
+                return " ".join(str(part).strip() for part in (
+                    value.get("output") or value.get("alias"),
+                    value.get("operation") or value.get("type"),
+                    value.get("column"),
+                ) if part).strip()
+            return " ".join(str(value or "").split())
+
+        def tokens(value: object) -> set[str]:
+            normalized = text_for(value).casefold().replace("boro", "borough")
+            return {
+                token for token in re.findall(r"[a-z0-9]+", normalized)
+                if len(token) >= 3 and token not in stopwords
+            }
+
+        def add(kind: str, request: object, status: str, evidence: object = None) -> None:
+            text = text_for(request)
+            if not text:
+                return
+            new_tokens = tokens(text)
+            compatible = {
+                "dimension": {"dimension", "geographic_filter"},
+                "measure": {"measure"},
+                "filter": {"filter", "temporal_filter", "geographic_filter"},
+                "temporal_filter": {"temporal_filter"},
+            }
+            for item in ledger:
+                if item["kind"] not in compatible.get(kind, {kind}):
+                    continue
+                old_tokens = tokens(item["request"])
+                if new_tokens and old_tokens and (
+                    new_tokens <= old_tokens or old_tokens <= new_tokens
+                    or len(new_tokens & old_tokens) >= 2
+                ):
+                    if status == "bound":
+                        item.update(status="bound", evidence=evidence or [])
+                    elif status == "computational":
+                        item["computation"] = text
+                    return
+            ledger.append({
+                "kind": kind,
+                "request": text,
+                "status": status,
+                "evidence": evidence if evidence is not None else [],
+            })
+
+        def classify(text: str) -> str:
+            lowered = text.casefold()
+            if re.search(r"year|date|fy\b|school year|period", lowered):
+                return "temporal_filter"
+            if re.search(r"borough|city|district|location|geograph", lowered):
+                return "geographic_filter"
+            if re.search(r"join|key|relationship|match", lowered):
+                return "join"
+            if re.search(r"count|average|mean|sum|total|rate|length|code", lowered):
+                return "measure"
+            return "data_requirement"
+
+        for request, raw_evidence in coverage.items():
+            evidence = dict(raw_evidence) if isinstance(raw_evidence, dict) else raw_evidence
+            add(classify(str(request)), request, "bound", evidence)
+        for request in uncovered:
+            add(classify(request), request, "unresolved")
+
+        plan = semantic_plan or {}
+        for group, kind in (
+            ("filters", "filter"),
+            ("temporal_filters", "temporal_filter"),
+            ("dimensions", "dimension"),
+        ):
+            for binding in plan.get(group, []) if isinstance(plan.get(group), list) else []:
+                if not isinstance(binding, dict):
+                    continue
+                request = binding.get("requirement") or binding.get("output") or binding.get("column")
+                add(kind, request, "bound", {
+                    "table": binding.get("table"),
+                    "columns": binding.get("columns") or [binding.get("column")],
+                })
+
+        for value in requirements.get("grouping", []) if isinstance(requirements.get("grouping"), list) else []:
+            add("dimension", value, "computational")
+        for value in requirements.get("measures", []) if isinstance(requirements.get("measures"), list) else []:
+            add("measure", value, "computational")
+        for key, kind in (("ordering", "ordering"), ("limit", "limit"), ("result_type", "output")):
+            value = requirements.get(key)
+            if value not in (None, "", [], "auto"):
+                add(kind, value, "computational")
+        for value in requirements.get("output_columns", []) if isinstance(requirements.get("output_columns"), list) else []:
+            add("output", value, "computational")
+
+        question = self.question
+        coverage_text = " ".join(map(str, coverage)).casefold()
+        periods = list(dict.fromkeys([
+            *re.findall(r"\b(?:19|20)\d{2}\s*[-–‑/]\s*(?:\d{2}|(?:19|20)\d{2})\b", question),
+            *re.findall(r"\b(?:19|20)\d{2}\b", question),
+        ]))
+        for period in periods:
+            if period.casefold() in coverage_text:
+                add("temporal_scope", period, "bound")
+        boroughs = [
+            name for name in ("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island")
+            if re.search(rf"\b{re.escape(name)}\b", question, re.IGNORECASE)
+        ]
+        if boroughs and any(name.casefold() in coverage_text for name in boroughs):
+            request = " and ".join(boroughs)
+            add("geographic_scope", request, "bound")
+        for marker, label in (
+            (r"correlat", "correlation"),
+            (r"geographic(?:al)? center", "geographic center"),
+            (r"\bratio\b", "ratio"),
+        ):
+            if re.search(marker, question, re.IGNORECASE):
+                add("derived_operation", label, "computational")
+        # Bound source facts come first, followed by explicit unresolved facts
+        # and computations. Keep the prompt payload bounded and predictable.
+        order = {"bound": 0, "unresolved": 1, "computational": 2}
+        return sorted(ledger, key=lambda item: order[str(item["status"])])[:10]
 
     def submit_semantic_plan_draft(self, draft: dict[str, object]) -> str:
         """Compile and validate a compact benchmark-blind semantic draft."""

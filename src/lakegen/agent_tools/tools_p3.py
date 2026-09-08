@@ -248,6 +248,10 @@ class Phase3ToolsManager:
             ):
                 coder_brief["result_type"] = evaluation_result_type
             self.selection_plan["coder_brief"] = coder_brief
+        if not isinstance(self.selection_plan.get("requirement_ledger"), list):
+            self.selection_plan["requirement_ledger"] = (
+                self._runtime_fallback_requirement_ledger()
+            )
         brief_validation = self._validate_coder_brief_grounding(coder_brief)
         if brief_validation.get("valid"):
             semantic_validation = self._validate_semantic_plan_grounding(coder_brief)
@@ -275,6 +279,9 @@ class Phase3ToolsManager:
 
     def _runtime_fallback_coder_brief(self) -> dict[str, Any]:
         """Build a safe minimal brief when selection produced tables but no plan."""
+        requirements = self.selection_plan.get("requirements")
+        if not isinstance(requirements, dict):
+            requirements = {}
         return {
             "tables": list(self.tables),
             "selected_columns": {
@@ -283,21 +290,74 @@ class Phase3ToolsManager:
                 ).columns]
                 for table in self.tables
             },
-            "filters": [], "temporal_filters": [], "dimensions": [],
-            "measures": [], "joins": [], "ordering": [], "limit": None,
+            "filters": list(requirements.get("filters") or []),
+            "temporal_filters": list(requirements.get("temporal_filters") or []),
+            "dimensions": [
+                {"column": str(column), "output": str(column)}
+                for column in requirements.get("grouping", [])
+            ],
+            "measures": list(requirements.get("measures") or []),
+            "joins": list(requirements.get("joins") or []),
+            "ordering": requirements.get("ordering") or [],
+            "limit": requirements.get("limit"),
             "output_columns": [], "null_policy": "",
-            "table_roles": {},
+            "table_roles": dict(self.selection_plan.get("table_roles") or {}),
             "result_type": self.evaluation_result_type or "auto",
             "normalization_errors": [],
             "source": "runtime_fallback",
+            "task": copy.deepcopy(requirements),
             "runtime_obligations": [
                 "Derive filters, grouping, measures, joins, units, and output labels "
                 "from the question and verify them against the selected runtime tables."
             ],
         }
 
+    def _runtime_fallback_requirement_ledger(self) -> list[dict[str, Any]]:
+        """Keep legacy/recovery paths compatible with the compact ledger view."""
+        requirements = self.selection_plan.get("requirements")
+        requirements = requirements if isinstance(requirements, dict) else {}
+        ledger: list[dict[str, Any]] = []
+
+        def readable(value: Any) -> str:
+            if isinstance(value, dict):
+                return " ".join(str(part) for part in (
+                    value.get("output") or value.get("alias"),
+                    value.get("operation") or value.get("type"),
+                    value.get("column"),
+                ) if part)
+            return " ".join(str(value).split())
+
+        for value in self.selection_plan.get("uncovered_requirements", []) or []:
+            text = readable(value)
+            if text:
+                ledger.append({
+                    "kind": "data_requirement", "request": text,
+                    "status": "unresolved", "evidence": [],
+                })
+        for key, kind in (
+            ("filters", "filter"), ("temporal_filters", "temporal_filter"),
+            ("grouping", "dimension"), ("measures", "measure"),
+            ("output_columns", "output"),
+        ):
+            values = requirements.get(key, [])
+            for value in values if isinstance(values, list) else []:
+                text = readable(value)
+                if text:
+                    ledger.append({
+                        "kind": kind, "request": text,
+                        "status": "computational", "evidence": [],
+                    })
+        for key in ("ordering", "limit"):
+            value = requirements.get(key)
+            if value not in (None, "", []):
+                ledger.append({
+                    "kind": key, "request": readable(value),
+                    "status": "computational", "evidence": [],
+                })
+        return ledger[:10]
+
     def coder_plan_view(self) -> dict[str, Any]:
-        """Return the validated benchmark-blind architect plan without rewriting it."""
+        """Return grounded data constraints plus an extensible computation brief."""
         validation = self.state.plan_validation
         view: dict[str, Any] = {
             "semantic_plan_present": bool(self.selection_plan.get("semantic_plan")),
@@ -314,6 +374,11 @@ class Phase3ToolsManager:
             "required_action": validation.get("required_action"),
             "contract_type": validation.get("contract_type"),
             "coder_brief": copy.deepcopy(self.selection_plan.get("coder_brief", {})),
+            "requirement_ledger": copy.deepcopy(
+                self.selection_plan.get("requirement_ledger")
+                or (self.selection_plan.get("coder_brief") or {}).get("requirement_ledger")
+                or []
+            ),
             "runtime_checklist": self._runtime_checklist(),
             "selection_brief_status": self.original_coder_brief_status,
             "effective_coder_brief_status": validation.get("status", "unknown"),
@@ -322,6 +387,8 @@ class Phase3ToolsManager:
                 or ("legacy_semantic_plan" if self.original_coder_brief_status == "legacy_plan" else "selection")
             ),
             "temporal_requirement_classification": self._temporal_requirement_classification(),
+            "plan_completion_policy": self._plan_completion_policy(),
+            "final_result_contract": self._final_result_contract(),
         }
         if not self.state.architect_contract_locked:
             return view
@@ -330,6 +397,85 @@ class Phase3ToolsManager:
             or self.selection_plan.get("semantic_plan", {})
         )
         return view
+
+    def _plan_completion_policy(self) -> dict[str, Any]:
+        """Describe what the coder may complete without weakening grounded evidence."""
+        brief = self.selection_plan.get("coder_brief") or {}
+        dimensions = brief.get("dimensions", [])
+        task = brief.get("task") if isinstance(brief.get("task"), dict) else {}
+        grouping = [*dimensions, *task.get("grouping", [])]
+        question = self.question.casefold()
+        obligations = [
+            "Compare the complete question with the brief before writing code and add "
+            "any missing computational step needed for the final answer."
+        ]
+        if "correlat" in question:
+            obligations.append(
+                "Compute and return the requested correlation; grouped source totals are "
+                "only an intermediate result."
+            )
+        if any(token in question for token in (" ratio ", "ratio of", " rapporto ")):
+            obligations.append(
+                "Identify an evidence-backed numerator and denominator and compute the "
+                "requested ratio."
+            )
+        result_type = str(brief.get("result_type") or self.evaluation_result_type or "auto")
+        if result_type == "number" and grouping:
+            obligations.append(
+                "The final output must be one scalar number; grouping may be used only as "
+                "an intermediate step followed by the reduction requested by the question."
+            )
+        if re.search(r"\btop\s+\d+\b", question):
+            obligations.append(
+                "Apply the requested ranking and top-N limit even if ordering or limit is "
+                "missing from the brief."
+            )
+        if str(brief.get("source") or "") == "runtime_fallback":
+            obligations.append(
+                "The selection supplied no computational brief: inspect the selected data, "
+                "derive the full calculation from the question, and reject the data if the "
+                "required facts are not evidenced."
+            )
+        return {
+            "mode": "soft_computational_completion",
+            "immutable_evidence": [
+                "selected tables", "runtime column names", "explicit question filters",
+                "observed join keys and inspected values",
+            ],
+            "coder_may_add_or_refine": [
+                "derived computations", "final aggregations", "ratios", "correlations",
+                "ordering", "limits", "output formatting",
+            ],
+            "coder_must_not": [
+                "invent tables or columns", "invent filter values or join keys",
+                "drop an explicit question constraint", "claim missing data without evidence",
+            ],
+            "obligations": obligations,
+            "completion_is_inferred_from_code": True,
+        }
+
+    def _final_result_contract(self) -> dict[str, Any]:
+        """Describe only robust final-shape invariants; aliases remain acceptable."""
+        contract = self.state.analysis_contract or self._contract_from_coder_brief(
+            self.selection_plan.get("coder_brief") or {}
+        )
+        question = self.question.casefold()
+        operations: list[str] = []
+        if "correlat" in question:
+            operations.append("correlation")
+        if "geographic center" in question or "geographical center" in question:
+            operations.append("geographic_center")
+        return {
+            "mode": "soft_semantic_shape",
+            "result_type": self.evaluation_result_type or contract.get("result_type", "auto"),
+            "dimensions": list(contract.get("group_by", [])),
+            "measure_count": len(contract.get("measures", [])),
+            "derived_operations": operations,
+            "alias_policy": "semantic aliases and lossless scalar/table wrappers are accepted",
+            "blocking_policy": (
+                "block only clear shape contradictions; ambiguous labels remain advisory"
+            ),
+        }
 
     def _temporal_requirement_classification(self) -> dict[str, Any]:
         all_years = set(re.findall(r"\b(?:19|20)\d{2}\b", self.question))
@@ -1541,6 +1687,29 @@ class Phase3ToolsManager:
         claim = " ".join([reason, inspected_evidence, *missing]).casefold()
         blockers: list[str] = []
         metadata = self._metadata_text()
+        all_columns = self._all_columns()
+        normalized_columns = {
+            re.sub(r"[^a-z0-9]", "", column.casefold()) for column in all_columns
+        }
+        requirement_words = {
+            re.sub(r"[^a-z0-9]", "", word.casefold())
+            for word in re.findall(
+                r"[A-Za-z][A-Za-z _-]{3,40}", " ".join(missing)
+            )
+        }
+        plausible_equivalent = any(
+            word and any(
+                word in column or column in word
+                for column in normalized_columns
+            )
+            for word in requirement_words
+        )
+        proven_missing_column = bool(
+            "column" in claim
+            and ("missing" in claim or "does not contain" in claim)
+            and requirement_words
+            and not plausible_equivalent
+        )
         requested_years = set(re.findall(r"\b(?:19|20)\d{2}\b", self.question))
         edition_years = requested_years - self._requested_filter_years(self.question)
         if edition_years and re.search(
@@ -1560,7 +1729,11 @@ class Phase3ToolsManager:
             blockers.append(
                 "The requested period appears in selected-table metadata; a dedicated year column is not required."
             )
-        if requested_years and re.search(r"(?:year|date|period|temporal)", claim):
+        if (
+            requested_years
+            and not proven_missing_column
+            and re.search(r"(?:year|date|period|temporal)", claim)
+        ):
             temporal_columns = [
                 column for column in self._all_columns()
                 if re.search(r"(?:year|date|time|period|fiscal|school|^fy|^sy)", column, re.IGNORECASE)
@@ -1582,13 +1755,7 @@ class Phase3ToolsManager:
                 "Fewer observed categories than a requested top-N is not by itself proof that the tables are insufficient."
             )
         if ("column" in claim and ("missing" in claim or "does not contain" in claim)):
-            all_columns = self._all_columns()
-            normalized = {re.sub(r"[^a-z0-9]", "", column.casefold()) for column in all_columns}
-            requirement_words = {
-                re.sub(r"[^a-z0-9]", "", word)
-                for word in re.findall(r"[A-Za-z][A-Za-z _-]{3,40}", " ".join(missing))
-            }
-            if any(word and any(word in column or column in word for column in normalized) for word in requirement_words):
+            if plausible_equivalent:
                 blockers.append(
                     "A selected schema contains a plausible equivalent column; inspect or use the exact available name before rejection."
                 )
@@ -1837,6 +2004,27 @@ class Phase3ToolsManager:
         """Build bounded, non-gold evidence from the executed program."""
         lowered = code.casefold()
         contract = self.state.analysis_contract
+        contract_text = json.dumps(contract, ensure_ascii=False, default=str).casefold()
+        added_operations: list[str] = []
+        operation_markers = {
+            "correlation": (".corr(", "pearsonr(", "spearmanr("),
+            "ratio": ("ratio",),
+            "final_reduction": (".mean(", ".sum(", ".median(", ".max(", ".min("),
+            "ordering": ("sort_values(", "nlargest(", "nsmallest("),
+            "limit": ("head(", "nlargest(", "nsmallest("),
+        }
+        declared_terms = {
+            "correlation": ("correlation", "pearson", "spearman"),
+            "ratio": ("ratio", "divide"),
+            "final_reduction": ("mean", "average", "sum", "median", "max", "min"),
+            "ordering": ("ordering", "sort", "highest", "lowest"),
+            "limit": ("limit", "top"),
+        }
+        for operation, markers in operation_markers.items():
+            if any(marker in lowered for marker in markers) and not any(
+                term in contract_text for term in declared_terms[operation]
+            ):
+                added_operations.append(operation)
         trace = {
             "used_tables": [t for t in self.tables if t.casefold() in lowered],
             "used_columns": [c for c in self._all_columns() if c.casefold() in lowered],
@@ -1854,6 +2042,14 @@ class Phase3ToolsManager:
             "result_adapter_attempted": True,
             "result_adaptations": list(self.state.result_adaptations),
             "result_adapter_not_applied_reasons": list(self.state.result_adaptation_notes),
+            "inferred_plan_completion": {
+                "added_operations": added_operations,
+                "final_result_type": (
+                    type(self.state.structured_result).__name__
+                    if self.state.structured_result is not None else "text"
+                ),
+                "source": "executed_code",
+            },
         }
         manifest = self.state.analysis_manifest if self.require_analysis_manifest else {}
         if manifest:
@@ -2373,6 +2569,7 @@ class Phase3ToolsManager:
             *warnings,
             *self._blocking_contract_code_warnings(),
             *self._validate_contract_result(value),
+            *self._validate_final_result_contract(value),
         ]))
         contract_advisories = list(dict.fromkeys([
             *self.state.contract_advisories,
@@ -2433,12 +2630,10 @@ class Phase3ToolsManager:
             "contract_filter_missing_in_code:",
             "contract_distinct_count_missing_in_code",
             "count_semantics_check:",
-            "unsupported_distinct_semantics:",
             "contract_average_missing_in_code",
             "unsupported_bucket_assumption:",
             "contract_join_missing_in_code",
             "contract_grouping_missing_in_code",
-            "time_range_check:",
             "contract_limit_missing_in_code:",
             "contract_ordering_missing_in_code",
             "top_n_check:",
@@ -2558,6 +2753,68 @@ class Phase3ToolsManager:
                     )
         return warnings
 
+    def _validate_final_result_contract(self, value: Any) -> list[str]:
+        """Validate unmistakable final-answer shape contradictions without gold data."""
+        final_contract = self._final_result_contract()
+        operations = set(final_contract["derived_operations"])
+        candidate = value
+        if isinstance(candidate, list) and len(candidate) == 1:
+            candidate = candidate[0]
+        if isinstance(candidate, dict) and len(candidate) == 1:
+            candidate = next(iter(candidate.values()))
+
+        warnings: list[str] = []
+        if "correlation" in operations:
+            if not isinstance(candidate, (int, float)) or isinstance(candidate, bool):
+                warnings.append("final_contract_correlation_requires_one_numeric_value")
+            elif not math.isfinite(float(candidate)) or not -1.0 <= float(candidate) <= 1.0:
+                warnings.append("final_contract_correlation_out_of_range")
+
+        if "geographic_center" in operations:
+            row = value[0] if isinstance(value, list) and len(value) == 1 else value
+            if not isinstance(row, dict):
+                warnings.append("final_contract_geographic_center_requires_coordinate_pair")
+            else:
+                numeric = {
+                    str(key).casefold(): float(item)
+                    for key, item in row.items()
+                    if isinstance(item, (int, float)) and not isinstance(item, bool)
+                }
+                latitudes = [item for key, item in numeric.items() if "lat" in key]
+                longitudes = [item for key, item in numeric.items() if "lon" in key or "lng" in key]
+                if not latitudes or not longitudes:
+                    warnings.append("final_contract_geographic_center_requires_coordinate_pair")
+                elif not (-90 <= latitudes[0] <= 90 and -180 <= longitudes[0] <= 180):
+                    warnings.append("final_contract_geographic_center_invalid_coordinates")
+
+        measures = list(self.state.analysis_contract.get("measures", []))
+        if (
+            len(measures) >= 2
+            and isinstance(value, list) and value
+            and all(isinstance(row, dict) for row in value)
+        ):
+            fields = list(dict.fromkeys(str(field) for row in value for field in row))
+            matched = {
+                field for measure in measures for field in fields
+                if self._label_is_evident(str(measure), [field])
+            }
+            numeric_fields = {
+                field for field in fields
+                if any(
+                    isinstance(row.get(field), (int, float))
+                    and not isinstance(row.get(field), bool)
+                    for row in value
+                )
+            }
+            # Semantic aliases are preferred, but an equivalent set of numeric
+            # outputs is sufficient when labels are different.
+            if len(matched | numeric_fields) < len(measures):
+                warnings.append(
+                    "final_contract_missing_measures: expected_at_least_"
+                    f"{len(measures)}_numeric_measure_fields"
+                )
+        return warnings
+
     def finish_code(
         self,
         filters: ReviewStatus,
@@ -2675,7 +2932,39 @@ class Phase3ToolsManager:
                 "ok": False, "status": "inspection_limit_reached",
                 "message": "inspect_data is available once; use the cached evidence and run_analysis.",
             })
-        self.state.data_inspection_used = True
+        if not isinstance(tables, list) or not all(
+            isinstance(table, str) for table in tables
+        ):
+            return json.dumps({
+                "ok": False, "status": "invalid_arguments",
+                "message": "tables must be a list of selected table names",
+            })
+        if columns is not None and not isinstance(columns, dict):
+            return json.dumps({
+                "ok": False, "status": "invalid_arguments",
+                "message": (
+                    "columns must map each selected table name to a list of exact "
+                    "runtime column names"
+                ),
+                "example": {table: [] for table in tables},
+            })
+        if isinstance(columns, dict) and any(
+            not isinstance(table, str) or not isinstance(names, list)
+            or not all(isinstance(name, str) for name in names)
+            for table, names in columns.items()
+        ):
+            return json.dumps({
+                "ok": False, "status": "invalid_arguments",
+                "message": "every columns entry must be a list of strings",
+            })
+        if include is not None and (
+            not isinstance(include, list)
+            or not all(isinstance(item, str) for item in include)
+        ):
+            return json.dumps({
+                "ok": False, "status": "invalid_arguments",
+                "message": "include must be a list of strings",
+            })
         requested = list(dict.fromkeys(map(str, tables)))
         invalid = [table for table in requested if table not in self.tables]
         if invalid:
@@ -2683,6 +2972,7 @@ class Phase3ToolsManager:
                 "ok": False, "status": "invalid_table", "tables": invalid,
                 "available_tables": self.tables,
             })
+        self.state.data_inspection_used = True
         profiles = []
         for table in requested:
             requested_columns = (columns or {}).get(table, [])
@@ -2734,7 +3024,7 @@ class Phase3ToolsManager:
         self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
 
     def run_analysis(self, code: str) -> str:
-        """Run code, inspect its result, and return one compact agent decision."""
+        """Run code, infer plan completion, and return one compact decision."""
         execution = json.loads(self.run_code(code))
         if not execution.get("ok"):
             error = execution.get("error", {})

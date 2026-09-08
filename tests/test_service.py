@@ -5,6 +5,7 @@ from lakegen.experiment_config import ExperimentConfig
 from lakegen.retrieval import RetrievalConfig
 from lakegen.service import (
     _record_semantic_plan_telemetry, _rejected_selection_signature,
+    _selection_plan_signature, _selection_retry_feedback,
     extract_questions, run_question,
 )
 from lakegen.service_models import QueryResult
@@ -24,6 +25,48 @@ def test_rejected_selection_signature_preserves_runtime_failure_requirements():
     assert signature["missing_requirements"] == [
         "join column school_id", "records for 2024"
     ]
+
+
+def test_selection_plan_signature_ignores_mapping_order_but_detects_corrections():
+    first = _selection_plan_signature(["B.csv", "a.csv"], {
+        "coder_brief": {
+            "filters": [{"column": "year", "value": 2024}],
+            "measures": ["count rows"],
+        }
+    })
+    reordered = _selection_plan_signature(["a.csv", "B.csv"], {
+        "coder_brief": {
+            "measures": ["count rows"],
+            "filters": [{"value": 2024, "column": "year"}],
+        }
+    })
+    corrected = _selection_plan_signature(["a.csv", "B.csv"], {
+        "coder_brief": {
+            "measures": ["count rows"],
+            "filters": [{"value": 2025, "column": "year"}],
+        }
+    })
+    assert first == reordered
+    assert corrected != first
+
+
+def test_selection_retry_feedback_preserves_tables_and_structures_diagnostics():
+    feedback = _selection_retry_feedback(
+        ["vision-zero.parquet"],
+        {"status": "invalid", "validation_diagnostics": [{
+            "category": "unknown_column",
+            "table": "vision-zero.parquet",
+            "evidence": {"unknown": ["Partner category"]},
+        }]},
+        "Selection contract was not verified.",
+    )
+
+    assert feedback["keep_current_tables"] is True
+    assert feedback["previous_selection"] == ["vision-zero.parquet"]
+    correction = feedback["required_corrections"][0]
+    assert correction["category"] == "unknown_column"
+    assert "inspect the runtime schema" in correction["action"]
+    assert "Do not repeat" in feedback["instruction"]
 
 
 def test_semantic_plan_telemetry_is_persisted_without_coder_sweep():

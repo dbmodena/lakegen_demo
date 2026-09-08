@@ -165,6 +165,38 @@ def _recover_fenced_agent_code(response: str, manager, state) -> bool:
     return True
 
 
+def _recover_structured_rejection(response: str, manager, state) -> bool:
+    """Route an uncalled, explicit rejection object through the normal evidence gate."""
+    if state.finished or state.rejected_reason or not response.strip():
+        return False
+    decoder = json.JSONDecoder()
+    required = {"reason", "missing_requirements", "inspected_evidence"}
+    for start, character in enumerate(response):
+        if character != "{":
+            continue
+        try:
+            payload, _end = decoder.raw_decode(response[start:])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict) or not required.issubset(payload):
+            continue
+        if not isinstance(payload["missing_requirements"], list):
+            continue
+        try:
+            manager.reject_data(
+                str(payload["reason"]),
+                payload["missing_requirements"],
+                str(payload["inspected_evidence"]),
+            )
+        except (TypeError, ValueError):
+            # The same rejection validator used by the tool remains authoritative.
+            return False
+        state.error = None
+        state.stop_reason = "recovered_structured_rejection_without_tool_call"
+        return True
+    return False
+
+
 def _rejected_tables_reason(code_raw: str) -> str:
     if "REJECT_TABLES" not in code_raw:
         return ""
@@ -193,6 +225,7 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
     fp = coding_dir / "script.py"
     fp.write_text(code, encoding="utf-8")
 
+    workflow_exhausted = False
     try:
         result = subprocess.run(
             [sys.executable, str(fp)],
@@ -796,6 +829,23 @@ def phase3_generate_and_execute(
             "required_action": "inspect_table_then_set_analysis_contract_or_reject_tables",
         }, ensure_ascii=False, sort_keys=True, default=str)
     )
+    user_prompt += (
+        "\n\nPLAN COMPLETION RULE:\n"
+        "Treat selected tables, exact runtime columns, explicit question filters, and "
+        "evidenced join keys as immutable. The computational part of the brief may be "
+        "incomplete. Compare it with the complete question and add or refine any required "
+        "final aggregation, derived calculation, ratio, correlation, ordering, limit, or "
+        "output shaping. Do not stop at an intermediate grouped result. Call "
+        "run_analysis with the code only; completion is inferred automatically. "
+        "If the selected data cannot support an essential requirement, inspect once and "
+        "reject_data with concrete evidence instead of inventing it.\n"
+        + json.dumps(
+            plan_view.get("plan_completion_policy", {}),
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+    )
     reset_llm_token_usage(llm)
 
     def emit_stream(delta: str) -> None:
@@ -816,7 +866,7 @@ def phase3_generate_and_execute(
             tools=manager.get_tools(),
             max_iterations=6,
             max_repeats=3,
-            max_tool_calls=4,
+            max_tool_calls=5,
             timeout_seconds=600,
         )
     except Phase2AgentStall as exc:
@@ -826,13 +876,22 @@ def phase3_generate_and_execute(
             state.error = f"Coder agent stalled: {exc}"
     except Exception as exc:
         response = ""
-        if not state.error:
-            state.error = f"Coder agent failed: {type(exc).__name__}: {exc}"
+        workflow_error = f"Coder agent failed: {type(exc).__name__}: {exc}"
+        workflow_exhausted = "Max iterations" in str(exc)
+        # An orchestration limit must not invalidate a successful execution.
+        # Keep it as stop telemetry and let deterministic inspection decide
+        # whether the latest structured result can be finalized.
+        if state.raw_result is not None and state.structured_result is not None:
+            state.stop_reason = workflow_error
+            state.error = None
+        elif not state.error:
+            state.error = workflow_error
 
     # Some model turns emit the complete program in a fenced response instead
     # of invoking run_code. Route that program through the exact same bounded
     # preflight, sandbox, result extraction and inspection path as a tool call.
     _recover_fenced_agent_code(response, manager, state)
+    _recover_structured_rejection(response, manager, state)
 
     # inspect_result is deterministic and does not consume a run_code attempt.
     # If the model stops immediately after a valid structured execution, apply
@@ -887,12 +946,13 @@ def phase3_generate_and_execute(
     if (
         not state.finished
         and state.ready_for_degraded_finalization()
-        and state.run_count >= state.max_runs
+        and (state.run_count >= state.max_runs or workflow_exhausted)
         and not rejected_reason
     ):
         manager.recover_degraded_finish(
             "System recovery preserved the latest inspected structured result "
-            "after the coder exhausted its correction/finalization budget."
+            "after the coder exhausted its correction/finalization budget or "
+            "agent-iteration budget."
         )
 
     tokens = get_llm_token_usage(llm)
@@ -949,6 +1009,9 @@ def phase3_generate_and_execute(
             ),
             "verified_requirements": list(state.coverage_requirements),
             "inspect_result_executed": state.inspected_version > 0,
+            "plan_completion": dict(
+                (state.operation_trace or {}).get("inferred_plan_completion") or {}
+            ),
         },
         rejection_details=state.rejection_details or None,
         coder_attempt_trace=list(state.execution_attempts),

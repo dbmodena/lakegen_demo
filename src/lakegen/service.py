@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -83,6 +84,86 @@ def _rejected_selection_signature(
         "missing_requirements": missing,
         "category": str(details.get("category") or "tables_rejected"),
         "incompatible_columns": columns[:20],
+    }
+
+
+def _selection_plan_signature(
+    tables: list[str], selection_plan: Mapping[str, Any] | None
+) -> str:
+    """Return a stable identity for detecting an unchanged rejected plan."""
+    plan = selection_plan or {}
+    semantic = (
+        plan.get("coder_brief")
+        or plan.get("semantic_plan")
+        or {
+            key: plan.get(key)
+            for key in (
+                "requirement_coverage", "requirements", "requirement_ledger", "table_roles",
+                "combination_strategy", "uncovered_requirements",
+            )
+            if key in plan
+        }
+    )
+    return json.dumps({
+        "tables": sorted(str(table).casefold() for table in tables),
+        "plan": semantic,
+    }, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _selection_retry_feedback(
+    tables: list[str], audit: Mapping[str, Any] | None, error: str
+) -> dict[str, Any]:
+    """Compile one mode-neutral correction hint from the contract gate audit."""
+    audit = audit or {}
+    diagnostics = list(
+        audit.get("validation_diagnostics") or audit.get("diagnostics") or []
+    )
+    action_by_category = {
+        "unknown_column": "inspect the runtime schema and bind the exact column name",
+        "missing_columns": "inspect the runtime schema and choose the required columns",
+        "ambiguous_column": "inspect the candidate columns and resolve the binding",
+        "invalid_join": "inspect both schemas and provide explicit compatible join keys",
+        "unknown_join_column": "inspect both schemas and correct the join-column binding",
+        "table_unreadable": "select a readable table that covers the same requirement",
+        "unknown_table": "select only tables returned by the current retrieval",
+    }
+    corrections: list[dict[str, Any]] = []
+    for diagnostic in diagnostics:
+        item = diagnostic if isinstance(diagnostic, Mapping) else {"evidence": diagnostic}
+        category = str(item.get("category") or "contract_not_grounded")
+        correction = {
+            "category": category,
+            "action": action_by_category.get(
+                category,
+                "inspect the relevant runtime columns or values and revise the plan",
+            ),
+        }
+        for key in ("table", "column", "columns", "evidence"):
+            if item.get(key) not in (None, "", [], {}):
+                correction[key] = item[key]
+        corrections.append(correction)
+    if not corrections:
+        corrections.append({
+            "category": str(audit.get("status") or "contract_not_grounded"),
+            "action": (
+                "inspect the selected runtime schemas and values, then provide exact "
+                "column bindings and explicit join keys"
+            ),
+            "evidence": error,
+        })
+    keep_tables = not any(
+        item["category"] in {"unknown_table", "table_unreadable"}
+        for item in corrections
+    )
+    return {
+        "retry_reason": "selection_contract_invalid",
+        "keep_current_tables": keep_tables,
+        "previous_selection": list(tables),
+        "required_corrections": corrections,
+        "instruction": (
+            "Resolve every required correction before confirming. Do not repeat the "
+            "previous plan unchanged."
+        ),
     }
 
 
@@ -274,6 +355,7 @@ def run_question(
     selection_attempts: list[dict[str, Any]] = []
     rejected_selection_keys: set[tuple[str, ...]] = set()
     rejected_selection_signatures: list[dict[str, Any]] = []
+    rejected_plan_feedback: dict[str, dict[str, Any]] = {}
     last_coder_rejection: dict[str, Any] | None = None
     attempted_keywords: list[str] = []
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
@@ -617,6 +699,27 @@ def run_question(
                     result.pipeline_stages["code_execution"] = "tables_rejected"
                     break
 
+                plan_signature = _selection_plan_signature(
+                    selected, selection_state.selection_plan
+                )
+                if plan_signature in rejected_plan_feedback:
+                    feedback = rejected_plan_feedback[plan_signature]
+                    selection_record["outcome"] = "unchanged_rejected_plan"
+                    selection_record["rejection_feedback"] = feedback
+                    error = (
+                        "Discovery repeated a plan already rejected by the selection "
+                        "contract gate."
+                    )
+                    hint = (
+                        "STRUCTURED DISCOVERY CORRECTION (follow every item before "
+                        "confirming):\n"
+                        + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
+                    )
+                    if table_attempt < MAX_TABLE_ATTEMPTS - 1:
+                        continue
+                    result.pipeline_stages["code_execution"] = "blocked_by_selection"
+                    break
+
                 if experiment.automatic_test_coder:
                     # Full context is the only reliable table-rejection gate.
                     # Run it first so rejected selections can return to discovery
@@ -676,9 +779,15 @@ def run_question(
                                 f"coder rejection: {last_coder_rejection['reason']} "
                                 f"Current gate: {primary['error']}"
                             )
-                        hint = error + (
-                            " Retry discovery with exact inspected column choices "
-                            "and explicit join keys when joining tables."
+                        feedback = _selection_retry_feedback(
+                            selected, coder_audit, error
+                        )
+                        rejected_plan_feedback[plan_signature] = feedback
+                        selection_record["rejection_feedback"] = feedback
+                        hint = (
+                            "STRUCTURED DISCOVERY CORRECTION (follow every item before "
+                            "confirming):\n"
+                            + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
                         )
                         if table_attempt < MAX_TABLE_ATTEMPTS - 1:
                             continue
@@ -863,7 +972,14 @@ def run_question(
                                 f"coder rejection: {last_coder_rejection['reason']} "
                                 f"Current gate: {error}"
                             )
-                        hint = error + " Retry discovery with exact inspected columns and join keys."
+                        feedback = _selection_retry_feedback(selected, audit, error)
+                        rejected_plan_feedback[plan_signature] = feedback
+                        selection_record["rejection_feedback"] = feedback
+                        hint = (
+                            "STRUCTURED DISCOVERY CORRECTION (follow every item before "
+                            "confirming):\n"
+                            + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
+                        )
                         break
 
                     if code_evaluation_enabled:
