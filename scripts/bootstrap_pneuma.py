@@ -241,7 +241,11 @@ def existing_table_ids(db_path: Path) -> set[str]:
 
 
 def register_external_view(
-    db_path: Path, path: Path, *, creator: str
+    db_path: Path,
+    path: Path,
+    *,
+    creator: str,
+    connection: Any | None = None,
 ) -> None:
     """Register a Parquet-backed view when a full materialization exhausts RAM."""
     identifier = str(path).replace('"', '""')
@@ -250,16 +254,22 @@ def register_external_view(
     fingerprint = hashlib.sha256(
         f"{path}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")
     ).hexdigest()
-    with duckdb.connect(str(db_path)) as connection:
-        connection.execute(
+    def register(target: Any) -> None:
+        target.execute(
             f'CREATE OR REPLACE VIEW "{identifier}" AS '
             f"SELECT * FROM read_parquet('{literal}')"
         )
-        connection.execute(
+        target.execute(
             "INSERT INTO table_status (id, table_name, status, creator, hash) "
             "VALUES (?, ?, 'TableStatus.REGISTERED', ?, ?)",
             [str(path), path.stem, creator, f"external:{fingerprint}"],
         )
+
+    if connection is not None:
+        register(connection)
+        return
+    with duckdb.connect(str(db_path)) as owned_connection:
+        register(owned_connection)
 
 
 def configure_bounded_external_views(
@@ -321,6 +331,67 @@ def metadata_text(item: dict[str, Any]) -> str:
     return "\n".join(part for part in parts if part and part not in {"Tags: ", "Columns: "})
 
 
+def uk_metadata_text(dataset: dict[str, Any], resource: dict[str, Any]) -> str:
+    """Build resource-level text from the nested data.gov.uk metadata format."""
+    tags = dataset.get("tags") if isinstance(dataset.get("tags"), list) else []
+    tag_names = [
+        str(tag.get("display_name") or tag.get("name") or "").strip()
+        for tag in tags
+        if isinstance(tag, dict)
+    ]
+    organization = (
+        dataset.get("organization")
+        if isinstance(dataset.get("organization"), dict)
+        else {}
+    )
+    parts = [
+        str(dataset.get("title") or dataset.get("name") or "").strip(),
+        str(dataset.get("notes") or "").strip(),
+        "Resource: " + str(resource.get("name") or "").strip(),
+        str(resource.get("description") or "").strip(),
+        "Publisher: "
+        + str(organization.get("title") or organization.get("name") or "").strip(),
+        "Tags: " + ", ".join(name for name in tag_names if name),
+    ]
+    return "\n".join(
+        part
+        for part in parts
+        if part and part not in {"Resource: ", "Publisher: ", "Tags: "}
+    )
+
+
+def metadata_entries(
+    items: list[Any], paths_by_stem: dict[str, Path]
+) -> list[tuple[Path, str]]:
+    """Resolve flat NYC or nested UK metadata to registered table paths."""
+    entries: list[tuple[Path, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        resource = item.get("resource")
+        if isinstance(resource, dict):
+            path = paths_by_stem.get(str(resource.get("id")))
+            value = metadata_text(item)
+            if path is not None and value:
+                entries.append((path, value))
+            continue
+
+        dataset_id = item.get("id")
+        resources = item.get("resources")
+        if not dataset_id or not isinstance(resources, list):
+            continue
+        for nested_resource in resources:
+            if not isinstance(nested_resource, dict) or not nested_resource.get("id"):
+                continue
+            stem = f"{dataset_id}___{nested_resource['id']}"
+            path = paths_by_stem.get(stem)
+            value = uk_metadata_text(item, nested_resource)
+            if path is not None and value:
+                entries.append((path, value))
+    return entries
+
+
 def normalize_metadata_for_pneuma(value: str) -> tuple[str, int]:
     """Escape SQL apostrophes in Pneuma's disposable metadata staging CSV.
 
@@ -346,22 +417,21 @@ def add_metadata(
     existing = context_table_ids(db_path)
     rows: list[tuple[str, str]] = []
     normalized_apostrophes = 0
-    for item in items:
-        if not isinstance(item, dict):
+    resolved_entries = metadata_entries(items, paths_by_stem)
+    print(
+        f"[metadata] resolved={len(resolved_entries)} "
+        f"source_entries={len(items)}",
+        flush=True,
+    )
+    for path, value in resolved_entries:
+        if str(path) in existing:
             continue
-        resource = item.get("resource")
-        resource_id = resource.get("id") if isinstance(resource, dict) else None
-        path = paths_by_stem.get(str(resource_id))
-        if path is None or str(path) in existing:
-            continue
-        value = metadata_text(item)
-        if value:
-            normalized_table_id, table_id_count = normalize_metadata_for_pneuma(
-                str(path)
-            )
-            normalized_value, value_count = normalize_metadata_for_pneuma(value)
-            normalized_apostrophes += table_id_count + value_count
-            rows.append((normalized_table_id, normalized_value))
+        normalized_table_id, table_id_count = normalize_metadata_for_pneuma(
+            str(path)
+        )
+        normalized_value, value_count = normalize_metadata_for_pneuma(value)
+        normalized_apostrophes += table_id_count + value_count
+        rows.append((normalized_table_id, normalized_value))
     if not rows:
         print("[metadata] no missing metadata entries", flush=True)
         return
@@ -397,6 +467,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-metadata", action="store_true")
     parser.add_argument("--skip-index", action="store_true")
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--registration-mode",
+        choices=("auto", "external"),
+        help=(
+            "Table registration policy. Defaults to external for UK and auto "
+            "for other portals"
+        ),
+    )
     parser.add_argument(
         "--external-view-row-limit",
         type=int,
@@ -451,6 +529,9 @@ def main() -> None:
         raise ValueError("--embedding-batch-size must be greater than zero")
     if args.chroma_insert_batch_size <= 0:
         raise ValueError("--chroma-insert-batch-size must be greater than zero")
+    registration_mode = args.registration_mode or (
+        "external" if args.portal.casefold() == "uk" else "auto"
+    )
 
     configure_pneuma_indexing(
         embedding_batch_size=args.embedding_batch_size,
@@ -459,7 +540,7 @@ def main() -> None:
 
     print(
         f"[setup] portal={args.portal} tables={len(paths)} out={out_path} "
-        f"index={args.index_name}",
+        f"index={args.index_name} registration_mode={registration_mode}",
         flush=True,
     )
     use_local_model = args.openai_base_url is None
@@ -479,29 +560,47 @@ def main() -> None:
     registered = existing_table_ids(db_path)
     pending = [path for path in paths if str(path) not in registered]
     print(f"[register] existing={len(registered)} pending={len(pending)}", flush=True)
-    for number, path in enumerate(pending, 1):
-        payload = response_payload(pneuma.add_tables(str(path), creator=args.creator))
-        if payload.get("status") != "SUCCESS":
-            message = str(payload.get("message") or "")
-            if "Out of Memory Error" in message and path.suffix.casefold() == ".parquet":
+    external_connection = (
+        duckdb.connect(str(db_path)) if registration_mode == "external" else None
+    )
+    try:
+        for number, path in enumerate(pending, 1):
+            if registration_mode == "external" and path.suffix.casefold() == ".parquet":
                 register_external_view(
                     db_path,
                     path,
                     creator=args.creator,
+                    connection=external_connection,
                 )
-                print(
-                    f"[register] external-view fallback {path.name}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-            else:
-                print(
-                    f"[register] skipped {path.name}: {message}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-        if number == 1 or number % 25 == 0 or number == len(pending):
-            print(f"[register] {number}/{len(pending)}", flush=True)
+                if number == 1 or number % 25 == 0 or number == len(pending):
+                    print(
+                        f"[register] external-view {number}/{len(pending)} "
+                        f"{path.name}",
+                        flush=True,
+                    )
+                continue
+
+            payload = response_payload(pneuma.add_tables(str(path), creator=args.creator))
+            if payload.get("status") != "SUCCESS":
+                message = str(payload.get("message") or "")
+                if "Out of Memory Error" in message and path.suffix.casefold() == ".parquet":
+                    register_external_view(db_path, path, creator=args.creator)
+                    print(
+                        f"[register] external-view fallback {path.name}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[register] skipped {path.name}: {message}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+            if number == 1 or number % 25 == 0 or number == len(pending):
+                print(f"[register] {number}/{len(pending)}", flush=True)
+    finally:
+        if external_connection is not None:
+            external_connection.close()
 
     registered = existing_table_ids(db_path)
     active_paths = [path for path in paths if str(path) in registered]

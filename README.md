@@ -49,6 +49,30 @@ uv pip install --python .venv-pneuma/bin/python -r requirements-pneuma.txt
 Prepare Pneuma's database, summaries, and hybrid index with its own API or
 quickstart, then point LakeGen at that existing state:
 
+```bash
+# NYC
+bash scripts/run_pneuma_bootstrap_monitored.sh nyc
+
+# Cleaned UK resources; writes independently to /data/pneuma/uk
+bash scripts/run_pneuma_bootstrap_monitored.sh uk
+```
+
+For UK, the bootstrap automatically reads `data/uk/clean_datasets/parquet`
+and `data/uk/metadata/metadata_retrieved_cleaned.json`. The UK metadata is
+nested by dataset and resource; each resource is matched to its cleaned file
+using `dataset_id___resource_id.parquet`. UK also defaults to
+`--registration-mode external`: Parquet files are never copied wholesale into
+DuckDB, and summarization reads at most 10,000 rows per file. This protects RAM
+and avoids a large materialized `storage.db` while leaving source files intact.
+
+Serve the UK index on a separate port when the NYC service is also running:
+
+```bash
+.venv-pneuma/bin/python scripts/pneuma_server.py \
+  --out-path /data/pneuma/uk \
+  --port 8766
+```
+
 ```yaml
 retrieval:
   mode: pneuma
@@ -271,11 +295,25 @@ code, and other metadata in the batch logs.
 ```bash
 curl http://127.0.0.1:8000/v1/benchmarks
 curl -X POST \
-  'http://127.0.0.1:8000/v1/benchmarks/100q_nyc.json/batches?core=nyc'
+  'http://127.0.0.1:8000/v1/benchmarks/100q_uk.json/batches?core=uk'
 ```
 
-Run `uv run python extract_query_sample.py` to regenerate the default sample
-at `benchmark/100q_nyc.json`.
+Build either benchmark directly from its generated questions with:
+
+```bash
+# UK (default)
+uv run python build_benchmark.py --dataset uk
+
+# NYC
+uv run python build_benchmark.py --dataset nyc
+```
+
+The builder keeps only successful Pandas questions with their generated code.
+It deterministically selects 100 cases: 34 easy, 33 medium, 33 hard, with 34
+multi-table and 66 single-table questions.
+Defaults are
+`queries/generated_queries_uk.json` → `benchmark/100q_uk.json` and
+`queries/generated_queries_nyc.json` → `benchmark/100q_nyc.json`.
 
 ### Uploaded question JSON file
 
