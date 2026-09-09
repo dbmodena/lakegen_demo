@@ -111,6 +111,7 @@ def phase2_select_tables(
     stream_callback: StreamCallback | None = None,
     cancel_check: Callable[[], None] | None = None,
     retrieval_config: RetrievalConfig | None = None,
+    selection_state: object | None = None,
 ) -> Phase2SelectionResult:
     """Run the configured retriever, then judge the retrieved tables.
 
@@ -281,5 +282,13 @@ def phase2_select_tables(
         all_files,
         candidates,
     )
+    if selection_state is not None and tools_manager.selection_plan:
+        selection_state.selection_plan = dict(tools_manager.selection_plan)
+        selection_state.selection_plan_source = "confirm_divided_selection"
+        selection_state.confirmed_tables = list(selected)
+        selection_state.selection_reasoning = reasoning
+        selection_state.selection_requirements = dict(
+            tools_manager.selection_plan.get("requirements") or {}
+        )
 
     return selected, candidates, solr_meta, reasoning, full_trace, tokens_p2

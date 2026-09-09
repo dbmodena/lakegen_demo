@@ -130,12 +130,25 @@ def test_selection_builds_shared_requirement_ledger_without_blocking_computation
         item["status"] == "computational"
         and item["kind"] == "derived_operation"
         and item["request"] == "correlation"
+        and item["role"] == "final"
         for item in ledger
     )
     assert any(
         item["status"] == "bound"
         and item["kind"] == "temporal_scope"
         and item["request"] == "2020"
+        for item in ledger
+    )
+    assert any(
+        item["kind"] == "dimension"
+        and item["request"] == "district"
+        and item["role"] == "intermediate"
+        for item in ledger
+    )
+    assert any(
+        item["kind"] == "output"
+        and item.get("shape") == "scalar"
+        and item.get("role") == "final"
         for item in ledger
     )
 
@@ -163,6 +176,22 @@ def test_requirement_ledger_merges_bound_computation_and_avoids_inferred_gaps(tm
     assert len(measure_items) == 1
     assert measure_items[0]["status"] == "bound"
     assert measure_items[0]["computation"] == "partnered_plaza_count count PlazaName"
+
+
+def test_requirement_ledger_marks_per_group_as_intermediate_for_scalar_average(tmp_path):
+    manager = Phase12ToolsManager(
+        P12State(), object(), [], tmp_path,
+        question="What was the average number of transaction records per block?",
+    )
+    ledger = manager._build_requirement_ledger(
+        {}, {"grouping": ["Block"], "measures": ["transaction records"]},
+        [], None,
+    )
+
+    assert next(item for item in ledger if item["kind"] == "dimension")["role"] == "intermediate"
+    output = next(item for item in ledger if item["kind"] == "output")
+    assert output["role"] == "final"
+    assert output["shape"] == "scalar"
 
 
 def _hit(resource_id, rank, columns):
@@ -876,6 +905,37 @@ def test_phase2_selection_requires_inspection(tmp_path):
     assert "FINAL_PAYLOAD" in manager.confirm_table_selection(
         "relevant", ["table.parquet"]
     )
+
+
+def test_divided_and_unified_selection_build_identical_requirement_ledgers(tmp_path):
+    question = "What was the average number of records per district?"
+    coverage = {
+        "district dimension": {
+            "table": "table.parquet", "columns": ["district"],
+        }
+    }
+    requirements = {
+        "grouping": ["district"], "measures": ["record count"],
+        "result_type": "number",
+    }
+    divided = Phase2JudgeToolsManager(
+        ["table.parquet"], tmp_path, question=question
+    )
+    divided._inspection_cache["table.parquet"] = "Schema for table.parquet"
+    divided_payload = json.loads(divided.confirm_table_selection(
+        "relevant", ["table.parquet"], requirement_coverage=coverage,
+        table_roles={"table.parquet": "fact records"},
+        requirements=requirements,
+    ).split("FINAL_PAYLOAD: ", 1)[1])
+
+    unified = Phase12ToolsManager(
+        P12State(), object(), [], tmp_path, question=question
+    )
+    unified_ledger = unified._build_requirement_ledger(
+        coverage, requirements, [], None
+    )
+
+    assert divided_payload["selection_plan"]["requirement_ledger"] == unified_ledger
 
 
 def test_phase2_selection_blocks_proven_temporal_mismatch(tmp_path):

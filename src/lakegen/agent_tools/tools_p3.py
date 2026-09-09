@@ -354,6 +354,31 @@ class Phase3ToolsManager:
                     "kind": key, "request": readable(value),
                     "status": "computational", "evidence": [],
                 })
+        lowered = self.question.casefold()
+        table_cues = bool(re.search(
+            r"\b(?:for each|each borough|each district|which\s+(?:three|five|\d+)|top\s+\d+)\b",
+            lowered,
+        ))
+        scalar_cues = bool(re.search(
+            r"\b(?:correlat|ratio|how many|what (?:is|was) the (?:average|total|number))",
+            lowered,
+        )) and not table_cues
+        shape = (
+            "scalar" if self.evaluation_result_type == "number" else
+            "table" if self.evaluation_result_type == "table" else
+            "scalar" if scalar_cues else "table" if table_cues else "unknown"
+        )
+        for item in ledger:
+            if item["kind"] == "dimension":
+                item["role"] = "intermediate" if shape == "scalar" else "final"
+            elif item["kind"] == "measure":
+                item["role"] = "final"
+        if shape != "unknown":
+            ledger.append({
+                "kind": "output", "request": f"final {shape} answer",
+                "status": "computational", "evidence": [],
+                "role": "final", "shape": shape,
+            })
         return ledger[:10]
 
     def coder_plan_view(self) -> dict[str, Any]:

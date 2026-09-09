@@ -512,6 +512,7 @@ def run_question(
                         csv_dir=runtime.csv_dir, hint=hint,
                         portal_name=runtime.portal_name,
                         retrieval_config=runtime.retrieval,
+                        selection_state=selection_state,
                     )
                     phase_invocation_counts["discovery"] += 1
                     context_telemetry["llm_invocations"] += 2

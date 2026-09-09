@@ -4,6 +4,7 @@ import re
 from functools import lru_cache
 import pandas as pd
 from pathlib import Path
+from typing import Literal
 from pydantic import BaseModel, Field
 from llama_index.core.tools import FunctionTool
 from valentine import valentine_match
@@ -12,6 +13,7 @@ from valentine.algorithms import ComaPy
 from lakegen.core.table_io import iter_table_chunks, read_table, table_row_count
 from lakegen.core.types import SolrMetadata
 from lakegen.phases.utils import format_candidate_context
+from lakegen.agent_tools.requirement_ledger import build_requirement_ledger
 
 try:
     try:
@@ -93,6 +95,15 @@ def _temporal_coverage_issue(
 class ConfirmSelectionSchema(BaseModel):
     reasoning: str = Field(description="MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question. Do NOT use quotes, apostrophes, or special characters.")
     tables: list[str] = Field(description="A list of the exact file names needed (e.g., ['2016.parquet']). Do not omit any table you need!")
+    requirement_coverage: dict[str, dict[str, object]] = Field(default_factory=dict)
+    table_roles: dict[str, str] = Field(default_factory=dict)
+    combination_strategy: Literal[
+        "single_table", "join", "concat_partitions", "aggregate_separately",
+        "lookup", "compare",
+    ] = "single_table"
+    uncovered_requirements: list[str] = Field(default_factory=list)
+    requirements: dict[str, object] = Field(default_factory=dict)
+    semantic_plan: dict[str, object] | None = None
 
 class RejectSelectionSchema(BaseModel):
     reasoning: str = Field(description="Explain step-by-step why the current tables are not good.")
@@ -558,6 +569,7 @@ class Phase2JudgeToolsManager:
         self.expansion_requirements: list[str] = []
         self._inspection_cache: dict[str, str] = {}
         self._inspection_counts: dict[str, int] = {}
+        self.selection_plan: dict[str, object] = {}
 
     def visible_candidates(self) -> list[str]:
         return self.candidates[: self.visible_candidate_count]
@@ -696,7 +708,17 @@ class Phase2JudgeToolsManager:
         """
         return _find_schema_matches(self.csv_dir, file_name_1, file_name_2)
 
-    def confirm_table_selection(self, reasoning: str, tables: list[str]) -> str:
+    def confirm_table_selection(
+        self,
+        reasoning: str,
+        tables: list[str],
+        requirement_coverage: dict[str, dict[str, object]] | None = None,
+        table_roles: dict[str, str] | None = None,
+        combination_strategy: str = "single_table",
+        uncovered_requirements: list[str] | None = None,
+        requirements: dict[str, object] | None = None,
+        semantic_plan: dict[str, object] | None = None,
+    ) -> str:
         """
         CRITICAL: Use this tool ONLY when you have identified the required files.
         Calling this tool terminates execution and confirms the selection.
@@ -733,9 +755,26 @@ class Phase2JudgeToolsManager:
 
         final_tables = ", ".join(normalized_tables)
 
+        coverage = dict(requirement_coverage or {})
+        normalized_requirements = dict(requirements or {})
+        uncovered = list(uncovered_requirements or [])
+        self.selection_plan = {
+            "requirement_coverage": coverage,
+            "table_roles": dict(table_roles or {}),
+            "combination_strategy": combination_strategy,
+            "uncovered_requirements": uncovered,
+            "requirements": normalized_requirements,
+            "requirement_ledger": build_requirement_ledger(
+                self.question, coverage, normalized_requirements, uncovered,
+                semantic_plan,
+            ),
+            **({"semantic_plan": semantic_plan} if semantic_plan else {}),
+        }
+
         dati_uscita = {
             "tables": final_tables,
-            "reasoning": reasoning
+            "reasoning": reasoning,
+            "selection_plan": self.selection_plan,
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
