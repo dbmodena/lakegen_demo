@@ -21,6 +21,7 @@ DEFAULT_PATHS = {
     "uk": (Path("queries/generated_queries_uk.json"), Path("benchmark/100q_uk.json")),
     "nyc": (Path("queries/generated_queries_nyc.json"), Path("benchmark/100q_nyc.json")),
 }
+DEFAULT_DATASET = "nyc"
 DIFFICULTIES = ("easy", "medium", "hard")
 
 
@@ -84,10 +85,22 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Query {record.get('client_id')!r} has unresolved aliases: {unresolved}")
     if not isinstance(record.get("code"), str) or not record["code"].strip():
         raise ValueError(f"Query {record.get('client_id')!r} has no generated code")
+    if not record["question"].strip():
+        raise ValueError(f"Query {record.get('client_id')!r} has an empty question")
+    if record.get("query_result") is None:
+        raise ValueError(f"Query {record.get('client_id')!r} has no generated result")
+    if not isinstance(record.get("expected_result_type"), str) or not record[
+        "expected_result_type"
+    ].strip():
+        raise ValueError(
+            f"Query {record.get('client_id')!r} has no expected result type"
+        )
 
     aliases = list(dict.fromkeys(aliases))
     difficulty = _difficulty(record.get("difficulty"))
     keywords = record.get("question_keywords") or record.get("plan_keywords") or []
+    if not isinstance(keywords, list) or not any(str(value).strip() for value in keywords):
+        raise ValueError(f"Query {record.get('client_id')!r} has no retrieval keywords")
     return {
         "id": str(record.get("client_id") or f"{item['engine']}-{item['query_kind']}-{item['group']}-{item['record_key']}"),
         "question": record["question"].strip(),
@@ -207,7 +220,9 @@ def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: s
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", choices=sorted(DEFAULT_PATHS), default="uk")
+    parser.add_argument(
+        "--dataset", choices=sorted(DEFAULT_PATHS), default=DEFAULT_DATASET
+    )
     parser.add_argument("--input", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--count", type=int, default=100)

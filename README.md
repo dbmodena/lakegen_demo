@@ -295,17 +295,17 @@ code, and other metadata in the batch logs.
 ```bash
 curl http://127.0.0.1:8000/v1/benchmarks
 curl -X POST \
-  'http://127.0.0.1:8000/v1/benchmarks/100q_uk.json/batches?core=uk'
+  'http://127.0.0.1:8000/v1/benchmarks/100q_nyc.json/batches?core=nyc'
 ```
 
 Build either benchmark directly from its generated questions with:
 
 ```bash
-# UK (default)
-uv run python build_benchmark.py --dataset uk
-
-# NYC
+# NYC (default)
 uv run python build_benchmark.py --dataset nyc
+
+# UK, when the generated UK source is available
+uv run python build_benchmark.py --dataset uk
 ```
 
 The builder keeps only successful Pandas questions with their generated code.

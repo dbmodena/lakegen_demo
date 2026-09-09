@@ -17,7 +17,8 @@ def _payload(*, easy_single=0, easy_multi=0, medium_single=0, medium_multi=0, ha
             group[str(index)] = {
                 "client_id": f"q-{index}", "status": "success", "question": f"Question {index}",
                 "difficulty": difficulty, "tables": aliases, "code": "result = 1",
-                "question_keywords": ["question"],
+                "question_keywords": ["question"], "query_result": 1,
+                "expected_result_type": "number",
             }
             index += 1
     return {"PANDAS": {"generated": {"group": group}}}
@@ -70,5 +71,6 @@ def test_uses_exact_one_third_multi_table_split():
 
 
 def test_exposes_dataset_specific_default_paths():
+    assert benchmark.DEFAULT_DATASET == "nyc"
     assert benchmark.DEFAULT_PATHS["uk"][1] == benchmark.Path("benchmark/100q_uk.json")
     assert benchmark.DEFAULT_PATHS["nyc"][1] == benchmark.Path("benchmark/100q_nyc.json")

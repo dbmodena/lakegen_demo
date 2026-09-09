@@ -1,0 +1,4436 @@
+{
+  "sample_metadata": {
+    "source": "queries/generated_queries_nyc.json",
+    "sampling_seed": 42,
+    "count": 100,
+    "engine_filter": "PANDAS",
+    "status_filter": "success",
+    "selection": "balanced_by_difficulty_and_table_scope",
+    "difficulty_quotas": {
+      "easy": 34,
+      "medium": 33,
+      "hard": 33
+    },
+    "table_scope_requirements": {
+      "multi_table": 34,
+      "single_table": 66
+    },
+    "strata": {
+      "easy": {
+        "multi_table": 11,
+        "single_table": 23
+      },
+      "medium": {
+        "multi_table": 12,
+        "single_table": 21
+      },
+      "hard": {
+        "multi_table": 11,
+        "single_table": 22
+      }
+    },
+    "skipped_invalid_generated_records": 0
+  },
+  "cases": [
+    {
+      "id": "41e346c3",
+      "question": "How strongly do the property longitudes correlate between the NYC Department of Finance’s Bronx cooperative property valuation datasets for FY 2009‑2010 and FY 2011‑2012?",
+      "keywords": [
+        "cooperative",
+        "Bronx",
+        "longitude",
+        "correlation",
+        "2009",
+        "2011",
+        "finance"
+      ],
+      "relevant_table_ids": [
+        "yrf7-4wry",
+        "3miu-myq2"
+      ],
+      "table_aliases": {
+        "Table_0": "yrf7-4wry",
+        "Table_1": "3miu-myq2"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df0 = Table_0.dropna(subset=['Longitude'])\ndf1 = Table_1.dropna(subset=['Longitude'])\nmerged = df0.merge(\n    df1,\n    on='BRONX – COOPERATIVES COMPARABLE PROPERTIES – Boro-Block-Lot',\n    how='inner',\n    suffixes=('_2011', '_2009')\n)\nmatch_count = merged.shape[0]\ncorrelation = merged['Longitude_2011'].corr(merged['Longitude_2009'], method='pearson')\ncorrelation",
+      "reference_result": [
+        {
+          "result": 0.9999991543
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single Pearson correlation coefficient (range -1 to 1) indicating how strongly the longitudes of matching Bronx cooperative properties align between the 2009‑2010 and 2011‑2012 NYC Department of Finance valuation datasets."
+    },
+    {
+      "id": "c0ff96e9",
+      "question": "Which five schools had the highest enrollment in years where the pre‑K half‑day count was zero, and what were those enrollment numbers?",
+      "keywords": [
+        "schools",
+        "highest",
+        "enrollment",
+        "pre‑k",
+        "zero",
+        "half‑day"
+      ],
+      "relevant_table_ids": [
+        "s52a-8aq6"
+      ],
+      "table_aliases": {
+        "Table_0": "s52a-8aq6"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .assign(PK_is_zero=Table_0['Grade PK (Half Day & Full Day)'] == 0)\n    .loc[lambda df: df['PK_is_zero']]\n    .assign(Total_Enrollment_num=lambda df: pd.to_numeric(df['Total Enrollment'], errors='coerce'))\n    .groupby(['School Name', 'Year'], as_index=False)\n    .agg(enrollment_zero_pk=('Total_Enrollment_num', 'sum'))\n    .sort_values('enrollment_zero_pk', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "School Name": "Murry Bergtraum High School for Business Careers",
+          "Year": "2014-15",
+          "enrollment_zero_pk": 971.0
+        },
+        {
+          "School Name": "P.S. 161 Pedro Albizu Campos",
+          "Year": "2013-14",
+          "enrollment_zero_pk": 913.0
+        },
+        {
+          "School Name": "P.S. 199 Jessie Isador Straus",
+          "Year": "2015-16",
+          "enrollment_zero_pk": 903.0
+        },
+        {
+          "School Name": "P.S. 199 Jessie Isador Straus",
+          "Year": "2014-15",
+          "enrollment_zero_pk": 889.0
+        },
+        {
+          "School Name": "P.S. 161 Pedro Albizu Campos",
+          "Year": "2015-16",
+          "enrollment_zero_pk": 888.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Five rows, each containing a School Name, the Year where pre‑K half‑day count was zero, and the corresponding Total Enrollment, sorted from highest to lowest enrollment."
+    },
+    {
+      "id": "73eb27c6",
+      "question": "What are the counts and average rotations for each combination of label pattern ending with “-A” and rotation range on the NYC Digital Tax Map?",
+      "keywords": [
+        "NYC",
+        "Digital",
+        "Tax",
+        "Map",
+        "label",
+        "pattern",
+        "-A",
+        "rotation",
+        "count",
+        "average"
+      ],
+      "relevant_table_ids": [
+        "f44v-t2tj"
+      ],
+      "table_aliases": {
+        "Table_0": "f44v-t2tj"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nimport numpy as np\nTable_0 = Table_0.assign(\n    ends_with_A=Table_0['MISC_TEXT'].str.lower().str.endswith('-a')\n)\nrot_bins = [0, 120, 240, 360]\nrot_labels = ['low', 'mid', 'high']\nTable_0 = Table_0.assign(\n    rot_range=pd.cut(Table_0['ROTATION'], bins=rot_bins, labels=rot_labels, right=False, include_lowest=True)\n)\nresult = (\n    Table_0\n    .groupby(['ends_with_A', 'rot_range'], as_index=False)\n    .agg(row_count=('ROTATION', 'size'), avg_rotation=('ROTATION', 'mean'))\n    .sort_values('row_count', ascending=False)\n)\nresult",
+      "reference_result": [
+        {
+          "ends_with_A": false,
+          "rot_range": "low",
+          "row_count": 1048,
+          "avg_rotation": 53.4116142087
+        },
+        {
+          "ends_with_A": false,
+          "rot_range": "high",
+          "row_count": 545,
+          "avg_rotation": 309.8067620827
+        },
+        {
+          "ends_with_A": false,
+          "rot_range": "mid",
+          "row_count": 174,
+          "avg_rotation": 147.7875841291
+        },
+        {
+          "ends_with_A": true,
+          "rot_range": "low",
+          "row_count": 25,
+          "avg_rotation": 67.3293687504
+        },
+        {
+          "ends_with_A": true,
+          "rot_range": "high",
+          "row_count": 12,
+          "avg_rotation": 310.20845707
+        },
+        {
+          "ends_with_A": true,
+          "rot_range": "mid",
+          "row_count": 2,
+          "avg_rotation": 195.502111935
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per combination of '-A' label flag (true/false) and rotation bucket (low/mid/high), showing the count of annotations and the average ROTATION in degrees for that combination."
+    },
+    {
+      "id": "f6a77720",
+      "question": "For the 2014-15 NYC Department of Education high school year, how many schools are in each borough for each maximum grade level, and what is the average starting grade?",
+      "keywords": [
+        "NYC",
+        "DOE",
+        "high",
+        "school",
+        "2014-15",
+        "borough",
+        "grade",
+        "average",
+        "count",
+        "maximum"
+      ],
+      "relevant_table_ids": [
+        "n3p6-zve2"
+      ],
+      "table_aliases": {
+        "Table_0": "n3p6-zve2"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .groupby(['borough', 'grade_span_max'], as_index=False)\n    .agg(\n        school_count=('dbn', 'nunique'),\n        avg_start_grade=('grade_span_min', 'mean')\n    )\n    .sort_values(by=['borough', 'grade_span_max'], ascending=True)\n)",
+      "reference_result": [
+        {
+          "borough": "Bronx",
+          "grade_span_max": 9,
+          "school_count": 1,
+          "avg_start_grade": 6.0
+        },
+        {
+          "borough": "Bronx",
+          "grade_span_max": 11,
+          "school_count": 8,
+          "avg_start_grade": 8.625
+        },
+        {
+          "borough": "Bronx",
+          "grade_span_max": 12,
+          "school_count": 109,
+          "avg_start_grade": 8.4220183486
+        },
+        {
+          "borough": "Brooklyn",
+          "grade_span_max": 9,
+          "school_count": 1,
+          "avg_start_grade": 6.0
+        },
+        {
+          "borough": "Brooklyn",
+          "grade_span_max": 10,
+          "school_count": 2,
+          "avg_start_grade": 9.0
+        },
+        {
+          "borough": "Brooklyn",
+          "grade_span_max": 11,
+          "school_count": 1,
+          "avg_start_grade": 9.0
+        },
+        {
+          "borough": "Brooklyn",
+          "grade_span_max": 12,
+          "school_count": 117,
+          "avg_start_grade": 8.4358974359
+        },
+        {
+          "borough": "Manhattan",
+          "grade_span_max": 9,
+          "school_count": 1,
+          "avg_start_grade": 6.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough and maximum grade span showing the number of schools and the average starting grade for that group, sorted by borough and grade span."
+    },
+    {
+      "id": "a3fa567a",
+      "question": "How many public schools are there in Brooklyn?",
+      "keywords": [
+        "Brooklyn",
+        "public",
+        "schools"
+      ],
+      "relevant_table_ids": [
+        "67g2-p84d"
+      ],
+      "table_aliases": {
+        "Table_0": "67g2-p84d"
+      },
+      "engine": "PANDAS",
+      "reference_code": "public_school_count = (\n    Table_0.loc[\n        (Table_0['CITY'].str.lower() == 'brooklyn') &\n        (Table_0['FACGROUP'].str.lower() == 'schools (k-12)') &\n        (Table_0['OPTYPE'].str.lower() == 'public'),\n        'FACNAME'\n    ].count()\n)",
+      "reference_result": [
+        {
+          "0": 42
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing how many public K‑12 schools operated by the NYC Department of Education are located in the borough of Brooklyn."
+    },
+    {
+      "id": "897f4a94",
+      "question": "For the NYC Department of Finance's comparable rental income valuation program covering FY 2008‑2009, FY 2010‑2011, and FY 2011‑2012, which borough has how many property records and what is each borough's rank by total property count?",
+      "keywords": [
+        "borough",
+        "property",
+        "records",
+        "rank",
+        "NYC",
+        "DOF",
+        "FY2008-2009",
+        "FY2010-2011",
+        "FY2011-2012"
+      ],
+      "relevant_table_ids": [
+        "f42p-xqaa",
+        "r4s5-tb2g",
+        "62mr-ukqs",
+        "jxyc-rxiv",
+        "956m-xy24",
+        "tkdy-59zg"
+      ],
+      "table_aliases": {
+        "Table_0": "f42p-xqaa",
+        "Table_1": "r4s5-tb2g",
+        "Table_2": "62mr-ukqs",
+        "Table_3": "jxyc-rxiv",
+        "Table_4": "956m-xy24",
+        "Table_5": "tkdy-59zg"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nunion_df = pd.concat([\n    Table_0[['Borough', 'Postcode', 'BBL']],\n    Table_1[['Borough', 'Postcode', 'BBL']],\n    Table_2[['Borough', 'Postcode', 'BBL']],\n    Table_3[['Borough', 'Postcode', 'BBL']],\n    Table_4[['Borough', 'Postcode', 'BBL']],\n    Table_5[['Borough', 'Postcode', 'BBL']]\n], ignore_index=True)\nagg_df = union_df.groupby('Borough', as_index=False).agg(property_count=('BBL', 'count'))\nagg_df['rank'] = agg_df['property_count'].rank(method='dense', ascending=False).astype(int)\nresult = agg_df.sort_values('property_count', ascending=False)",
+      "reference_result": [
+        {
+          "Borough": 3,
+          "property_count": 1428,
+          "rank": 1
+        },
+        {
+          "Borough": 1,
+          "property_count": 1251,
+          "rank": 2
+        },
+        {
+          "Borough": 4,
+          "property_count": 677,
+          "rank": 3
+        },
+        {
+          "Borough": 5,
+          "property_count": 26,
+          "rank": 4
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough (Brooklyn, Queens, Manhattan, Staten Island) showing the total number of property records across all cooperative and condominium datasets for FY 2008‑2009, FY 2010‑2011, and FY 2011‑2012, and the rank of each borough by property count (rank 1 = most records)."
+    },
+    {
+      "id": "2f060a5a",
+      "question": "For each borough and inspection category in the School Construction Authority’s 2026 inspections, how many inspections were completed and what was the latest scheduled inspection date?",
+      "keywords": [
+        "borough",
+        "inspection",
+        "category",
+        "SCA",
+        "2026",
+        "completed",
+        "latest"
+      ],
+      "relevant_table_ids": [
+        "n4tc-j6kh"
+      ],
+      "table_aliases": {
+        "Table_0": "n4tc-j6kh"
+      },
+      "engine": "PANDAS",
+      "reference_code": "filtered = Table_0[Table_0['Request Status Description'] == 'COMPLETED']\nfiltered = filtered[filtered['Inspection Date'].str.startswith('2026')]\nresult = (\n    filtered\n    .groupby(['Borough Name', 'Inspection Category'])\n    .agg(\n        completed_count=('Inspection Date', 'count'),\n        latest_inspection_date=('Inspection Date', 'max')\n    )\n    .reset_index()\n)",
+      "reference_result": [
+        {
+          "Borough Name": "BRONX",
+          "Inspection Category": "ARCHITECTURAL",
+          "completed_count": 13,
+          "latest_inspection_date": "2026 May 28 02:00:00 PM"
+        },
+        {
+          "Borough Name": "BRONX",
+          "Inspection Category": "BOILER",
+          "completed_count": 8,
+          "latest_inspection_date": "2026 May 27 08:00:00 AM"
+        },
+        {
+          "Borough Name": "BRONX",
+          "Inspection Category": "DIESELFUEL",
+          "completed_count": 1,
+          "latest_inspection_date": "2026 May 22 07:00:00 AM"
+        },
+        {
+          "Borough Name": "BRONX",
+          "Inspection Category": "FINALCONSTRUCTION",
+          "completed_count": 24,
+          "latest_inspection_date": "2026 May 29 10:00:00 AM"
+        },
+        {
+          "Borough Name": "BRONX",
+          "Inspection Category": "HVAC",
+          "completed_count": 11,
+          "latest_inspection_date": "2026 May 21 03:00:00 PM"
+        },
+        {
+          "Borough Name": "BRONX",
+          "Inspection Category": "HVACSYSTEMSTESTING",
+          "completed_count": 1,
+          "latest_inspection_date": "2026 May 28 12:30:00 PM"
+        },
+        {
+          "Borough Name": "BRONX",
+          "Inspection Category": "LOWVOLTAGE",
+          "completed_count": 29,
+          "latest_inspection_date": "2026 May 26 06:00:00 PM"
+        },
+        {
+          "Borough Name": "BRONX",
+          "Inspection Category": "MASONRY",
+          "completed_count": 23,
+          "latest_inspection_date": "2026 May 26 10:00:00 AM"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough and inspection category showing completed_count (the number of completed inspections) and latest_inspection_date (the most recent scheduled inspection date in 2026) for that combination."
+    },
+    {
+      "id": "5c6be503",
+      "question": "How many cooperative and condominium properties does the NYC Department of Finance list for each borough in FY 2010‑2011, FY 2008‑2009, and FY 2011‑2012?",
+      "keywords": [
+        "NYC",
+        "Finance",
+        "cooperative",
+        "condominium",
+        "borough",
+        "FY2010-2011",
+        "FY2008-2009",
+        "FY2011-2012",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "f42p-xqaa",
+        "r4s5-tb2g",
+        "62mr-ukqs",
+        "jxyc-rxiv",
+        "956m-xy24",
+        "tkdy-59zg"
+      ],
+      "table_aliases": {
+        "Table_0": "f42p-xqaa",
+        "Table_1": "r4s5-tb2g",
+        "Table_2": "62mr-ukqs",
+        "Table_3": "jxyc-rxiv",
+        "Table_4": "956m-xy24",
+        "Table_5": "tkdy-59zg"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df0 = Table_0[['Borough', 'BBL']].copy()\ndf0['source'] = 'coop_2010_11'\ndf1 = Table_1[['Borough', 'BBL']].copy()\ndf1['source'] = 'coop_2010_11'\ndf2 = Table_2[['Borough', 'BBL']].copy()\ndf2['source'] = 'coop_2008_09'\ndf3 = Table_3[['Borough', 'BBL']].copy()\ndf3['source'] = 'coop_2010_11'\ndf4 = Table_4[['Borough', 'BBL']].copy()\ndf4['source'] = 'condo_2008_09'\ndf5 = Table_5[['Borough', 'BBL']].copy()\ndf5['source'] = 'condo_2011_12'\ncombined = pd.concat([df0, df1, df2, df3, df4, df5], ignore_index=True)\nagg_counts = (\n    combined\n    .groupby(['Borough', 'source'], as_index=False)\n    .agg(property_count=('BBL', 'count'))\n)\nsources = ['coop_2010_11', 'coop_2008_09', 'condo_2008_09', 'condo_2011_12']\nfull_grid = (\n    pd.MultiIndex.from_product([[1, 2, 3, 4, 5], sources], names=['Borough', 'source'])\n    .to_frame(index=False)\n)\nresult = (\n    full_grid\n    .merge(agg_counts, on=['Borough', 'source'], how='left')\n    .fillna({'property_count': 0})\n    .astype({'property_count': int})\n)\nresult",
+      "reference_result": [
+        {
+          "Borough": 1,
+          "source": "coop_2010_11",
+          "property_count": 806
+        },
+        {
+          "Borough": 1,
+          "source": "coop_2008_09",
+          "property_count": 0
+        },
+        {
+          "Borough": 1,
+          "source": "condo_2008_09",
+          "property_count": 445
+        },
+        {
+          "Borough": 1,
+          "source": "condo_2011_12",
+          "property_count": 0
+        },
+        {
+          "Borough": 2,
+          "source": "coop_2010_11",
+          "property_count": 0
+        },
+        {
+          "Borough": 2,
+          "source": "coop_2008_09",
+          "property_count": 0
+        },
+        {
+          "Borough": 2,
+          "source": "condo_2008_09",
+          "property_count": 0
+        },
+        {
+          "Borough": 2,
+          "source": "condo_2011_12",
+          "property_count": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough and source (property type + fiscal year) with a column 'property_count' showing how many properties are listed for that combination."
+    },
+    {
+      "id": "d14cd13e",
+      "question": "How do average class size and total number of classes differ across program types within each borough for the 2009‑2010 school year?",
+      "keywords": [
+        "average",
+        "class",
+        "size",
+        "program",
+        "type",
+        "borough",
+        "2009-2010",
+        "NYC"
+      ],
+      "relevant_table_ids": [
+        "d3ge-anaz"
+      ],
+      "table_aliases": {
+        "Table_0": "d3ge-anaz"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .dropna(subset=['AVERAGE CLASS SIZE', 'NUMBER OF CLASSES'])\n    .groupby(['BORO', 'PROGRAM TYPE'], as_index=False)\n    .agg(\n        avg_class_size=('AVERAGE CLASS SIZE', 'mean'),\n        total_classes=('NUMBER OF CLASSES', 'sum')\n    )\n    .sort_values(by='avg_class_size', ascending=False)\n)",
+      "reference_result": [
+        {
+          "BORO": "M",
+          "PROGRAM TYPE": "CTT",
+          "avg_class_size": 24.2759472817,
+          "total_classes": 1166.0
+        },
+        {
+          "BORO": "M",
+          "PROGRAM TYPE": "G&T",
+          "avg_class_size": 24.2306122449,
+          "total_classes": 118.0
+        },
+        {
+          "BORO": "M",
+          "PROGRAM TYPE": "GEN ED",
+          "avg_class_size": 23.8907169118,
+          "total_classes": 5302.0
+        },
+        {
+          "BORO": "M",
+          "PROGRAM TYPE": "SPEC ED",
+          "avg_class_size": 11.1036231884,
+          "total_classes": 220.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough and program type showing the average class size and total number of classes for 2009‑2010."
+    },
+    {
+      "id": "7ec716b1",
+      "question": "In each borough, how many job filings were submitted by each professional title that involved roof work, and how many involved cellar work?",
+      "keywords": [
+        "borough",
+        "professional",
+        "title",
+        "roof",
+        "cellar",
+        "filings"
+      ],
+      "relevant_table_ids": [
+        "w9ak-ipjd"
+      ],
+      "table_aliases": {
+        "Table_0": "w9ak-ipjd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0 = Table_0.copy()\nTable_0['has_roof'] = Table_0['Work on Floor'].str.contains('Roof', na=False)\nTable_0['has_cellar'] = Table_0['Work on Floor'].str.contains('Cellar', na=False)\nresult = (\n    Table_0.groupby(['Borough', 'Applicant Professional Title'], as_index=False)\n        .agg(\n            total_filings=('Job Filing Number', 'count'),\n            roof_filings=('has_roof', 'sum'),\n            cellar_filings=('has_cellar', 'sum')\n        )\n        .sort_values('total_filings', ascending=False)\n)\nresult",
+      "reference_result": [
+        {
+          "Borough": "Manhattan",
+          "Applicant Professional Title": "PE",
+          "total_filings": 486,
+          "roof_filings": 77,
+          "cellar_filings": 108
+        },
+        {
+          "Borough": "Brooklyn",
+          "Applicant Professional Title": "PE",
+          "total_filings": 340,
+          "roof_filings": 85,
+          "cellar_filings": 119
+        },
+        {
+          "Borough": "Manhattan",
+          "Applicant Professional Title": "RA",
+          "total_filings": 279,
+          "roof_filings": 15,
+          "cellar_filings": 26
+        },
+        {
+          "Borough": "Queens",
+          "Applicant Professional Title": "PE",
+          "total_filings": 240,
+          "roof_filings": 41,
+          "cellar_filings": 70
+        },
+        {
+          "Borough": "Brooklyn",
+          "Applicant Professional Title": "RA",
+          "total_filings": 179,
+          "roof_filings": 14,
+          "cellar_filings": 36
+        },
+        {
+          "Borough": "Queens",
+          "Applicant Professional Title": "RA",
+          "total_filings": 144,
+          "roof_filings": 14,
+          "cellar_filings": 36
+        },
+        {
+          "Borough": "Bronx",
+          "Applicant Professional Title": "PE",
+          "total_filings": 133,
+          "roof_filings": 27,
+          "cellar_filings": 26
+        },
+        {
+          "Borough": "Staten Island",
+          "Applicant Professional Title": "RA",
+          "total_filings": 68,
+          "roof_filings": 6,
+          "cellar_filings": 11
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough and professional title showing the total number of filings, the number of filings that involve roof work, and the number that involve cellar work, ordered by total filings descending."
+    },
+    {
+      "id": "1f7cdaab",
+      "question": "How many cooperative and condominium properties are listed in the NYC Department of Finance valuation data for FY 2008‑2009, FY 2010‑2011, and FY 2011‑2012?",
+      "keywords": [
+        "cooperative",
+        "condominium",
+        "NYC",
+        "Department",
+        "Finance",
+        "FY",
+        "2008‑2009",
+        "2010‑2011",
+        "2011‑2012"
+      ],
+      "relevant_table_ids": [
+        "f42p-xqaa",
+        "r4s5-tb2g",
+        "62mr-ukqs",
+        "jxyc-rxiv",
+        "956m-xy24",
+        "tkdy-59zg"
+      ],
+      "table_aliases": {
+        "Table_0": "f42p-xqaa",
+        "Table_1": "r4s5-tb2g",
+        "Table_2": "62mr-ukqs",
+        "Table_3": "jxyc-rxiv",
+        "Table_4": "956m-xy24",
+        "Table_5": "tkdy-59zg"
+      },
+      "engine": "PANDAS",
+      "reference_code": "union_df = pd.concat([\n    Table_0[['BBL']],\n    Table_1[['BBL']],\n    Table_2[['BBL']],\n    Table_3[['BBL']],\n    Table_4[['BBL']],\n    Table_5[['BBL']]\n], ignore_index=True)\nunion_df['BBL'] = union_df['BBL'].replace({',': ''}, regex=True)\nunion_df['BBL'] = pd.to_numeric(union_df['BBL'], errors='coerce')\nunion_df = union_df.dropna(subset=['BBL'])\ntotal_properties = union_df.drop_duplicates().shape[0]",
+      "reference_result": [
+        {
+          "result": 2558
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the total number of cooperative and condominium property records across the FY 2008‑2009, FY 2010‑2011, and FY 2011‑2012 valuation datasets."
+    },
+    {
+      "id": "cc118c46",
+      "question": "How many cafeteria inspections did the NYC Department of Health conduct in 2018‑2019 for each violation code in each borough, and how many different schools were inspected for each code? Show the top three borough‑code combinations by inspection count.",
+      "keywords": [
+        "NYC",
+        "DOHMH",
+        "inspection",
+        "borough",
+        "code",
+        "school",
+        "top"
+      ],
+      "relevant_table_ids": [
+        "9hxz-c2kj"
+      ],
+      "table_aliases": {
+        "Table_0": "9hxz-c2kj"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0['has_mice'] = Table_0['Description'].str.contains('mice', case=False, na=False)\nresult = (\n    Table_0\n    .groupby(['Borough', 'Code'], as_index=False)\n    .agg(\n        inspection_count=('Record ID', 'count'),\n        distinct_schools=('SchoolName', 'nunique')\n    )\n    .sort_values('inspection_count', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "Borough": "Brooklyn",
+          "Code": "10F",
+          "inspection_count": 195,
+          "distinct_schools": 168
+        },
+        {
+          "Borough": "Queens",
+          "Code": "10F",
+          "inspection_count": 104,
+          "distinct_schools": 90
+        },
+        {
+          "Borough": "Brooklyn",
+          "Code": "08A",
+          "inspection_count": 93,
+          "distinct_schools": 84
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each showing a borough, a violation code, the total number of inspections for that code in the borough during 2018‑2019, and the number of distinct schools inspected for that code, ordered by inspection count descending."
+    },
+    {
+      "id": "0acc9a83",
+      "question": "Using the NYC Department of Finance’s comparable rental‑income condo valuation data for fiscal years 2008‑2009, 2009‑2010, and 2011‑2012, how many condo units are there in each borough and what is the average latitude of those condos?",
+      "keywords": [
+        "condominium",
+        "NYC",
+        "Finance",
+        "rental",
+        "borough",
+        "count",
+        "average",
+        "latitude",
+        "2008",
+        "2009"
+      ],
+      "relevant_table_ids": [
+        "w6yt-hctp",
+        "rmv8-86p4",
+        "3qfc-4tta"
+      ],
+      "table_aliases": {
+        "Table_0": "w6yt-hctp",
+        "Table_1": "rmv8-86p4",
+        "Table_2": "3qfc-4tta"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\ndf0 = Table_0[['Borough', 'BBL', 'Latitude']].copy()\ndf1 = Table_1[['Borough', 'BBL', 'Latitude']].copy()\ndf2 = Table_2[['Borough', 'BBL', 'Latitude']].copy()\nfor df in (df0, df1, df2):\n    df['Latitude'] = pd.to_numeric(df['Latitude'], errors='coerce')\ncombined = pd.concat([df0, df1, df2], ignore_index=True)\nresult = (\n    combined.groupby('Borough', as_index=False)\n    .agg(total_units=('BBL', 'count'), avg_latitude=('Latitude', 'mean'))\n)\nresult",
+      "reference_result": [
+        {
+          "Borough": 2,
+          "total_units": 68,
+          "avg_latitude": 40.8505203188
+        },
+        {
+          "Borough": 3,
+          "total_units": 754,
+          "avg_latitude": 40.673237643
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough showing the total number of condo units (count of BBL) and the average latitude of those units."
+    },
+    {
+      "id": "4f369d63",
+      "question": "What was the total fare collected by green taxis on September 1, 2022?",
+      "keywords": [
+        "total",
+        "fare",
+        "green",
+        "taxi",
+        "September",
+        "2022"
+      ],
+      "relevant_table_ids": [
+        "8nfn-ifaj"
+      ],
+      "table_aliases": {
+        "Table_0": "8nfn-ifaj"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0[Table_0['lpep_pickup_datetime'].str.contains('09/01/2022')]['fare_amount'].sum()",
+      "reference_result": [
+        {
+          "result": 32075.19
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total fare amount in US dollars for all green‑taxi trips that started on September 1 2022."
+    },
+    {
+      "id": "2db669b3",
+      "question": "In the 2014‑15 school year, how many NYC Department of Education high schools are there in each borough and how many different building codes do they use?",
+      "keywords": [
+        "NYC",
+        "DOE",
+        "high",
+        "schools",
+        "borough",
+        "building",
+        "code"
+      ],
+      "relevant_table_ids": [
+        "n3p6-zve2"
+      ],
+      "table_aliases": {
+        "Table_0": "n3p6-zve2"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0.groupby('borough').agg(school_count=('dbn', 'nunique'), building_code_count=('building_code', 'nunique')).reset_index()",
+      "reference_result": [
+        {
+          "borough": "Bronx",
+          "school_count": 118,
+          "building_code_count": 54
+        },
+        {
+          "borough": "Brooklyn",
+          "school_count": 121,
+          "building_code_count": 71
+        },
+        {
+          "borough": "Manhattan",
+          "school_count": 106,
+          "building_code_count": 64
+        },
+        {
+          "borough": "Queens",
+          "school_count": 80,
+          "building_code_count": 58
+        },
+        {
+          "borough": "Staten Island",
+          "school_count": 10,
+          "building_code_count": 9
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough showing the number of high schools and the number of distinct building codes used (order not required)."
+    },
+    {
+      "id": "08c20caa",
+      "question": "In 2018, which five NYC boroughs received the most waste tonnage from DSNY transfer stations, and what was the average price per ton they paid? Please include each borough's code as defined by the DSNY garage program.",
+      "keywords": [
+        "borough",
+        "waste",
+        "tonnage",
+        "2018",
+        "price",
+        "DSNY",
+        "transfer",
+        "garage"
+      ],
+      "relevant_table_ids": [
+        "6r9j-qrwz",
+        "r6e8-2fwe",
+        "ufxk-pq9j",
+        "xw3j-2yxf"
+      ],
+      "table_aliases": {
+        "Table_0": "6r9j-qrwz",
+        "Table_1": "r6e8-2fwe",
+        "Table_2": "ufxk-pq9j",
+        "Table_3": "xw3j-2yxf"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\n_df0 = Table_0.copy()\n_df0['Facility Actual Tons Delivered Per Year'] = pd.to_numeric(\n    _df0['Facility Actual Tons Delivered Per Year'].str.replace(',', '', regex=False),\n    errors='coerce'\n)\n_df0['Facility Price Per Ton ($)'] = pd.to_numeric(\n    _df0['Facility Price Per Ton ($)'].str.replace(',', '', regex=False),\n    errors='coerce'\n)\n_df1 = _df0.merge(\n    Table_2,\n    left_on='Facility  Type',\n    right_on='Type',\n    how='inner',\n    suffixes=('', '_t2')\n)\n_df2 = _df1.merge(\n    Table_1,\n    left_on='Facility Name',\n    right_on='Name',\n    how='inner',\n    suffixes=('', '_t1')\n)\n_df2[['Zipcode', 'Borough/City']] = _df2[['Zipcode', 'Borough/City']].astype(str)\nTable_3[['ZIP', 'CITY']] = Table_3[['ZIP', 'CITY']].astype(str)\n_df3 = _df2.merge(\n    Table_3,\n    left_on=['Zipcode', 'Borough/City'],\n    right_on=['ZIP', 'CITY'],\n    how='left',\n    suffixes=('', '_g')\n)\n_filtered = _df3[(\n    _df3['Calendar Year'] == 2018\n) & (\n    _df3['Facility  Type'] == 'TS'\n)]\n_agg = (\n    _filtered.groupby(['BORO', 'CITY'], as_index=False)\n    .agg(\n        total_tons=pd.NamedAgg(column='Facility Actual Tons Delivered Per Year', aggfunc='sum'),\n        avg_price_per_ton=pd.NamedAgg(column='Facility Price Per Ton ($)', aggfunc='mean')\n    )\n)\n_all_boro = pd.DataFrame({'BORO': [1, 2, 3, 4, 5]})\n_agg = _all_boro.merge(_agg, on='BORO', how='left')\n_agg['total_tons'] = _agg['total_tons'].fillna(0)\nresult = _agg.sort_values(by='total_tons', ascending=False).head(5)\nresult",
+      "reference_result": [
+        {
+          "BORO": 2,
+          "CITY": "Bronx",
+          "total_tons": 7341402.65,
+          "avg_price_per_ton": 113.5485714286
+        },
+        {
+          "BORO": 5,
+          "CITY": "Staten Island",
+          "total_tons": 4404841.59,
+          "avg_price_per_ton": 113.5485714286
+        },
+        {
+          "BORO": 3,
+          "CITY": "Brooklyn",
+          "total_tons": 2936561.06,
+          "avg_price_per_ton": 113.5485714286
+        },
+        {
+          "BORO": 1,
+          "CITY": null,
+          "total_tons": 0.0,
+          "avg_price_per_ton": null
+        },
+        {
+          "BORO": 4,
+          "CITY": null,
+          "total_tons": 0.0,
+          "avg_price_per_ton": null
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Five rows, one per borough, showing the borough name, its borough code (as defined by the DSNY garage program), the total waste tons delivered by DSNY transfer stations in 2018, and the average price per ton, sorted by total tons descending."
+    },
+    {
+      "id": "e5e17159",
+      "question": "How many condominium units are listed in the NYC Department of Finance rental‑income datasets for Brooklyn (FY 2008‑2009 and FY 2009‑2010) and the Bronx (FY 2011‑2012) combined?",
+      "keywords": [
+        "condominium",
+        "Brooklyn",
+        "Bronx",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "w6yt-hctp",
+        "rmv8-86p4",
+        "3qfc-4tta"
+      ],
+      "table_aliases": {
+        "Table_0": "w6yt-hctp",
+        "Table_1": "rmv8-86p4",
+        "Table_2": "3qfc-4tta"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nunion_df = pd.concat([\n    Table_0[['Borough', 'Postcode', 'BBL', 'Latitude']],\n    Table_1[['Borough', 'Postcode', 'BBL', 'Latitude']],\n    Table_2[['Borough', 'Postcode', 'BBL', 'Latitude']]\n], ignore_index=True)\nunion_df = union_df.drop_duplicates(subset=['Borough', 'Postcode', 'BBL', 'Latitude'])\ntotal_units = union_df['BBL'].count()",
+      "reference_result": [
+        {
+          "0": 505
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total count of condominium units across the three datasets."
+    },
+    {
+      "id": "8cf5d5e9",
+      "question": "How many office buildings are there in Manhattan according to the 2020 Local Law 84 data?",
+      "keywords": [
+        "office",
+        "Manhattan",
+        "buildings",
+        "2020"
+      ],
+      "relevant_table_ids": [
+        "usc3-8zwd"
+      ],
+      "table_aliases": {
+        "Table_0": "usc3-8zwd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "filtered = Table_0[(Table_0['City'].str.lower() == 'manhattan') & (Table_0['Primary Property Type - Self Selected'].str.lower() == 'office')]\nresult = filtered['Property Id'].nunique()",
+      "reference_result": [
+        {
+          "result": 4
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the total number of properties classified as Office located in Manhattan for the year 2020."
+    },
+    {
+      "id": "6e5c8eb0",
+      "question": "How many active pawnbroker licenses are listed by the NYC Department of Consumer and Worker Protection?",
+      "keywords": [
+        "active",
+        "pawnbroker",
+        "license"
+      ],
+      "relevant_table_ids": [
+        "w7w3-xahh"
+      ],
+      "table_aliases": {
+        "Table_0": "w7w3-xahh"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0[(Table_0['License Status'] == 'Active') & (Table_0['Business Category'] == 'Pawnbroker')]['License Number'].count()\n)",
+      "reference_result": [
+        {
+          "0": 4
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total count of active pawnbroker licenses in the dataset."
+    },
+    {
+      "id": "43e67b27",
+      "question": "How many cooperative properties are there in each postcode and what is the average latitude of those properties for the FY 2010‑2011 rental valuation?",
+      "keywords": [
+        "cooperative",
+        "postcode",
+        "count",
+        "average",
+        "latitude"
+      ],
+      "relevant_table_ids": [
+        "f42p-xqaa",
+        "r4s5-tb2g"
+      ],
+      "table_aliases": {
+        "Table_0": "f42p-xqaa",
+        "Table_1": "r4s5-tb2g"
+      },
+      "engine": "PANDAS",
+      "reference_code": "union_df = pd.concat([\n    Table_0[['Postcode', 'Latitude']],\n    Table_1[['Postcode', 'Latitude']]\n], ignore_index=True)\nunion_df = union_df.dropna(subset=['Postcode'])\nresult = (\n    union_df\n    .groupby('Postcode', as_index=False)\n    .agg(property_count=('Postcode', 'count'), avg_latitude=('Latitude', 'mean'))\n)",
+      "reference_result": [
+        {
+          "Postcode": 11004.0,
+          "property_count": 16,
+          "avg_latitude": 40.750325
+        },
+        {
+          "Postcode": 11005.0,
+          "property_count": 1,
+          "avg_latitude": 40.757859
+        },
+        {
+          "Postcode": 11040.0,
+          "property_count": 4,
+          "avg_latitude": 40.74367775
+        },
+        {
+          "Postcode": 11101.0,
+          "property_count": 1,
+          "avg_latitude": 40.754551
+        },
+        {
+          "Postcode": 11102.0,
+          "property_count": 3,
+          "avg_latitude": 40.7684333333
+        },
+        {
+          "Postcode": 11103.0,
+          "property_count": 1,
+          "avg_latitude": 40.759238
+        },
+        {
+          "Postcode": 11104.0,
+          "property_count": 5,
+          "avg_latitude": 40.7425998
+        },
+        {
+          "Postcode": 11106.0,
+          "property_count": 6,
+          "avg_latitude": 40.7649625
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per postcode, showing the total number of cooperative properties and the average latitude of those properties in that postcode."
+    },
+    {
+      "id": "2967b396",
+      "question": "According to the NYC Department of Finance rental valuation data, which Neighborhood Tabulation Areas (NTAs) have cooperative properties in the Bronx (FY 2011‑2012) and in Brooklyn (FY 2008‑2009 and FY 2010‑2011)?",
+      "keywords": [
+        "NTA",
+        "Bronx",
+        "Brooklyn",
+        "cooperative",
+        "rental",
+        "Finance",
+        "FY2011-2012",
+        "FY2008-2009",
+        "FY2010-2011"
+      ],
+      "relevant_table_ids": [
+        "yrf7-4wry",
+        "62mr-ukqs",
+        "f42p-xqaa"
+      ],
+      "table_aliases": {
+        "Table_0": "yrf7-4wry",
+        "Table_1": "62mr-ukqs",
+        "Table_2": "f42p-xqaa"
+      },
+      "engine": "PANDAS",
+      "reference_code": "cols = [\n    'Borough',\n    'Postcode',\n    'Latitude',\n    'Longitude',\n    'Community Board',\n    'Council District',\n    'Census Tract',\n    'BIN',\n    'BBL',\n    'NTA'\n]\ndf0 = Table_0[cols]\ndf1 = Table_1.rename(columns={'Council District ': 'Council District'})[cols]\ndf2 = Table_2.rename(columns={'Council District ': 'Council District'})[cols]\ncombined = pd.concat([df0, df1, df2], ignore_index=True)\nresult_ntas = combined['NTA'].dropna().unique().tolist()",
+      "reference_result": [
+        {
+          "0": "Co-op City                                                                 "
+        },
+        {
+          "0": "Pelham Parkway                                                             "
+        },
+        {
+          "0": "Williamsbridge-Olinville                                                   "
+        },
+        {
+          "0": "Parkchester                                                                "
+        },
+        {
+          "0": "Soundview-Bruckner                                                         "
+        },
+        {
+          "0": "Spuyten Duyvil-Kingsbridge                                                 "
+        },
+        {
+          "0": "Bronxdale                                                                  "
+        },
+        {
+          "0": "Hunts Point                                                                "
+        }
+      ],
+      "expected_result_type": "list",
+      "expected_result_description": "A list of unique Neighborhood Tabulation Area (NTA) names that appear in the cooperative property records for the Bronx (FY 2011‑2012) and Brooklyn (FY 2008‑2009 and FY 2010‑2011)."
+    },
+    {
+      "id": "5dc7fff1",
+      "question": "Which agency got the most street construction permits each year from 2015 to 2018, and what was the latest modification date for that agency’s permits?",
+      "keywords": [
+        "agency",
+        "permit",
+        "street",
+        "construction",
+        "year",
+        "2015",
+        "2018",
+        "latest",
+        "modification"
+      ],
+      "relevant_table_ids": [
+        "cj3v-xdpd"
+      ],
+      "table_aliases": {
+        "Table_0": "cj3v-xdpd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0.assign(\n        CreatedYear=pd.to_datetime(Table_0['CreatedOn']).dt.year,\n        ModifiedOn_dt=pd.to_datetime(Table_0['ModifiedOn'])\n    )\n    .loc[lambda d: d['CreatedYear'].between(2015, 2018)]\n    .groupby(['PermitRelatedAgencyDesc', 'CreatedYear'], as_index=False)\n    .agg(\n        permit_count=('PermitNumber', 'count'),\n        latest_modified=('ModifiedOn_dt', 'max')\n    )\n    .assign(\n        rank_year=lambda d: d.groupby('CreatedYear')['permit_count'].rank(method='first', ascending=False)\n    )\n    .loc[lambda d: d['rank_year'] == 1]\n    .loc[:, ['CreatedYear', 'PermitRelatedAgencyDesc', 'permit_count', 'latest_modified']]\n    .sort_values('CreatedYear')\n)",
+      "reference_result": [
+        {
+          "CreatedYear": 2015,
+          "PermitRelatedAgencyDesc": "DOB",
+          "permit_count": 84,
+          "latest_modified": "2018-07-24T00:05:35.000"
+        },
+        {
+          "CreatedYear": 2016,
+          "PermitRelatedAgencyDesc": "DOB",
+          "permit_count": 523,
+          "latest_modified": "2018-05-20T00:05:42.000"
+        },
+        {
+          "CreatedYear": 2017,
+          "PermitRelatedAgencyDesc": "DOB",
+          "permit_count": 1059,
+          "latest_modified": "2018-03-24T00:05:06.000"
+        },
+        {
+          "CreatedYear": 2018,
+          "PermitRelatedAgencyDesc": "DOB",
+          "permit_count": 23,
+          "latest_modified": "2021-11-25T00:05:14.000"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per year (2015‑2018) showing the agency with the highest number of street construction permits that year and the most recent modification timestamp among that agency’s permits."
+    },
+    {
+      "id": "5aa4e7f3",
+      "question": "What was the total number of juvenile probation cases across all types in September 2016?",
+      "keywords": [
+        "total",
+        "juvenile",
+        "probation",
+        "September",
+        "2016"
+      ],
+      "relevant_table_ids": [
+        "c49b-3kmd"
+      ],
+      "table_aliases": {
+        "Table_0": "c49b-3kmd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "total_cases = Table_0.loc[(Table_0['Month'] == 'September') & (Table_0['Year'] == 2016), 'Supervision Caseload Count'].sum()",
+      "reference_result": [
+        {
+          "0": 1131
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single number representing the sum of all active juvenile probation supervision cases citywide for September 2016."
+    },
+    {
+      "id": "132ede84",
+      "question": "How many building job filings in Manhattan have the status \"LOC Issued\"?",
+      "keywords": [
+        "Manhattan",
+        "LOC",
+        "Issued",
+        "job",
+        "filings"
+      ],
+      "relevant_table_ids": [
+        "w9ak-ipjd"
+      ],
+      "table_aliases": {
+        "Table_0": "w9ak-ipjd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "count = Table_0.loc[(Table_0['Borough'] == 'Manhattan') & (Table_0['Filing Status'] == 'LOC Issued'), 'Job Filing Number'].count()",
+      "reference_result": [
+        {
+          "0": 304
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of job filing records in Manhattan that have a filing status of LOC Issued."
+    },
+    {
+      "id": "8f53009c",
+      "question": "According to the NYC Department of Finance’s cooperative valuation data, what is the average number of total units reported in the 2008‑2009 valuation and how many cooperative properties are listed in the 2011‑2012 valuation for each Bronx neighborhood (NTA)?",
+      "keywords": [
+        "average",
+        "total",
+        "units",
+        "NTA",
+        "Bronx",
+        "valuation"
+      ],
+      "relevant_table_ids": [
+        "yrf7-4wry",
+        "gahm-hu5h"
+      ],
+      "table_aliases": {
+        "Table_0": "yrf7-4wry",
+        "Table_1": "gahm-hu5h"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nTable_1['BRONX – COOPERATIVES COMPARABLE PROPERTIES – Total Units'] = pd.to_numeric(\n    Table_1['BRONX – COOPERATIVES COMPARABLE PROPERTIES – Total Units'], errors='coerce'\n)\navg_units = (\n    Table_1.dropna(subset=['BIN'])\n    .groupby('NTA')\n    .agg(avg_total_units=('BRONX – COOPERATIVES COMPARABLE PROPERTIES – Total Units', 'mean'))\n    .reset_index()\n)\nproperty_counts = (\n    Table_0.dropna(subset=['BIN'])\n    .groupby('NTA')\n    .agg(property_count_2011_2012=('BIN', 'nunique'))\n    .reset_index()\n)\nresult = (\n    property_counts\n    .merge(avg_units, on='NTA', how='left')\n)",
+      "reference_result": [
+        {
+          "NTA": "Bedford Park-Fordham North                                                 ",
+          "property_count_2011_2012": 11,
+          "avg_total_units": 58.6363636364
+        },
+        {
+          "NTA": "Belmont                                                                    ",
+          "property_count_2011_2012": 4,
+          "avg_total_units": 17.0
+        },
+        {
+          "NTA": "Bronxdale                                                                  ",
+          "property_count_2011_2012": 5,
+          "avg_total_units": 134.125
+        },
+        {
+          "NTA": "Claremont-Bathgate                                                         ",
+          "property_count_2011_2012": 1,
+          "avg_total_units": 29.8
+        },
+        {
+          "NTA": "Co-op City                                                                 ",
+          "property_count_2011_2012": 2,
+          "avg_total_units": 208.0
+        },
+        {
+          "NTA": "Crotona Park East                                                          ",
+          "property_count_2011_2012": 2,
+          "avg_total_units": 52.3333333333
+        },
+        {
+          "NTA": "East Concourse-Concourse Village                                           ",
+          "property_count_2011_2012": 5,
+          "avg_total_units": 50.8
+        },
+        {
+          "NTA": "East Tremont                                                               ",
+          "property_count_2011_2012": 15,
+          "avg_total_units": 26.4210526316
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per NTA showing the average total units from the 2008‑2009 valuation and the number of distinct cooperative properties listed in the 2011‑2012 valuation for that neighborhood."
+    },
+    {
+      "id": "bb6c7ebe",
+      "question": "What are the parking rates for the Outerborough zones in each NYC borough?",
+      "keywords": [
+        "outerborough",
+        "rate",
+        "borough"
+      ],
+      "relevant_table_ids": [
+        "f72k-2u3b"
+      ],
+      "table_aliases": {
+        "Table_0": "f72k-2u3b"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = Table_0[Table_0['zone_name'] == 'Outerborough'][['boro_name', 'Rate_Zone']]",
+      "reference_result": [
+        {
+          "boro_name": "Staten Island",
+          "Rate_Zone": "Zone 3 - All Vehicles: $1.50 1st Hour / $2.50 2nd Hour"
+        },
+        {
+          "boro_name": "Bronx",
+          "Rate_Zone": "Zone 3 - All Vehicles: $1.50 1st Hour / $2.50 2nd Hour"
+        },
+        {
+          "boro_name": "Brooklyn",
+          "Rate_Zone": "Zone 3 - All Vehicles: $1.50 1st Hour / $2.50 2nd Hour"
+        },
+        {
+          "boro_name": "Queens",
+          "Rate_Zone": "Zone 3 - All Vehicles: $1.50 1st Hour / $2.50 2nd Hour"
+        },
+        {
+          "boro_name": "Manhattan",
+          "Rate_Zone": "Zone 3 - All Vehicles: $1.50 1st Hour / $2.50 2nd Hour"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough showing the Rate_Zone string for its Outerborough zones."
+    },
+    {
+      "id": "80980e1b",
+      "question": "How much total fare did NYC green taxis collect in each of the years 2017, 2018, and 2022?",
+      "keywords": [
+        "total",
+        "fare",
+        "NYC",
+        "greentaxi",
+        "2017",
+        "2018",
+        "2022"
+      ],
+      "relevant_table_ids": [
+        "8nfn-ifaj",
+        "5gj9-2kzx",
+        "w7fs-fd9i"
+      ],
+      "table_aliases": {
+        "Table_0": "8nfn-ifaj",
+        "Table_1": "5gj9-2kzx",
+        "Table_2": "w7fs-fd9i"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\n_df0 = Table_0.copy()\n_df0['year'] = pd.to_datetime(_df0['lpep_pickup_datetime']).dt.year\n_df1 = Table_1.copy()\n_df1['year'] = pd.to_datetime(_df1['lpep_pickup_datetime']).dt.year\n_df2 = Table_2.copy()\n_df2['year'] = pd.to_datetime(_df2['lpep_pickup_datetime']).dt.year\ncombined = pd.concat([\n    _df0[['year', 'fare_amount']],\n    _df1[['year', 'fare_amount']],\n    _df2[['year', 'fare_amount']]\n], ignore_index=True)\nresult = (\n    combined.groupby('year', as_index=False)['fare_amount']\n    .sum()\n    .rename(columns={'fare_amount': 'total_fare'})\n)",
+      "reference_result": [
+        {
+          "year": 2017,
+          "total_fare": 25768.5
+        },
+        {
+          "year": 2018,
+          "total_fare": 23766.0
+        },
+        {
+          "year": 2022,
+          "total_fare": 32225.19
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per year (2017, 2018, 2022) showing the total fare amount in dollars collected by NYC green taxis that year."
+    },
+    {
+      "id": "f9d67084",
+      "question": "How many SCA school construction inspections were completed in each NYC borough in 2026, and how many different inspection categories were completed in each borough that year?",
+      "keywords": [
+        "inspection",
+        "SCA",
+        "completed",
+        "category",
+        "2026",
+        "borough"
+      ],
+      "relevant_table_ids": [
+        "n4tc-j6kh"
+      ],
+      "table_aliases": {
+        "Table_0": "n4tc-j6kh"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0[(Table_0['Request Status Description'] == 'COMPLETED') & Table_0['Inspection Date'].str.startswith('2026')]\n        .groupby('Borough Name', as_index=False)\n        .agg(\n            completed_count=('Inspection Date', 'count'),\n            distinct_categories=('Inspection Category', 'nunique')\n        )\n)",
+      "reference_result": [
+        {
+          "Borough Name": "BRONX",
+          "completed_count": 223,
+          "distinct_categories": 15
+        },
+        {
+          "Borough Name": "BROOKLYN",
+          "completed_count": 516,
+          "distinct_categories": 15
+        },
+        {
+          "Borough Name": "MANHATTAN",
+          "completed_count": 209,
+          "distinct_categories": 14
+        },
+        {
+          "Borough Name": "QUEENS",
+          "completed_count": 449,
+          "distinct_categories": 15
+        },
+        {
+          "Borough Name": "STATEN ISLAND",
+          "completed_count": 92,
+          "distinct_categories": 13
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough (BROOKLYN, QUEENS, MANHATTAN, BRONX, STATEN ISLAND) showing completed_count (the number of SCA inspections completed in 2026) and distinct_categories (the count of unique inspection categories among those completed inspections)."
+    },
+    {
+      "id": "e9e4195a",
+      "question": "How many public urination summons were issued in Manhattan in 2023?",
+      "keywords": [
+        "public",
+        "urination",
+        "Manhattan",
+        "2023"
+      ],
+      "relevant_table_ids": [
+        "hxbk-grd3"
+      ],
+      "table_aliases": {
+        "Table_0": "hxbk-grd3"
+      },
+      "engine": "PANDAS",
+      "reference_code": "total_summons = (\n    Table_0[\n        (pd.to_datetime(Table_0['OCCUR_DATE'], format='%m/%d/%Y', errors='coerce').dt.year == 2023) &\n        (Table_0['CITY_NM'] == 'MANHATTAN') &\n        (Table_0['LAW_DESC'] == 'PUBLIC URINATION')\n    ]['EVNT_KEY'].nunique()\n)",
+      "reference_result": [
+        {
+          "result": 148
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of public urination summons issued in Manhattan during the calendar year 2023."
+    },
+    {
+      "id": "93035d9d",
+      "question": "How many green taxi trips recorded by the NYC Taxi and Limousine Commission in 2014 and 2022 were longer than 30 miles?",
+      "keywords": [
+        "green",
+        "taxi",
+        "2014",
+        "2022",
+        "long",
+        "trip",
+        "30",
+        "miles",
+        "count",
+        "TLC"
+      ],
+      "relevant_table_ids": [
+        "8nfn-ifaj",
+        "2np7-5jsg"
+      ],
+      "table_aliases": {
+        "Table_0": "8nfn-ifaj",
+        "Table_1": "2np7-5jsg"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df0 = Table_0[['trip_distance', 'lpep_pickup_datetime']].copy()\ndf1 = Table_1.rename(columns={'Trip_distance': 'trip_distance', 'pickup_datetime': 'lpep_pickup_datetime'})[['trip_distance', 'lpep_pickup_datetime']].copy()\ncombined = pd.concat([df0, df1], ignore_index=True)\nfiltered = combined[(combined['trip_distance'] > 30) & (combined['lpep_pickup_datetime'].str.contains('2014') | combined['lpep_pickup_datetime'].str.contains('2022'))]\nresult = filtered.shape[0]",
+      "reference_result": [
+        {
+          "result": 3
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer indicating how many green‑taxi rides recorded by the NYC Taxi and Limousine Commission in 2014 and 2022 covered a distance greater than 30 miles."
+    },
+    {
+      "id": "93006384",
+      "question": "How many Vision Zero events occurred each year and how many flyers were handed out each year?",
+      "keywords": [
+        "Vision",
+        "Zero",
+        "events",
+        "flyers",
+        "year"
+      ],
+      "relevant_table_ids": [
+        "n47m-7kn5",
+        "fcnc-95cn",
+        "gq2c-wem9",
+        "g3iw-w5rt"
+      ],
+      "table_aliases": {
+        "Table_0": "n47m-7kn5",
+        "Table_1": "fcnc-95cn",
+        "Table_2": "gq2c-wem9",
+        "Table_3": "g3iw-w5rt"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\n_df0 = Table_0.assign(Year=2014)\n_df1 = Table_1.assign(Year=pd.to_datetime(Table_1['EventDate']).dt.year)\n_df2 = Table_2.assign(Year=pd.to_datetime(Table_2['Date']).dt.year)\n_df3 = Table_3.assign(Year=pd.to_datetime(Table_3['Date']).dt.year)\n_df3 = _df3.assign(TotalFlyer=pd.to_numeric(_df3['TotalFlyer'].str.replace(',', ''), errors='coerce'))\n_df0 = _df0.assign(TotalFlyer=pd.NA)\n_df1 = _df1.assign(TotalFlyer=pd.NA)\n_df2 = _df2.assign(TotalFlyer=pd.NA)\nunion_df = pd.concat([\n    _df0[['Year', 'X', 'TotalFlyer']],\n    _df1[['Year', 'X', 'TotalFlyer']],\n    _df2[['Year', 'X', 'TotalFlyer']],\n    _df3[['Year', 'X', 'TotalFlyer']]\n], ignore_index=True)\nresult = (\n    union_df\n    .groupby('Year', as_index=False)\n    .agg(EventCount=('X', 'count'), TotalFlyers=('TotalFlyer', 'sum'))\n    .fillna({'TotalFlyers': 0})\n)",
+      "reference_result": [
+        {
+          "Year": 2014.0,
+          "EventCount": 311,
+          "TotalFlyers": 430411
+        },
+        {
+          "Year": 2015.0,
+          "EventCount": 492,
+          "TotalFlyers": 701879
+        },
+        {
+          "Year": 2016.0,
+          "EventCount": 236,
+          "TotalFlyers": 579858
+        },
+        {
+          "Year": 2017.0,
+          "EventCount": 312,
+          "TotalFlyers": 296122
+        },
+        {
+          "Year": 2018.0,
+          "EventCount": 350,
+          "TotalFlyers": 354967
+        },
+        {
+          "Year": 2019.0,
+          "EventCount": 331,
+          "TotalFlyers": 262838
+        },
+        {
+          "Year": 2020.0,
+          "EventCount": 57,
+          "TotalFlyers": 0
+        },
+        {
+          "Year": 2021.0,
+          "EventCount": 110,
+          "TotalFlyers": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per year (2014, 2015, 2019, 2020) with columns: Year, EventCount (total Vision Zero events that year), and TotalFlyers (total flyers distributed that year, zero for years without flyer data)."
+    },
+    {
+      "id": "9c7c6ace",
+      "question": "How many students are enrolled in each NYC Department of Education public school, and on average how many pre‑K half‑day slots do they have, for the 2013‑14 to 2017‑18 school years?",
+      "keywords": [
+        "NYC",
+        "DOE",
+        "enrollment",
+        "pre‑k",
+        "school",
+        "2013-2018"
+      ],
+      "relevant_table_ids": [
+        "s52a-8aq6"
+      ],
+      "table_aliases": {
+        "Table_0": "s52a-8aq6"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .assign(**{'Total Enrollment': pd.to_numeric(Table_0['Total Enrollment'], errors='coerce')})\n    .groupby('School Name', as_index=False)\n    .agg(\n        school_total_enrollment=('Total Enrollment', 'sum'),\n        avg_pre_k_half_day=('Grade PK (Half Day & Full Day)', 'mean')\n    )\n)",
+      "reference_result": [
+        {
+          "School Name": "47 The American Sign Language and English Secondar",
+          "school_total_enrollment": 883.0,
+          "avg_pre_k_half_day": 0.0
+        },
+        {
+          "School Name": "A. Philip Randolph Campus High School",
+          "school_total_enrollment": 0.0,
+          "avg_pre_k_half_day": 0.0
+        },
+        {
+          "School Name": "Academy for Social Action",
+          "school_total_enrollment": 934.0,
+          "avg_pre_k_half_day": 0.0
+        },
+        {
+          "School Name": "Academy for Software Engineering",
+          "school_total_enrollment": 1954.0,
+          "avg_pre_k_half_day": 0.0
+        },
+        {
+          "School Name": "Academy of Applied Mathematics and Technology",
+          "school_total_enrollment": 1508.0,
+          "avg_pre_k_half_day": 0.0
+        },
+        {
+          "School Name": "Academy of Public Relations",
+          "school_total_enrollment": 1530.0,
+          "avg_pre_k_half_day": 0.0
+        },
+        {
+          "School Name": "Alfred E. Smith Career and Technical Education Hig",
+          "school_total_enrollment": 2087.0,
+          "avg_pre_k_half_day": 0.0
+        },
+        {
+          "School Name": "Amistad Dual Language School",
+          "school_total_enrollment": 2109.0,
+          "avg_pre_k_half_day": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per NYC public school showing the total number of enrolled students (sum of Total Enrollment) and the average number of pre‑K half‑day slots (mean of Grade PK) across the 2013‑14 to 2017‑18 school years."
+    },
+    {
+      "id": "d23dbd9c",
+      "question": "According to the NYC Department of Finance’s cooperative property valuation data for fiscal years 2009‑2012, what is the average number of units per cooperative building in the Bronx compared to Brooklyn?",
+      "keywords": [
+        "average",
+        "units",
+        "cooperative",
+        "Bronx",
+        "Brooklyn",
+        "valuation",
+        "FY2009‑2012",
+        "Finance"
+      ],
+      "relevant_table_ids": [
+        "yrf7-4wry",
+        "qbce-2kcu",
+        "3miu-myq2",
+        "f42p-xqaa"
+      ],
+      "table_aliases": {
+        "Table_0": "yrf7-4wry",
+        "Table_1": "qbce-2kcu",
+        "Table_2": "3miu-myq2",
+        "Table_3": "f42p-xqaa"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nbronx_cols = ['Borough', 'BRONX – COOPERATIVES COMPARABLE PROPERTIES – Total Units']\nbrooklyn_cols = ['Borough', 'BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Total Units']\ndf_bronx0 = Table_0[bronx_cols].rename(columns={'BRONX – COOPERATIVES COMPARABLE PROPERTIES – Total Units': 'total_units'})\ndf_bronx1 = Table_1[bronx_cols].rename(columns={'BRONX – COOPERATIVES COMPARABLE PROPERTIES – Total Units': 'total_units'})\ndf_bronx2 = Table_2[bronx_cols].rename(columns={'BRONX – COOPERATIVES COMPARABLE PROPERTIES – Total Units': 'total_units'})\ndf_brooklyn = Table_3[brooklyn_cols].rename(columns={'BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Total Units': 'total_units'})\ncombined = pd.concat([df_bronx0, df_bronx1, df_bronx2, df_brooklyn], ignore_index=True)\ncombined['total_units'] = pd.to_numeric(combined['total_units'], errors='coerce')\nresult = combined.groupby('Borough', as_index=False).agg(\n    avg_units=('total_units', 'mean'),\n    property_count=('total_units', 'count')\n)\nresult",
+      "reference_result": [
+        {
+          "Borough": 2,
+          "avg_units": 84.9791183295,
+          "property_count": 431
+        },
+        {
+          "Borough": 3,
+          "avg_units": 75.760960334,
+          "property_count": 958
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one for the Bronx and one for Brooklyn, each showing the average number of units per cooperative building (column avg_units) and the total count of buildings (column property_count)."
+    },
+    {
+      "id": "6c94c5e5",
+      "question": "Using the NYC Department of Environmental Protection's 2025 catch‑basin inventory, how many catch basins are in each latitude band (rounded to two decimal places) and what is the average projected X coordinate for each band?",
+      "keywords": [
+        "NYC",
+        "DEP",
+        "2025",
+        "catchbasin",
+        "latitude",
+        "average",
+        "projected"
+      ],
+      "relevant_table_ids": [
+        "2c5m-rke8"
+      ],
+      "table_aliases": {
+        "Table_0": "2c5m-rke8"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\n_df = Table_0.copy()\n_df['POINT_X'] = pd.to_numeric(_df['POINT_X'].str.replace(',', ''), errors='coerce')\n_df['LAT_BAND'] = _df['LATITUDE'].round(2)\nresult = (\n    _df.groupby('LAT_BAND')\n        .agg(\n            basin_count=('UNITID', 'count'),\n            avg_point_x=('POINT_X', 'mean')\n        )\n        .reset_index()\n)",
+      "reference_result": [
+        {
+          "LAT_BAND": 40.5,
+          "basin_count": 5,
+          "avg_point_x": 917256.4248798
+        },
+        {
+          "LAT_BAND": 40.51,
+          "basin_count": 12,
+          "avg_point_x": 917154.1469803333
+        },
+        {
+          "LAT_BAND": 40.52,
+          "basin_count": 5,
+          "avg_point_x": 926933.4462090001
+        },
+        {
+          "LAT_BAND": 40.53,
+          "basin_count": 25,
+          "avg_point_x": 934868.6746447199
+        },
+        {
+          "LAT_BAND": 40.54,
+          "basin_count": 27,
+          "avg_point_x": 935985.8745369258
+        },
+        {
+          "LAT_BAND": 40.55,
+          "basin_count": 38,
+          "avg_point_x": 935598.4173111053
+        },
+        {
+          "LAT_BAND": 40.56,
+          "basin_count": 35,
+          "avg_point_x": 940942.4915886858
+        },
+        {
+          "LAT_BAND": 40.57,
+          "basin_count": 38,
+          "avg_point_x": 969779.3970496843
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per latitude band (rounded to two decimals) showing the number of catch basins in that band (basin_count) and the average projected X coordinate (avg_point_x)."
+    },
+    {
+      "id": "645fe32f",
+      "question": "How many cafeteria inspections were conducted in each NYC borough during 2018?",
+      "keywords": [
+        "borough",
+        "inspection",
+        "2018",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "9hxz-c2kj"
+      ],
+      "table_aliases": {
+        "Table_0": "9hxz-c2kj"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0[pd.to_datetime(Table_0['Inspection Date'], format='%m/%d/%Y', errors='coerce').dt.year == 2018]\n        .groupby('Borough', as_index=False)\n        .agg(inspection_count=('Record ID', 'count'))\n)",
+      "reference_result": [
+        {
+          "Borough": "Bronx",
+          "inspection_count": 113
+        },
+        {
+          "Borough": "Brooklyn",
+          "inspection_count": 286
+        },
+        {
+          "Borough": "Manhattan",
+          "inspection_count": 118
+        },
+        {
+          "Borough": "Queens",
+          "inspection_count": 140
+        },
+        {
+          "Borough": "Staten Island",
+          "inspection_count": 23
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough with the total number of cafeteria inspections that occurred there in 2018, sorted in any order."
+    },
+    {
+      "id": "b8f9aa94",
+      "question": "Is there a correlation between the year and the total number of adult probation case closings in NYC?",
+      "keywords": [
+        "probation",
+        "closing",
+        "year",
+        "correlation",
+        "NYC"
+      ],
+      "relevant_table_ids": [
+        "u6p4-fsey"
+      ],
+      "table_aliases": {
+        "Table_0": "u6p4-fsey"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .groupby('Year', as_index=False)['Supervision Closing Count']\n    .sum()\n    .rename(columns={'Supervision Closing Count': 'YearlyTotal'})\n)\ncorrelation = result['Year'].corr(result['YearlyTotal'], method='pearson')",
+      "reference_result": [
+        {
+          "result": -0.4552062172
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single numeric value representing the Pearson correlation coefficient between calendar year and the total number of adult probation case closings for that year in NYC."
+    },
+    {
+      "id": "c59fa7f3",
+      "question": "In the NYC Department of Finance's 2017‑08‑21 property tax balance data, which borough and tax‑class combinations have the highest total transaction counts, and how many properties in each have the smallest lot size of 1?",
+      "keywords": [
+        "NYC",
+        "Department",
+        "Finance",
+        "property",
+        "tax",
+        "balance",
+        "2017",
+        "borough",
+        "class",
+        "transaction"
+      ],
+      "relevant_table_ids": [
+        "paab-n3s5"
+      ],
+      "table_aliases": {
+        "Table_0": "paab-n3s5"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .assign(is_min_lot=lambda df: df['Lot'] == 1)\n    .groupby(['Borough', 'Tax Class'], as_index=False)\n    .agg(\n        total_transactions=('Transaction Records Counter', 'sum'),\n        min_lot_count=('is_min_lot', 'sum')\n    )\n    .sort_values('total_transactions', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "Borough": 1,
+          "Tax Class": "4",
+          "total_transactions": 10373,
+          "min_lot_count": 202
+        },
+        {
+          "Borough": 1,
+          "Tax Class": "2",
+          "total_transactions": 393,
+          "min_lot_count": 0
+        },
+        {
+          "Borough": 1,
+          "Tax Class": "2B",
+          "total_transactions": 179,
+          "min_lot_count": 0
+        },
+        {
+          "Borough": 1,
+          "Tax Class": "2C",
+          "total_transactions": 116,
+          "min_lot_count": 0
+        },
+        {
+          "Borough": 1,
+          "Tax Class": "3",
+          "total_transactions": 105,
+          "min_lot_count": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Five rows, each showing a Borough, Tax Class, the total transaction count for that combination, and the number of properties with a lot size of 1, sorted by total transaction count descending."
+    },
+    {
+      "id": "a4c3e826",
+      "question": "What is the total number of job filings and the average community board number for each borough?",
+      "keywords": [
+        "borough",
+        "filings",
+        "average",
+        "community",
+        "board"
+      ],
+      "relevant_table_ids": [
+        "w9ak-ipjd"
+      ],
+      "table_aliases": {
+        "Table_0": "w9ak-ipjd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0.dropna(subset=['Commmunity - Board'])\n    .groupby('Borough', as_index=False)\n    .agg(\n        total_job_filings=('Job Filing Number', 'count'),\n        average_community_board=('Commmunity - Board', 'mean')\n    )\n)",
+      "reference_result": [
+        {
+          "Borough": "Bronx",
+          "total_job_filings": 195,
+          "average_community_board": 207.3641025641
+        },
+        {
+          "Borough": "Brooklyn",
+          "total_job_filings": 521,
+          "average_community_board": 307.9309021113
+        },
+        {
+          "Borough": "Manhattan",
+          "total_job_filings": 772,
+          "average_community_board": 105.8989637306
+        },
+        {
+          "Borough": "Queens",
+          "total_job_filings": 388,
+          "average_community_board": 407.9690721649
+        },
+        {
+          "Borough": "Staten Island",
+          "total_job_filings": 117,
+          "average_community_board": 502.1111111111
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough showing the total number of job filings and the average Community - Board value for that borough."
+    },
+    {
+      "id": "570e5fee",
+      "question": "How strongly do the average number of zones per permit and the total number of permits relate for the most common permit type and status combos in NYC DOT street permits from 2013 to 2021?",
+      "keywords": [
+        "correlation",
+        "zones",
+        "permits",
+        "type",
+        "status",
+        "NYC",
+        "DOT",
+        "street",
+        "2013",
+        "2021"
+      ],
+      "relevant_table_ids": [
+        "c9sj-fmsg"
+      ],
+      "table_aliases": {
+        "Table_0": "c9sj-fmsg"
+      },
+      "engine": "PANDAS",
+      "reference_code": "corr = (\n    Table_0.dropna(subset=['PermitNumberOfZones'])\n    .groupby(['PermitTypeDesc', 'PermitStatusShortDesc'])\n    .agg(avg_zones=('PermitNumberOfZones', 'mean'),\n         permit_count=('PermitNumber', 'count'))\n    .reset_index()\n    .sort_values(by='permit_count', ascending=False)\n    .head(20)[['avg_zones', 'permit_count']]\n    .corr(method='pearson')\n    .iloc[0, 1]\n)",
+      "reference_result": [
+        {
+          "result": -0.1288722616
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single Pearson correlation coefficient (range -1 to 1) measuring the linear relationship between the average number of zones per permit and the total permit count across the top 20 most common permit type and status groups (2013‑2021)."
+    },
+    {
+      "id": "4c8da76b",
+      "question": "According to the 2023 NYC Department of Transportation pedestrian plaza data, how many plazas are there in each borough and how many different partner organizations support them?",
+      "keywords": [
+        "DOT",
+        "2023",
+        "plaza",
+        "borough",
+        "partner"
+      ],
+      "relevant_table_ids": [
+        "k5k6-6jex"
+      ],
+      "table_aliases": {
+        "Table_0": "k5k6-6jex"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0.groupby('BoroName')\n        .agg(plaza_count=('OBJECTID', 'nunique'),\n             partner_count=('Partner', 'nunique'))\n        .reset_index()\n)",
+      "reference_result": [
+        {
+          "BoroName": "Bronx",
+          "plaza_count": 9,
+          "partner_count": 6
+        },
+        {
+          "BoroName": "Brooklyn",
+          "plaza_count": 28,
+          "partner_count": 17
+        },
+        {
+          "BoroName": "Brooklyn,Queens",
+          "plaza_count": 2,
+          "partner_count": 1
+        },
+        {
+          "BoroName": "Manhattan",
+          "plaza_count": 36,
+          "partner_count": 34
+        },
+        {
+          "BoroName": "Queens",
+          "plaza_count": 17,
+          "partner_count": 14
+        },
+        {
+          "BoroName": "Staten Island",
+          "plaza_count": 1,
+          "partner_count": 1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough with columns: borough name, total number of plazas (plaza_count), and number of distinct partner organizations (partner_count)."
+    },
+    {
+      "id": "0029b2cc",
+      "question": "According to the NYC Department of Finance’s cooperative property valuation data for fiscal years 2009‑2012, which neighborhoods in the Bronx and Brooklyn have the most cooperative properties, and which five rank highest?",
+      "keywords": [
+        "cooperative",
+        "Bronx",
+        "Brooklyn",
+        "NYC",
+        "Finance",
+        "valuation",
+        "FY2009",
+        "FY2010",
+        "FY2011",
+        "FY2012"
+      ],
+      "relevant_table_ids": [
+        "yrf7-4wry",
+        "qbce-2kcu",
+        "3miu-myq2",
+        "f42p-xqaa"
+      ],
+      "table_aliases": {
+        "Table_0": "yrf7-4wry",
+        "Table_1": "qbce-2kcu",
+        "Table_2": "3miu-myq2",
+        "Table_3": "f42p-xqaa"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nall_df = pd.concat([\n    Table_0[['NTA', 'Borough', 'BBL']],\n    Table_1[['NTA', 'Borough', 'BBL']],\n    Table_2[['NTA', 'Borough', 'BBL']],\n    Table_3[['NTA', 'Borough', 'BBL']]\n], ignore_index=True)\nagg_df = (\n    all_df\n    .groupby(['NTA', 'Borough'], as_index=False)\n    .agg(\n        property_count=('BBL', 'size'),\n        unique_buildings=('BBL', 'nunique')\n    )\n)\nagg_df = agg_df.sort_values('property_count', ascending=False)\nagg_df['rank'] = agg_df['property_count'].rank(method='dense', ascending=False).astype(int)\nresult = agg_df.head(5)",
+      "reference_result": [
+        {
+          "NTA": "Spuyten Duyvil-Kingsbridge                                                 ",
+          "Borough": 2,
+          "property_count": 131,
+          "unique_buildings": 49,
+          "rank": 1
+        },
+        {
+          "NTA": "North Riverdale-Fieldston-Riverdale                                        ",
+          "Borough": 2,
+          "property_count": 126,
+          "unique_buildings": 46,
+          "rank": 2
+        },
+        {
+          "NTA": "Brooklyn Heights-Cobble Hill                                               ",
+          "Borough": 3,
+          "property_count": 80,
+          "unique_buildings": 80,
+          "rank": 3
+        },
+        {
+          "NTA": "Bay Ridge                                                                  ",
+          "Borough": 3,
+          "property_count": 65,
+          "unique_buildings": 65,
+          "rank": 4
+        },
+        {
+          "NTA": "East Tremont                                                               ",
+          "Borough": 2,
+          "property_count": 56,
+          "unique_buildings": 19,
+          "rank": 5
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with up to five rows, each row showing the neighborhood (NTA), its borough, the total number of cooperative property records, the count of unique cooperative buildings (unique BBL), and the rank (1 = most properties). Sorted by rank ascending."
+    },
+    {
+      "id": "d926a487",
+      "question": "How many Manhattan tax lots have an air‑quality environmental designation?",
+      "keywords": [
+        "Manhattan",
+        "air",
+        "quality",
+        "taxlot"
+      ],
+      "relevant_table_ids": [
+        "mzjp-98aw"
+      ],
+      "table_aliases": {
+        "Table_0": "mzjp-98aw"
+      },
+      "engine": "PANDAS",
+      "reference_code": "count = Table_0.loc[(Table_0['BOROCODE'] == 1) & Table_0['DESCRIPTIO'].str.contains('Air Quality', na=False)].shape[0]",
+      "reference_result": [
+        {
+          "result": 809
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of tax‑lot records in borough code 1 (Manhattan) whose DESCRIPTIO field mentions “Air Quality”."
+    },
+    {
+      "id": "ddab0b8f",
+      "question": "How many cooperative housing properties are listed by the NYC Department of Finance across the Bronx and Brooklyn in its FY 2009‑2010, FY 2010‑2011, and FY 2011‑2012 valuation reports?",
+      "keywords": [
+        "cooperative",
+        "housing",
+        "Bronx",
+        "Brooklyn",
+        "NYC",
+        "Finance",
+        "valuation",
+        "FY2009-2010",
+        "FY2010-2011",
+        "FY2011-2012"
+      ],
+      "relevant_table_ids": [
+        "yrf7-4wry",
+        "3miu-myq2",
+        "f42p-xqaa",
+        "tyfh-9h2y",
+        "irhv-jqz7"
+      ],
+      "table_aliases": {
+        "Table_0": "yrf7-4wry",
+        "Table_1": "3miu-myq2",
+        "Table_2": "f42p-xqaa",
+        "Table_3": "tyfh-9h2y",
+        "Table_4": "irhv-jqz7"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\n_df2 = Table_2.rename(columns={'BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Boro-Block-Lot': 'BRONX – COOPERATIVES COMPARABLE PROPERTIES – Boro-Block-Lot'})\n_df3 = Table_3.rename(columns={'BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Boro-Block-Lot': 'BRONX – COOPERATIVES COMPARABLE PROPERTIES – Boro-Block-Lot'})\n_df4 = Table_4.rename(columns={'BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Boro-Block-Lot': 'BRONX – COOPERATIVES COMPARABLE PROPERTIES – Boro-Block-Lot'})\ncombined = pd.concat([Table_0, Table_1, _df2, _df3, _df4], ignore_index=True)\ntotal_cooperative_properties = combined['BRONX – COOPERATIVES COMPARABLE PROPERTIES – Boro-Block-Lot'].notna().sum()",
+      "reference_result": [
+        {
+          "0": 3198
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the total number of cooperative housing property records across the Bronx and Brooklyn in the NYC Department of Finance valuation datasets for FY 2009‑2010, FY 2010‑2011, and FY 2011‑2012."
+    },
+    {
+      "id": "06f8c8dd",
+      "question": "How many Manhattan buildings have earned the WiredNYC Platinum certification?",
+      "keywords": [
+        "many",
+        "Manhattan",
+        "WiredNYC",
+        "Platinum",
+        "certification",
+        "buildings"
+      ],
+      "relevant_table_ids": [
+        "37it-gmcp"
+      ],
+      "table_aliases": {
+        "Table_0": "37it-gmcp"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0[Table_0['Certification Class'] == 'Platinum'].shape[0]",
+      "reference_result": [
+        {
+          "result": 25
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the total count of Manhattan buildings that have earned WiredNYC Platinum certification."
+    },
+    {
+      "id": "162b3106",
+      "question": "For each NYC borough, how many REACH doctors work in a zip code that also has an HIV testing site, and how many NYC Condom Availability Program locations share the same address as those testing sites?",
+      "keywords": [
+        "borough",
+        "REACH",
+        "doctor",
+        "HIV",
+        "testing",
+        "condom",
+        "distribution"
+      ],
+      "relevant_table_ids": [
+        "7btz-mnc8",
+        "72ss-25qh",
+        "4kpn-sezh"
+      ],
+      "table_aliases": {
+        "Table_0": "7btz-mnc8",
+        "Table_1": "72ss-25qh",
+        "Table_2": "4kpn-sezh"
+      },
+      "engine": "PANDAS",
+      "reference_code": "doctors_agg = (\n    Table_0\n    .assign(zip_lc=lambda df: df['Practice Zip Code'].str.lower())\n    .merge(\n        Table_1[['Zip Code']]\n        .drop_duplicates()\n        .assign(zip_lc=lambda df: df['Zip Code'].str.lower()),\n        left_on='zip_lc',\n        right_on='zip_lc',\n        how='inner',\n        suffixes=('', '_test')\n    )\n    .groupby('Practice Borough')\n    .agg(doctors=('Provider Last Name', lambda x: x.nunique()))\n    .reset_index()\n)\ncondoms_agg = (\n    Table_1\n    .assign(addr_lc=lambda df: df['Address'].str.lower())\n    .merge(\n        Table_2[['Address', 'Facility PK', 'Borough']]\n        .assign(addr_lc=lambda df: df['Address'].str.lower()),\n        left_on='addr_lc',\n        right_on='addr_lc',\n        how='inner',\n        suffixes=('_test', '_condom')\n    )\n    .groupby('Borough_test')\n    .agg(condom_locations=('Facility PK', lambda x: x.nunique()))\n    .reset_index()\n)\nresult = (\n    doctors_agg\n    .merge(\n        condoms_agg,\n        left_on='Practice Borough',\n        right_on='Borough_test',\n        how='outer'\n    )\n    .rename(columns={'Practice Borough': 'Borough'})\n    .drop(columns=['Borough_test'])\n    .fillna({'doctors': 0, 'condom_locations': 0})\n)",
+      "reference_result": [
+        {
+          "Borough": "Bronx",
+          "doctors": 267,
+          "condom_locations": 0
+        },
+        {
+          "Borough": "Brooklyn",
+          "doctors": 418,
+          "condom_locations": 0
+        },
+        {
+          "Borough": "Manhattan",
+          "doctors": 403,
+          "condom_locations": 0
+        },
+        {
+          "Borough": "Queens",
+          "doctors": 326,
+          "condom_locations": 0
+        },
+        {
+          "Borough": "Staten Island",
+          "doctors": 34,
+          "condom_locations": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per NYC borough showing (1) the number of REACH doctors whose practice zip matches a zip of an HIV testing site, and (2) the number of condom distribution locations that share an address with those testing sites."
+    },
+    {
+      "id": "1eff28be",
+      "question": "Which combinations of broadband connectivity quartile and public Wi‑Fi hotspot size have the highest average home broadband adoption in the 2020 NYC data?",
+      "keywords": [
+        "broadband",
+        "connectivity",
+        "quartile",
+        "public",
+        "wifi",
+        "average",
+        "home",
+        "adoption",
+        "2020"
+      ],
+      "relevant_table_ids": [
+        "3kx3-7svp"
+      ],
+      "table_aliases": {
+        "Table_0": "3kx3-7svp"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nimport numpy as np\nresult = (\n    Table_0.assign(\n        Home_Broadband_Pct=pd.to_numeric(Table_0['Home Broadband Adoption (Percentage of  Households)'].str.rstrip('%'), errors='coerce'),\n        WiFi_Size_Category=np.select(\n            [\n                Table_0['Public Wi-Fi Count'] < 200,\n                (Table_0['Public Wi-Fi Count'] >= 200) & (Table_0['Public Wi-Fi Count'] <= 500),\n                Table_0['Public Wi-Fi Count'] > 500\n            ],\n            ['Low', 'Medium', 'High'],\n            default='Unknown'\n        )\n    )\n    .groupby(['No Home Broadband Adoption by Quartile', 'WiFi_Size_Category'], as_index=False)\n    .agg(\n        Avg_Home_Broadband_Pct=('Home_Broadband_Pct', 'mean'),\n        Total_Public_WiFi=('Public Wi-Fi Count', 'sum')\n    )\n    .sort_values('Avg_Home_Broadband_Pct', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "No Home Broadband Adoption by Quartile": "Low Connected",
+          "WiFi_Size_Category": "High",
+          "Avg_Home_Broadband_Pct": 80.5,
+          "Total_Public_WiFi": 1381
+        },
+        {
+          "No Home Broadband Adoption by Quartile": "Low Connected",
+          "WiFi_Size_Category": "Low",
+          "Avg_Home_Broadband_Pct": 79.0,
+          "Total_Public_WiFi": 13
+        },
+        {
+          "No Home Broadband Adoption by Quartile": "Medium Low Connected",
+          "WiFi_Size_Category": "Low",
+          "Avg_Home_Broadband_Pct": 72.6666666667,
+          "Total_Public_WiFi": 404
+        },
+        {
+          "No Home Broadband Adoption by Quartile": "Medium High Connected",
+          "WiFi_Size_Category": "Low",
+          "Avg_Home_Broadband_Pct": 69.5,
+          "Total_Public_WiFi": 278
+        },
+        {
+          "No Home Broadband Adoption by Quartile": "Medium High Connected",
+          "WiFi_Size_Category": "Medium",
+          "Avg_Home_Broadband_Pct": 69.0,
+          "Total_Public_WiFi": 255
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Up to five rows, each showing a broadband connectivity quartile, a Wi‑Fi size category (Low/Medium/High), the average home broadband adoption percentage (numeric) and the total number of public Wi‑Fi hotspots (integer) for that combination, sorted by average adoption descending."
+    },
+    {
+      "id": "690bf914",
+      "question": "Using the 2024 NYC GIS hydrography dataset, how many water‑related features are there for each subcode and what’s their average elevation?",
+      "keywords": [
+        "hydrography",
+        "subcode",
+        "average",
+        "elevation",
+        "2024",
+        "NYC"
+      ],
+      "relevant_table_ids": [
+        "6hbv-tek4"
+      ],
+      "table_aliases": {
+        "Table_0": "6hbv-tek4"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0.groupby('SUB_CODE')\n        .agg(\n            feature_count=('SUB_CODE', 'size'),\n            average_elevation=('ELEVATION', 'mean')\n        )\n        .reset_index()\n        .assign(average_elevation=lambda x: x['average_elevation'].round(2))\n        .sort_values('average_elevation', ascending=False)\n)",
+      "reference_result": [
+        {
+          "SUB_CODE": "280,040",
+          "feature_count": 78,
+          "average_elevation": 25.66
+        },
+        {
+          "SUB_CODE": "281,010",
+          "feature_count": 1,
+          "average_elevation": 13.1
+        },
+        {
+          "SUB_CODE": "280,050",
+          "feature_count": 14,
+          "average_elevation": 12.46
+        },
+        {
+          "SUB_CODE": "280,010",
+          "feature_count": 7,
+          "average_elevation": 8.89
+        },
+        {
+          "SUB_CODE": "280,000",
+          "feature_count": 925,
+          "average_elevation": 8.63
+        },
+        {
+          "SUB_CODE": "282,000",
+          "feature_count": 796,
+          "average_elevation": 7.9
+        },
+        {
+          "SUB_CODE": "280,020",
+          "feature_count": 1,
+          "average_elevation": 5.85
+        },
+        {
+          "SUB_CODE": "281,000",
+          "feature_count": 168,
+          "average_elevation": 4.71
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per SUB_CODE with three columns: subcode (text), feature_count (integer), and average_elevation (meters, rounded to two decimals). Rows are ordered by average elevation descending."
+    },
+    {
+      "id": "8f34c04a",
+      "question": "Which neighborhoods in Brooklyn and Queens have the most elevator‑equipped cooperative buildings according to the FY 2010‑2011 rental valuation data, and what are the top three neighborhoods by count?",
+      "keywords": [
+        "Brooklyn",
+        "Queens",
+        "elevator",
+        "cooperative",
+        "neighborhood",
+        "top",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "f42p-xqaa",
+        "r4s5-tb2g"
+      ],
+      "table_aliases": {
+        "Table_0": "f42p-xqaa",
+        "Table_1": "r4s5-tb2g"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df0 = Table_0.rename(columns={\n    'BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Building Classification': 'BuildingClassification',\n    'BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Neighborhood': 'Neighborhood'\n})\ndf1 = Table_1.rename(columns={\n    'QUEENS – COOPERATIVES COMPARABLE PROPERTIES – Building Classification': 'BuildingClassification',\n    'QUEENS – COOPERATIVES COMPARABLE PROPERTIES – Neighborhood': 'Neighborhood'\n})\ncombined = pd.concat([df0, df1], ignore_index=True, sort=False)\nelevator = combined[combined['BuildingClassification'] == 'D4-ELEVATOR']\nresult = elevator.groupby('Neighborhood', dropna=False).size().reset_index(name='count')\nresult = result.sort_values(by='count', ascending=False)\ntop3 = result.head(3)",
+      "reference_result": [
+        {
+          "Neighborhood": "FOREST HILLS",
+          "count": 115
+        },
+        {
+          "Neighborhood": "JACKSON HEIGHTS",
+          "count": 90
+        },
+        {
+          "Neighborhood": "FLUSHING-NORTH",
+          "count": 88
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing a neighborhood name and the count of elevator‑equipped cooperative buildings it contains, ordered from highest to lowest count."
+    },
+    {
+      "id": "308c5a82",
+      "question": "How many 311 complaints handled by the Department of Parks and Recreation in 2005 were made in each borough, and how does that compare to the number of historic Board of Standards and Appeals actions recorded for each borough?",
+      "keywords": [
+        "311",
+        "parks",
+        "borough",
+        "2005",
+        "BSA"
+      ],
+      "relevant_table_ids": [
+        "f72e-3i4c",
+        "sxmw-f24h"
+      ],
+      "table_aliases": {
+        "Table_0": "f72e-3i4c",
+        "Table_1": "sxmw-f24h"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nclean_311 = (\n    Table_1.copy()\n    .assign(\n        **{\n            'Incident Zip': lambda df: df['Incident Zip'].replace(['n/a', 'na'], pd.NA),\n            'Created Date': lambda df: pd.to_datetime(df['Created Date'], errors='coerce')\n        }\n    )\n    .dropna(subset=['Incident Zip', 'Created Date'])\n    .loc[lambda df: df['Created Date'].dt.year == 2005]\n    .loc[lambda df: df['Agency'].str.lower() == 'dpr'.lower()]\n    .assign(\n        incident_zip_str=lambda df: df['Incident Zip'].astype(str)\n    )\n)\nclean_bsa = (\n    Table_0.copy()\n    .assign(\n        postcode_str=lambda df: df['Postcode'].astype('Int64').astype(str)\n    )\n)\ncomplaints_with_borough = (\n    clean_311.merge(\n        clean_bsa[['postcode_str', 'Borough']],\n        left_on='incident_zip_str',\n        right_on='postcode_str',\n        how='left',\n        suffixes=('', '_bsa')\n    )\n)\ncomplaints_agg = (\n    complaints_with_borough.groupby('Borough', as_index=False)\n    .agg(complaints_count=('Unique Key', 'nunique'))\n)\nbsa_agg = (\n    clean_bsa.groupby('Borough', as_index=False)\n    .agg(bsa_actions_count=('CalendarNumber', 'count'))\n)\nresult = (\n    bsa_agg.merge(complaints_agg, on='Borough', how='outer')\n    .fillna({'complaints_count': 0, 'bsa_actions_count': 0})\n    .assign(\n        complaints_per_action=lambda df: df['complaints_count'] / df['bsa_actions_count'].replace(0, pd.NA)\n    )\n)",
+      "reference_result": [
+        {
+          "Borough": "Bronx",
+          "bsa_actions_count": 192,
+          "complaints_count": 44.0,
+          "complaints_per_action": 0.2291666667
+        },
+        {
+          "Borough": "Brooklyn",
+          "bsa_actions_count": 468,
+          "complaints_count": 78.0,
+          "complaints_per_action": 0.1666666667
+        },
+        {
+          "Borough": "Brookolyn",
+          "bsa_actions_count": 1,
+          "complaints_count": 0.0,
+          "complaints_per_action": 0.0
+        },
+        {
+          "Borough": "Brookyln",
+          "bsa_actions_count": 8,
+          "complaints_count": 0.0,
+          "complaints_per_action": 0.0
+        },
+        {
+          "Borough": "Manahttan",
+          "bsa_actions_count": 1,
+          "complaints_count": 0.0,
+          "complaints_per_action": 0.0
+        },
+        {
+          "Borough": "Manhattan",
+          "bsa_actions_count": 1226,
+          "complaints_count": 99.0,
+          "complaints_per_action": 0.0807504078
+        },
+        {
+          "Borough": "Manhattanm",
+          "bsa_actions_count": 1,
+          "complaints_count": 0.0,
+          "complaints_per_action": 0.0
+        },
+        {
+          "Borough": "Manhhattan",
+          "bsa_actions_count": 1,
+          "complaints_count": 0.0,
+          "complaints_per_action": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough showing the total number of 311 complaints in 2005 handled by the Department of Parks and Recreation, the total number of historic Board of Standards and Appeals actions recorded for that borough, and the complaints‑per‑action ratio."
+    },
+    {
+      "id": "c952e686",
+      "question": "Which borough in the Outerborough parking‑meter zone had the most morning traffic (7 am‑8 am) in 2012, and how many bridge‑strike incidents happened there in 2013 on streets that have an active tow‑truck company?",
+      "keywords": [
+        "Outerborough",
+        "parking",
+        "zone",
+        "borough",
+        "traffic",
+        "morning",
+        "volume",
+        "bridge",
+        "strike",
+        "tow"
+      ],
+      "relevant_table_ids": [
+        "f72k-2u3b",
+        "jdn9-td9w",
+        "btm5-ppia",
+        "jjja-shxy",
+        "q5u8-89nv"
+      ],
+      "table_aliases": {
+        "Table_0": "f72k-2u3b",
+        "Table_1": "jdn9-td9w",
+        "Table_2": "btm5-ppia",
+        "Table_3": "jjja-shxy",
+        "Table_4": "q5u8-89nv"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\ntbl4_active = Table_4[Table_4['License Status'] != 'Failed to Renew']\ntbl0_outer = Table_0[Table_0['zone_name'] == 'Outerborough']\ntbl2_2012 = Table_2[Table_2['Date'].str.contains('2012')]\ntbl1_2013 = Table_1[Table_1['DATE'].str.contains('2013')]\ntbl3_tow = Table_3.merge(\n    tbl4_active,\n    left_on=['Street', 'BoroName'],\n    right_on=['Street', 'Borough'],\n    how='inner',\n    suffixes=('', '_t')\n)\ntbl1_strikes = tbl1_2013.merge(\n    tbl3_tow,\n    left_on='MAIN STREET',\n    right_on='Street',\n    how='inner',\n    suffixes=('', '_t')\n)\nstrike_counts = (\n    tbl1_strikes.groupby('BoroName')\n    .size()\n    .reset_index(name='strike_count')\n)\ntbl3_traffic = Table_3.merge(tbl2_2012, on='SegmentID', how='inner', suffixes=('', '_t'))\ntbl0_traffic = tbl0_outer.merge(\n    tbl3_traffic,\n    left_on='boro_name',\n    right_on='BoroName',\n    how='inner',\n    suffixes=('', '_t')\n)\ntbl0_traffic['morning_volume'] = pd.to_numeric(\n    tbl0_traffic['7:00-8:00AM'].str.replace(',', ''),\n    errors='coerce'\n)\ntraffic_vol = (\n    tbl0_traffic.groupby('BoroName')['morning_volume']\n    .sum()\n    .reset_index(name='total_morning_volume')\n)\ncombined = traffic_vol.merge(strike_counts, on='BoroName', how='left').fillna({'strike_count': 0})\nresult = combined.sort_values(by='total_morning_volume', ascending=False).head(1)\nresult",
+      "reference_result": [
+        {
+          "BoroName": "Bronx",
+          "total_morning_volume": 30065,
+          "strike_count": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the borough name (within the Outerborough parking‑meter zone), its total 7:00‑8:00 AM traffic volume in 2012, and the count of bridge‑strike incidents that occurred there in 2013 on streets served by an active tow‑truck company."
+    },
+    {
+      "id": "3d3a3424",
+      "question": "What are the five most common environmental designation codes across NYC?",
+      "keywords": [
+        "designation",
+        "code",
+        "common",
+        "NYC",
+        "five",
+        "most"
+      ],
+      "relevant_table_ids": [
+        "mzjp-98aw"
+      ],
+      "table_aliases": {
+        "Table_0": "mzjp-98aw"
+      },
+      "engine": "PANDAS",
+      "reference_code": "top_codes = (\n    Table_0.groupby('ENUMBER')\n      .size()\n      .reset_index(name='count')\n      .nlargest(5, 'count')\n)",
+      "reference_result": [
+        {
+          "ENUMBER": "E-216",
+          "count": 413
+        },
+        {
+          "ENUMBER": "E-137",
+          "count": 233
+        },
+        {
+          "ENUMBER": "E-830",
+          "count": 138
+        },
+        {
+          "ENUMBER": "E-619",
+          "count": 113
+        },
+        {
+          "ENUMBER": "E-422",
+          "count": 107
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with two columns: ENUMBER (designation code) and count (number of tax‑lot records with that code), showing the five most frequent codes sorted by descending count."
+    },
+    {
+      "id": "492b0ae8",
+      "question": "What is the average postcode for each borough and primary property type among New York City buildings reported under Local Law 84 in 2020?",
+      "keywords": [
+        "local-law-84",
+        "building",
+        "postcode",
+        "borough",
+        "type",
+        "2020"
+      ],
+      "relevant_table_ids": [
+        "usc3-8zwd"
+      ],
+      "table_aliases": {
+        "Table_0": "usc3-8zwd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .groupby(['City', 'Primary Property Type - Self Selected'], as_index=False)\n    .agg(avg_postcode=('Postcode', 'mean'))\n    .sort_values('avg_postcode', ascending=False)\n    [['City', 'Primary Property Type - Self Selected', 'avg_postcode']]\n)",
+      "reference_result": [
+        {
+          "City": "Long Island City",
+          "Primary Property Type - Self Selected": "Distribution Center",
+          "avg_postcode": 111011128.0
+        },
+        {
+          "City": "New Hyde Park",
+          "Primary Property Type - Self Selected": "Senior Care Community",
+          "avg_postcode": 110401433.0
+        },
+        {
+          "City": "Brooklyn",
+          "Primary Property Type - Self Selected": "Multifamily Housing",
+          "avg_postcode": 1851846.1147540985
+        },
+        {
+          "City": "New York",
+          "Primary Property Type - Self Selected": "Multifamily Housing",
+          "avg_postcode": 318881.0830769231
+        },
+        {
+          "City": "Arlington",
+          "Primary Property Type - Self Selected": "Other",
+          "avg_postcode": 22201.0
+        },
+        {
+          "City": "Arverne",
+          "Primary Property Type - Self Selected": "Multifamily Housing",
+          "avg_postcode": 11692.0
+        },
+        {
+          "City": "EDGEMERE",
+          "Primary Property Type - Self Selected": "Senior Living Community",
+          "avg_postcode": 11691.0
+        },
+        {
+          "City": "Far Rockaway",
+          "Primary Property Type - Self Selected": "Multifamily Housing",
+          "avg_postcode": 11691.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough and primary property type, showing the average postcode for that group, sorted descending by average postcode."
+    },
+    {
+      "id": "8a69fc1d",
+      "question": "Which administrative districts have the highest ratio of students with multiple suspensions to expulsions, based on 2015‑2016 suspension data and 2020‑2021 expulsion data?",
+      "keywords": [
+        "ratio",
+        "suspensions",
+        "expulsions",
+        "district",
+        "NYC"
+      ],
+      "relevant_table_ids": [
+        "48wd-x25j",
+        "jq8m-ucqt"
+      ],
+      "table_aliases": {
+        "Table_0": "48wd-x25j",
+        "Table_1": "jq8m-ucqt"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\ndf0 = Table_0.copy()\ndf1 = Table_1.copy()\ndf0['suspension_missing'] = df0['Students with 2 or More Suspensions or Removals'] == '*'\ndf0['Students with 2 or More Suspensions or Removals'] = df0['Students with 2 or More Suspensions or Removals'].replace('*', pd.NA)\ndf0['Students with 2 or More Suspensions or Removals'] = pd.to_numeric(df0['Students with 2 or More Suspensions or Removals'], errors='coerce')\nmean_susp = df0['Students with 2 or More Suspensions or Removals'].mean()\ndf0['Students with 2 or More Suspensions or Removals'] = df0['Students with 2 or More Suspensions or Removals'].fillna(mean_susp)\ndf0 = df0[df0['School Year'] == '2015-2016']\nmerged = df0.merge(\n    df1,\n    left_on=['Location Name', 'Administrative District'],\n    right_on=['Location_Name', 'Administrative_District_Code'],\n    how='inner'\n)\nagg = merged.groupby('Administrative District', as_index=False).agg(\n    total_suspensions=('Students with 2 or More Suspensions or Removals', 'sum'),\n    total_expulsions=('EXPULSIONS', 'sum')\n)\nagg['suspension_expulsion_ratio'] = agg['total_suspensions'] / agg['total_expulsions']\nagg = agg.sort_values(by='suspension_expulsion_ratio', ascending=False)\nresult = agg.head(5)",
+      "reference_result": [
+        {
+          "Administrative District": 1.0,
+          "total_suspensions": 4212.0,
+          "total_expulsions": 0,
+          "suspension_expulsion_ratio": null
+        },
+        {
+          "Administrative District": 2.0,
+          "total_suspensions": 18792.0,
+          "total_expulsions": 0,
+          "suspension_expulsion_ratio": null
+        },
+        {
+          "Administrative District": 3.0,
+          "total_suspensions": 6318.0,
+          "total_expulsions": 0,
+          "suspension_expulsion_ratio": null
+        },
+        {
+          "Administrative District": 4.0,
+          "total_suspensions": 4536.0,
+          "total_expulsions": 0,
+          "suspension_expulsion_ratio": null
+        },
+        {
+          "Administrative District": 5.0,
+          "total_suspensions": 3240.0,
+          "total_expulsions": 0,
+          "suspension_expulsion_ratio": null
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table of the top five administrative districts, each row showing the district number, total suspensions, total expulsions, and the suspension‑to‑expulsion ratio, sorted descending by the ratio."
+    },
+    {
+      "id": "5be64d21",
+      "question": "Which NYC boroughs have the highest number of doctors specializing in Doula services within the REACH program, and how many such doctors are in each of the top five boroughs?",
+      "keywords": [
+        "Doula",
+        "borough",
+        "doctors",
+        "NYC",
+        "REACH",
+        "top",
+        "five"
+      ],
+      "relevant_table_ids": [
+        "7btz-mnc8"
+      ],
+      "table_aliases": {
+        "Table_0": "7btz-mnc8"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0.replace({'Primary Speciality': ['n/a']}, pd.NA)\n          .dropna(subset=['Primary Speciality'])\n          .assign(is_doula=lambda x: x['Primary Speciality'] == 'Doula')\n          .groupby('Practice Borough', as_index=False)\n          .agg(\n              total_providers=('Provider First Name', 'count'),\n              doula_count=('is_doula', 'sum')\n          )\n          .sort_values('doula_count', ascending=False)\n          .head(5)\n)",
+      "reference_result": [
+        {
+          "Practice Borough": "Manhattan",
+          "total_providers": 352,
+          "doula_count": 15
+        },
+        {
+          "Practice Borough": "Brooklyn",
+          "total_providers": 370,
+          "doula_count": 8
+        },
+        {
+          "Practice Borough": "Bronx",
+          "total_providers": 181,
+          "doula_count": 0
+        },
+        {
+          "Practice Borough": "Queens",
+          "total_providers": 453,
+          "doula_count": 0
+        },
+        {
+          "Practice Borough": "Staten Island",
+          "total_providers": 62,
+          "doula_count": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with up to five rows, each row showing a borough name and the number of REACH doctors whose specialty is Doula, sorted descending by the Doula doctor count."
+    },
+    {
+      "id": "b4040af4",
+      "question": "What percentage of households in each NYC Neighborhood Tabulation Area had no internet service providers in December 2016, according to the FCC?",
+      "keywords": [
+        "percentage",
+        "households",
+        "NYC",
+        "Neighborhood",
+        "no",
+        "internet",
+        "providers",
+        "2016",
+        "FCC",
+        "broadband"
+      ],
+      "relevant_table_ids": [
+        "ysc4-6xvu"
+      ],
+      "table_aliases": {
+        "Table_0": "ysc4-6xvu"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0.dropna(subset=['% Households with 0 ISP'])[['By NTA', '% Households with 0 ISP']]",
+      "reference_result": [
+        {
+          "By NTA": "Bronx",
+          "% Households with 0 ISP": "0%"
+        },
+        {
+          "By NTA": "Allerton-Pelham Gardens",
+          "% Households with 0 ISP": "0%"
+        },
+        {
+          "By NTA": "Bedford Park-Fordham North",
+          "% Households with 0 ISP": "0%"
+        },
+        {
+          "By NTA": "Belmont",
+          "% Households with 0 ISP": "0%"
+        },
+        {
+          "By NTA": "Bronxdale",
+          "% Households with 0 ISP": "0%"
+        },
+        {
+          "By NTA": "Claremont-Bathgate",
+          "% Households with 0 ISP": "0%"
+        },
+        {
+          "By NTA": "Co-op City",
+          "% Households with 0 ISP": "0%"
+        },
+        {
+          "By NTA": "Crotona Park East",
+          "% Households with 0 ISP": "0%"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per Neighborhood Tabulation Area (NTA) showing the percentage of households that had no internet service providers in December 2016."
+    },
+    {
+      "id": "7effd274",
+      "question": "Which NYC borough has the most large buildings, and how many different primary property types are there in each borough according to the 2020 Local Law 84 data?",
+      "keywords": [
+        "borough",
+        "buildings",
+        "property",
+        "types",
+        "2020"
+      ],
+      "relevant_table_ids": [
+        "usc3-8zwd"
+      ],
+      "table_aliases": {
+        "Table_0": "usc3-8zwd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df = (\n    Table_0\n    .replace({'NYC Borough, Block and Lot (BBL)': {'not available': pd.NA}})\n    .dropna(subset=['NYC Borough, Block and Lot (BBL)'])\n)\nboroughs = ['bronx', 'brooklyn', 'manhattan', 'queens', 'staten island']\nresult = (\n    df[df['City'].str.lower().isin(boroughs)]\n      .assign(Borough=lambda x: x['City'].str.title())\n      .groupby('Borough')\n      .agg(\n          building_count=('Property Id', 'count'),\n          distinct_property_types=('Primary Property Type - Self Selected', pd.Series.nunique)\n      )\n      .reset_index()\n      .sort_values('building_count', ascending=False)\n)",
+      "reference_result": [
+        {
+          "Borough": "Brooklyn",
+          "building_count": 399,
+          "distinct_property_types": 9
+        },
+        {
+          "Borough": "Bronx",
+          "building_count": 294,
+          "distinct_property_types": 13
+        },
+        {
+          "Borough": "Queens",
+          "building_count": 246,
+          "distinct_property_types": 5
+        },
+        {
+          "Borough": "Staten Island",
+          "building_count": 87,
+          "distinct_property_types": 6
+        },
+        {
+          "Borough": "Manhattan",
+          "building_count": 8,
+          "distinct_property_types": 4
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough, sorted descending by the number of buildings, showing the building count and the number of distinct primary property types for that borough."
+    },
+    {
+      "id": "27f3e3f1",
+      "question": "Which borough‑grade pairs had the largest average class size among schools with missing service category data in 2009‑2010, and what were their average class size and total number of classes?",
+      "keywords": [
+        "borough",
+        "grade",
+        "largest",
+        "average",
+        "class",
+        "size",
+        "missing",
+        "service",
+        "category",
+        "2009-2010"
+      ],
+      "relevant_table_ids": [
+        "d3ge-anaz"
+      ],
+      "table_aliases": {
+        "Table_0": "d3ge-anaz"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .dropna(subset=['AVERAGE CLASS SIZE'])\n    .assign(is_missing_service_category=lambda x: x['SERVICE CATEGORY(K-9* ONLY)'] == '-')\n    .loc[lambda x: x['is_missing_service_category']]\n    .groupby(['BORO', 'GRADE '], as_index=False)\n    .agg(\n        avg_class_size=('AVERAGE CLASS SIZE', 'mean'),\n        total_classes=('NUMBER OF CLASSES', 'sum')\n    )\n    .nlargest(5, 'avg_class_size')\n)",
+      "reference_result": [
+        {
+          "BORO": "M",
+          "GRADE ": "09",
+          "avg_class_size": 26.025,
+          "total_classes": 18.0
+        },
+        {
+          "BORO": "M",
+          "GRADE ": "08",
+          "avg_class_size": 25.9534883721,
+          "total_classes": 121.0
+        },
+        {
+          "BORO": "M",
+          "GRADE ": "07",
+          "avg_class_size": 24.6688888889,
+          "total_classes": 123.0
+        },
+        {
+          "BORO": "M",
+          "GRADE ": "09-12",
+          "avg_class_size": 24.2396946565,
+          "total_classes": 4452.0
+        },
+        {
+          "BORO": "M",
+          "GRADE ": "05",
+          "avg_class_size": 24.1084507042,
+          "total_classes": 122.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Top 5 borough‑grade combinations (where SERVICE CATEGORY is missing) sorted by average class size descending, showing average class size and total number of classes."
+    },
+    {
+      "id": "893688c2",
+      "question": "How many 311 service requests in 2005 were filed from zip codes that also had a BSA parcel action in 1916?",
+      "keywords": [
+        "311",
+        "BSA",
+        "2005",
+        "zip",
+        "1916"
+      ],
+      "relevant_table_ids": [
+        "f72e-3i4c",
+        "sxmw-f24h"
+      ],
+      "table_aliases": {
+        "Table_0": "f72e-3i4c",
+        "Table_1": "sxmw-f24h"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nclean_311 = Table_1.copy()\nclean_311['Incident Zip'] = clean_311['Incident Zip'].replace(['n/a', 'na'], pd.NA)\nclean_311 = clean_311.dropna(subset=['Incident Zip']).reset_index(drop=True)\nclean_311['Incident Zip'] = pd.to_numeric(clean_311['Incident Zip'], errors='coerce')\nclean_311 = clean_311.dropna(subset=['Incident Zip']).reset_index(drop=True)\nfiltered_bsa = Table_0[Table_0['C2'] == 1916]\njoined = pd.merge(\n    filtered_bsa,\n    clean_311,\n    left_on='Postcode',\n    right_on='Incident Zip',\n    how='inner'\n)\nresult = joined['Unique Key'].nunique()",
+      "reference_result": [
+        {
+          "result": 152
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total count of 311 service requests from 2005 whose zip code also appears in a BSA parcel action recorded in 1916."
+    },
+    {
+      "id": "9e6c28a7",
+      "question": "How strongly are the latitude and longitude of NYC DEP catch basins in 2025 correlated?",
+      "keywords": [
+        "latitude",
+        "longitude",
+        "catchbasin",
+        "2025",
+        "DEP",
+        "NYC"
+      ],
+      "relevant_table_ids": [
+        "2c5m-rke8"
+      ],
+      "table_aliases": {
+        "Table_0": "2c5m-rke8"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = Table_0['LATITUDE'].corr(Table_0['LONGITUDE'], method='pearson')\nresult",
+      "reference_result": [
+        {
+          "result": 0.7087874632
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single numeric value between -1 and 1 representing the Pearson correlation coefficient between the latitude and longitude coordinates of all catch basins recorded in 2025."
+    },
+    {
+      "id": "6449344e",
+      "question": "How many cooperative properties in the Bronx appear in both the 2009‑2010 and 2011‑2012 DOF valuation datasets?",
+      "keywords": [
+        "cooperative",
+        "Bronx",
+        "2009",
+        "2011",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "yrf7-4wry",
+        "3miu-myq2"
+      ],
+      "table_aliases": {
+        "Table_0": "yrf7-4wry",
+        "Table_1": "3miu-myq2"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df0 = Table_0.dropna(subset=['BBL'])\ndf1 = Table_1.dropna(subset=['BBL'])\nmerged = df0.merge(df1, on='BBL', how='inner')\nresult = merged['BBL'].nunique()",
+      "reference_result": [
+        {
+          "result": 237
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of distinct cooperative properties (identified by BBL) that are present in both the FY 2009‑2010 and FY 2011‑2012 Department of Finance valuation datasets."
+    },
+    {
+      "id": "1fcf4abd",
+      "question": "How much money is allocated as the current budget for the Department of Sanitation in fiscal year 2027?",
+      "keywords": [
+        "Sanitation",
+        "budget",
+        "current",
+        "2027"
+      ],
+      "relevant_table_ids": [
+        "39g5-gbp3"
+      ],
+      "table_aliases": {
+        "Table_0": "39g5-gbp3"
+      },
+      "engine": "PANDAS",
+      "reference_code": "cleaned = Table_0.assign(**{\n    'Total Current Budget Amount': pd.to_numeric(\n        Table_0['Total Current Budget Amount'].str.replace(',', '', regex=True)\n    )\n})\nfiltered = cleaned[cleaned['Agency Name'] == 'DEPARTMENT OF SANITATION']\nresult = filtered['Total Current Budget Amount'].sum()\nresult",
+      "reference_result": [
+        {
+          "0": 5868454237
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single numeric value representing the total current budget amount (in dollars) allocated to the Department of Sanitation for fiscal year 2027."
+    },
+    {
+      "id": "e1f8533b",
+      "question": "Looking at the electrical permit applications filed with NYC's Department of Buildings between 2017 and 2020, which boroughs have the most permits after we ignore ZIP codes that are clearly out of range?",
+      "keywords": [
+        "electrical",
+        "permit",
+        "NYC",
+        "boroughs",
+        "ZIP",
+        "outlier",
+        "applications",
+        "2020"
+      ],
+      "relevant_table_ids": [
+        "dm9a-ab7w"
+      ],
+      "table_aliases": {
+        "Table_0": "dm9a-ab7w"
+      },
+      "engine": "PANDAS",
+      "reference_code": "outlier_zips = [1, 10001, 10002, 10003, 10004, 95131, 18133, 12122, 11697, 11694]\nresult = (\n    Table_0[~Table_0['ZIP_CODE'].isin(outlier_zips)]\n    .groupby('BOROUGH', as_index=False)\n    .agg(\n        permit_count=('JOB_FILING_NUMBER', 'count'),\n        unique_jobs=('JOB_FILING_NUMBER', 'nunique')\n    )\n    .sort_values(by='permit_count', ascending=False)\n)",
+      "reference_result": [
+        {
+          "BOROUGH": "Brooklyn",
+          "permit_count": 1442,
+          "unique_jobs": 1442
+        },
+        {
+          "BOROUGH": "Manhattan",
+          "permit_count": 116,
+          "unique_jobs": 116
+        },
+        {
+          "BOROUGH": "Queens",
+          "permit_count": 116,
+          "unique_jobs": 116
+        },
+        {
+          "BOROUGH": "BROOKLYN",
+          "permit_count": 77,
+          "unique_jobs": 77
+        },
+        {
+          "BOROUGH": "MANHATTAN",
+          "permit_count": 74,
+          "unique_jobs": 74
+        },
+        {
+          "BOROUGH": "Bronx",
+          "permit_count": 61,
+          "unique_jobs": 61
+        },
+        {
+          "BOROUGH": "QUEENS",
+          "permit_count": 44,
+          "unique_jobs": 44
+        },
+        {
+          "BOROUGH": "Staten Island",
+          "permit_count": 21,
+          "unique_jobs": 21
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough showing the total number of electrical permit applications (after removing out‑of‑range ZIP codes) and the number of distinct job filings, sorted by total permits descending."
+    },
+    {
+      "id": "b871491c",
+      "question": "How many total records are there across the NYCDOT parking‑zone data, the 2013 traffic counts, the 2012 historical traffic volumes, and the August 21 2025 municipal EV‑charging sessions?",
+      "keywords": [
+        "NYCDOT",
+        "parking",
+        "traffic",
+        "2013",
+        "2012",
+        "EV",
+        "charging",
+        "2025"
+      ],
+      "relevant_table_ids": [
+        "f72k-2u3b",
+        "7ym2-wayt",
+        "btm5-ppia",
+        "kj7g-u4gp"
+      ],
+      "table_aliases": {
+        "Table_0": "f72k-2u3b",
+        "Table_1": "7ym2-wayt",
+        "Table_2": "btm5-ppia",
+        "Table_3": "kj7g-u4gp"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df0 = Table_0.assign(dummy=1)\ndf1 = Table_1.assign(dummy=1)\ndf2 = Table_2.assign(dummy=1)\ndf3 = Table_3.assign(dummy=1)\ncombined = pd.concat([df0, df1, df2, df3], ignore_index=True)\ntotal_records = combined.shape[0]",
+      "reference_result": [
+        {
+          "result": 6052
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the total number of records across the four datasets."
+    },
+    {
+      "id": "db3b7672",
+      "question": "For each school type and race, how many student removals were recorded in the 2017‑2018 school year, how many schools of that type and race had at least one removal, and what was the total number of removals reported by their district in the 2020‑2021 school year?",
+      "keywords": [
+        "school",
+        "type",
+        "race",
+        "removals",
+        "2017",
+        "2018",
+        "2020",
+        "2021",
+        "district"
+      ],
+      "relevant_table_ids": [
+        "48wd-x25j",
+        "2jpd-hixn",
+        "xeg2-veq2"
+      ],
+      "table_aliases": {
+        "Table_0": "48wd-x25j",
+        "Table_1": "2jpd-hixn",
+        "Table_2": "xeg2-veq2"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\n_df0 = (\n    Table_0.copy()\n    .assign(**{\n        'Students with 2 or More Suspensions or Removals': Table_0['Students with 2 or More Suspensions or Removals']\n            .replace(['*'], pd.NA)\n    })\n    .dropna(subset=['Students with 2 or More Suspensions or Removals'])\n    .assign(**{\n        'Students with 2 or More Suspensions or Removals': lambda x: pd.to_numeric(\n            x['Students with 2 or More Suspensions or Removals'], errors='coerce')\n    })\n)\n_df1 = (\n    Table_1.copy()\n    .assign(**{\n        'TOTAL REMOVALS/SUSPENSIONS': Table_1['TOTAL REMOVALS/SUSPENSIONS'].replace(['R'], pd.NA)\n    })\n    .dropna(subset=['TOTAL REMOVALS/SUSPENSIONS'])\n    .assign(**{\n        'TOTAL REMOVALS/SUSPENSIONS': lambda x: pd.to_numeric(x['TOTAL REMOVALS/SUSPENSIONS'], errors='coerce'),\n        'Administrative_District_Code': lambda x: pd.to_numeric(x['Administrative_District_Code'], errors='coerce')\n    })\n)\n_df2 = (\n    Table_2.copy()\n    .assign(**{\n        'SY1718 TOTAL REMOVALS/SUSPENSIONS': Table_2['SY1718 TOTAL REMOVALS/SUSPENSIONS'].replace(['R'], pd.NA)\n    })\n    .dropna(subset=['SY1718 TOTAL REMOVALS/SUSPENSIONS'])\n    .assign(**{\n        'SY1718 TOTAL REMOVALS/SUSPENSIONS': lambda x: pd.to_numeric(x['SY1718 TOTAL REMOVALS/SUSPENSIONS'], errors='coerce')\n    })\n)\nmerged = (\n    _df0.merge(_df2, on='DBN', suffixes=('_0', '_2'))\n        .merge(_df1, left_on='Administrative District', right_on='Administrative_District_Code', suffixes=('', '_1'))\n)\nmerged = merged.assign(has_removal=lambda x: x['SY1718 TOTAL REMOVALS/SUSPENSIONS'] > 0)\nresult = (\n    merged\n    .groupby(['LOCATION CATEGORY', 'Demographic Category'])\n    .apply(lambda g: pd.Series({\n        'total_removals_2017_18': g['SY1718 TOTAL REMOVALS/SUSPENSIONS'].sum(),\n        'schools_with_removal': g.loc[g['has_removal'], 'DBN'].nunique(),\n        'district_removals_2020_21': g.drop_duplicates('Administrative District')['TOTAL REMOVALS/SUSPENSIONS'].sum()\n    }))\n    .reset_index()\n)",
+      "reference_result": [
+        {
+          "LOCATION CATEGORY": "Elementary",
+          "Demographic Category": "Asian",
+          "total_removals_2017_18": 40,
+          "schools_with_removal": 3,
+          "district_removals_2020_21": 55
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per combination of school type (e.g., Elementary, K-8) and race (e.g., American Indian/Alaskan Native, Asian) showing the total number of student removals in 2017‑2018, the count of schools of that type and race that reported at least one removal, and the total removals reported by their administrative district in 2020‑2021."
+    },
+    {
+      "id": "bcc07fb8",
+      "question": "According to the NYC Department of Finance’s cooperative housing data, how many units were there in total for Brooklyn in FY 2010‑2011 and for Manhattan in FY 2009‑2010, and what’s the average number of units per building in each borough?",
+      "keywords": [
+        "NYC",
+        "Department",
+        "Finance",
+        "cooperative",
+        "housing",
+        "Brooklyn",
+        "Manhattan",
+        "FY2010-2011",
+        "FY2009-2010",
+        "units"
+      ],
+      "relevant_table_ids": [
+        "f42p-xqaa",
+        "niy5-4j7q"
+      ],
+      "table_aliases": {
+        "Table_0": "f42p-xqaa",
+        "Table_1": "niy5-4j7q"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nTable_0['BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Total Units'] = pd.to_numeric(\n    Table_0['BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Total Units'], errors='coerce'\n)\nTable_1['MANHATTAN – COOPERATIVES COMPARABLE PROPERTIES – Total Units'] = pd.to_numeric(\n    Table_1['MANHATTAN – COOPERATIVES COMPARABLE PROPERTIES – Total Units'], errors='coerce'\n)\nunion_df = pd.concat([Table_0, Table_1], ignore_index=True, sort=False)\nunion_df['Units'] = union_df['BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Total Units'].fillna(\n    union_df['MANHATTAN – COOPERATIVES COMPARABLE PROPERTIES – Total Units']\n)\nresult = (\n    union_df.groupby('Borough', as_index=False)\n    .agg(Total_Units=('Units', 'sum'), Avg_Units=('Units', 'mean'))\n)",
+      "reference_result": [
+        {
+          "Borough": 1,
+          "Total_Units": 134727.0,
+          "Avg_Units": 67.4646970456
+        },
+        {
+          "Borough": 3,
+          "Total_Units": 72579.0,
+          "Avg_Units": 75.760960334
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one for Brooklyn and one for Manhattan, showing total cooperative units and average units per building."
+    },
+    {
+      "id": "3033efdb",
+      "question": "How strongly are 2010 building energy intensities related to the number of 2021 cooling‑tower inspections per building for agencies that are part of the OneNYC 2050 Strategic Plan, and which agency shows the strongest relationship?",
+      "keywords": [
+        "OneNYC",
+        "energy",
+        "inspection",
+        "building",
+        "agency",
+        "2021"
+      ],
+      "relevant_table_ids": [
+        "pqdc-ncdn",
+        "vvj6-d5qx",
+        "f9wb-g8mb"
+      ],
+      "table_aliases": {
+        "Table_0": "pqdc-ncdn",
+        "Table_1": "vvj6-d5qx",
+        "Table_2": "f9wb-g8mb"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nagencies = Table_0[['Agency']].drop_duplicates()\nbuildings = Table_1.copy()\nbuildings['EUI_2010'] = pd.to_numeric(buildings['2010 Source EUI (kBtu/sq.ft.)'], errors='coerce')\ninspections_2021 = (\n    Table_2.copy()\n    .assign(Inspection_date=pd.to_datetime(Table_2['Inspection_date'], errors='coerce'))\n    .loc[lambda df: df['Inspection_date'].dt.year == 2021]\n    .groupby('BIN', as_index=False)\n    .agg(inspection_cnt=('Inspection_Type', 'count'))\n)\nbuilding_inspections = (\n    buildings\n    .merge(inspections_2021, how='left', on='BIN', suffixes=('', '_ins'))\n    .assign(inspection_cnt=lambda df: df['inspection_cnt'].fillna(0))\n)\nfiltered = building_inspections.merge(agencies, how='inner', on='Agency')\ncorr_by_agency = (\n    filtered\n    .groupby('Agency')\n    .apply(lambda g: pd.Series({'corr_coef': g['EUI_2010'].corr(g['inspection_cnt'], method='pearson')}))\n    .reset_index()\n    .assign(abs_corr=lambda df: df['corr_coef'].abs())\n    .sort_values('abs_corr', ascending=False)\n    .head(1)\n    .drop(columns='abs_corr')\n)\nresult = corr_by_agency",
+      "reference_result": [
+        {
+          "Agency": "DOC",
+          "corr_coef": -0.3094105595
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the agency name and its Pearson correlation coefficient, showing the strongest positive relationship between 2010 building energy intensity and the number of 2021 cooling‑tower inspections per building."
+    },
+    {
+      "id": "4a874b8d",
+      "question": "What were the DSNY organics tons collected in 2019 and the recycling diversion rate for Brooklyn North in April 2019?",
+      "keywords": [
+        "DSNY",
+        "organics",
+        "tons",
+        "recycling",
+        "diversion",
+        "Brooklyn",
+        "North",
+        "April",
+        "2019"
+      ],
+      "relevant_table_ids": [
+        "6yag-pnij",
+        "gaq9-z3hz"
+      ],
+      "table_aliases": {
+        "Table_0": "6yag-pnij",
+        "Table_1": "gaq9-z3hz"
+      },
+      "engine": "PANDAS",
+      "reference_code": "org_df = Table_0[Table_0['Fiscal Year'] == 2019]\norg_tons = org_df['Other Organics Tons Collected - DSNY'].iloc[0] if not org_df.empty else None\nrecycle_df = Table_1[(Table_1['Fiscal Year'] == 2019) & (Table_1['Zone'] == 'Brooklyn North') & (Table_1['Month Name'] == 'April')]\ndiv_rate = recycle_df['Diversion Rate-Total (Total Recycling / Total Waste)'].iloc[0] if not recycle_df.empty else None\nresult = [org_tons, div_rate]",
+      "reference_result": [
+        {
+          "0": 524.0
+        },
+        {
+          "0": 14.7
+        }
+      ],
+      "expected_result_type": "list",
+      "expected_result_description": "A two‑element list where the first element is the DSNY organics tons collected in fiscal year 2019, and the second element is the recycling diversion rate for Brooklyn North in April 2019."
+    },
+    {
+      "id": "70abb2f0",
+      "question": "How many property tax account records were there for Manhattan in the year 2018?",
+      "keywords": [
+        "Manhattan",
+        "2018",
+        "property",
+        "tax",
+        "accounts"
+      ],
+      "relevant_table_ids": [
+        "paab-n3s5"
+      ],
+      "table_aliases": {
+        "Table_0": "paab-n3s5"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = Table_0[(Table_0['Borough'] == 1) & (Table_0['Date Account Period Begins'] >= '2018-01-01') & (Table_0['Date Account Period Begins'] <= '2018-12-31')].shape[0]",
+      "reference_result": [
+        {
+          "result": 480
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of property tax account records for Manhattan borough in the calendar year 2018."
+    },
+    {
+      "id": "bcafdf7a",
+      "question": "According to the NYC Department of Finance’s cooperative housing valuations, which borough—Brooklyn (FY 2010‑2011) or Manhattan (FY 2009‑2010)—has more cooperative units, and how do they rank by total units?",
+      "keywords": [
+        "NYC",
+        "Department",
+        "Finance",
+        "cooperative",
+        "valuation",
+        "Brooklyn",
+        "Manhattan",
+        "units",
+        "rank"
+      ],
+      "relevant_table_ids": [
+        "f42p-xqaa",
+        "niy5-4j7q"
+      ],
+      "table_aliases": {
+        "Table_0": "f42p-xqaa",
+        "Table_1": "niy5-4j7q"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nbrooklyn_units = (\n    Table_0\n    .assign(_units=pd.to_numeric(\n        Table_0['BROOKLYN – COOPERATIVES COMPARABLE PROPERTIES – Total Units'],\n        errors='coerce'\n    ))\n    .loc[lambda df: df['_units'] > 0, '_units']\n    .sum()\n)\nbrooklyn_df = pd.DataFrame({\n    'Borough': [3],\n    'Units': [brooklyn_units]\n})\nmanhattan_units = (\n    Table_1\n    .assign(_units=pd.to_numeric(\n        Table_1['MANHATTAN – COOPERATIVES COMPARABLE PROPERTIES – Total Units'],\n        errors='coerce'\n    ))\n    .loc[lambda df: df['_units'] > 0, '_units']\n    .sum()\n)\nmanhattan_df = pd.DataFrame({\n    'Borough': [1],\n    'Units': [manhattan_units]\n})\nresult = (\n    pd.concat([brooklyn_df, manhattan_df], ignore_index=True)\n    .assign(Rank=lambda df: df['Units'].rank(method='dense', ascending=False).astype(int))\n    .sort_values('Rank')\n    .reset_index(drop=True)\n)",
+      "reference_result": [
+        {
+          "Borough": 1,
+          "Units": 134727.0,
+          "Rank": 1
+        },
+        {
+          "Borough": 3,
+          "Units": 72579.0,
+          "Rank": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one for Brooklyn and one for Manhattan, showing the total cooperative units in each borough and their rank by unit count (Rank 1 = most units)."
+    },
+    {
+      "id": "5a05cbf2",
+      "question": "Which specialties have the most doctors in the NYC REACH program, and how many providers are in each of the top three specialties?",
+      "keywords": [
+        "specialties",
+        "doctors",
+        "NYC",
+        "REACH",
+        "top",
+        "three"
+      ],
+      "relevant_table_ids": [
+        "7btz-mnc8"
+      ],
+      "table_aliases": {
+        "Table_0": "7btz-mnc8"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0_clean = Table_0[~Table_0['Primary Speciality'].isna() & (Table_0['Primary Speciality'] != 'n/a')]\nresult = (\n    Table_0_clean.groupby('Primary Speciality')\n    .agg(provider_count=('Provider First Name', 'count'))\n    .reset_index()\n    .nlargest(3, 'provider_count')\n)",
+      "reference_result": [
+        {
+          "Primary Speciality": "Internal Medicine",
+          "provider_count": 626
+        },
+        {
+          "Primary Speciality": "Pediatrics",
+          "provider_count": 371
+        },
+        {
+          "Primary Speciality": "Family Medicine",
+          "provider_count": 169
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each row showing a medical specialty and the number of providers in that specialty, sorted descending by provider count."
+    },
+    {
+      "id": "e2d4b8c4",
+      "question": "Between 2017 and 2020, how many electrical permit applications were filed with the NYC Department of Buildings in each borough, and how many different filing types were used?",
+      "keywords": [
+        "electrical",
+        "permit",
+        "NYC",
+        "Department",
+        "Buildings",
+        "borough",
+        "filing",
+        "type",
+        "2017",
+        "2020"
+      ],
+      "relevant_table_ids": [
+        "dm9a-ab7w"
+      ],
+      "table_aliases": {
+        "Table_0": "dm9a-ab7w"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0['FILING_DATE_parsed'] = pd.to_datetime(Table_0['FILING_DATE'], errors='coerce')\nfiltered = Table_0.loc[(Table_0['FILING_DATE_parsed'] >= '2017-01-01') & (Table_0['FILING_DATE_parsed'] <= '2020-12-31')]\nresult = (\n    filtered.assign(BOROUGH_norm=filtered['BOROUGH'].str.title())\n    .groupby('BOROUGH_norm')\n    .agg(app_count=('FILING_DATE_parsed', 'count'),\n         type_count=('FILING_TYPE', 'nunique'))\n    .reset_index()\n    .rename(columns={'BOROUGH_norm': 'BOROUGH'})\n)",
+      "reference_result": [
+        {
+          "BOROUGH": "Bronx",
+          "app_count": 23,
+          "type_count": 2
+        },
+        {
+          "BOROUGH": "Brooklyn",
+          "app_count": 1382,
+          "type_count": 3
+        },
+        {
+          "BOROUGH": "Manhattan",
+          "app_count": 68,
+          "type_count": 3
+        },
+        {
+          "BOROUGH": "Queens",
+          "app_count": 53,
+          "type_count": 3
+        },
+        {
+          "BOROUGH": "Staten Island",
+          "app_count": 6,
+          "type_count": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough showing (1) the total number of electrical permit applications filed with the NYC Department of Buildings between 2017‑2020 and (2) the number of distinct filing types used in that borough."
+    },
+    {
+      "id": "6051ca37",
+      "question": "What was the average corridor length of Vision Zero street‑improvement projects finished in 2016, split into short (≤5,000) and long (>5,000) corridors?",
+      "keywords": [
+        "average",
+        "length",
+        "vision",
+        "zero",
+        "2016",
+        "short",
+        "long"
+      ],
+      "relevant_table_ids": [
+        "wqhs-q6wd"
+      ],
+      "table_aliases": {
+        "Table_0": "wqhs-q6wd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import numpy as np\nTable_0['Shape_Leng'] = pd.to_numeric(Table_0['Shape_Leng'].str.replace(',', ''), errors='coerce')\nfiltered = Table_0[Table_0['sip_year'] == 2016]\nfiltered['length_category'] = np.where(filtered['Shape_Leng'] <= 5000, 'short', 'long')\nresult = (\n    filtered.groupby('length_category', as_index=False)['Shape_Leng']\n        .mean()\n        .rename(columns={'Shape_Leng': 'avg_length'})\n)",
+      "reference_result": [
+        {
+          "length_category": "long",
+          "avg_length": 14542.8586952841
+        },
+        {
+          "length_category": "short",
+          "avg_length": 2086.220325129
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows: one for short corridors (≤5,000) and one for long corridors (>5,000), each showing the average corridor length for Vision Zero projects completed in 2016."
+    },
+    {
+      "id": "97a6673a",
+      "question": "How many payroll records in fiscal year 2025 belong to agencies that also appear in the DSNY street‑cleanliness performance data from July 2010 through May 2011?",
+      "keywords": [
+        "payroll",
+        "DSNY",
+        "agency",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "k397-673e",
+        "phxt-vb3r"
+      ],
+      "table_aliases": {
+        "Table_0": "k397-673e",
+        "Table_1": "phxt-vb3r"
+      },
+      "engine": "PANDAS",
+      "reference_code": "perf_dsny = Table_1.loc[Table_1['Indicator'] == 'Streets rated acceptably clean (%)']\nresult = (\n    Table_0\n    .loc[lambda df: df['Fiscal Year'] == 2025]\n    .assign(agency_name_lc=lambda df: df['Agency Name'].str.lower())\n    .merge(\n        perf_dsny.assign(agency_lc=lambda df: df['Agency'].str.lower()),\n        left_on='agency_name_lc',\n        right_on='agency_lc',\n        how='inner',\n        suffixes=('', '_dsny')\n    )\n    .shape[0]\n)",
+      "reference_result": [
+        {
+          "result": 0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the number of FY 2025 payroll records whose agency also appears in the DSNY street‑cleanliness dataset covering July 2010‑May 2011."
+    },
+    {
+      "id": "c293d085",
+      "question": "Which three boroughs have the most pedestrian plazas that are partnered with community organizations, and how many such plazas does each have?",
+      "keywords": [
+        "borough",
+        "community",
+        "partner",
+        "plaza",
+        "top"
+      ],
+      "relevant_table_ids": [
+        "k5k6-6jex"
+      ],
+      "table_aliases": {
+        "Table_0": "k5k6-6jex"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0.assign(is_community_partner=Table_0['Partner'].str.contains('Community', na=False))\n    .loc[lambda df: df['is_community_partner']]\n    .groupby('BoroName')\n    .size()\n    .reset_index(name='community_plaza_count')\n    .sort_values('community_plaza_count', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "BoroName": "Brooklyn",
+          "community_plaza_count": 2
+        },
+        {
+          "BoroName": "Manhattan",
+          "community_plaza_count": 1
+        },
+        {
+          "BoroName": "Queens",
+          "community_plaza_count": 1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Top three boroughs ranked by the number of pedestrian plazas partnered with community organizations, with columns borough name and count of such plazas (community_plaza_count)."
+    },
+    {
+      "id": "8535cd91",
+      "question": "How many tons of organics did DSNY and its nonprofit partners collect in fiscal year 2013?",
+      "keywords": [
+        "organics",
+        "DSNY",
+        "tonnage",
+        "2013",
+        "collection"
+      ],
+      "relevant_table_ids": [
+        "6yag-pnij"
+      ],
+      "table_aliases": {
+        "Table_0": "6yag-pnij"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nTable_0['Other Organics Tons Collected - Non-DSNY'] = pd.to_numeric(\n    Table_0['Other Organics Tons Collected - Non-DSNY'].str.replace(',', ''), errors='coerce'\n)\nTable_0['Other Organics Total Tons Collected - DSNY + Non-DSNY'] = pd.to_numeric(\n    Table_0['Other Organics Total Tons Collected - DSNY + Non-DSNY'].str.replace(',', ''), errors='coerce'\n)\nfiltered = Table_0[Table_0['Fiscal Year'] == 2013]\nresult = filtered['Other Organics Total Tons Collected - DSNY + Non-DSNY'].sum()\nresult",
+      "reference_result": [
+        {
+          "0": 952
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The combined tons of organics collected by DSNY and nonprofit partners in fiscal year 2013."
+    },
+    {
+      "id": "85811245",
+      "question": "What was the average class size for kindergarten students in the Bronx during the 2017‑2018 NYC Department of Education report?",
+      "keywords": [
+        "average",
+        "class",
+        "size",
+        "kindergarten",
+        "Bronx",
+        "2017",
+        "NYC",
+        "DOE"
+      ],
+      "relevant_table_ids": [
+        "cfuy-6eha"
+      ],
+      "table_aliases": {
+        "Table_0": "cfuy-6eha"
+      },
+      "engine": "PANDAS",
+      "reference_code": "avg_class_size = Table_0.loc[(Table_0['School Year'] == '2017-2018') & (Table_0['Borough'] == 'Bronx') & (Table_0['Grade Level'] == 'K'), 'Average Class Size'].mean()",
+      "reference_result": [
+        {
+          "result": 21.0333333333
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average class size (students per class) for kindergarten students in the Bronx during the 2017‑2018 NYC Department of Education school year."
+    },
+    {
+      "id": "590cd2ed",
+      "question": "How many Vision Zero street‑improvement projects were finished in 2016?",
+      "keywords": [
+        "Vision",
+        "Zero",
+        "projects",
+        "2016",
+        "finished"
+      ],
+      "relevant_table_ids": [
+        "wqhs-q6wd"
+      ],
+      "table_aliases": {
+        "Table_0": "wqhs-q6wd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "count_2016 = Table_0[Table_0['sip_year'] == 2016]['pjct_name'].count()",
+      "reference_result": [
+        {
+          "0": 73
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing how many Vision Zero projects were completed in 2016."
+    },
+    {
+      "id": "2962d2b1",
+      "question": "How many green taxi trips were recorded in September across 2014 and 2022?",
+      "keywords": [
+        "green",
+        "taxi",
+        "September",
+        "trips",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "8nfn-ifaj",
+        "2np7-5jsg"
+      ],
+      "table_aliases": {
+        "Table_0": "8nfn-ifaj",
+        "Table_1": "2np7-5jsg"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df0 = Table_0[['lpep_pickup_datetime']].rename(columns={'lpep_pickup_datetime': 'pickup_datetime'})\ndf1 = Table_1[['pickup_datetime']]\ncombined = pd.concat([df0, df1], ignore_index=True)\ncombined['pickup_month'] = pd.to_datetime(combined['pickup_datetime']).dt.month\ncombined['is_september'] = combined['pickup_month'] == 9\nseptember_trip_count = combined['is_september'].sum()",
+      "reference_result": [
+        {
+          "0": 2205
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the total number of green‑taxi trips that began in September across the 2014 and 2022 datasets."
+    },
+    {
+      "id": "56bac586",
+      "question": "What label appears most often on the NYC Department of Finance Digital Tax Map?",
+      "keywords": [
+        "NYC",
+        "Digital",
+        "Tax",
+        "Map",
+        "label",
+        "most",
+        "common"
+      ],
+      "relevant_table_ids": [
+        "f44v-t2tj"
+      ],
+      "table_aliases": {
+        "Table_0": "f44v-t2tj"
+      },
+      "engine": "PANDAS",
+      "reference_code": "most_common_label = Table_0['MISC_TEXT'].mode().iloc[0]\nmost_common_label",
+      "reference_result": [
+        {
+          "result": "NO WATER GRANT"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The label text that occurs most frequently among all map annotations."
+    },
+    {
+      "id": "4405a713",
+      "question": "Show the monthly totals and average case counts for NYC juvenile probation in each month of 2016, and how many different program types were active each month.",
+      "keywords": [
+        "monthly",
+        "totals",
+        "average",
+        "2016",
+        "program",
+        "types",
+        "juvenile",
+        "probation",
+        "NYC"
+      ],
+      "relevant_table_ids": [
+        "c49b-3kmd"
+      ],
+      "table_aliases": {
+        "Table_0": "c49b-3kmd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0[Table_0['Year'] == 2016]\n    .groupby(['Year', 'Month'], as_index=False)\n    .agg(\n        sum_count=('Supervision Caseload Count', 'sum'),\n        avg_count=('Supervision Caseload Count', 'mean'),\n        type_count=('Supervision Caseload Type', 'nunique')\n    )\n    .sort_values(by=['Year', 'Month'])\n)",
+      "reference_result": [
+        {
+          "Year": 2016,
+          "Month": "December",
+          "sum_count": 1128,
+          "avg_count": 225.6,
+          "type_count": 5
+        },
+        {
+          "Year": 2016,
+          "Month": "November",
+          "sum_count": 1117,
+          "avg_count": 223.4,
+          "type_count": 5
+        },
+        {
+          "Year": 2016,
+          "Month": "October",
+          "sum_count": 1106,
+          "avg_count": 221.2,
+          "type_count": 5
+        },
+        {
+          "Year": 2016,
+          "Month": "September",
+          "sum_count": 1131,
+          "avg_count": 226.2,
+          "type_count": 5
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per month in 2016 (e.g., 2016‑09) showing three columns: total case count, average case count, and the number of distinct supervision caseload types active that month."
+    },
+    {
+      "id": "175059f0",
+      "question": "What was the average number of tax transaction records per block for tax class 4 in 2017?",
+      "keywords": [
+        "tax",
+        "class",
+        "4",
+        "2017",
+        "average",
+        "block",
+        "transaction",
+        "records"
+      ],
+      "relevant_table_ids": [
+        "paab-n3s5"
+      ],
+      "table_aliases": {
+        "Table_0": "paab-n3s5"
+      },
+      "engine": "PANDAS",
+      "reference_code": "avg_records = (\n    Table_0\n    .loc[\n        (Table_0['Tax Class'] == '4') &\n        (pd.to_datetime(Table_0['Date Account Period Begins'], errors='coerce') >= '2017-01-01') &\n        (pd.to_datetime(Table_0['Date Account Period Begins'], errors='coerce') <= '2017-12-31')\n    ]\n    .groupby('Block')['Transaction Records Counter']\n    .mean()\n    .mean()\n)",
+      "reference_result": [
+        {
+          "result": 4.5417719498
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single numeric value representing the average number of tax transaction records per block for tax class 4 during the year 2017."
+    },
+    {
+      "id": "32bce8f9",
+      "question": "Do boroughs with more hazardous‑material designations also tend to have more air‑quality designations?",
+      "keywords": [
+        "borough",
+        "hazardous",
+        "air",
+        "quality",
+        "correlation"
+      ],
+      "relevant_table_ids": [
+        "mzjp-98aw"
+      ],
+      "table_aliases": {
+        "Table_0": "mzjp-98aw"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0['is_hazardous'] = Table_0['DESCRIPTIO'].str.contains('Hazardous Materials', na=False)\nhaz_prop = (\n    Table_0.groupby('BOROCODE')['is_hazardous']\n    .mean()\n    .reset_index(name='prop_haz')\n)\nTable_0['is_air_quality'] = Table_0['DESCRIPTIO'].str.contains('Air Quality', na=False)\nair_prop = (\n    Table_0.groupby('BOROCODE')['is_air_quality']\n    .mean()\n    .reset_index(name='prop_air')\n)\nmerged = haz_prop.merge(air_prop, on='BOROCODE', how='inner')\nresult = merged['prop_haz'].corr(merged['prop_air'], method='pearson')\nresult",
+      "reference_result": [
+        {
+          "result": -1.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Pearson correlation coefficient (range -1 to 1) measuring how the proportion of hazardous‑material designations in a borough relates to the proportion of air‑quality designations in the same borough."
+    },
+    {
+      "id": "b569e952",
+      "question": "What phone numbers do Brooklyn high schools have in the NYC Department of Education's 2014‑15 directory?",
+      "keywords": [
+        "Brooklyn",
+        "high",
+        "schools",
+        "phone",
+        "DOE",
+        "2014-15",
+        "directory"
+      ],
+      "relevant_table_ids": [
+        "n3p6-zve2"
+      ],
+      "table_aliases": {
+        "Table_0": "n3p6-zve2"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0[Table_0['borough'] == 'Brooklyn'][['school_name', 'phone_number']]",
+      "reference_result": [
+        {
+          "school_name": "Life Academy High School for Film and Music",
+          "phone_number": "718-333-7750"
+        },
+        {
+          "school_name": "Frederick Douglass Academy IV Secondary School",
+          "phone_number": "718-574-2820"
+        },
+        {
+          "school_name": "Pathways in Technology Early College High School (P-Tech)",
+          "phone_number": "718-221-1593"
+        },
+        {
+          "school_name": "Eagle Academy for Young Men II",
+          "phone_number": "718-495-0863"
+        },
+        {
+          "school_name": "Secondary School for Law",
+          "phone_number": "718-832-4250"
+        },
+        {
+          "school_name": "Victory Collegiate High School",
+          "phone_number": "718-968-1530"
+        },
+        {
+          "school_name": "High School for Public Service: Heroes of Tomorrow",
+          "phone_number": "718-756-5325"
+        },
+        {
+          "school_name": "East New York Family Academy",
+          "phone_number": "718-927-0012"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Each row shows a Brooklyn high school name and its phone number from the 2014‑15 NYC DOE directory."
+    },
+    {
+      "id": "29505cf3",
+      "question": "How many NYPD OATH summons were issued in each borough in 2023, and how many different violation types occurred in each borough?",
+      "keywords": [
+        "NYPD",
+        "OATH",
+        "summons",
+        "borough",
+        "2023",
+        "violation",
+        "type"
+      ],
+      "relevant_table_ids": [
+        "hxbk-grd3"
+      ],
+      "table_aliases": {
+        "Table_0": "hxbk-grd3"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0[Table_0['OCCUR_DATE'].str.endswith('/2023')]\n        .groupby('CITY_NM', as_index=False)\n        .agg(\n            total_summons=('EVNT_KEY', 'count'),\n            distinct_violations=('LAW_DESC', 'nunique')\n        )\n)",
+      "reference_result": [
+        {
+          "CITY_NM": "BRONX",
+          "total_summons": 186,
+          "distinct_violations": 22
+        },
+        {
+          "CITY_NM": "BROOKLYN",
+          "total_summons": 558,
+          "distinct_violations": 24
+        },
+        {
+          "CITY_NM": "MANHATTAN",
+          "total_summons": 884,
+          "distinct_violations": 54
+        },
+        {
+          "CITY_NM": "NEW YORK",
+          "total_summons": 31,
+          "distinct_violations": 10
+        },
+        {
+          "CITY_NM": "QUEENS",
+          "total_summons": 318,
+          "distinct_violations": 28
+        },
+        {
+          "CITY_NM": "STATEN ISLAND",
+          "total_summons": 15,
+          "distinct_violations": 6
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per borough showing (1) total number of summons issued in 2023 and (2) the count of distinct violation types recorded in that borough."
+    },
+    {
+      "id": "3c1799e3",
+      "question": "What were the average hourly pedestrian counts and average temperature for clear-day and clear-night weather at the Brooklyn Bridge in 2019?",
+      "keywords": [
+        "average",
+        "pedestrian",
+        "temperature",
+        "clear-day",
+        "clear-night",
+        "Brooklyn",
+        "Bridge",
+        "2019"
+      ],
+      "relevant_table_ids": [
+        "6fi9-q3ta"
+      ],
+      "table_aliases": {
+        "Table_0": "6fi9-q3ta"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0['Pedestrians'] = pd.to_numeric(Table_0['Pedestrians'], errors='coerce')\nTable_0['Towards Manhattan'] = pd.to_numeric(Table_0['Towards Manhattan'], errors='coerce')\nTable_0['Towards Brooklyn'] = pd.to_numeric(Table_0['Towards Brooklyn'], errors='coerce')\nresult = (\n    Table_0\n    .groupby('weather_summary', as_index=False)\n    .agg(\n        recorded_hours=('Pedestrians', 'count'),\n        avg_pedestrians=('Pedestrians', 'mean'),\n        avg_temperature=('temperature', 'mean')\n    )\n    .query('weather_summary in [\"clear-day\", \"clear-night\"]')\n)",
+      "reference_result": [
+        {
+          "weather_summary": "clear-day",
+          "recorded_hours": 125,
+          "avg_pedestrians": 449.2,
+          "avg_temperature": 56.0762195122
+        },
+        {
+          "weather_summary": "clear-night",
+          "recorded_hours": 425,
+          "avg_pedestrians": 30.6964705882,
+          "avg_temperature": 48.2894117647
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows – one for clear-day and one for clear-night – each showing the total recorded hours, the average number of pedestrians per hour, and the average temperature (°F) during that weather condition in 2019."
+    },
+    {
+      "id": "946cf9c7",
+      "question": "Which borough had the highest average number of summons per precinct in 2023, and what was that average?",
+      "keywords": [
+        "borough",
+        "average",
+        "summons",
+        "precinct",
+        "2023"
+      ],
+      "relevant_table_ids": [
+        "hxbk-grd3"
+      ],
+      "table_aliases": {
+        "Table_0": "hxbk-grd3"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .loc[lambda d: d['OCCUR_DATE'].str.endswith('/2023')]\n    .groupby(['CITY_NM', 'PRECINCT'], as_index=False)\n    .agg(summons_per_precinct=('EVNT_KEY', 'count'))\n    .groupby('CITY_NM', as_index=False)\n    .agg(avg_summons_per_precinct=('summons_per_precinct', 'mean'))\n    .sort_values(by='avg_summons_per_precinct', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "CITY_NM": "MANHATTAN",
+          "avg_summons_per_precinct": 40.1818181818
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the borough name with the highest average summons per precinct in 2023 and the numeric average value."
+    },
+    {
+      "id": "b4025155",
+      "question": "What were the total adult probation case closings for each reason in August 2021?",
+      "keywords": [
+        "probation",
+        "closing",
+        "reason",
+        "August",
+        "2021",
+        "total"
+      ],
+      "relevant_table_ids": [
+        "u6p4-fsey"
+      ],
+      "table_aliases": {
+        "Table_0": "u6p4-fsey"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .loc[(Table_0['Year'] == 2021) & (Table_0['Month'] == 'August')]\n    .groupby('Supervision Closing Reason', as_index=False)['Supervision Closing Count']\n    .sum()\n    .rename(columns={'Supervision Closing Count': 'TotalClosings'})\n)",
+      "reference_result": [
+        {
+          "Supervision Closing Reason": "Death",
+          "TotalClosings": 1
+        },
+        {
+          "Supervision Closing Reason": "Early Discharge",
+          "TotalClosings": 49
+        },
+        {
+          "Supervision Closing Reason": "Maximum Expiration Date",
+          "TotalClosings": 239
+        },
+        {
+          "Supervision Closing Reason": "Other",
+          "TotalClosings": 54
+        },
+        {
+          "Supervision Closing Reason": "Violation of Probation",
+          "TotalClosings": 30
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per closing reason showing the total number of adult probation case closings in August 2021."
+    },
+    {
+      "id": "a45fae15",
+      "question": "In the 2016‑2017 school year, which NYC Department of Education administrative districts had the highest combined disciplinary activity, measured by adding the number of students with two or more suspensions or removals and the number of Black removals, and what are the top five districts?",
+      "keywords": [
+        "NYC",
+        "DOE",
+        "administrative",
+        "districts",
+        "suspensions",
+        "removals",
+        "Black",
+        "top",
+        "five",
+        "2016"
+      ],
+      "relevant_table_ids": [
+        "48wd-x25j",
+        "d28w-n2x4"
+      ],
+      "table_aliases": {
+        "Table_0": "48wd-x25j",
+        "Table_1": "d28w-n2x4"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nsusp_df = (\n    Table_0[Table_0['School Year'] == '2016-2017']\n    .assign(**{\n        'Students with 2 or More Suspensions or Removals': Table_0['Students with 2 or More Suspensions or Removals']\n            .replace('*', pd.NA)\n    })\n    .dropna(subset=['Students with 2 or More Suspensions or Removals'])\n    .assign(**{\n        'Students with 2 or More Suspensions or Removals': lambda df: pd.to_numeric(\n            df['Students with 2 or More Suspensions or Removals'], errors='coerce')\n    })\n)\nsusp_agg = (\n    susp_df.groupby('Administrative District', as_index=False)\n    .agg(susp_total=('Students with 2 or More Suspensions or Removals', 'sum'))\n)\nblack_df = (\n    Table_1.rename(columns={'ADMINISTRATIVE DISTRICT': 'Administrative District'})\n    .assign(**{\n        'Black REMOVALS': lambda df: df['Black REMOVALS'].replace('R', pd.NA)\n    })\n    .assign(**{\n        'Black REMOVALS': lambda df: df['Black REMOVALS'].fillna(0)\n    })\n    .assign(**{\n        'Black REMOVALS': lambda df: pd.to_numeric(df['Black REMOVALS'], errors='coerce')\n    })\n)\nblack_agg = (\n    black_df.groupby('Administrative District', as_index=False)\n    .agg(black_total=('Black REMOVALS', 'sum'))\n)\nresult = (\n    susp_agg.merge(black_agg, on='Administrative District', how='outer')\n    .fillna({'susp_total': 0, 'black_total': 0})\n    .assign(combined_total=lambda df: df['susp_total'] + df['black_total'])\n    .sort_values('combined_total', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "Administrative District": 31.0,
+          "susp_total": 0.0,
+          "black_total": 398,
+          "combined_total": 398.0
+        },
+        {
+          "Administrative District": 22.0,
+          "susp_total": 0.0,
+          "black_total": 318,
+          "combined_total": 318.0
+        },
+        {
+          "Administrative District": 11.0,
+          "susp_total": 0.0,
+          "black_total": 296,
+          "combined_total": 296.0
+        },
+        {
+          "Administrative District": 18.0,
+          "susp_total": 0.0,
+          "black_total": 265,
+          "combined_total": 265.0
+        },
+        {
+          "Administrative District": 3.0,
+          "susp_total": 0.0,
+          "black_total": 163,
+          "combined_total": 163.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per NYC Department of Education administrative district showing the combined total of student suspensions/removals and Black removals for the 2016‑2017 school year, sorted descending, limited to the top five districts."
+    },
+    {
+      "id": "aa529039",
+      "question": "For each pickup zone and rate code in the 2022 NYC green‑taxi dataset, what is the total number of trips and the average fare?",
+      "keywords": [
+        "green",
+        "taxi",
+        "2022",
+        "pickup",
+        "zone",
+        "ratecode",
+        "total",
+        "trips",
+        "average",
+        "fare"
+      ],
+      "relevant_table_ids": [
+        "8nfn-ifaj"
+      ],
+      "table_aliases": {
+        "Table_0": "8nfn-ifaj"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = (\n    Table_0\n    .groupby(['PULocationID', 'RatecodeID'])\n    .agg(total_trips=('VendorID', 'count'), average_fare=('fare_amount', 'mean'))\n    .reset_index()\n)",
+      "reference_result": [
+        {
+          "PULocationID": 3,
+          "RatecodeID": 1.0,
+          "total_trips": 2,
+          "average_fare": 27.1
+        },
+        {
+          "PULocationID": 7,
+          "RatecodeID": 1.0,
+          "total_trips": 47,
+          "average_fare": 11.5638297872
+        },
+        {
+          "PULocationID": 7,
+          "RatecodeID": 5.0,
+          "total_trips": 3,
+          "average_fare": 12.6666666667
+        },
+        {
+          "PULocationID": 10,
+          "RatecodeID": 1.0,
+          "total_trips": 1,
+          "average_fare": 6.0
+        },
+        {
+          "PULocationID": 16,
+          "RatecodeID": 1.0,
+          "total_trips": 1,
+          "average_fare": 26.2
+        },
+        {
+          "PULocationID": 17,
+          "RatecodeID": 1.0,
+          "total_trips": 1,
+          "average_fare": 30.0
+        },
+        {
+          "PULocationID": 18,
+          "RatecodeID": 1.0,
+          "total_trips": 2,
+          "average_fare": 15.2
+        },
+        {
+          "PULocationID": 22,
+          "RatecodeID": 1.0,
+          "total_trips": 2,
+          "average_fare": 28.2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per combination of pickup zone (PULocationID) and RatecodeID showing the total trip count and the average fare (in dollars) for that combination in 2022."
+    },
+    {
+      "id": "8649eec5",
+      "question": "How many distinct Vision Zero event locations were there across the 2014 town‑hall meetings, the 2015 taxi‑training sessions, the 2020 senior‑center outreach (\"Seniors - Streetwise\"), and the 2019 street‑team flyer distribution, broken down by venue type (College, School, Other), and how many flyers were distributed in each venue type?",
+      "keywords": [
+        "visionzero",
+        "townhall",
+        "2014",
+        "taxi",
+        "2015",
+        "seniorcenter",
+        "2020",
+        "streetteam",
+        "2019",
+        "venue"
+      ],
+      "relevant_table_ids": [
+        "n47m-7kn5",
+        "fcnc-95cn",
+        "gq2c-wem9",
+        "g3iw-w5rt"
+      ],
+      "table_aliases": {
+        "Table_0": "n47m-7kn5",
+        "Table_1": "fcnc-95cn",
+        "Table_2": "gq2c-wem9",
+        "Table_3": "g3iw-w5rt"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nimport numpy as np\n_df3 = Table_3.copy()\n_df3['TotalFlyer'] = pd.to_numeric(_df3['TotalFlyer'].str.replace(',', ''), errors='coerce')\n_df1 = Table_1.copy()\n_df1 = _df1[~_df1['Activity'].eq('na')]\n_df2 = Table_2.copy()\n_df2['Location'] = 'TaxiTraining'\n_df3['Location'] = 'StreetTeam'\n_df1['Location'] = _df1['Site_Serve']\n_df0 = Table_0.copy()\n_df0['TotalFlyer'] = pd.NA\n_df1['TotalFlyer'] = pd.NA\n_df2['TotalFlyer'] = pd.NA\ncols = ['X', 'LONG', 'LAT', 'Location', 'TotalFlyer']\ncombined = pd.concat([\n    _df0[cols],\n    _df1[cols],\n    _df2[cols],\n    _df3[cols]\n], ignore_index=True)\nconditions = [\n    combined['Location'].str.contains('College', case=False, na=False),\n    combined['Location'].str.contains('PS|IS|School', case=False, na=False)\n]\nchoices = ['College', 'School']\ncombined['VenueType'] = np.select(conditions, choices, default='Other')\nresult = (\n    combined\n    .groupby('VenueType', as_index=False)\n    .agg(\n        LocationCount=('X', lambda s: s.nunique()),\n        TotalFlyers=('TotalFlyer', lambda s: s.fillna(0).sum())\n    )\n)",
+      "reference_result": [
+        {
+          "VenueType": "College",
+          "LocationCount": 8,
+          "TotalFlyers": 0
+        },
+        {
+          "VenueType": "Other",
+          "LocationCount": 1623,
+          "TotalFlyers": 2918011
+        },
+        {
+          "VenueType": "School",
+          "LocationCount": 100,
+          "TotalFlyers": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per venue type (College, School, Other) showing the number of distinct Vision Zero event locations across the four programs and the total number of flyers distributed in the 2019 street‑team outreach for each venue type."
+    },
+    {
+      "id": "7b6b2637",
+      "question": "According to the NYC Department of Finance's condo valuation data for fiscal years 2008‑2009, 2009‑2010, and 2011‑2012, how many condo units are there in each borough and postcode, and what is the average latitude of those units?",
+      "keywords": [
+        "condominium",
+        "DOF",
+        "Brooklyn",
+        "Bronx",
+        "borough",
+        "postcode",
+        "latitude",
+        "count",
+        "2008",
+        "2009"
+      ],
+      "relevant_table_ids": [
+        "w6yt-hctp",
+        "rmv8-86p4",
+        "3qfc-4tta"
+      ],
+      "table_aliases": {
+        "Table_0": "w6yt-hctp",
+        "Table_1": "rmv8-86p4",
+        "Table_2": "3qfc-4tta"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import numpy as np\ncols = ['Borough', 'Postcode', 'BBL', 'Latitude']\ndf0 = Table_0[cols]\ndf1 = Table_1[cols]\ndf2 = Table_2[cols]\ncombined = pd.concat([df0, df1, df2], ignore_index=True)\ncombined['Latitude_Bucket'] = np.where(combined['Latitude'] >= 40.75, 'north', 'south')\nresult = (\n    combined\n    .groupby(['Borough', 'Postcode'], as_index=False)\n    .agg(\n        condo_units=('BBL', 'count'),\n        avg_latitude=('Latitude', 'mean')\n    )\n)",
+      "reference_result": [
+        {
+          "Borough": 2,
+          "Postcode": 10451.0,
+          "condo_units": 5,
+          "avg_latitude": 40.822107
+        },
+        {
+          "Borough": 2,
+          "Postcode": 10452.0,
+          "condo_units": 1,
+          "avg_latitude": 40.837764
+        },
+        {
+          "Borough": 2,
+          "Postcode": 10453.0,
+          "condo_units": 1,
+          "avg_latitude": 40.854136
+        },
+        {
+          "Borough": 2,
+          "Postcode": 10454.0,
+          "condo_units": 1,
+          "avg_latitude": 40.811694
+        },
+        {
+          "Borough": 2,
+          "Postcode": 10455.0,
+          "condo_units": 1,
+          "avg_latitude": 40.815812
+        },
+        {
+          "Borough": 2,
+          "Postcode": 10456.0,
+          "condo_units": 4,
+          "avg_latitude": 40.82966125
+        },
+        {
+          "Borough": 2,
+          "Postcode": 10457.0,
+          "condo_units": 1,
+          "avg_latitude": 40.849226
+        },
+        {
+          "Borough": 2,
+          "Postcode": 10458.0,
+          "condo_units": 2,
+          "avg_latitude": 40.863905
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough and postcode showing the total number of condo units (count of BBL) and the average latitude of those units across the three fiscal years."
+    },
+    {
+      "id": "85adfb0c",
+      "question": "How many street construction permits were issued and printed by the NYC Department of Transportation between 2013 and 2021?",
+      "keywords": [
+        "permits",
+        "issued",
+        "printed",
+        "NYC",
+        "DOT"
+      ],
+      "relevant_table_ids": [
+        "c9sj-fmsg"
+      ],
+      "table_aliases": {
+        "Table_0": "c9sj-fmsg"
+      },
+      "engine": "PANDAS",
+      "reference_code": "result = Table_0.loc[Table_0['PermitStatusShortDesc'] == 'ISSUED & PRINTED', 'PermitNumber'].count()\nresult",
+      "reference_result": [
+        {
+          "0": 1611
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the total count of permits whose status is \"ISSUED & PRINTED\" across the entire 2013‑2021 period."
+    },
+    {
+      "id": "9a5f0023",
+      "question": "How many students were enrolled in the Gifted and Talented program for all students in NYC K-8 schools during the 2017-18 school year?",
+      "keywords": [
+        "gifted",
+        "enrollment",
+        "2017-18",
+        "k-8",
+        "students"
+      ],
+      "relevant_table_ids": [
+        "u7tg-8kia"
+      ],
+      "table_aliases": {
+        "Table_0": "u7tg-8kia"
+      },
+      "engine": "PANDAS",
+      "reference_code": "df = Table_0.replace({'Total Enrollment': ['s']}, pd.NA).dropna(subset=['Total Enrollment'])\nfiltered = df[(df['Year'] == '2017-18') & (df['Special Program'] == 'Gifted and Talented') & (df['Category'] == 'All Students')]\nfiltered['Total Enrollment'] = pd.to_numeric(filtered['Total Enrollment'], errors='coerce')\nresult = filtered['Total Enrollment'].sum()",
+      "reference_result": [
+        {
+          "0": 16492
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of students enrolled in the Gifted and Talented program for all students across NYC K‑8 public schools in the 2017‑18 school year."
+    },
+    {
+      "id": "25e8e40d",
+      "question": "How many sidewalk violation inquiries were received by the NYC Department of Transportation Sidewalk Program in Brooklyn in January 2022?",
+      "keywords": [
+        "NYC",
+        "DOT",
+        "Sidewalk",
+        "Program",
+        "Brooklyn",
+        "January",
+        "2022",
+        "violation",
+        "inquiry"
+      ],
+      "relevant_table_ids": [
+        "bheb-sjfi"
+      ],
+      "table_aliases": {
+        "Table_0": "bheb-sjfi"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\ndf = Table_0.copy()\ndf['Date Received'] = pd.to_datetime(df['Date Received'], format='%m/%d/%Y', errors='coerce')\nfiltered = (\n    df\n    .loc[\n        (df['Borough'].str.lower() == 'brooklyn') &\n        (df['Issue'].str.lower() == 'violation inquiry') &\n        (df['Date Received'].dt.month == 1) &\n        (df['Date Received'].dt.year == 2022)\n    ]\n)\nresult = filtered.shape[0]",
+      "reference_result": [
+        {
+          "result": 31
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of sidewalk violation inquiry records received in Brooklyn during January 2022."
+    },
+    {
+      "id": "e5920213",
+      "question": "How many bus lane segments are there in Brooklyn?",
+      "keywords": [
+        "Brooklyn",
+        "bus",
+        "lane",
+        "segments",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "ycrg-ses3"
+      ],
+      "table_aliases": {
+        "Table_0": "ycrg-ses3"
+      },
+      "engine": "PANDAS",
+      "reference_code": "total_segments = Table_0[Table_0['Boro'] == 'BK']['SegmentID'].shape[0]",
+      "reference_result": [
+        {
+          "result": 273
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of bus‑only lane segments located in Brooklyn (borough code BK)."
+    },
+    {
+      "id": "f548590c",
+      "question": "What is the average area of NYCDOT parking‑meter rate zones for each borough that charge commercial vehicle rates?",
+      "keywords": [
+        "NYCDOT",
+        "parking",
+        "zone",
+        "area",
+        "borough",
+        "commercial",
+        "vehicle"
+      ],
+      "relevant_table_ids": [
+        "f72k-2u3b"
+      ],
+      "table_aliases": {
+        "Table_0": "f72k-2u3b"
+      },
+      "engine": "PANDAS",
+      "reference_code": "Table_0['Shape_Area'] = pd.to_numeric(Table_0['Shape_Area'].str.replace(',', '', regex=False), errors='coerce')\nresult = (\n    Table_0[Table_0['Rate_Zone'].str.contains('Commercial Vehicles', na=False)]\n    .groupby('boro_name', as_index=False)['Shape_Area']\n    .mean()\n    .rename(columns={'Shape_Area': 'avg_area'})\n)",
+      "reference_result": [
+        {
+          "boro_name": "Manhattan",
+          "avg_area": 123372622.71866667
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per borough showing the average area (in square meters) of NYCDOT parking‑meter rate zones that charge commercial vehicle rates."
+    },
+    {
+      "id": "b263f88c",
+      "question": "How many students are enrolled in each special program broken down by enrollment size categories (low, medium, high) for the 2017-18 NYC K-8 schools?",
+      "keywords": [
+        "special",
+        "program",
+        "enrollment",
+        "categories",
+        "2017-18",
+        "NYC",
+        "K-8",
+        "students",
+        "size"
+      ],
+      "relevant_table_ids": [
+        "u7tg-8kia"
+      ],
+      "table_aliases": {
+        "Table_0": "u7tg-8kia"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nimport numpy as np\ndf = Table_0[Table_0['Total Enrollment'] != 's'].copy()\ndf['Total Enrollment'] = pd.to_numeric(df['Total Enrollment'], errors='coerce')\nconditions = [\n    df['Total Enrollment'] < 20,\n    df['Total Enrollment'].between(20, 50, inclusive='both'),\n    df['Total Enrollment'] > 50\n]\nchoices = ['Low', 'Medium', 'High']\ndf['Enrollment_Bucket'] = np.select(conditions, choices, default=pd.NA)\nresult = (\n    df\n    .groupby(['Special Program', 'Enrollment_Bucket'], as_index=False)\n    .agg(bucket_total_enrollment=('Total Enrollment', 'sum'))\n)",
+      "reference_result": [
+        {
+          "Special Program": "Dual Language",
+          "Enrollment_Bucket": "High",
+          "bucket_total_enrollment": 41356
+        },
+        {
+          "Special Program": "Dual Language",
+          "Enrollment_Bucket": "Low",
+          "bucket_total_enrollment": 3391
+        },
+        {
+          "Special Program": "Dual Language",
+          "Enrollment_Bucket": "Medium",
+          "bucket_total_enrollment": 7494
+        },
+        {
+          "Special Program": "Gifted and Talented",
+          "Enrollment_Bucket": "High",
+          "bucket_total_enrollment": 22149
+        },
+        {
+          "Special Program": "Gifted and Talented",
+          "Enrollment_Bucket": "Low",
+          "bucket_total_enrollment": 1186
+        },
+        {
+          "Special Program": "Gifted and Talented",
+          "Enrollment_Bucket": "Medium",
+          "bucket_total_enrollment": 2869
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per special program and enrollment size category (Low, Medium, High) showing the total number of students enrolled in that bucket for the 2017‑18 NYC K‑8 school year."
+    },
+    {
+      "id": "e4760534",
+      "question": "How many Digital Tax Map annotations mention a water grant?",
+      "keywords": [
+        "Digital",
+        "Tax",
+        "Map",
+        "water",
+        "grant",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "f44v-t2tj"
+      ],
+      "table_aliases": {
+        "Table_0": "f44v-t2tj"
+      },
+      "engine": "PANDAS",
+      "reference_code": "count = Table_0['MISC_TEXT'].fillna('').str.contains('water grant', case=False).sum()",
+      "reference_result": [
+        {
+          "0": 49
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing how many Digital Tax Map annotations contain a water grant reference."
+    },
+    {
+      "id": "791bfca4",
+      "question": "Which three budget line items have the highest current budget amounts for the Department of Sanitation in 2027?",
+      "keywords": [
+        "Sanitation",
+        "budget",
+        "highest",
+        "line",
+        "items",
+        "2027"
+      ],
+      "relevant_table_ids": [
+        "39g5-gbp3"
+      ],
+      "table_aliases": {
+        "Table_0": "39g5-gbp3"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nTable_0['Total Current Budget Amount'] = pd.to_numeric(\n    Table_0['Total Current Budget Amount'].str.replace(',', ''),\n    errors='coerce'\n)\nresult = (\n    Table_0\n    .loc[Table_0['Agency Name'] == 'DEPARTMENT OF SANITATION']\n    .sort_values('Total Current Budget Amount', ascending=False)\n    .head(3)[['Unit Appropriation Name', 'Total Current Budget Amount']]\n)",
+      "reference_result": [
+        {
+          "Unit Appropriation Name": "CLEANING & COLLECTION",
+          "Total Current Budget Amount": 995602889
+        },
+        {
+          "Unit Appropriation Name": "CLEANING & COLLECTION",
+          "Total Current Budget Amount": 976831549
+        },
+        {
+          "Unit Appropriation Name": "CLEANING & COLLECTION",
+          "Total Current Budget Amount": 961261629
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing the Unit Appropriation Name and its Total Current Budget Amount (in dollars) for the three largest line items of the Department of Sanitation in FY 2027, sorted descending by amount."
+    },
+    {
+      "id": "32b3db95",
+      "question": "How many Vision Zero Street Improvement Projects were completed in 2016, and how many of them fall into short, medium, or long corridor lengths?",
+      "keywords": [
+        "Vision",
+        "Zero",
+        "projects",
+        "2016",
+        "short",
+        "medium",
+        "long",
+        "corridor"
+      ],
+      "relevant_table_ids": [
+        "wqhs-q6wd"
+      ],
+      "table_aliases": {
+        "Table_0": "wqhs-q6wd"
+      },
+      "engine": "PANDAS",
+      "reference_code": "import pandas as pd\nimport numpy as np\nTable_0['Shape_Leng'] = pd.to_numeric(Table_0['Shape_Leng'].astype(str).str.replace(',', ''), errors='coerce')\nfiltered = Table_0[Table_0['sip_year'] == 2016].copy()\nq1, q2 = filtered['Shape_Leng'].quantile([0.33, 0.66])\nconditions = [\n    filtered['Shape_Leng'] <= q1,\n    filtered['Shape_Leng'].between(q1, q2, inclusive='both'),\n    filtered['Shape_Leng'] > q2\n]\nchoices = ['short', 'medium', 'long']\nfiltered['length_bucket'] = np.select(conditions, choices, default=None)\nbucket_counts = (\n    filtered.dropna(subset=['length_bucket'])\n    .groupby('length_bucket')\n    .agg(project_count=('pjct_name', lambda x: x.nunique()))\n    .reset_index()\n)\ntotal_count = bucket_counts['project_count'].sum()\ntotal_row = pd.DataFrame({'length_bucket': ['total'], 'project_count': [total_count]})\nresult = pd.concat([bucket_counts, total_row], ignore_index=True)",
+      "reference_result": [
+        {
+          "length_bucket": "long",
+          "project_count": 25
+        },
+        {
+          "length_bucket": "medium",
+          "project_count": 24
+        },
+        {
+          "length_bucket": "short",
+          "project_count": 24
+        },
+        {
+          "length_bucket": "total",
+          "project_count": 73
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row for each corridor length category ('short', 'medium', 'long') and an additional row labeled 'total', showing the number of Vision Zero projects completed in 2016 for each category and the overall total."
+    }
+  ]
+}

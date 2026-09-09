@@ -32,7 +32,9 @@ data
 logs
 queries_old
 queries
-benchmark
+benchmark/*
+!benchmark/100q_nyc.json
+!benchmark/100q_uk.json
 
 # Pneuma local runtime, virtual environment, and generated indexes.
 .pneuma/
