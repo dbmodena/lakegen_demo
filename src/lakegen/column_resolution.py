@@ -115,17 +115,17 @@ class _ColumnLiteralResolver(ast.NodeTransformer):
 
     def visit_Subscript(self, node: ast.Subscript) -> ast.AST:
         self.generic_visit(node)
-        node.slice = self._replace_value(node.slice)
+        node.slice = self._replace_value(node.slice, required=True)
         return node
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
         self.generic_visit(node)
         method = node.func.attr if isinstance(node.func, ast.Attribute) else ""
         if method in _COLUMN_METHODS:
-            node.args = [self._replace_value(arg) for arg in node.args]
+            node.args = [self._replace_value(arg, required=True) for arg in node.args]
             for keyword in node.keywords:
                 if keyword.arg in _COLUMN_KEYWORDS:
-                    keyword.value = self._replace_value(keyword.value)
+                    keyword.value = self._replace_value(keyword.value, required=True)
         return node
 
 
@@ -177,6 +177,16 @@ def _generated_column_names(tree: ast.AST) -> set[str]:
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             continue
         method = node.func.attr
+        if (
+            method == "Series"
+            and node.args
+            and isinstance(node.args[0], ast.Dict)
+        ):
+            names.update(
+                key.value
+                for key in node.args[0].keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            )
         if method in {"assign", "agg", "aggregate"}:
             names.update(
                 keyword.arg
@@ -201,3 +211,8 @@ def _generated_column_names(tree: ast.AST) -> set[str]:
                     if isinstance(value, ast.Constant) and isinstance(value.value, str)
                 )
     return names
+
+
+def generated_column_names(code: str) -> set[str]:
+    """Return explicit derived labels created by generated analysis code."""
+    return _generated_column_names(ast.parse(code))

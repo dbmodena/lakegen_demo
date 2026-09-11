@@ -855,6 +855,7 @@ def phase3_generate_and_execute(
         if stream_placeholder is not None:
             stream_placeholder.markdown(delta)
 
+    workflow_exhausted = False
     try:
         response = run_agent_workflow(
             llm=llm,

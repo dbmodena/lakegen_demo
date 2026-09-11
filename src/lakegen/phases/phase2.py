@@ -32,6 +32,7 @@ from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
+from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
 
 from lakegen.phases.utils import (
     format_candidate_context,
@@ -235,12 +236,17 @@ def phase2_select_tables(
         )
     except Phase2AgentStall as stall_err:
         inspected_fallback = tools_manager.inspected_candidates()[:2]
+        fallback_reasoning = (
+            f"Phase 2 loop guard triggered: {stall_err}. "
+            "Fallback restricted to inspected candidates."
+        )
+        tools_manager.selection_plan, _ = build_minimal_selection_fallback(
+            inspected_fallback, fallback_reasoning
+        )
         fallback_payload = {
             "tables": ", ".join(inspected_fallback),
-            "reasoning": (
-                f"Phase 2 loop guard triggered: {stall_err}. "
-                "Fallback restricted to inspected candidates."
-            ),
+            "reasoning": fallback_reasoning,
+            "selection_plan": tools_manager.selection_plan,
         }
         emit_stream(
             "\n\n**Phase 2 loop guard triggered**\n"
@@ -258,9 +264,13 @@ def phase2_select_tables(
             reason = f"Agent error: {err_msg[:120]}. Fallback to top 2."
 
         inspected_fallback = tools_manager.inspected_candidates()[:2]
+        tools_manager.selection_plan, _ = build_minimal_selection_fallback(
+            inspected_fallback, reason
+        )
         fallback_payload = {
             "tables": ", ".join(inspected_fallback),
             "reasoning": reason,
+            "selection_plan": tools_manager.selection_plan,
         }
         emit_stream(f"\n[phase2 agent error] {str(agent_err)[:160]}\n")
         agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
@@ -284,7 +294,13 @@ def phase2_select_tables(
     )
     if selection_state is not None and tools_manager.selection_plan:
         selection_state.selection_plan = dict(tools_manager.selection_plan)
-        selection_state.selection_plan_source = "confirm_divided_selection"
+        selection_state.selection_plan_source = (
+            "minimal_fallback"
+            if tools_manager.selection_plan.get(
+                "recovered_from_existing_discovery_context"
+            )
+            else "confirm_divided_selection"
+        )
         selection_state.confirmed_tables = list(selected)
         selection_state.selection_reasoning = reasoning
         selection_state.selection_requirements = dict(

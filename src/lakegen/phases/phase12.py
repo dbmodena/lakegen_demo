@@ -34,6 +34,7 @@ from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
+from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
 from lakegen.retrieval import RetrievalConfig
 from lakegen.retrieval.models import RetrievalRun
 
@@ -88,37 +89,7 @@ def _recover_minimal_selection_plan(
     selected: list[str], reasoning: str
 ) -> tuple[dict[str, object], list[str]]:
     """Recover non-blocking coder guidance when discovery exits without a plan."""
-    if not selected:
-        return {}, []
-    lowered = reasoning.casefold()
-    if len(selected) == 1:
-        strategy = "single_table"
-    elif any(term in lowered for term in ("concat", "partition", "append", "union")):
-        strategy = "concat_partitions"
-    elif any(term in lowered for term in ("lookup", "mapping", "reference table")):
-        strategy = "lookup"
-    elif any(term in lowered for term in ("compare", "comparison", "versus", " vs ")):
-        strategy = "compare"
-    elif any(term in lowered for term in ("join", "merge", "shared key")):
-        strategy = "join"
-    else:
-        strategy = "aggregate_separately"
-    roles = {
-        table: ("primary selected source" if index == 0 else "supporting selected source")
-        for index, table in enumerate(selected)
-    }
-    plan = {
-        "requirement_coverage": {},
-        "table_roles": roles,
-        "combination_strategy": strategy,
-        "uncovered_requirements": [],
-        "alternatives_rejected": {},
-        "recovered_from_existing_discovery_context": True,
-    }
-    return plan, [
-        "The structured selection plan was recovered from the existing discovery "
-        "decision; treat it as guidance, not as a blocking constraint."
-    ]
+    return build_minimal_selection_fallback(selected, reasoning)
 
 
 def _inspected_runtime_evidence(state: P12State, max_chars: int = 24000) -> str:

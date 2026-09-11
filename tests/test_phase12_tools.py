@@ -24,6 +24,7 @@ def test_inspected_candidates_accepts_structured_recovery_candidates():
 
     assert state.inspected_candidates() == ["events.parquet"]
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
+from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
 from lakegen.phases.phase12 import (
     _conservative_draft_from_requirements,
     _extract_plausible_json,
@@ -159,9 +160,14 @@ def test_requirement_ledger_merges_bound_computation_and_avoids_inferred_gaps(tm
         question="Count partnered plazas in Brooklyn in 2023.",
     )
     ledger = manager._build_requirement_ledger(
-        {"measure count partnered plazas": {
-            "table": "plazas.parquet", "columns": ["PlazaName"],
-        }},
+        {
+            "measure count partnered plazas": {
+                "table": "plazas.parquet", "columns": ["PlazaName"],
+            },
+            "Brooklyn and year 2023": {
+                "table": "plazas.parquet", "columns": ["Borough", "Year"],
+            },
+        },
         {"measures": [{
             "type": "count", "column": "PlazaName",
             "alias": "partnered_plaza_count",
@@ -531,7 +537,7 @@ def test_unified_selection_advisories_are_non_blocking(tmp_path):
     assert any("strategy is single_table" in item for item in payload["advisories"])
 
 
-def test_missing_agentic_plan_is_recovered_as_non_blocking_coder_context():
+def test_missing_agentic_plan_is_recovered_as_flexible_coder_context():
     plan, advisories = _recover_minimal_selection_plan(
         ["events.parquet", "boroughs.parquet"],
         "Join the event records to the borough lookup using the shared key.",
@@ -541,7 +547,23 @@ def test_missing_agentic_plan_is_recovered_as_non_blocking_coder_context():
     assert plan["combination_strategy"] == "lookup"
     assert plan["recovered_from_existing_discovery_context"] is True
     assert set(plan["table_roles"]) == {"events.parquet", "boroughs.parquet"}
-    assert "treat it as guidance, not as a blocking constraint" in context
+    assert "coder may complete computational details" in context
+
+
+def test_divided_and_unified_recovery_use_the_same_minimal_fallback():
+    selected = ["events.parquet", "boroughs.parquet"]
+    reasoning = "Join the event records to the borough lookup using the shared key."
+
+    divided_plan, divided_advisories = build_minimal_selection_fallback(
+        selected, reasoning
+    )
+    unified_plan, unified_advisories = _recover_minimal_selection_plan(
+        selected, reasoning
+    )
+
+    assert divided_plan == unified_plan
+    assert divided_advisories == unified_advisories
+    assert divided_plan["recovered_from_existing_discovery_context"] is True
 
 
 def test_recovery_evidence_serializes_cached_inspections_without_external_context():
@@ -792,7 +814,7 @@ def test_semantic_planner_prompt_contains_runtime_only_context():
     assert "expected_result" not in prompt
 
 
-def test_selection_records_uncovered_requirements_and_rejected_alternatives(tmp_path):
+def test_selection_blocks_uncovered_data_requirement(tmp_path):
     state = P12State()
     state.all_candidates = ["selected.parquet", "alternative.parquet"]
     state.visible_candidate_count = 2
@@ -802,31 +824,65 @@ def test_selection_records_uncovered_requirements_and_rejected_alternatives(tmp_
     }
     manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
 
+    with pytest.raises(ValueError, match="requested historical year"):
+        manager.confirm_unified_selection(
+            "selected is the strongest available source",
+            ["selected.parquet"],
+            requirement_coverage={
+                "measure": {"table": "selected.parquet", "columns": ["value"]},
+            },
+            table_roles={"selected.parquet": "fact records"},
+            uncovered_requirements=["requested historical year"],
+            alternatives_rejected={
+                "alternative.parquet": "requested historical year",
+            },
+        )
+
+
+def test_selection_allows_uncovered_computational_requirement(tmp_path):
+    state = P12State()
+    state.all_candidates = ["selected.parquet"]
+    state.visible_candidate_count = 1
+    state.inspection_cache = {"selected.parquet": "Schema: rotation"}
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
     result = manager.confirm_unified_selection(
-        "selected is the strongest available source",
-        ["selected.parquet"],
+        "rotation values are available", ["selected.parquet"],
         requirement_coverage={
-            "measure": {"table": "selected.parquet", "columns": ["value"]},
+            "rotation values": {
+                "table": "selected.parquet", "columns": ["rotation"],
+            },
         },
         table_roles={"selected.parquet": "fact records"},
-        uncovered_requirements=["requested historical year"],
-        alternatives_rejected={
-            "alternative.parquet": "requested historical year",
-        },
+        uncovered_requirements=["derive rotation range categories"],
     )
 
-    payload = json.loads(result.split("FINAL_PAYLOAD: ", 1)[1])
-    plan = payload["selection_plan"]
-    assert plan["uncovered_requirements"] == ["requested historical year"]
-    assert plan["alternatives_rejected"] == {
-        "alternative.parquet": {
-            "matched_requirements": [],
-            "missing_requirement": "requested historical year",
-        }
-    }
-    assert any("still marked uncovered" in item for item in payload["advisories"])
-    context = _reasoning_with_selection_plan("selected", plan, payload["advisories"])
-    assert "alternative.parquet: matches []; lacks requested historical year" in context
+    ledger = json.loads(result.split("FINAL_PAYLOAD: ", 1)[1])[
+        "selection_plan"
+    ]["requirement_ledger"]
+    assert any(
+        item["request"] == "derive rotation range categories"
+        and item["status"] == "computational"
+        for item in ledger
+    )
+
+
+def test_divided_selection_blocks_uncovered_data_requirement(tmp_path):
+    manager = Phase2JudgeToolsManager(
+        ["selected.parquet"], tmp_path, question="Count records in 2020"
+    )
+    manager._inspection_cache["selected.parquet"] = "Schema: value"
+
+    with pytest.raises(ValueError, match="historical year 2020"):
+        manager.confirm_table_selection(
+            "selected is relevant", ["selected.parquet"],
+            requirement_coverage={
+                "measure": {
+                    "table": "selected.parquet", "columns": ["value"],
+                },
+            },
+            uncovered_requirements=["historical year 2020"],
+        )
 
 
 def test_strong_alternative_without_concrete_missing_requirement_is_advisory(tmp_path):

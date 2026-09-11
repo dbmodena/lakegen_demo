@@ -5,6 +5,92 @@ from __future__ import annotations
 import re
 
 
+_COMPUTATIONAL_CUES = re.compile(
+    r"\b(?:aggregat|average|bin|bucket|calculat|comput|correlat|count|derive|"
+    r"group|rank|ratio|sort|top|range categor|range bin)\w*\b",
+    re.IGNORECASE,
+)
+
+
+def is_computational_requirement(value: object) -> bool:
+    """Return whether a missing item describes work rather than source data."""
+    text = " ".join(str(value or "").split())
+    return bool(_COMPUTATIONAL_CUES.search(text))
+
+
+def build_minimal_selection_fallback(
+    selected: list[str], reasoning: str
+) -> tuple[dict[str, object], list[str]]:
+    """Mark an unvalidated discovery recovery identically for P2 and P12."""
+    if not selected:
+        return {}, []
+    lowered = reasoning.casefold()
+    if len(selected) == 1:
+        strategy = "single_table"
+    elif any(term in lowered for term in ("concat", "partition", "append", "union")):
+        strategy = "concat_partitions"
+    elif any(term in lowered for term in ("lookup", "mapping", "reference table")):
+        strategy = "lookup"
+    elif any(term in lowered for term in ("compare", "comparison", "versus", " vs ")):
+        strategy = "compare"
+    elif any(term in lowered for term in ("join", "merge", "shared key")):
+        strategy = "join"
+    else:
+        strategy = "aggregate_separately"
+    return {
+        "requirement_coverage": {},
+        "table_roles": {
+            table: (
+                "primary selected source" if index == 0
+                else "supporting selected source"
+            )
+            for index, table in enumerate(selected)
+        },
+        "combination_strategy": strategy,
+        "uncovered_requirements": [],
+        "alternatives_rejected": {},
+        "recovered_from_existing_discovery_context": True,
+    }, [
+        "The structured selection plan was recovered from the existing discovery "
+        "decision. The coder may complete computational details from the question "
+        "and runtime schema; unsupported data requirements must still be rejected."
+    ]
+
+
+def requirement_ledger_blockers(
+    ledger: list[dict[str, object]], selected_tables: list[str]
+) -> list[str]:
+    """Report data-bound requirements that lack concrete selected-table evidence."""
+    selected = {str(table).strip() for table in selected_tables}
+    blockers: list[str] = []
+    for item in ledger:
+        if item.get("status") == "computational":
+            continue
+        request = str(item.get("request") or "").strip()
+        if item.get("status") == "unresolved":
+            blockers.append(request)
+            continue
+        evidence = item.get("evidence")
+        if not isinstance(evidence, dict):
+            blockers.append(request)
+            continue
+        table = str(evidence.get("table") or "").strip()
+        columns = evidence.get("columns")
+        if table == "join" and isinstance(columns, list) and columns:
+            annotated_tables = {
+                match.group(1).strip()
+                for column in columns
+                if (match := re.search(r"\(([^()]+)\)\s*$", str(column)))
+            }
+            if annotated_tables and annotated_tables <= selected:
+                continue
+        if table not in selected or not isinstance(columns, list) or not any(
+            str(column or "").strip() for column in columns
+        ):
+            blockers.append(request)
+    return list(dict.fromkeys(blockers))
+
+
 def build_requirement_ledger(
     question: str,
     coverage: dict[str, dict[str, object]],
@@ -77,42 +163,59 @@ def build_requirement_ledger(
         evidence = dict(raw_evidence) if isinstance(raw_evidence, dict) else raw_evidence
         add(classify(str(request)), request, "bound", evidence)
     for request in uncovered:
-        add(classify(request), request, "unresolved")
+        if is_computational_requirement(request):
+            add("derived_operation", request, "computational")
+        else:
+            add(classify(request), request, "unresolved")
 
     plan = semantic_plan or {}
     for group, kind in (("filters", "filter"),
                         ("temporal_filters", "temporal_filter"),
-                        ("dimensions", "dimension")):
+                        ("dimensions", "dimension"),
+                        ("measures", "measure")):
         values = plan.get(group, [])
         for binding in values if isinstance(values, list) else []:
             if isinstance(binding, dict):
                 request = binding.get("requirement") or binding.get("output") or binding.get("column")
-                add(kind, request, "bound", {"table": binding.get("table"),
-                    "columns": binding.get("columns") or [binding.get("column")]})
+                columns = binding.get("columns") or [binding.get("column")]
+                if group == "measures" and not any(columns):
+                    add("measure", request, "computational")
+                else:
+                    add(kind, request, "bound", {"table": binding.get("table"),
+                        "columns": columns})
 
-    for key, kind in (("grouping", "dimension"), ("measures", "measure"),
-                      ("output_columns", "output")):
+    for key, kind in (("grouping", "dimension"), ("measures", "measure")):
         values = requirements.get(key, [])
         for value in values if isinstance(values, list) else []:
             add(kind, value, "computational")
+    for value in requirements.get("output_columns", []) if isinstance(
+        requirements.get("output_columns"), list
+    ) else []:
+        add("output", value, "computational")
     for key, kind in (("ordering", "ordering"), ("limit", "limit"),
                       ("result_type", "output")):
         value = requirements.get(key)
         if value not in (None, "", [], "auto"):
             add(kind, value, "computational")
 
-    coverage_text = " ".join(map(str, coverage)).casefold()
     periods = list(dict.fromkeys([
         *re.findall(r"\b(?:19|20)\d{2}\s*[-–‑/]\s*(?:\d{2}|(?:19|20)\d{2})\b", question),
         *re.findall(r"\b(?:19|20)\d{2}\b", question),
     ]))
     for period in periods:
-        if period.casefold() in coverage_text:
-            add("temporal_scope", period, "bound")
+        matching = next((evidence for request, evidence in coverage.items()
+                         if period.casefold() in str(request).casefold()), None)
+        add("temporal_scope", period, "bound" if matching else "unresolved",
+            matching if matching else [])
     boroughs = [name for name in ("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island")
                 if re.search(rf"\b{re.escape(name)}\b", question, re.IGNORECASE)]
-    if boroughs and any(name.casefold() in coverage_text for name in boroughs):
-        add("geographic_scope", " and ".join(boroughs), "bound")
+    if boroughs:
+        matching = next((evidence for request, evidence in coverage.items()
+                         if any(name.casefold() in str(request).casefold()
+                                or "borough" in str(request).casefold()
+                                for name in boroughs)), None)
+        add("geographic_scope", " and ".join(boroughs),
+            "bound" if matching else "unresolved", matching if matching else [])
     for marker, label in ((r"correlat", "correlation"),
                           (r"geographic(?:al)? center", "geographic center"),
                           (r"\bratio\b", "ratio")):

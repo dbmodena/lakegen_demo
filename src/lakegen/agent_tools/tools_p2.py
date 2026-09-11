@@ -13,7 +13,10 @@ from valentine.algorithms import ComaPy
 from lakegen.core.table_io import iter_table_chunks, read_table, table_row_count
 from lakegen.core.types import SolrMetadata
 from lakegen.phases.utils import format_candidate_context
-from lakegen.agent_tools.requirement_ledger import build_requirement_ledger
+from lakegen.agent_tools.requirement_ledger import (
+    build_requirement_ledger,
+    requirement_ledger_blockers,
+)
 
 try:
     try:
@@ -758,16 +761,25 @@ class Phase2JudgeToolsManager:
         coverage = dict(requirement_coverage or {})
         normalized_requirements = dict(requirements or {})
         uncovered = list(uncovered_requirements or [])
+        ledger = build_requirement_ledger(
+            self.question, coverage, normalized_requirements, uncovered,
+            semantic_plan,
+        )
+        blockers = requirement_ledger_blockers(ledger, normalized_tables)
+        if blockers:
+            raise ValueError(
+                "Selection blocked: fundamental data requirements lack concrete "
+                "selected-table/column evidence: " + ", ".join(blockers) + ". "
+                "Inspect or expand candidates and bind them in requirement_coverage. "
+                "Keep calculations in the ledger as computational."
+            )
         self.selection_plan = {
             "requirement_coverage": coverage,
             "table_roles": dict(table_roles or {}),
             "combination_strategy": combination_strategy,
             "uncovered_requirements": uncovered,
             "requirements": normalized_requirements,
-            "requirement_ledger": build_requirement_ledger(
-                self.question, coverage, normalized_requirements, uncovered,
-                semantic_plan,
-            ),
+            "requirement_ledger": ledger,
             **({"semantic_plan": semantic_plan} if semantic_plan else {}),
         }
 

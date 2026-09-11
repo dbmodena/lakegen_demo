@@ -17,7 +17,10 @@ from lakegen.agent_tools.tools_p2 import (
     _requirement_terms,
     _temporal_coverage_issue,
 )
-from lakegen.agent_tools.requirement_ledger import build_requirement_ledger
+from lakegen.agent_tools.requirement_ledger import (
+    build_requirement_ledger,
+    requirement_ledger_blockers,
+)
 from src.client_solr import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
 from lakegen.core.resources import get_table_retrieval_service
@@ -1023,6 +1026,16 @@ class Phase12ToolsManager:
             uncovered_requirements,
             semantic_plan if isinstance(semantic_plan, dict) else None,
         )
+        ledger_blockers = requirement_ledger_blockers(
+            requirement_ledger, normalized_tables
+        )
+        if ledger_blockers:
+            raise ValueError(
+                "Selection blocked: fundamental data requirements lack concrete "
+                "selected-table/column evidence: " + ", ".join(ledger_blockers) + ". "
+                "Inspect or expand candidates and bind them in requirement_coverage. "
+                "Keep calculations in the ledger as computational."
+            )
         self.state.selection_plan = {
             "requirement_coverage": requirement_coverage,
             "table_roles": table_roles,

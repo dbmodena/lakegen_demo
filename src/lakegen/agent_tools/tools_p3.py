@@ -17,6 +17,9 @@ from llama_index.core.tools import FunctionTool
 from pydantic import BaseModel, Field
 import pandas as pd
 
+from lakegen.column_resolution import generated_column_names
+from lakegen.revision_policy import classify_revision, technical_repair_eligible
+
 from lakegen.core.table_io import read_table, table_load_command
 
 
@@ -117,6 +120,8 @@ class P3State:
     result_adaptations: list[str] = field(default_factory=list)
     result_adaptation_notes: list[str] = field(default_factory=list)
     preflight_revision_used: bool = False
+    column_repair_credit_used: bool = False
+    revision_decisions: list[dict[str, object]] = field(default_factory=list)
     error: str | None = None
     execution_error: dict[str, Any] = field(default_factory=dict)
     finished: bool = False
@@ -1433,6 +1438,18 @@ class Phase3ToolsManager:
             str(column).strip(), columns, n=5, cutoff=0.5
         )
         error["source_columns"] = columns[:100]
+        try:
+            derived_columns = generated_column_names(self.state.clean_code)
+        except SyntaxError:
+            derived_columns = set()
+        if str(column).strip() in derived_columns:
+            error["generated_column"] = True
+            error["repair_hint"] = (
+                "This is a derived downstream label, not a missing source column. "
+                "Inspect the preceding filter/groupby/aggregation for empty output "
+                "and ensure the derived column is created before using it."
+            )
+            return
         rename_hints = self._rename_hints(str(column).strip())
         if rename_hints:
             error["rename_hints"] = rename_hints
@@ -1448,6 +1465,8 @@ class Phase3ToolsManager:
     def _reject_after_repeated_missing_column(self, error: dict[str, Any]) -> None:
         """Escalate a repeated, genuinely absent column back to discovery."""
         if error.get("category") != "missing_column":
+            return
+        if error.get("generated_column"):
             return
         column = str(error.get("column") or "").strip()
         if not column or error.get("rename_hints"):
@@ -1874,6 +1893,25 @@ class Phase3ToolsManager:
             self.state.execution_error = classify_execution_error(error)
             self._enrich_column_error(self.state.execution_error)
             self._reject_after_repeated_missing_column(self.state.execution_error)
+            decision = classify_revision(
+                execution_error=self.state.execution_error,
+                rejection_details=self.state.rejection_details,
+            )
+            if (
+                technical_repair_eligible(self.state.execution_error)
+                and not self.state.column_repair_credit_used
+                and not self.state.best_result_snapshot
+                and not self.state.rejected_reason
+            ):
+                self.state.column_repair_credit_used = True
+                self.state.run_count = max(0, self.state.run_count - 1)
+                self.state.execution_error["execution_consumed"] = False
+                self.state.execution_error["dedicated_technical_repair"] = True
+                self.state.execution_error["repair_runs_remaining"] = (
+                    self.state.max_runs - self.state.run_count
+                )
+                decision["credit_consumed"] = "technical"
+            self.state.revision_decisions.append(decision)
             self._record_execution_attempt()
             return json.dumps({"ok": False, "attempt": self.state.run_count, "error": self.state.execution_error})
 
@@ -3069,12 +3107,18 @@ class Phase3ToolsManager:
             return json.dumps({
                 "status": "revision_required", "all_problems": [error],
                 "remaining_runs": self.state.max_runs - self.state.run_count,
+                "revision_decision": (
+                    self.state.revision_decisions[-1]
+                    if self.state.revision_decisions else
+                    classify_revision(execution_error=error)
+                ),
             }, ensure_ascii=False, default=str)
 
         inspection = json.loads(self.inspect_result())
         self._remember_best_result()
         warnings = list(self.state.coverage_warnings)
         if not warnings:
+            self.state.revision_decisions.append(classify_revision())
             self.finalize_validated_result(
                 "run_analysis finalized a warning-free inspected result."
             )
@@ -3096,7 +3140,15 @@ class Phase3ToolsManager:
             "status": "revision_required",
             "all_problems": inspection.get("profile", {}).get("correction_items", warnings),
             "remaining_runs": self.state.max_runs - self.state.run_count,
+            "revision_decision": self._record_semantic_revision_decision(warnings),
         }, ensure_ascii=False, default=str)
+
+    def _record_semantic_revision_decision(
+        self, warnings: list[str]
+    ) -> dict[str, object]:
+        decision = classify_revision(coverage_warnings=warnings)
+        self.state.revision_decisions.append(decision)
+        return decision
 
     def reject_data(
         self, reason: str, missing_requirements: list[str], inspected_evidence: str

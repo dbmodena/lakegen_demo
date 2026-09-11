@@ -1,4 +1,5 @@
 from lakegen.column_resolution import (
+    generated_column_names,
     resolve_column_name,
     resolve_generated_code_columns,
 )
@@ -13,6 +14,7 @@ from lakegen.phases.phase3 import (
     _execute_code,
     _recover_fenced_agent_code,
     _recover_structured_rejection,
+    _resolve_and_validate_columns,
     _tabpfn_enabled,
     phase3_generate_and_execute,
 )
@@ -648,6 +650,35 @@ def test_plan_view_separates_missing_selection_brief_from_runtime_fallback(tmp_p
     assert any("no computational brief" in item for item in policy["obligations"])
 
 
+def test_minimal_discovery_fallback_allows_runtime_completion(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="number",
+        selection_plan={
+            "requirement_coverage": {},
+            "table_roles": {"table.csv": "primary selected source"},
+            "combination_strategy": "single_table",
+            "uncovered_requirements": [],
+            "recovered_from_existing_discovery_context": True,
+        },
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, 1, None),
+    )
+
+    view = manager.coder_plan_view()
+    assert view["status"] == "executable_with_obligations"
+    assert view["semantic_plan_locked"] is True
+    assert view["coder_brief"]["source"] == "runtime_fallback"
+    assert view["coder_brief"]["selected_columns"] == {"table.csv": ["value"]}
+    assert any(
+        "no computational brief" in obligation
+        for obligation in view["plan_completion_policy"]["obligations"]
+    )
+
+
 def test_plan_completion_policy_requires_final_correlation_and_scalar_reduction(tmp_path):
     (tmp_path / "closings.csv").write_text(
         "Year,Closing Count\n2020,10\n2021,12\n", encoding="utf-8"
@@ -1047,6 +1078,8 @@ def test_agentic_coder_returns_structured_execution_error(tmp_path):
     assert '"category": "missing_column"' in response
     assert state.execution_error["stage"] == "execution"
     assert state.execution_error["column"] == "missing_total"
+    assert state.execution_error["dedicated_technical_repair"] is True
+    assert state.run_count == 0
 
 
 def test_repeated_unmapped_missing_column_escalates_to_discovery(tmp_path):
@@ -1086,6 +1119,25 @@ def test_missing_column_error_reports_post_rename_label(tmp_path):
     assert "post-rename label" in state.execution_error["repair_hint"]
     assert "source_columns" in state.execution_error
     assert "available_columns" not in state.execution_error
+
+
+def test_generated_missing_column_is_computational_not_discovery_failure(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (None, "KeyError: 'TotalTons'", code),
+    )
+
+    response = json.loads(manager.run_code(
+        "agg = df.groupby('borough').apply(lambda part: pd.Series({"
+        "'TotalTons': part['value'].sum()}))\n"
+        "print(agg.sort_values('TotalTons'))"
+    ))
+
+    assert response["error"]["generated_column"] is True
+    assert "derived downstream label" in response["error"]["repair_hint"]
+    assert state.rejected_reason == ""
+    assert state.run_count == 0
+    assert state.revision_decisions[-1]["action"] == "REPAIR_CODE"
 
 
 def test_fenced_code_without_tool_call_uses_normal_run_and_inspection(tmp_path):
@@ -1820,6 +1872,26 @@ def test_generated_code_preflight_rewrites_column_contexts_and_validates_require
         "required_cols = {'invented_metric'}", ["Real Metric"]
     )
     assert invalid.unresolved_required == ("invented_metric",)
+
+
+def test_preflight_rejects_unresolved_read_without_consuming_execution(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
+    state, manager = _agentic_tools(tmp_path)
+    manager.resolve_code = _resolve_and_validate_columns
+
+    response = json.loads(manager.run_code("print(df['invented_metric'])"))
+
+    assert response["error"]["category"] == "column_resolution_error"
+    assert response["execution_consumed"] is False
+    assert state.run_count == 0
+
+
+def test_series_mapping_keys_are_recognized_as_generated_columns():
+    code = "result = pd.Series({'TotalTons': df['value'].sum()})"
+
+    assert generated_column_names(code) == {"TotalTons"}
+    resolution = resolve_generated_code_columns(code, ["value"])
+    assert resolution.unresolved_required == ()
 
 
 def test_generated_columns_do_not_fail_source_column_preflight():
