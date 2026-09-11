@@ -64,10 +64,6 @@ from lakegen.phases.orchestrated_discovery import (
     select_from_prepared_context,
 )
 
-from llama_index.core import Settings
-
-Settings.embed_model = "local:BAAI/bge-small-en-v1.5"
-
 WORKFLOW_LOCK = asyncio.Lock()
 MAX_RETRIES = 3
 logger = logging.getLogger(__name__)

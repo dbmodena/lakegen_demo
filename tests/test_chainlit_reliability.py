@@ -1,33 +1,10 @@
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.tracing import HumanGate
 from lakegen.ui.state import LakeGenSession, WorkflowTimedOut
-
-# The production UI configures the optional local embedding package at import
-# time. Supply a no-I/O stand-in so these workflow tests remain fully offline.
-from llama_index.core.base.embeddings.base import BaseEmbedding
-
-
-class _OfflineEmbedding(BaseEmbedding):
-    def _get_query_embedding(self, _query):
-        return []
-
-    async def _aget_query_embedding(self, _query):
-        return []
-
-    def _get_text_embedding(self, _text):
-        return []
-
-
-_embedding_package = ModuleType("llama_index.embeddings")
-_embedding_module = ModuleType("llama_index.embeddings.huggingface")
-_embedding_module.HuggingFaceEmbedding = _OfflineEmbedding
-sys.modules.setdefault("llama_index.embeddings", _embedding_package)
-sys.modules.setdefault("llama_index.embeddings.huggingface", _embedding_module)
 
 from lakegen.ui import workflow
 from src import app as chainlit_app

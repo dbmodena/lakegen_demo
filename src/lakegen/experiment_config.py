@@ -58,7 +58,7 @@ class RetrievalExperimentConfig(FrozenModel):
     alpha: float = Field(default=0.5, ge=0.0, le=1.0)
     candidate_multiplier: int = Field(default=5, gt=0)
     representation_version: str = Field(default="metadata-v1", min_length=1)
-    embedding_model: str = Field(default="bge-m3", min_length=1)
+    embedding_model: str = Field(default="cohere.embed-v4.0", min_length=1)
     embedding_base_url: str = "http://localhost:11434"
     vector_field: str = Field(default="table_embedding", min_length=1)
     lexical_query_fields: str | None = None

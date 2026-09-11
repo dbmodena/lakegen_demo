@@ -63,3 +63,5 @@ src/.files/
 .codex
 .DS_Store
 Thumbs.db
+
+/backups/

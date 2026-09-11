@@ -57,9 +57,9 @@ retrieval:
 
   # Embedding model used for semantic/hybrid queries. It must match the model
   # used to generate the vectors stored in the Solr core.
-  embedding_model: bge-m3
+  embedding_model: cohere.embed-v4.0
 
-  # Endpoint of the compatible embedding service (a local Ollama instance here).
+  # Used only for Ollama models; OCI uses the existing OCI credentials/endpoint.
   embedding_base_url: http://localhost:11434
 
   # Name of the Solr DenseVectorField that stores table embeddings.

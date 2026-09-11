@@ -34,7 +34,7 @@ class RetrievalConfig:
     alpha: float = 0.5
     candidate_multiplier: int = 5
     representation_version: str = "metadata-v1"
-    embedding_model: str = "bge-m3"
+    embedding_model: str = "cohere.embed-v4.0"
     embedding_base_url: str = "http://localhost:11434"
     vector_field: str = "table_embedding"
     lexical_query_fields: str | None = None
@@ -126,7 +126,7 @@ class RetrievalConfig:
                 "LAKEGEN_REPRESENTATION_VERSION", "metadata-v1"
             ),
             embedding_model=os.environ.get(
-                "LAKEGEN_EMBEDDING_MODEL", "bge-m3"
+                "LAKEGEN_EMBEDDING_MODEL", "cohere.embed-v4.0"
             ),
             embedding_base_url=os.environ.get(
                 "LAKEGEN_EMBEDDING_BASE_URL", "http://localhost:11434"

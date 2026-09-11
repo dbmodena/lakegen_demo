@@ -17,7 +17,7 @@ LakeGen can be used through:
 - [`uv`](https://docs.astral.sh/uv/);
 - Apache Solr with the required cores and metadata;
 - OCI Generative AI credentials;
-- Ollama with `bge-m3` when using semantic or hybrid retrieval.
+- OCI embeddings (default), or optional Ollama with `bge-m3` when using semantic or hybrid retrieval.
 
 Install the Python dependencies from the project root:
 
@@ -197,14 +197,22 @@ Batch jobs run sequentially. Their state and results are stored in
 
 ### Enable semantic and hybrid retrieval
 
-Install the default embedding model in Ollama:
+Semantic and hybrid retrieval default to OCI `cohere.embed-v4.0` using the same
+`~/.oci/config`, profile, compartment and endpoint as the LLM. No Ollama service
+is required. `OCI_CONFIG_FILE`, `OCI_PROFILE`, `OCI_COMPARTMENT_ID`, and
+`OCI_SERVICE_ENDPOINT` are honored. Requests use `SEARCH_QUERY` for questions
+and `SEARCH_DOCUMENT` for indexed tables, with 1024-dimensional float vectors
+([OCI request documentation](https://docs.oracle.com/en-us/iaas/tools/python/2.155.1/api/generative_ai_inference/models/oci.generative_ai_inference.models.EmbedTextDetails.html)).
 
-```bash
-ollama pull bge-m3
-```
+Existing `bge-m3` vectors must be regenerated with OCI before using the new
+model: equal dimensions do not make different embedding spaces compatible.
+The embedding model and representation version must match those used to index
+the Solr documents. Model metadata filters prevent mixing these spaces.
 
-Ollama is expected at `http://localhost:11434`. The embedding model and
-representation version must match those used to index the Solr documents.
+For an existing Ollama index, explicitly set `embedding_model: bge-m3` in the
+experiment YAML (or `LAKEGEN_EMBEDDING_MODEL=bge-m3` for CLI indexing). Ollama
+uses `embedding_base_url`, defaulting to `http://localhost:11434`; this setting
+is ignored for OCI model identifiers (`cohere.*` or `ocid1.*`).
 
 Before changing a Solr core, run the indexer without `--apply`. This validates
 the operation without writing documents:

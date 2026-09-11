@@ -103,8 +103,8 @@ def _is_non_finite_provider_failure(exc: Exception) -> bool:
 class OllamaMultilingualEmbedding:
     """Pretrained multilingual embedding model served by Ollama.
 
-    ``bge-m3`` is the default and remains fixed across semantic and hybrid
-    experiments. This is a pretrained shared encoder, not DPR training.
+    ``bge-m3`` is the default for the optional Ollama backend.
+    This is a pretrained shared encoder, not DPR training.
     """
 
     def __init__(
@@ -226,11 +226,75 @@ class OllamaMultilingualEmbedding:
         ]
 
 
+class OCIEmbedding:
+    """OCI Cohere retrieval embeddings, fixed at 1024 dimensions for Solr."""
+
+    def __init__(self, model_name: str = "cohere.embed-v4.0") -> None:
+        import oci
+        from lakegen.core.resources import _oci_runtime_config
+
+        config_file, profile, compartment, endpoint = _oci_runtime_config()
+        self.model_name = model_name
+        self.compartment_id = compartment
+        self._client = oci.generative_ai_inference.GenerativeAiInferenceClient(
+            config=oci.config.from_file(str(config_file), profile),
+            service_endpoint=endpoint,
+            retry_strategy=oci.retry.DEFAULT_RETRY_STRATEGY,
+            timeout=(10, 60),
+        )
+
+    def _encode(self, texts: Sequence[str], input_type: str) -> list[list[float]]:
+        from oci.generative_ai_inference import models
+
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), 16):
+            batch = list(texts[start:start + 16])
+            serving_mode = (
+                models.DedicatedServingMode(endpoint_id=self.model_name)
+                if self.model_name.startswith("ocid1.generativeaiendpoint")
+                else models.OnDemandServingMode(model_id=self.model_name)
+            )
+            kwargs = {}
+            if self.model_name == "cohere.embed-v4.0":
+                kwargs["output_dimensions"] = 1024
+            request = models.EmbedTextDetails(
+                inputs=batch,
+                serving_mode=serving_mode,
+                compartment_id=self.compartment_id,
+                input_type=input_type,
+                truncate="END",
+                embedding_types=["float"],
+                **kwargs,
+            )
+            try:
+                data = self._client.embed_text(request).data
+                result = getattr(data, "embeddings", None)
+                if result is None:
+                    result = (getattr(data, "embeddings_by_type", None) or {}).get("float")
+                if result is None or len(result) != len(batch):
+                    raise ValueError("OCI returned an unexpected number of embeddings")
+                vectors.extend(_validate(v, expected_dimension=1024) for v in result)
+            except Exception as exc:
+                raise EmbeddingGenerationError(
+                    f"OCI embedding generation failed for {self.model_name!r}: {exc}"
+                ) from exc
+        return vectors
+
+    def encode_query(self, text: str) -> list[float]:
+        return self._encode([_normalize_query(text)], "SEARCH_QUERY")[0]
+
+    def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return self._encode(texts, "SEARCH_DOCUMENT")
+
+
 @lru_cache(maxsize=4)
 def get_embedding_model(
     model_name: str,
     base_url: str,
-) -> OllamaMultilingualEmbedding:
+) -> EmbeddingModel:
+    # OCI model identifiers select OCI; existing Ollama configurations still work.
+    if model_name.startswith(("cohere.", "ocid1.")):
+        return OCIEmbedding(model_name=model_name)
     return OllamaMultilingualEmbedding(model_name=model_name, base_url=base_url)
 
 
