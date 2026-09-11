@@ -6,6 +6,8 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 import os
 
+DEFAULT_TOP_K = 20
+
 
 class RetrievalMode(StrEnum):
     KEYWORD = "keyword"
@@ -30,7 +32,7 @@ class RetrievalConfig:
     """Reproducible retrieval settings for a LakeGen experiment."""
 
     mode: RetrievalMode = RetrievalMode.KEYWORD
-    top_k: int = 10
+    top_k: int = DEFAULT_TOP_K
     alpha: float = 0.5
     candidate_multiplier: int = 5
     representation_version: str = "metadata-v1"
@@ -115,7 +117,7 @@ class RetrievalConfig:
             mode=RetrievalMode(selected_mode),
             top_k=top_k
             if top_k is not None
-            else int(os.environ.get("LAKEGEN_RETRIEVAL_TOP_K", "10")),
+            else int(os.environ.get("LAKEGEN_RETRIEVAL_TOP_K", str(DEFAULT_TOP_K))),
             alpha=alpha
             if alpha is not None
             else float(os.environ.get("LAKEGEN_HYBRID_ALPHA", "0.5")),

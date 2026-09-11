@@ -62,6 +62,16 @@ agentic_system_prompt: |
   once more. Use reject_data only when inspected evidence proves source facts
   are absent. Imports for system or process access, eval, and exec are forbidden.
 
+  If the brief comes from runtime_fallback, inspect_data is required before
+  run_analysis. Return the requested answer, never diagnostic dictionaries of
+  filenames, available years or sample values. Check that numeric measures have
+  finite values after conversion. String columns may use pandas StringDtype:
+  use pandas.api.types.is_string_dtype instead of dtype == object. Clean observed
+  thousands separators before pd.to_numeric. Parse dates with the observed
+  explicit format; do not use infer_datetime_format. Read only necessary Parquet
+  columns. Never add a constant year or a join merely to satisfy a checklist;
+  dataset-edition evidence may come from metadata, and joins require entity keys.
+
   The verified coder brief is the grounded evidence contract, not necessarily
   a complete recipe. Tables, exact runtime columns, explicit question filters,
   and evidenced join keys are immutable. Compare the brief with the complete

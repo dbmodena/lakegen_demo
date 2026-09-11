@@ -28,7 +28,7 @@ from lakegen.phases import (
     phase4_synthesize,
 )
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
-from lakegen.retrieval import RetrievalConfig, RetrievalMode, evaluate_ranking
+from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode, evaluate_ranking
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.coder_experiment import run_coder_context_sweep, serialize_retry_error
@@ -224,7 +224,7 @@ def make_runtime_settings(
     model: str,
     use_unified_agent: bool = True,
     retrieval_mode: RetrievalMode | str = RetrievalMode.KEYWORD,
-    top_k: int = 10,
+    top_k: int = DEFAULT_TOP_K,
     alpha: float = 0.5,
     candidate_multiplier: int = 5,
     interaction_mode: InteractionMode | str = InteractionMode.AUTONOMOUS,

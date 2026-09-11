@@ -498,6 +498,8 @@ def phase12_agent(
     # agent response was truncated or its FINAL_PAYLOAD wrapper was malformed.
     if not parsed_plan and state.selection_plan:
         parsed_plan = dict(state.selection_plan)
+        if state.confirmed_tables:
+            selected = list(state.confirmed_tables)
         parsed_advisories.extend(state.selection_advisories)
         if state.selection_plan_source == "none":
             state.selection_plan_source = "confirmed_state_recovery"

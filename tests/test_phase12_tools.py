@@ -24,7 +24,7 @@ def test_inspected_candidates_accepts_structured_recovery_candidates():
 
     assert state.inspected_candidates() == ["events.parquet"]
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
-from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
+from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback, build_requirement_ledger
 from lakegen.phases.phase12 import (
     _conservative_draft_from_requirements,
     _extract_plausible_json,
@@ -211,6 +211,75 @@ def _hit(resource_id, rank, columns):
         rank=rank,
         lexical_rank=rank,
     )
+
+
+def test_default_search_retains_hidden_candidates_for_expansion(monkeypatch, tmp_path):
+    class FakeService:
+        def retrieve(self, **kwargs):
+            assert kwargs["top_k"] == 20
+            return [_hit(f"table-{i}", i, ["value"]) for i in range(1, 21)]
+
+    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    monkeypatch.setattr(tools_p12, "_inspect_columns", lambda *_: "Schema: value")
+    files = [f"table-{i}.parquet" for i in range(1, 21)]
+    state = P12State()
+    manager = Phase12ToolsManager(state, object(), files, tmp_path)
+    manager.search_solr("values")
+    assert len(state.all_candidates) == 20
+    assert state.visible_candidate_count == 10
+    manager.inspect_columns(files[0])
+    assert "table-15.parquet" in manager.expand_candidates("value")
+    assert state.visible_candidate_count == 15
+
+
+def test_partition_filters_preserve_unique_exact_table_bindings(tmp_path):
+    pd.DataFrame({"Trip_distance": [40]}).to_parquet(tmp_path / "early.parquet")
+    pd.DataFrame({"trip_distance": [50]}).to_parquet(tmp_path / "late.parquet")
+    tables = ["early.parquet", "late.parquet"]
+    manager = Phase12ToolsManager(P12State(), object(), tables, tmp_path)
+    brief = manager._build_coder_brief(
+        tables, {}, {"filters": [
+            {"column": "Trip_distance", "operator": ">", "value": 30},
+            {"column": "trip_distance", "operator": ">", "value": 30},
+        ]}, "aggregate_separately", {}, None,
+    )
+    assert [item["table"] for item in brief["filters"]] == tables
+    assert brief["selected_columns"] == {
+        "early.parquet": ["Trip_distance"], "late.parquet": ["trip_distance"],
+    }
+    assert not brief["normalization_errors"]
+
+
+def test_same_column_in_multiple_tables_requires_explicit_binding(tmp_path):
+    for name in ("a.parquet", "b.parquet"):
+        pd.DataFrame({"value": [40]}).to_parquet(tmp_path / name)
+    tables = ["a.parquet", "b.parquet"]
+    manager = Phase12ToolsManager(P12State(), object(), tables, tmp_path)
+    brief = manager._build_coder_brief(tables, {}, {"filters": [
+        {"column": "value", "operator": ">", "value": 30},
+        {"table": "b.parquet", "column": "value", "operator": ">", "value": 30},
+    ]}, "aggregate_separately", {}, None)
+    assert "table" not in brief["filters"][0]
+    assert brief["filters"][1]["table"] == "b.parquet"
+
+
+def test_requirement_ledger_keeps_distinct_periods_and_sources():
+    coverage = {
+        "year 2014 trips": {"table": "a.parquet", "columns": ["pickup"]},
+        "year 2022 trips": {"table": "b.parquet", "columns": ["pickup"]},
+        "completed count north": {"table": "north.parquet", "columns": ["status"]},
+        "completed count south": {"table": "south.parquet", "columns": ["status"]},
+    }
+    ledger = build_requirement_ledger("Compare annual trips", coverage, {}, [])
+    for request, evidence in coverage.items():
+        assert next(item for item in ledger if item["request"] == request)["evidence"] == evidence
+
+
+def test_fallback_does_not_turn_narrative_into_a_join():
+    plan, _ = build_minimal_selection_fallback(
+        ["a.parquet", "b.parquet"], "Could merge on a shared key if one exists."
+    )
+    assert plan["combination_strategy"] == "unspecified"
 
 
 def test_search_returns_bounded_schema_preview_in_solr_order(
@@ -544,7 +613,7 @@ def test_missing_agentic_plan_is_recovered_as_flexible_coder_context():
     )
     context = _reasoning_with_selection_plan("selected", plan, advisories)
 
-    assert plan["combination_strategy"] == "lookup"
+    assert plan["combination_strategy"] == "unspecified"
     assert plan["recovered_from_existing_discovery_context"] is True
     assert set(plan["table_roles"]) == {"events.parquet", "boroughs.parquet"}
     assert "coder may complete computational details" in context

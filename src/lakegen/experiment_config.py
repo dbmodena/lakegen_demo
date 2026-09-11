@@ -11,6 +11,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lakegen.retrieval import (
+    DEFAULT_TOP_K,
     FusionMethod,
     MissingSignalPolicy,
     RetrievalConfig,
@@ -54,7 +55,7 @@ class CoderContextLevel(StrEnum):
 
 class RetrievalExperimentConfig(FrozenModel):
     mode: RetrievalMode = RetrievalMode.KEYWORD
-    top_k: int = Field(default=10, gt=0)
+    top_k: int = Field(default=DEFAULT_TOP_K, gt=0)
     alpha: float = Field(default=0.5, ge=0.0, le=1.0)
     candidate_multiplier: int = Field(default=5, gt=0)
     representation_version: str = Field(default="metadata-v1", min_length=1)

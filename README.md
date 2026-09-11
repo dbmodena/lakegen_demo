@@ -189,6 +189,12 @@ Batch jobs run sequentially. Their state and results are stored in
 
 ## 5. Retrieval modes
 
+The workflow defaults to `retrieval.top_k=20`. Unified discovery initially shows
+10 candidates and can reveal up to 5 more in one guided expansion. Explicit
+configuration, environment settings where supported, and request/CLI overrides
+remain authoritative; the resolved configuration stored with each run records
+the effective value. Example YAML files are loaded only when supplied.
+
 - `keyword`: BM25 lexical search through Solr; this is the default mode.
 - `semantic`: vector search using the complete question.
 - `hybrid`: combines lexical and semantic results.

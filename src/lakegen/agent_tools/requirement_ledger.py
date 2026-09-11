@@ -24,19 +24,9 @@ def build_minimal_selection_fallback(
     """Mark an unvalidated discovery recovery identically for P2 and P12."""
     if not selected:
         return {}, []
-    lowered = reasoning.casefold()
-    if len(selected) == 1:
-        strategy = "single_table"
-    elif any(term in lowered for term in ("concat", "partition", "append", "union")):
-        strategy = "concat_partitions"
-    elif any(term in lowered for term in ("lookup", "mapping", "reference table")):
-        strategy = "lookup"
-    elif any(term in lowered for term in ("compare", "comparison", "versus", " vs ")):
-        strategy = "compare"
-    elif any(term in lowered for term in ("join", "merge", "shared key")):
-        strategy = "join"
-    else:
-        strategy = "aggregate_separately"
+    # A narrative mentioning a join is not evidence for a join. Leave the
+    # relationship open until the coder inspects the missing source evidence.
+    strategy = "single_table" if len(selected) == 1 else "unspecified"
     return {
         "requirement_coverage": {},
         "table_roles": {
@@ -133,6 +123,12 @@ def build_requirement_ledger(
             if item["kind"] not in compatible.get(kind, {kind}):
                 continue
             old_tokens = tokens(item["request"])
+            # Similar wording does not make two periods or source bindings
+            # interchangeable (e.g. "year 2014 trips" and "year 2022 trips").
+            if set(re.findall(r"\b\d+\b", text)) != set(re.findall(r"\b\d+\b", item["request"])):
+                continue
+            if status == "bound" and item["status"] == "bound" and item["evidence"] != evidence:
+                continue
             if kind == "output" or (new_tokens and old_tokens and (
                 new_tokens <= old_tokens or old_tokens <= new_tokens
                 or len(new_tokens & old_tokens) >= 2

@@ -151,6 +151,14 @@ class P3State:
     best_result_snapshot: dict[str, Any] = field(default_factory=dict)
     data_inspection_used: bool = False
 
+    def has_unusable_result(self) -> bool:
+        return any(warning.startswith((
+            "diagnostic_output:", "contract_result_all_non_finite:",
+            "contract_result_non_finite_numeric_value",
+            "final_contract_requires_one_numeric_value",
+            "final_contract_correlation_requires_one_numeric_value",
+        )) for warning in self.coverage_warnings)
+
     def ready_for_finalization(self) -> bool:
         """Return whether a closure-only turn is safe and meaningful."""
         return (
@@ -167,6 +175,7 @@ class P3State:
         """Return whether a computed result can be preserved with advisories."""
         return (
             not self.finished
+            and not self.has_unusable_result()
             and self.error is None
             and self.structured_result is not None
             and self.result_version > 0
@@ -550,6 +559,10 @@ class Phase3ToolsManager:
     def _infer_unique_join(self, brief: dict[str, Any]) -> None:
         """Fill a join only when schema names and sampled values identify one pair."""
         if len(self.tables) != 2 or brief.get("joins"):
+            return
+        if brief.get("source") == "runtime_fallback" or brief.get("combination_strategy") in {
+            "concat_partitions", "aggregate_separately", "compare",
+        }:
             return
         left, right = self.tables
         try:
@@ -2690,7 +2703,6 @@ class Phase3ToolsManager:
     def _blocking_contract_code_warnings(self) -> list[str]:
         """Promote only objective code/contract violations to retry blockers."""
         blocking_prefixes = (
-            "contract_filter_missing_in_code:",
             "contract_distinct_count_missing_in_code",
             "count_semantics_check:",
             "contract_average_missing_in_code",
@@ -2700,7 +2712,6 @@ class Phase3ToolsManager:
             "contract_limit_missing_in_code:",
             "contract_ordering_missing_in_code",
             "top_n_check:",
-            "selection_strategy_not_evident_in_code:",
             "fallback_to_all_rows_detected:",
             "contract_count_rows_implemented_as_distinct",
             "contract_count_distinct_implemented_as_row_count",
@@ -2770,7 +2781,12 @@ class Phase3ToolsManager:
             for field in matching_fields(str(measure)):
                 if field not in measure_fields:
                     measure_fields.append(field)
-        for field in measure_fields:
+        # Output aliases need not repeat the brief's wording. Inspect every
+        # non-dimension numeric field so an all-NaN measure cannot evade checks
+        # simply by being renamed by the coder.
+        for field in dict.fromkeys([*measure_fields, *fields]):
+            if field in group_fields:
+                continue
             numeric = [
                 float(row[field]) for row in value
                 if field in row and isinstance(row[field], (int, float))
@@ -2827,6 +2843,16 @@ class Phase3ToolsManager:
             candidate = next(iter(candidate.values()))
 
         warnings: list[str] = []
+        if final_contract["result_type"] == "number":
+            if not isinstance(candidate, (int, float)) or isinstance(candidate, bool):
+                warnings.append("final_contract_requires_one_numeric_value")
+            elif not math.isfinite(float(candidate)):
+                warnings.append("contract_result_non_finite_numeric_value")
+        result_fields = self._result_field_names(value)
+        if any(field in self.tables for field in result_fields) and not re.search(
+            r"\b(?:schema|columns|available years)\b", self.question, re.IGNORECASE
+        ):
+            warnings.append("diagnostic_output: table profiles are not the requested analysis")
         if "correlation" in operations:
             if not isinstance(candidate, (int, float)) or isinstance(candidate, bool):
                 warnings.append("final_contract_correlation_requires_one_numeric_value")
@@ -3049,7 +3075,7 @@ class Phase3ToolsManager:
         }, ensure_ascii=False, default=str)
 
     def _remember_best_result(self) -> None:
-        if self.state.structured_result is None:
+        if self.state.structured_result is None or self.state.has_unusable_result():
             return
         snapshot = {
             "score": (
@@ -3088,6 +3114,16 @@ class Phase3ToolsManager:
 
     def run_analysis(self, code: str) -> str:
         """Run code, infer plan completion, and return one compact decision."""
+        if (
+            (self.selection_plan.get("coder_brief") or {}).get("source") == "runtime_fallback"
+            and not self.state.data_inspection_used
+        ):
+            return json.dumps({
+                "status": "inspection_required",
+                "message": "The selection supplied no verified computational brief. Use inspect_data once to verify the required columns and filter values before running the analysis.",
+                "tables": self.tables,
+                "remaining_runs": self.state.max_runs - self.state.run_count,
+            })
         execution = json.loads(self.run_code(code))
         if not execution.get("ok"):
             error = execution.get("error", {})
@@ -3126,7 +3162,7 @@ class Phase3ToolsManager:
                 "status": "completed", "warnings": [],
                 "adaptations": self.state.result_adaptations,
             }, ensure_ascii=False)
-        if self.state.run_count >= self.state.max_runs:
+        if self.state.run_count >= self.state.max_runs and self.state.best_result_snapshot:
             self._restore_best_result()
             self.recover_degraded_finish(
                 "run_analysis finalized the best result after two executions."
@@ -3136,6 +3172,12 @@ class Phase3ToolsManager:
                 "warnings": self.state.coverage_warnings,
                 "adaptations": self.state.result_adaptations,
             }, ensure_ascii=False)
+        if self.state.run_count >= self.state.max_runs:
+            self.state.error = "The final output is diagnostic, has the wrong shape, or contains no finite measure."
+            self.state.execution_error = {
+                "stage": "result_validation", "category": "result_needs_revision",
+                "coverage_warnings": warnings, "retryable": False,
+            }
         return json.dumps({
             "status": "revision_required",
             "all_problems": inspection.get("profile", {}).get("correction_items", warnings),

@@ -13,6 +13,11 @@ _PLAN_FIELDS = frozenset({
     "requirement_coverage", "table_roles", "combination_strategy",
     "uncovered_requirements", "alternatives_rejected", "semantic_plan",
     "recovered_from_existing_discovery_context", "coder_brief",
+    "requirements",
+})
+_REQUIREMENT_FIELDS = frozenset({
+    "grouping", "measures", "filters", "temporal_filters", "ordering", "limit",
+    "joins", "result_type", "output_columns", "null_policy",
 })
 _CODER_BRIEF_FIELDS = frozenset({
     "tables", "selected_columns", "task", "filters", "operations", "result_type",
@@ -113,7 +118,9 @@ def _allowlisted_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         if key not in plan:
             continue
         value = plan[key]
-        if key == "coder_brief" and isinstance(value, Mapping):
+        if key == "requirements" and isinstance(value, Mapping):
+            clean[key] = {field: value[field] for field in _REQUIREMENT_FIELDS if field in value}
+        elif key == "coder_brief" and isinstance(value, Mapping):
             clean[key] = {
                 field: value[field] for field in _CODER_BRIEF_FIELDS
                 if field in value

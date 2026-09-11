@@ -33,6 +33,11 @@ system_prompt: |
   6. SELECT only after essential coverage is established. First ensure complete coverage, then remove genuinely redundant tables.
 
   ### DECISION RULES
+  - End successful discovery through confirm_unified_selection with a compact
+    requirement_coverage and requirements object. Do not replace this tool call
+    with prose or a handwritten FINAL_PAYLOAD. Supply result_type and name the
+    table on every filter and measure, especially for yearly partitions with
+    similar column names. Distinguish a dataset's edition year from a row filter.
   - A topical resemblance alone is not sufficient. Never select a table from a related domain when it lacks an essential measure, dimension, period, or join key.
   - Technical column synonyms are acceptable only when inspection shows that they represent the same requested concept.
   - A proxy is acceptable only for a non-essential descriptive detail. Never substitute a proxy for a required population, measure, dataset subject, or time period.

@@ -95,6 +95,78 @@ def _agentic_tools(tmp_path, *, execute=None, question="", table_metadata=None):
     return state, manager
 
 
+@pytest.mark.parametrize("payload,kind,question", [
+    ({"table.csv": ["2020", "2021"]}, "table", "Show enrollment by school"),
+    ({"available_years": [2020], "count": 3}, "number", "How many schools?"),
+    ([{"district": "A", "renamed_average": float("nan")}], "table", "Show average values by district"),
+])
+def test_unusable_outputs_cannot_be_finalized_after_retries(tmp_path, payload, kind, question):
+    state, manager = _agentic_tools(
+        tmp_path, question=question,
+        execute=lambda code, **_: (json.dumps(payload), None, code),
+    )
+    manager.evaluation_result_type = kind
+    manager.extract_payload = lambda raw: (raw, json.loads(raw), None)
+    for _ in range(state.max_runs):
+        result = json.loads(manager.run_analysis("print('computed result')"))
+        assert result["status"] == "revision_required"
+    assert not state.finished
+    assert not state.best_result_snapshot
+    assert not state.ready_for_degraded_finalization()
+    assert state.execution_error["retryable"] is False
+
+
+@pytest.mark.parametrize("payload,kind", [
+    (0, "number"),
+    ([{"district": "A", "renamed_average": 2.5}], "table"),
+    ([{"district": "A", "renamed_average": None}, {"district": "B", "renamed_average": 2.5}], "table"),
+])
+def test_output_guards_accept_zero_aliases_and_partial_nulls(tmp_path, payload, kind):
+    state, manager = _agentic_tools(
+        tmp_path, execute=lambda code, **_: (json.dumps(payload), None, code),
+    )
+    manager.evaluation_result_type = kind
+    manager.extract_payload = lambda raw: (raw, json.loads(raw), None)
+    assert json.loads(manager.run_analysis("print('computed result')"))["status"] == "completed"
+    assert state.finished
+
+
+def test_partition_brief_does_not_infer_join_from_shared_values(tmp_path):
+    for name in ("a.csv", "b.csv"):
+        (tmp_path / name).write_text("value\n1\n")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["a.csv", "b.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        evaluation_result_type="number",
+        selection_plan={"coder_brief": {
+            "tables": ["a.csv", "b.csv"],
+            "selected_columns": {"a.csv": ["value"], "b.csv": ["value"]},
+            "combination_strategy": "aggregate_separately", "result_type": "number",
+        }},
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("2", None, code),
+        extract_payload=lambda raw: (raw, 2, None),
+    )
+    assert not manager.selection_plan["coder_brief"]["joins"]
+    assert manager.selection_plan["coder_brief"]["combination_strategy"] == "aggregate_separately"
+
+
+def test_runtime_fallback_requires_one_inspection_without_consuming_execution(tmp_path):
+    (tmp_path / "table.csv").write_text("value\n1\n")
+    state = P3State()
+    manager = Phase3ToolsManager(
+        state, tables=["table.csv"], csv_dir=tmp_path, run_dir=tmp_path,
+        question="How many rows?", evaluation_result_type="number",
+        resolve_code=lambda code, *_: (code, None),
+        execute_code=lambda code, **_: ("1", None, code),
+        extract_payload=lambda raw: (raw, 1, None),
+    )
+    assert json.loads(manager.run_analysis("print(1)"))["status"] == "inspection_required"
+    assert state.run_count == 0
+    assert json.loads(manager.inspect_data(["table.csv"]))["ok"] is True
+    assert json.loads(manager.run_analysis("print(1)"))["status"] == "completed"
+
+
 def test_agentic_coder_requires_inspection_and_self_review(tmp_path):
     state, manager = _agentic_tools(tmp_path)
 

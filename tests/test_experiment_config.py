@@ -25,7 +25,7 @@ def test_default_config_matches_existing_interactive_workflow(monkeypatch):
     assert config.discovery_architecture == "unified"
     assert config.tool_access == "agentic"
     assert config.retrieval.mode == "keyword"
-    assert config.retrieval.top_k == 10
+    assert config.retrieval.top_k == 20
     assert config.planner_enabled is False
     assert not any(config.reviewers.model_dump().values())
     assert config.max_revision_rounds == 3
@@ -41,14 +41,34 @@ def test_default_config_matches_existing_interactive_workflow(monkeypatch):
     }
 
 
-def test_cli_defaults_keep_historical_values_despite_retrieval_environment(monkeypatch):
+def test_cli_defaults_keep_workflow_values_despite_retrieval_environment(monkeypatch):
     monkeypatch.setenv("LAKEGEN_RETRIEVAL_MODE", "hybrid")
     monkeypatch.setenv("LAKEGEN_RETRIEVAL_TOP_K", "99")
 
     config = resolve_cli_experiment()
 
     assert config.retrieval.mode == "keyword"
-    assert config.retrieval.top_k == 10
+    assert config.retrieval.top_k == 20
+
+
+def test_api_default_and_explicit_retrieval_pool_sizes(monkeypatch):
+    monkeypatch.delenv("LAKEGEN_RETRIEVAL_TOP_K", raising=False)
+    from src.api import QueryRequest
+
+    request = QueryRequest(question="How many parks?")
+    assert request.top_k == 20
+    defaults = dict(core=request.core, model=request.model,
+                    retrieval_mode=request.retrieval_mode, top_k=request.top_k,
+                    hybrid_alpha=request.hybrid_alpha,
+                    candidate_multiplier=request.candidate_multiplier)
+    assert _resolve_api_config(**defaults, explicit_fields=set()).retrieval.top_k == 20
+    assert _resolve_api_config(
+        **defaults, explicit_fields=set(), config_data={"retrieval": {"top_k": 10}},
+    ).retrieval.top_k == 10
+    assert _resolve_api_config(
+        **{**defaults, "top_k": 30}, explicit_fields={"top_k"},
+        config_data={"retrieval": {"top_k": 10}},
+    ).retrieval.top_k == 30
 
 
 def test_yaml_json_and_cli_overrides_resolve_identically(tmp_path):

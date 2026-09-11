@@ -1,4 +1,5 @@
 from lakegen.retrieval.config import (
+    DEFAULT_TOP_K,
     FusionMethod,
     MissingSignalPolicy,
     RetrievalConfig,
@@ -32,6 +33,7 @@ from lakegen.retrieval.retrievers import (
 )
 
 __all__ = [
+    "DEFAULT_TOP_K",
     "HybridRetriever",
     "FusionMethod",
     "EmbeddingGenerationError",

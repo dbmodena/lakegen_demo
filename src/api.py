@@ -39,7 +39,7 @@ from lakegen.ui.state import (
     SOLR_CORE_OPTIONS,
     SOLR_CORE_PORTAL_NAMES,
 )
-from lakegen.retrieval import RetrievalMode, check_embedding_health
+from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode, check_embedding_health
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
 from lakegen.code_evaluation import summarize_code_evaluations
@@ -80,7 +80,7 @@ class QueryRequest(StrictModel):
     core: str = DEFAULT_CORE
     model: str = DEFAULT_MODEL
     retrieval_mode: RetrievalMode = RetrievalMode.KEYWORD
-    top_k: int = Field(default=10, ge=1, le=1000)
+    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=1000)
     hybrid_alpha: float = Field(default=0.5, ge=0.0, le=1.0)
     candidate_multiplier: int = Field(default=5, ge=1, le=100)
     discovery_architecture: DiscoveryArchitecture = DiscoveryArchitecture.UNIFIED
@@ -658,7 +658,7 @@ def submit_batch(
             core=core or DEFAULT_CORE,
             model=model or DEFAULT_MODEL,
             retrieval_mode=retrieval_mode or RetrievalMode.KEYWORD,
-            top_k=top_k or 10,
+            top_k=top_k if top_k is not None else DEFAULT_TOP_K,
             hybrid_alpha=hybrid_alpha if hybrid_alpha is not None else 0.5,
             candidate_multiplier=candidate_multiplier or 5,
             discovery_architecture=discovery_architecture or DiscoveryArchitecture.UNIFIED,
@@ -720,7 +720,7 @@ def submit_benchmark_batch(
             core=core or DEFAULT_CORE,
             model=model or DEFAULT_MODEL,
             retrieval_mode=retrieval_mode or RetrievalMode.KEYWORD,
-            top_k=top_k or 10,
+            top_k=top_k if top_k is not None else DEFAULT_TOP_K,
             hybrid_alpha=hybrid_alpha if hybrid_alpha is not None else 0.5,
             candidate_multiplier=candidate_multiplier or 5,
             discovery_architecture=(
@@ -891,7 +891,7 @@ async def submit_batch_files(
             core=DEFAULT_CORE,
             model=DEFAULT_MODEL,
             retrieval_mode=RetrievalMode.KEYWORD,
-            top_k=10,
+            top_k=DEFAULT_TOP_K,
             hybrid_alpha=0.5,
             candidate_multiplier=5,
             config_data=config_data,

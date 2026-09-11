@@ -41,7 +41,7 @@ from lakegen.phases import (
 from lakegen.core.logger import save_experiment_log
 from lakegen.core.config import BASE_DIR, LOG_DIR, resolve_portal_tables_dir
 from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
-from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
 from lakegen.experiment_config import load_experiment_config, ToolAccess
 from lakegen.manifest import create_manifest, persist_manifest
 from lakegen.reproducibility import initialize_reproducibility
@@ -787,14 +787,14 @@ def resolve_cli_experiment(
 
     overrides = {}
     if config_path is None:
-        # Preserve the historical CLI defaults even when LAKEGEN_* retrieval
+        # Preserve the CLI defaults even when LAKEGEN_* retrieval
         # environment variables are present; files remain authoritative.
         overrides.update({
             "core": SOLR_CORE_OPTIONS[0],
             "model": MODEL_OPTIONS[0],
             "discovery_architecture": "unified",
             "retrieval.mode": RetrievalMode.KEYWORD.value,
-            "retrieval.top_k": 10,
+            "retrieval.top_k": DEFAULT_TOP_K,
             "retrieval.alpha": 0.5,
             "retrieval.candidate_multiplier": 5,
         })

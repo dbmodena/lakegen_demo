@@ -56,6 +56,22 @@ def test_output_shape_is_question_derived_only():
     assert infer_output_shape("How many records are there?")["result_type"] == "number"
 
 
+def test_coder_context_preserves_explicit_requirements_for_fallback():
+    requirements = {
+        "filters": [{"table": "runtime.csv", "column": "status", "value": "completed"}],
+        "grouping": ["borough"], "measures": ["count rows"],
+        "result_type": "table", "reference_result": SECRET,
+    }
+    context = CoderContext.build(
+        question="Count completed records by borough", selected_tables=["runtime.csv"],
+        table_metadata={}, selection_plan={"requirements": requirements},
+    )
+    assert context.selection_plan["requirements"] == {
+        key: value for key, value in requirements.items() if key != "reference_result"
+    }
+    assert SECRET not in json.dumps(context.__dict__)
+
+
 def test_recursive_sanitizer_removes_secret_without_source_payload_hint():
     context = CoderContext.build(
         question="Count completed records",

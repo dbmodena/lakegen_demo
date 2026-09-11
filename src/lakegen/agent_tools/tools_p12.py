@@ -106,7 +106,6 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
     reasoning: str = Field(description="MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question.")
     tables: list[str] = Field(description="A list of ALL the exact file names needed (e.g., ['sales.parquet', 'dates.parquet']). Do not omit any table you need!")
     requirement_coverage: dict[str, dict[str, object]] = Field(
-        default_factory=dict,
         description=(
             "Map each essential question requirement to an object containing "
             "the exact selected table in `table` and supporting column names "
@@ -148,10 +147,11 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
         ),
     )
     requirements: dict[str, object] = Field(
-        default_factory=dict,
         description=(
             "Compact semantic requirements only: grouping, measures, filters, "
-            "ordering, limit, and optional explicit joins with left_table, "
+            "result_type, ordering, limit. Every filter must name its table, "
+            "column, operator and value; keep different periods separate. "
+            "Optional explicit joins use left_table, "
             "left_columns, right_table, right_columns, and how."
         ),
     )
@@ -1112,6 +1112,13 @@ class Phase12ToolsManager:
             return mechanical[0] if len(mechanical) == 1 else None
 
         def resolve_unique(raw_column: object) -> tuple[str, str] | None:
+            # Prefer a globally unique exact spelling before trying harmless
+            # aliases. Trip_distance and trip_distance can belong to different
+            # yearly tables and must not become an ambiguous folded match.
+            exact = [(table, str(raw_column)) for table, names in schemas.items()
+                     if raw_column in names]
+            if exact:
+                return exact[0] if len(exact) == 1 else None
             matches = [
                 (table, column)
                 for table in tables
@@ -1206,6 +1213,28 @@ class Phase12ToolsManager:
                             selected_columns[table].append(column)
         if len(tables) > 1 and combination_strategy != "single_table":
             brief["combination_strategy"] = combination_strategy
+        for kind in ("filters", "temporal_filters", "dimensions", "measures"):
+            for binding in brief[kind]:
+                if not isinstance(binding, dict):
+                    continue
+                columns = binding.get("columns") or [binding.get("column")]
+                columns = [column for column in columns if column]
+                table = str(binding.get("table") or "")
+                if not table and columns:
+                    matches = [resolve_unique(column) for column in columns]
+                    if all(matches) and len({match[0] for match in matches}) == 1:
+                        table = matches[0][0]
+                        binding["table"] = table
+                if table:
+                    resolved = [resolve(table, column) for column in columns]
+                    if columns and all(resolved):
+                        if "column" in binding:
+                            binding["column"] = resolved[0]
+                        if "columns" in binding:
+                            binding["columns"] = resolved
+                        for column in resolved:
+                            if column not in selected_columns[table]:
+                                selected_columns[table].append(column)
         # Canonicalize harmless join-shape variants before the brief crosses
         # the Phase 2/3 boundary. Semantic strings are preserved verbatim.
         brief = _normalize_semantic_plan(brief, tables)
