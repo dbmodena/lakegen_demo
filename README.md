@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 Hola
+=======
+Ciaooooooooo
+>>>>>>> 37b7559 (prova commit)
 
 # LakeGen
 
