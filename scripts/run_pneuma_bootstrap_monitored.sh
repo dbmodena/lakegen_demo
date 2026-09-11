@@ -13,6 +13,7 @@ fi
 out_path=${PNEUMA_OUT_PATH:-/data/pneuma/$portal}
 index_name=${PNEUMA_INDEX_NAME:-lakegen}
 openai_base_url=${PNEUMA_OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}
+provider=${PNEUMA_PROVIDER:-openai}
 mkdir -p "$out_path"
 
 log_path="$out_path/bootstrap.log"
@@ -24,6 +25,7 @@ printf '\n[monitor] bootstrap started %s\n' "$(date --iso-8601=seconds)" | tee -
   --portal "$portal" \
   --out-path "$out_path" \
   --index-name "$index_name" \
+  --provider "$provider" \
   --openai-base-url "$openai_base_url" \
   "$@" \
   > >(tee -a "$log_path") 2>&1 &

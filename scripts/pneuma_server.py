@@ -7,8 +7,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 
-from bootstrap_pneuma import configure_pneuma_indexing
+from bootstrap_pneuma import configure_pneuma_indexing, _validate_embedding
 from pneuma import Pneuma
+from pneuma_oci import (
+    DEFAULT_OCI_EMBED_MODEL,
+    DEFAULT_OCI_LLM_MODEL,
+    OCICompatOpenAI,
+    OCISettings,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -16,19 +22,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8765, type=int)
     parser.add_argument("--out-path", default="pneuma-out")
+    parser.add_argument("--provider", choices=("openai", "oci"), default="openai")
     parser.add_argument(
         "--openai-base-url",
         default="http://127.0.0.1:11434/v1",
         help="OpenAI-compatible endpoint used for query embeddings and reranking",
     )
     parser.add_argument("--embedding-batch-size", default=16, type=int)
+    parser.add_argument("--oci-config-file")
+    parser.add_argument("--oci-profile")
+    parser.add_argument("--oci-llm-model", default=DEFAULT_OCI_LLM_MODEL)
+    parser.add_argument("--oci-embedding-model", default=DEFAULT_OCI_EMBED_MODEL)
+    parser.add_argument("--oci-embedding-dimensions", type=int)
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    os.environ["OPENAI_BASE_URL"] = args.openai_base_url.rstrip("/")
-    os.environ.setdefault("OPENAI_API_KEY", "ollama")
+    if args.provider == "openai":
+        os.environ["OPENAI_BASE_URL"] = args.openai_base_url.rstrip("/")
+        os.environ.setdefault("OPENAI_API_KEY", "ollama")
 
     configure_pneuma_indexing(
         embedding_batch_size=args.embedding_batch_size,
@@ -37,16 +50,41 @@ def main() -> None:
     import pneuma.index_generator.index_generator as pneuma_index_generator
     import pneuma.query_processor.query_processor as pneuma_query_processor
 
-    # Pneuma imports the helper into each module, so patch the query-side alias too.
-    pneuma_query_processor.prompt_openai_embed = (
-        pneuma_index_generator.prompt_openai_embed
-    )
+    if args.provider == "oci":
+        def prompt_oci_query_embed(embed_model, documents, model=None):
+            vectors = embed_model.create_embeddings(
+                list(documents), input_type="SEARCH_QUERY"
+            )
+            return [_validate_embedding(vector) for vector in vectors]
+
+        pneuma_query_processor.prompt_openai_embed = prompt_oci_query_embed
+    else:
+        # Pneuma imports the helper into each module, so patch the query alias too.
+        pneuma_query_processor.prompt_openai_embed = (
+            pneuma_index_generator.prompt_openai_embed
+        )
 
     backend = Pneuma(
         out_path=args.out_path,
         use_local_model=False,
-        openai_api_key=os.environ["OPENAI_API_KEY"],
+        openai_api_key=(
+            os.environ["OPENAI_API_KEY"]
+            if args.provider == "openai"
+            else "oci-adapter"
+        ),
     )
+    if args.provider == "oci":
+        oci_client = OCICompatOpenAI(
+            OCISettings(
+                llm_model=args.oci_llm_model,
+                embedding_model=args.oci_embedding_model,
+                embedding_dimensions=args.oci_embedding_dimensions,
+                config_file=args.oci_config_file,
+                profile=args.oci_profile,
+            )
+        )
+        backend.llm = oci_client
+        backend.embed_model = oci_client
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status: int, payload: dict) -> None:

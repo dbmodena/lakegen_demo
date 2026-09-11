@@ -2,3 +2,4 @@
 # Pneuma's deterministic Chroma stack requires NumPy <2, while LakeGen's
 # Valentine dependency requires NumPy >=2.
 pneuma==0.0.4
+oci>=2.184.0

@@ -17,14 +17,24 @@ from typing import Any
 import duckdb
 from pneuma import Pneuma
 
+from pneuma_oci import (
+    DEFAULT_OCI_EMBED_MODEL,
+    DEFAULT_OCI_LLM_MODEL,
+    OCICompatOpenAI,
+    OCISettings,
+)
+
 
 SUPPORTED_SUFFIXES = {".csv", ".parquet"}
 DEFAULT_EXTERNAL_VIEW_ROW_LIMIT = 10_000
+DEFAULT_EXTERNAL_VIEW_COLUMN_LIMIT = 64
 DEFAULT_EMBEDDING_BATCH_SIZE = 16
 DEFAULT_CHROMA_INSERT_BATCH_SIZE = 1_000
 EMBEDDING_NON_FINITE_FALLBACK_PREFIX = "Represent this dataset for retrieval. "
 BOUNDED_TABLE_IDS: set[str] = set()
 BOUNDED_TABLE_ROW_LIMIT = DEFAULT_EXTERNAL_VIEW_ROW_LIMIT
+BOUNDED_TABLE_COLUMN_LIMIT = DEFAULT_EXTERNAL_VIEW_COLUMN_LIMIT
+BOUNDED_TRUNCATED_TABLE_IDS: set[str] = set()
 
 
 def tune_duckdb_connections() -> None:
@@ -66,6 +76,32 @@ def tune_duckdb_connections() -> None:
             if match:
                 table_id = match.group(1).replace("''", "'")
                 if table_id in BOUNDED_TABLE_IDS:
+                    escaped_id = table_id.replace("'", "''")
+                    columns = self._connection.sql(
+                        f"SELECT * FROM '{escaped_id}' LIMIT 0"
+                    ).columns
+                    if len(columns) > BOUNDED_TABLE_COLUMN_LIMIT:
+                        # Cover the entire schema deterministically instead of
+                        # biasing a very wide table toward only its first fields.
+                        last = len(columns) - 1
+                        indexes = [
+                            round(i * last / (BOUNDED_TABLE_COLUMN_LIMIT - 1))
+                            for i in range(BOUNDED_TABLE_COLUMN_LIMIT)
+                        ]
+                        selected = [columns[index] for index in indexes]
+                        projection = ", ".join(
+                            f'"{column.replace(chr(34), chr(34) * 2)}"'
+                            for column in selected
+                        )
+                        query = f"SELECT {projection} FROM '{escaped_id}'"
+                        if table_id not in BOUNDED_TRUNCATED_TABLE_IDS:
+                            print(
+                                f"[summarize] bounded_columns "
+                                f"table={Path(table_id).name} "
+                                f"original={len(columns)} selected={len(selected)}",
+                                flush=True,
+                            )
+                            BOUNDED_TRUNCATED_TABLE_IDS.add(table_id)
                     query = f"{query.rstrip()} LIMIT {BOUNDED_TABLE_ROW_LIMIT}"
             return self._connection.sql(query, *args, **kwargs)
 
@@ -273,10 +309,10 @@ def register_external_view(
 
 
 def configure_bounded_external_views(
-    db_path: Path, *, row_limit: int
+    db_path: Path, *, row_limit: int, column_limit: int
 ) -> int:
     """Limit direct Parquet reads for external views during summarization."""
-    global BOUNDED_TABLE_IDS, BOUNDED_TABLE_ROW_LIMIT
+    global BOUNDED_TABLE_IDS, BOUNDED_TABLE_ROW_LIMIT, BOUNDED_TABLE_COLUMN_LIMIT
     with duckdb.connect(str(db_path), read_only=True) as connection:
         table_ids = [
             row[0]
@@ -291,6 +327,7 @@ def configure_bounded_external_views(
         and Path(table_id).suffix.casefold() == ".parquet"
     }
     BOUNDED_TABLE_ROW_LIMIT = row_limit
+    BOUNDED_TABLE_COLUMN_LIMIT = column_limit
     return len(BOUNDED_TABLE_IDS)
 
 
@@ -460,10 +497,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--llm-model", default="Qwen/Qwen2.5-7B-Instruct")
     parser.add_argument("--embedding-model", default="BAAI/bge-base-en-v1.5")
     parser.add_argument(
+        "--provider",
+        choices=("openai", "oci"),
+        default="openai",
+        help="Remote inference provider (openai also covers Ollama-compatible APIs)",
+    )
+    parser.add_argument(
         "--openai-base-url",
         help="Use an OpenAI-compatible endpoint instead of loading HF models",
     )
+    parser.add_argument("--oci-config-file")
+    parser.add_argument("--oci-profile")
+    parser.add_argument("--oci-llm-model", default=DEFAULT_OCI_LLM_MODEL)
+    parser.add_argument("--oci-embedding-model", default=DEFAULT_OCI_EMBED_MODEL)
+    parser.add_argument("--oci-embedding-dimensions", type=int)
     parser.add_argument("--skip-summaries", action="store_true")
+    parser.add_argument(
+        "--summary-limit",
+        type=int,
+        help="Process at most this many currently pending table summaries",
+    )
     parser.add_argument("--skip-metadata", action="store_true")
     parser.add_argument("--skip-index", action="store_true")
     parser.add_argument("--limit", type=int)
@@ -480,6 +533,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_EXTERNAL_VIEW_ROW_LIMIT,
         help="Maximum rows exposed by Parquet-backed external views during summaries",
+    )
+    parser.add_argument(
+        "--external-view-column-limit",
+        type=int,
+        default=DEFAULT_EXTERNAL_VIEW_COLUMN_LIMIT,
+        help="Maximum representative columns exposed during external-view summaries",
     )
     parser.add_argument(
         "--embedding-batch-size",
@@ -525,10 +584,14 @@ def main() -> None:
         raise RuntimeError(f"No CSV or Parquet tables found in {table_dir}")
     if args.external_view_row_limit <= 0:
         raise ValueError("--external-view-row-limit must be greater than zero")
+    if args.external_view_column_limit <= 1:
+        raise ValueError("--external-view-column-limit must be greater than one")
     if args.embedding_batch_size <= 0:
         raise ValueError("--embedding-batch-size must be greater than zero")
     if args.chroma_insert_batch_size <= 0:
         raise ValueError("--chroma-insert-batch-size must be greater than zero")
+    if args.summary_limit is not None and args.summary_limit <= 0:
+        raise ValueError("--summary-limit must be greater than zero")
     registration_mode = args.registration_mode or (
         "external" if args.portal.casefold() == "uk" else "auto"
     )
@@ -543,8 +606,8 @@ def main() -> None:
         f"index={args.index_name} registration_mode={registration_mode}",
         flush=True,
     )
-    use_local_model = args.openai_base_url is None
-    if args.openai_base_url:
+    use_local_model = args.provider == "openai" and args.openai_base_url is None
+    if args.provider == "openai" and args.openai_base_url:
         os.environ["OPENAI_BASE_URL"] = args.openai_base_url.rstrip("/")
         os.environ.setdefault("OPENAI_API_KEY", "ollama")
     pneuma = Pneuma(
@@ -553,6 +616,37 @@ def main() -> None:
         openai_api_key=os.environ.get("OPENAI_API_KEY") if not use_local_model else None,
         llm_path=args.llm_model,
         embed_path=args.embedding_model,
+    )
+    if args.provider == "oci":
+        oci_client = OCICompatOpenAI(
+            OCISettings(
+                llm_model=args.oci_llm_model,
+                embedding_model=args.oci_embedding_model,
+                embedding_dimensions=args.oci_embedding_dimensions,
+                config_file=args.oci_config_file,
+                profile=args.oci_profile,
+            )
+        )
+        pneuma.llm = oci_client
+        pneuma.embed_model = oci_client
+        provider_record = {
+            "provider": "oci",
+            "llm_model": args.oci_llm_model,
+            "embedding_model": args.oci_embedding_model,
+            "embedding_dimensions": args.oci_embedding_dimensions,
+        }
+    else:
+        provider_record = {
+            "provider": "openai",
+            "llm_model": "gpt-4o-mini" if args.openai_base_url else args.llm_model,
+            "embedding_model": (
+                "text-embedding-3-small" if args.openai_base_url else args.embedding_model
+            ),
+            "base_url": args.openai_base_url,
+        }
+    (out_path / "inference-provider.json").write_text(
+        json.dumps(provider_record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
     require_success(pneuma.setup(), "Pneuma setup")
     db_path = out_path / "storage.db"
@@ -611,16 +705,21 @@ def main() -> None:
 
     if not args.skip_summaries:
         bounded_views = configure_bounded_external_views(
-            db_path, row_limit=args.external_view_row_limit
+            db_path,
+            row_limit=args.external_view_row_limit,
+            column_limit=args.external_view_column_limit,
         )
         print(
             f"[summarize] bounded_external_views={bounded_views} "
-            f"row_limit={args.external_view_row_limit}",
+            f"row_limit={args.external_view_row_limit} "
+            f"column_limit={args.external_view_column_limit}",
             flush=True,
         )
         pending_summaries = pending_summary_ids(db_path)
         allowed = {str(path) for path in active_paths}
         pending_summaries = [item for item in pending_summaries if item in allowed]
+        if args.summary_limit is not None:
+            pending_summaries = pending_summaries[: args.summary_limit]
         print(f"[summarize] pending={len(pending_summaries)}", flush=True)
         for number, table_id in enumerate(pending_summaries, 1):
             print(
