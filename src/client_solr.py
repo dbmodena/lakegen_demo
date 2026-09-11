@@ -1,9 +1,39 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import json
+import math
+import os
 from typing import Any
 
 import requests
+
+
+KNN_METADATA_FIELDS = (
+    "id",
+    "resource_id",
+    "dataset_id",
+    "title",
+    "description",
+    "tags",
+    "columns.name",
+    "columns.description",
+    "columns.type",
+    "schema",
+    "dataset_url",
+    "download_url",
+    "url",
+    "permalink",
+    "link",
+    "owner",
+    "creator",
+    "source",
+    "portal",
+    "provenance",
+    "representation_version",
+    "embedding_model",
+    "score",
+)
 
 
 class LocalSolrClient:
@@ -12,11 +42,14 @@ class LocalSolrClient:
     def __init__(
         self,
         core: str,
-        base_url: str = "http://localhost:8983/solr",
+        base_url: str | None = None,
         timeout: float = 30.0,
     ) -> None:
         self.core = core.strip("/")
-        self.base_url = base_url.rstrip("/")
+        resolved_base_url = base_url or os.environ.get(
+            "SOLR_BASE_URL", "http://localhost:8983/solr"
+        )
+        self.base_url = resolved_base_url.rstrip("/")
         self.timeout = timeout
 
     @property
@@ -26,6 +59,10 @@ class LocalSolrClient:
     @property
     def select_url(self) -> str:
         return f"{self.core_url}/select"
+
+    @property
+    def query_url(self) -> str:
+        return f"{self.core_url}/query"
 
     @staticmethod
     def _as_list(value: Any) -> list[Any]:
@@ -104,3 +141,146 @@ class LocalSolrClient:
         )
         response.raise_for_status()
         return self._restore_response_docs(response.json())
+
+    def knn_select(
+        self,
+        vector: Sequence[float],
+        *,
+        vector_field: str,
+        top_k: int,
+        rows: int | None = None,
+        filters: Sequence[str] = (),
+        **params: Any,
+    ) -> dict[str, Any]:
+        """Run a Solr KNN query against a ``DenseVectorField``.
+
+        Solr/Lucene computes the vector similarity; this client only validates
+        and serializes the query vector. The configured Solr field must use
+        ``similarityFunction=cosine`` for LakeGen's semantic experiments.
+        """
+        if not vector_field or not vector_field.replace("_", "").isalnum():
+            raise ValueError("vector_field must be a simple Solr field name")
+        if top_k <= 0:
+            raise ValueError("top_k must be greater than zero")
+
+        values = [float(value) for value in vector]
+        if not values or any(not math.isfinite(value) for value in values):
+            raise ValueError("vector must contain finite numeric values")
+
+        query = (
+            f"{{!knn f={vector_field} topK={top_k}}}"
+            + json.dumps(values, separators=(",", ":"))
+        )
+        request_params: dict[str, Any] = {
+            "q": query,
+            "rows": rows if rows is not None else top_k,
+            "wt": "json",
+            **params,
+        }
+        request_params["fl"] = ",".join(KNN_METADATA_FIELDS)
+        if filters:
+            request_params["fq"] = list(filters)
+
+        # Dense vectors easily exceed HTTP request-line limits when serialized
+        # as a GET query string. Use Solr's generic /query handler so a
+        # collection-specific /select default such as defType=edismax cannot
+        # reinterpret the KNN query parser. Both handlers accept form POSTs.
+        response = requests.post(
+            self.query_url,
+            data=request_params,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        result = self._restore_response_docs(response.json())
+        # Keep a defensive boundary even if a custom Solr handler ignores fl.
+        # Query vectors are large implementation details and must never escape
+        # through retrieval results or experiment logs.
+        docs = result.get("response", {}).get("docs", [])
+        for document in docs:
+            if isinstance(document, dict):
+                document.pop(vector_field, None)
+        return result
+
+    def iter_documents(
+        self,
+        *,
+        fields: Sequence[str],
+        batch_size: int = 100,
+        sort_field: str = "resource_id",
+        restore_columns: bool = True,
+    ):
+        """Yield all documents using Solr's cursor API."""
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than zero")
+
+        cursor = "*"
+        while True:
+            response = requests.get(
+                self.select_url,
+                params={
+                    "q": "*:*",
+                    "fl": ",".join(fields),
+                    "rows": batch_size,
+                    "sort": f"{sort_field} asc",
+                    "cursorMark": cursor,
+                    "wt": "json",
+                },
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if restore_columns:
+                payload = self._restore_response_docs(payload)
+            docs = payload.get("response", {}).get("docs", [])
+            for doc in docs:
+                if isinstance(doc, dict):
+                    yield doc
+
+            next_cursor = payload.get("nextCursorMark")
+            if not docs or not next_cursor or next_cursor == cursor:
+                break
+            cursor = next_cursor
+
+    def schema(self) -> dict[str, Any]:
+        response = requests.get(
+            f"{self.core_url}/schema",
+            params={"wt": "json"},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def update_schema(self, commands: dict[str, Any]) -> dict[str, Any]:
+        response = requests.post(
+            f"{self.core_url}/schema",
+            params={"wt": "json"},
+            json=commands,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def update_documents(
+        self,
+        documents: Sequence[dict[str, Any]],
+        *,
+        commit: bool = False,
+    ) -> dict[str, Any]:
+        response = requests.post(
+            f"{self.core_url}/update",
+            params={"commit": str(commit).lower(), "wt": "json"},
+            json=list(documents),
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def commit(self) -> dict[str, Any]:
+        response = requests.post(
+            f"{self.core_url}/update",
+            params={"wt": "json"},
+            json={"commit": {}},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()

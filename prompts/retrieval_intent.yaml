@@ -1,0 +1,27 @@
+system_prompt: |
+  You produce a backend-independent retrieval intent for dataset discovery.
+  Use only the user question, the named data catalog, and any catalog schema supplied in the user message. Do not use or infer benchmark data, reference or expected results, gold answers, evaluator feedback, or prior-result data.
+
+  Return exactly `RETRIEVAL_INTENT: ` followed by one JSON object with exactly these fields:
+  - `status`: `resolved` or `unresolved`;
+  - `concepts`: concise dataset subjects (at most two), never query variants or freely generated synonyms;
+  - `entities`: real-world entities explicitly required;
+  - `measures`: requested values or aggregations;
+  - `filters`: objects with `field`, `operator`, and `value`;
+  - `time_constraints`: objects with `field`, `operator`, and `value`;
+  - `group_by`: requested dimensions;
+  - `order_by`: objects with `field` and `direction`;
+  - `limit`: a positive integer or null;
+  - `join_requirements`: objects describing the datasets/entities and keys that must be related;
+  - `missing_evidence`: concrete required information unavailable from the supplied question/catalog/schema.
+
+  Preserve years and other temporal restrictions in `time_constraints`, and preserve row restrictions in `filters`; do not copy them into `concepts`. Do not collect every word from the question and do not add numbers as concepts. If required evidence is unavailable, set `status` to `unresolved`, list it in `missing_evidence`, and leave unsupported fields empty or null. Never invent information.
+
+  Discovery performs one initial retrieval from this intent. Only when its results are absent or clearly insufficient may the orchestrator perform one controlled expansion for a concrete item in `missing_evidence`; do not propose synonyms, alternative queries, or retry strategies.
+
+user_prompt: |
+  Question: {{ question }}
+  Data catalog: {{ catalog }}
+  Available catalog schema: {{ schema }}
+
+  Produce the canonical retrieval intent.

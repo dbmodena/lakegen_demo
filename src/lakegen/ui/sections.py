@@ -4,7 +4,7 @@ from typing import Any
 
 from lakegen.ui.i18n import t
 from lakegen.ui.state import LakeGenSession
-from lakegen.phase2_logging import (
+from lakegen.phases.logging import (
     extract_phase2_activity_log,
     format_phase2_solr_results,
 )
@@ -104,8 +104,6 @@ def build_phase3_summary(
 def build_phase4_summary(session: LakeGenSession, answer: str) -> str:
     return f"""
 **{t("summary.synthesized_answer")}**
-
-{answer}
 
 - {t("summary.tokens").title()}: `{session.tokens['p4']}`
 """.strip()

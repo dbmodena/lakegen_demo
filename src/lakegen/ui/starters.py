@@ -7,7 +7,7 @@ from typing import Any, Iterator
 
 import chainlit as cl
 
-from lakegen.utils import BASE_DIR
+from lakegen.core.config import BASE_DIR
 
 
 STARTER_LIMIT = 3
@@ -86,30 +86,26 @@ def _starter_label(question: str) -> str:
 
 
 @lru_cache(maxsize=len(CORE_QUERY_FILES))
-def starter_questions_for_core(core: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def starter_questions_for_core(core: str) -> tuple[tuple[str, str], ...]:
+    defaults = DEFAULT_QUESTIONS.get(core, [])
+    labels = [label for label, _ in defaults]
+    questions = [question for _, question in defaults]
+
     query_file = CORE_QUERY_FILES.get(core)
-    if query_file is None or not query_file.exists():
-        return ()
-
-    try:
-        payload = json.loads(query_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ()
-
-    seen: set[str] = set()
-
-    labels, questions = zip(*DEFAULT_QUESTIONS[core])
-    labels = list(labels)
-    questions = list(questions)
-
-    for question in _iter_questions(payload):
-        if question in seen:
-            continue
-        seen.add(question)
-        labels.append(_starter_label(question))
-        questions.append(question)
-        if len(questions) >= STARTER_LIMIT:
-            break
+    if query_file is not None and query_file.exists():
+        try:
+            payload = json.loads(query_file.read_text(encoding="utf-8"))
+            seen: set[str] = set(questions)
+            for question in _iter_questions(payload):
+                if question in seen:
+                    continue
+                seen.add(question)
+                labels.append(_starter_label(question))
+                questions.append(question)
+                if len(questions) >= STARTER_LIMIT:
+                    break
+        except (OSError, json.JSONDecodeError):
+            pass
     return tuple(zip(labels, questions))
 
 

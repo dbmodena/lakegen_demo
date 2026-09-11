@@ -24,18 +24,30 @@ __pycache__/
 htmlcov/
 
 # ========================
-# 4. Specific Project Files (LakeGen)
+# 4. Specific Project Files
 # ========================
-# Ignore heavy CSVs and databases
 data/
-old_data/
 *.zip
 data
 logs
+queries_old
+queries
+benchmark/*
+!benchmark/100q_nyc.json
+!benchmark/100q_uk.json
+
+# Pneuma local runtime, virtual environment, and generated indexes.
+.pneuma/
+.venv-pneuma/
+pneuma-out
 
 # Ignore dynamically generated Python code by the agent
 coding/
 script.py
+.lakegen_jobs/
+.lakegen_reference_cache/
+reports
+benchmarks
 
 # Ignore Chainlit-generated runtime assets
 .chainlit/translations/

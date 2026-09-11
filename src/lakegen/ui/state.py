@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 import uuid
+import asyncio
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -9,27 +11,59 @@ from typing import Any
 import chainlit as cl
 
 from lakegen.ui.i18n import t
-from lakegen.types import SolrMetadata
-from lakegen.utils import BASE_DIR
+from lakegen.core.types import SolrMetadata
+from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.experiment_config import (
+    DiscoveryArchitecture,
+    ExperimentConfig,
+    InteractionMode,
+    load_experiment_config,
+)
+from lakegen.tracing import HumanInterventionRecorder
 
 
-MODEL_OPTIONS = ["gemma4:26b", "qwen3.5:latest", "llama3.1:8b", "gpt-oss:20b"]
-SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris"]
+MODEL_OPTIONS = [
+    "openai.gpt-oss-120b",
+    "meta.llama-3.3-70b-instruct",
+]
+SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris", "uk"]
 SOLR_CORE_PORTAL_NAMES = {
     "nyc": "New York City Open Data portal",
     "valencia": "Valencia Open Data portal",
     "bologna": "Bologna Open Data portal",
     "paris": "Paris Open Data portal",
+    "uk": "UK Open Data portal",
 }
+RETRIEVAL_MODE_OPTIONS = [mode.value for mode in RetrievalMode]
 
 
 @dataclass
 class RuntimeSettings:
-    ollama_url: str = "http://127.0.0.1:11434"
     model_name: str = MODEL_OPTIONS[0]
     solr_core: str = SOLR_CORE_OPTIONS[0]
-    csv_dir: Path = BASE_DIR / "data/nyc/datasets/csv"
+    csv_dir: Path = field(default_factory=lambda: resolve_portal_tables_dir("nyc"))
     db_path: Path = BASE_DIR / "data/blend_nyc.db"
+    use_unified_agent: bool = True
+    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig.from_env)
+    experiment: ExperimentConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.experiment is None:
+            self.experiment = load_experiment_config(overrides={
+                "model": self.model_name,
+                "core": self.solr_core,
+                "discovery_architecture": (
+                    DiscoveryArchitecture.UNIFIED.value
+                    if self.use_unified_agent
+                    else DiscoveryArchitecture.DIVIDED.value
+                ),
+                "interaction_mode": InteractionMode.HUMAN_GATED.value,
+                **{
+                    f"retrieval.{key}": value
+                    for key, value in self.retrieval.__dict__.items()
+                },
+            })
 
     @property
     def portal_name(self) -> str:
@@ -58,18 +92,40 @@ class RuntimeSettings:
         if model_name not in MODEL_OPTIONS:
             model_name = default.model_name
 
-        ollama_url = str(settings.get("ollama_url") or default.ollama_url).strip()
+        use_unified_agent = settings.get("use_unified_agent", default.use_unified_agent)
+        retrieval_mode = str(
+            settings.get("retrieval_mode") or default.retrieval.mode
+        )
+        if retrieval_mode not in RETRIEVAL_MODE_OPTIONS:
+            retrieval_mode = default.retrieval.mode
+        
+        retrieval = RetrievalConfig.from_env(mode=retrieval_mode)
+        experiment = load_experiment_config(overrides={
+            "model": model_name,
+            "core": selected_solr_core,
+            "discovery_architecture": (
+                "unified" if bool(use_unified_agent) else "divided"
+            ),
+            "interaction_mode": "human_gated",
+            **{f"retrieval.{key}": value for key, value in retrieval.__dict__.items()},
+        })
         return cls(
-            ollama_url=ollama_url or default.ollama_url,
             model_name=model_name,
             solr_core=selected_solr_core,
-            csv_dir=BASE_DIR / f"data/{selected_solr_core}/datasets/csv",
+            csv_dir=resolve_portal_tables_dir(selected_solr_core),
             db_path=BASE_DIR / f"data/blend_{selected_solr_core}.db",
+            use_unified_agent=bool(use_unified_agent),
+            retrieval=retrieval,
+            experiment=experiment,
         )
 
 
 class WorkflowCancelled(Exception):
     """Raised when the user clicks Stop in the UI."""
+
+
+class WorkflowTimedOut(Exception):
+    """Raised when a Chainlit interaction expires without an answer."""
 
 
 @dataclass
@@ -92,6 +148,26 @@ class LakeGenSession:
     )
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     _cancelled: threading.Event = field(default_factory=threading.Event)
+    workflow_task: asyncio.Task | None = None
+    manifest: dict[str, Any] = field(default_factory=dict)
+    intervention_recorder: HumanInterventionRecorder = field(
+        default_factory=HumanInterventionRecorder
+    )
+    phase_seconds: dict[str, float] = field(
+        default_factory=lambda: {"discovery": 0.0, "code": 0.0, "result": 0.0}
+    )
+    llm_call_counts: dict[str, int] = field(
+        default_factory=lambda: {"discovery": 0, "code": 0, "result": 0}
+    )
+    started_at: float = field(default_factory=time.monotonic)
+    finalized: bool = False
+    final_code: str = ""
+    raw_result: Any = None
+    final_answer: str = ""
+    retries: int = 0
+    execution_error: str = ""
+    generated_code_seed_instruction_provided: bool = False
+    tool_access_telemetry: dict[str, Any] = field(default_factory=dict)
 
     @property
     def run_dir(self) -> Path:
@@ -107,15 +183,13 @@ class LakeGenSession:
     def request_cancel(self) -> None:
         """Signal all running phases to stop."""
         self._cancelled.set()
+        if self.workflow_task and not self.workflow_task.done():
+            self.workflow_task.cancel()
 
     def check_cancelled(self) -> None:
         """Raise WorkflowCancelled if the stop button was pressed."""
         if self._cancelled.is_set():
             raise WorkflowCancelled("Workflow stopped by user.")
-
-    def reset_for_query(self, query: str) -> None:
-        runtime = self.runtime
-        self.__dict__.update(LakeGenSession(runtime=runtime, query=query).__dict__)
 
     def record_phase1_run(
         self,

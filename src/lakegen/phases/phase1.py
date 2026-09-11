@@ -7,18 +7,15 @@ from nltk.corpus import stopwords
 import nltk
 
 from llama_index.core.llms import ChatMessage, LLM
+from llama_index.core import Settings
 
-from lakegen.phase2_logging import format_cli_log_value
-from lakegen.types import SolrMetadata, StreamCallback
 from prompts.prompt_manager import PromptManager
-from src.client_solr import LocalSolrClient
-
-from .utils import (
-    emit_candidate_summary,
-    match_local_csv,
-    solr_metadata_from_doc,
+from lakegen.core.token_usage import (
+    extract_total_tokens,
+    get_llm_token_usage,
+    reset_llm_token_usage,
 )
-
+from lakegen.retrieval.intent import parse_retrieval_intent
 
 
 def extract_wordnet_query_keywords(query: str) -> str:
@@ -50,18 +47,18 @@ def split_thinking_blocks(text: str) -> tuple[str, str]:
         return ""
 
     visible_text = re.sub(
-        r"<think>(.*?)</think>",
+        r"<(?:think|reasoning)>(.*?)</(?:think|reasoning)>",
         collect_closed,
         text,
         flags=re.IGNORECASE | re.DOTALL,
     )
 
-    open_match = re.search(r"<think>(.*)$", visible_text, flags=re.IGNORECASE | re.DOTALL)
+    open_match = re.search(r"<(?:think|reasoning)>(.*)$", visible_text, flags=re.IGNORECASE | re.DOTALL)
     if open_match:
         thinking_parts.append(open_match.group(1))
         visible_text = visible_text[:open_match.start()]
 
-    visible_text = re.sub(r"</think>", "", visible_text, flags=re.IGNORECASE)
+    visible_text = re.sub(r"</(?:think|reasoning)>", "", visible_text, flags=re.IGNORECASE)
     thinking_text = "\n".join(part.strip() for part in thinking_parts if part.strip())
     return visible_text.strip(), thinking_text.strip()
 
@@ -70,28 +67,27 @@ def phase1_generate_keywords(
     query: str,
     llm: LLM,
     pm: PromptManager,
-    hint="",
+    hint: str = "",
     portal_name: str = "",
     stream_placeholder=None,
     reasoning_placeholder=None,
     stream_reasoning: bool = True,
     cancel_check: Callable[[], None] | None = None,
-):
-    wordnet_keywords_str = extract_wordnet_query_keywords(query)
-    wordnet_keywords = [k.strip() for k in wordnet_keywords_str.split(",") if k.strip()]
-
+    avoid_keywords: list[str] | None = None,
+) -> tuple[list[str], str, int, str]:
     system_prompt = pm.render(
-        "keyword_generator",
+        "retrieval_intent",
         "system_prompt"
     )
 
+    avoid_keywords_str = ", ".join(avoid_keywords) if avoid_keywords else ""
+
     user_prompt = pm.render(
-        "keyword_generator",
+        "retrieval_intent",
         "user_prompt",
         question=query,
-        portal_name=portal_name,
-        raw_keywords_str=wordnet_keywords_str,
-        keyword_hint=hint
+        catalog=portal_name,
+        schema="not supplied",
     )
 
     messages = [
@@ -102,6 +98,14 @@ def phase1_generate_keywords(
     raw_stream = ""
     structured_reasoning = ""
     tokens = 0
+
+    token_counter = next(
+        (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")),
+        None,
+    )
+    if token_counter:
+        token_counter.reset_counts()
+    reset_llm_token_usage(llm)
 
     def update_placeholders() -> None:
         visible_stream, tagged_reasoning = split_thinking_blocks(raw_stream)
@@ -119,6 +123,10 @@ def phase1_generate_keywords(
 
     print("[phase1 keyword stream] ", end="", flush=True)
 
+    _REPEAT_WINDOW = 200        # chars – tail window for repetition check
+    _REPEAT_THRESHOLD = 5       # how many times the tail must repeat
+    loop_detected = False
+
     stream_kwargs = {"think": True} if stream_reasoning else {}
     try:
         chunk_stream = llm.stream_chat(messages, **stream_kwargs)
@@ -129,6 +137,21 @@ def phase1_generate_keywords(
             if thinking_delta:
                 structured_reasoning += thinking_delta
                 print(thinking_delta, end="", flush=True)
+
+                # ── Repetition loop detection (No max length constraint) ──
+                cleaned = structured_reasoning.strip()
+                if len(cleaned) > _REPEAT_WINDOW:
+                    tail = cleaned[-_REPEAT_WINDOW:]
+                    if cleaned.count(tail) >= _REPEAT_THRESHOLD:
+                        print("\n[phase1] Repetition loop detected in reasoning – breaking stream.")
+                        loop_detected = True
+                        if reasoning_placeholder is not None:
+                            reasoning_placeholder.markdown(
+                                structured_reasoning + "\n\n⚠️ **[Phase 1] Warning: A repetition loop was detected in the model reasoning. The stream was stopped to prevent it from hanging.**"
+                            )
+                        break
+                # ──────────────────────────────────────────────────────────
+
                 update_placeholders()
 
             delta = chunk.delta or ""
@@ -137,11 +160,11 @@ def phase1_generate_keywords(
                 print(delta, end="", flush=True)
                 update_placeholders()
 
-            if chunk.raw:
-                prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
-                completion_tokens = chunk.raw.get("eval_count") or 0
-                if prompt_tokens or completion_tokens:
-                    tokens = prompt_tokens + completion_tokens
+            tokens = max(
+                tokens,
+                extract_total_tokens(chunk.raw),
+                extract_total_tokens(chunk.additional_kwargs),
+            )
     except Exception:
         if raw_stream or structured_reasoning or not stream_reasoning:
             raise
@@ -155,83 +178,41 @@ def phase1_generate_keywords(
                 print(delta, end="", flush=True)
                 update_placeholders()
 
-            if chunk.raw:
-                prompt_tokens = chunk.raw.get("prompt_eval_count") or 0
-                completion_tokens = chunk.raw.get("eval_count") or 0
-                if prompt_tokens or completion_tokens:
-                    tokens = prompt_tokens + completion_tokens
+            tokens = max(
+                tokens,
+                extract_total_tokens(chunk.raw),
+                extract_total_tokens(chunk.additional_kwargs),
+            )
     print("", flush=True)
 
+    if token_counter and tokens == 0:
+        tokens = token_counter.prompt_llm_token_count + token_counter.completion_llm_token_count
+    tokens = max(tokens, get_llm_token_usage(llm))
+    if tokens == 0:
+        # Fallback estimation if stream skipped token tracking completely
+        tokens = int((len(system_prompt.split()) + len(user_prompt.split()) + len(raw_stream.split())) * 1.3)
+
     visible_content, tagged_reasoning = split_thinking_blocks(raw_stream)
+
+    reasoning_blocks = re.findall(r"<reasoning>(.*?)</reasoning>", raw_stream, re.IGNORECASE | re.DOTALL)
+    for block in reasoning_blocks:
+        if block.strip():
+            tagged_reasoning += "\n" + block.strip()
+
     reasoning_content = "\n\n".join(
         part.strip()
         for part in (structured_reasoning, tagged_reasoning)
         if part.strip()
     )
-    raw_content = visible_content.strip().lower()
-    model_keywords = re.findall(r"(?u)\b[\w-]+\b", raw_content)
-    query_numbers = re.findall(r"\b\d+\b", query)
-    extracted = list(dict.fromkeys(model_keywords + query_numbers))[:15]
-    if not extracted:
-        extracted = wordnet_keywords[:15]
-    return extracted, raw_content, tokens, reasoning_content
 
-
-def phase1_retrieve_candidates(
-    keywords: list[str],
-    solr_client: LocalSolrClient,
-    all_files: list[str],
-    stream_callback: StreamCallback | None = None,
-) -> tuple[list[str], SolrMetadata, list[str]]:
-    """Retrieve candidate files after Phase 1 keyword generation."""
-    activity_log_parts: list[str] = []
-    candidates: list[str] = []
-    metadata: SolrMetadata = {}
-    query_text = " ".join(keywords)
-
+    raw_content = visible_content.strip()
     try:
-        print(
-            "\n[phase1 candidates] Solr search "
-            f"q={format_cli_log_value(query_text)} "
-            f"csv_count={len(all_files)}",
-            flush=True,
-        )
-        solr_response = solr_client.select(tokens=keywords, q_op="OR", rows=30)
-        response_body = solr_response.get("response", {})
-        docs = response_body.get("docs", [])
-        print(
-            "[phase1 candidates] Solr response "
-            f"numFound={response_body.get('numFound', 'unknown')} "
-            f"docs_returned={len(docs)}",
-            flush=True,
-        )
+        intent = parse_retrieval_intent(raw_content)
+        extracted = intent.keywords if intent.status == "resolved" else []
+    except ValueError:
+        extracted = []
 
-        for doc in docs:
-            matched = match_local_csv(doc, all_files)
-            if matched is None or matched in candidates:
-                continue
+    if loop_detected:
+        reasoning_content += "\n\n⚠️ **[Phase 1] The model looped; retrieval intent is unresolved.**"
 
-            candidates.append(matched)
-            metadata[matched] = solr_metadata_from_doc(doc)
-            if len(candidates) >= 10:
-                break
-
-        if not candidates:
-            candidates = all_files[:5]
-            print(
-                "[phase1 candidates] no local Solr matches; "
-                f"fallback={candidates}",
-                flush=True,
-            )
-        else:
-            print(f"[phase1 candidates] matched={candidates}", flush=True)
-    except Exception as solr_err:
-        candidates = all_files[:5]
-        print(
-            "[phase1 candidates] Solr error "
-            f"{type(solr_err).__name__}: {solr_err}; fallback={candidates}",
-            flush=True,
-        )
-
-    emit_candidate_summary(candidates, metadata, activity_log_parts, stream_callback)
-    return candidates, metadata, activity_log_parts
+    return extracted, raw_content, tokens, reasoning_content

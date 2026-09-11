@@ -6,8 +6,7 @@ from typing import Any
 _MESSAGES: dict[str, str] = {
     "app.title": "# LakeGen - Data Assistant",
     "app.intro": "Ask a natural-language question about the selected Open Data portal.",
-    "app.settings_updated": "Settings updated: `{model_name}` on `{solr_core}`.",
-    "settings.ollama_url": "Ollama Server URL",
+    "app.settings_updated": "Settings updated: `{model_name}` on `{solr_core}` (Agent Mode: `{agent_mode}`).",
     "settings.model": "Model",
     "settings.solr_core": "Open Data Lake",
     "hint.skip_suffix": "Reply with `skip` for no hint.",
@@ -84,6 +83,6 @@ def t(key: str, default: str | None = None, **kwargs: Any) -> str:
     template = _MESSAGES.get(key) or default or key
     try:
         return template.format(**kwargs)
-    except KeyError as exc:
-        print(f"\n\n{exc}\n\n")
+    except (KeyError, ValueError) as exc:
+        print(f"[i18n] Error formatting key '{key}': {exc}")
         return template

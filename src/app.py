@@ -1,6 +1,9 @@
 """
 LakeGen Interactive - Chainlit application.
-Run with: uv run chainlit run src/app.py -w
+Run with: uv run chainlit run src/app.py
+
+Do not use Chainlit's --watch flag during normal runs: LakeGen writes generated
+Python scripts under coding/, and a file watcher would restart the active chat.
 """
 
 import sys
@@ -11,7 +14,7 @@ from pathlib import Path
 import chainlit as cl
 import sniffio
 from chainlit.server import app as chainlit_app
-from chainlit.input_widget import Select, TextInput
+from chainlit.input_widget import Select, Switch
 
 _SRC_DIR = Path(__file__).resolve().parent
 _ROOT_DIR = _SRC_DIR.parent
@@ -21,16 +24,18 @@ if str(_SRC_DIR) not in sys.path:
 if str(_ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(_ROOT_DIR))
 
-from lakegen.bootstrap import (  # noqa: E402
+from lakegen.core.bootstrap import (  # noqa: E402
     bootstrap_nltk_data,
     ensure_project_paths,
     nltk_download_dir,
 )
 from lakegen.ui.state import (  # noqa: E402
     MODEL_OPTIONS,
+    RETRIEVAL_MODE_OPTIONS,
     SOLR_CORE_OPTIONS,
     SOLR_CORE_PORTAL_NAMES,
     RuntimeSettings,
+    LakeGenSession,
     WorkflowCancelled,
     get_runtime_settings,
     get_session,
@@ -38,7 +43,7 @@ from lakegen.ui.state import (  # noqa: E402
 )
 from lakegen.ui.i18n import t  # noqa: E402
 from lakegen.ui.starters import starters_for_core  # noqa: E402
-from lakegen.ui.workflow import run_lakegen_workflow  # noqa: E402
+from lakegen.ui.workflow import WORKFLOW_LOCK, run_lakegen_workflow  # noqa: E402
 
 ensure_project_paths(_SRC_DIR, _ROOT_DIR)
 
@@ -65,16 +70,22 @@ chainlit_app.add_middleware(AsyncioSniffioMiddleware)
 def _settings_widgets(runtime: RuntimeSettings | None = None) -> list:
     runtime = runtime or RuntimeSettings.default()
     return [
-        TextInput(
-            id="ollama_url",
-            label=t("settings.ollama_url"),
-            initial=runtime.ollama_url,
-        ),
         Select(
             id="model_name",
             label=t("settings.model"),
             values=MODEL_OPTIONS,
             initial_value=runtime.model_name,
+        ),
+        Select(
+            id="retrieval_mode",
+            label="Table retriever",
+            values=RETRIEVAL_MODE_OPTIONS,
+            initial_value=runtime.retrieval.mode,
+        ),
+        Switch(
+            id="use_unified_agent",
+            label="Use Unified Agent (Phase 1 & 2)",
+            initial=runtime.use_unified_agent,
         ),
     ]
 
@@ -86,7 +97,7 @@ def _selected_solr_core() -> str:
     return RuntimeSettings.default().solr_core
 
 
-@cl.set_chat_profiles  # ty: ignore
+@cl.set_chat_profiles  # type: ignore
 async def chat_profiles():
     default_core = RuntimeSettings.default().solr_core
     return [
@@ -153,11 +164,13 @@ async def on_settings_update(settings: dict) -> None:
         )
         set_runtime_settings(runtime)
         get_session().runtime = runtime
+        agent_mode = "Unified" if runtime.use_unified_agent else "Divided"
         await cl.Message(
             content=t(
                 "app.settings_updated",
                 model_name=runtime.model_name,
                 solr_core=runtime.solr_core,
+                agent_mode=agent_mode,
             )
         ).send()
     except Exception as exc:
@@ -182,6 +195,17 @@ async def on_stop() -> None:
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     try:
+        if WORKFLOW_LOCK.locked():
+            await cl.Message(content=t("workflow.locked")).send()
+            return
+        old_session = get_session()
+        new_session = LakeGenSession(
+            runtime=old_session.runtime,
+            query=message.content,
+        )
+        new_session.workflow_task = asyncio.current_task()
+        cl.user_session.set("lakegen_session", new_session)
+        
         await run_lakegen_workflow(message.content)
     except (asyncio.CancelledError, WorkflowCancelled):
         logger.info("Workflow cancelled by user.")

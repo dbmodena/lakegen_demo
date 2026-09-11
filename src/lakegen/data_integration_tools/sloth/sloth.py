@@ -4,8 +4,8 @@ import math
 import pandas as pd
 import time
 import timeout_decorator
-import variables as var
-from sloth_utils import to_bag_counter
+from . import variables as var
+from .sloth_utils import to_bag_counter
 
 # @timeout_decorator.timeout(var.timeout_s)
 def detect_seeds(r_tab, s_tab, r_w, s_w, min_h):

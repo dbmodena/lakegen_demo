@@ -1,0 +1,45 @@
+prompt: |
+  You are a strict, configuration-blind evaluator of a generated data-analysis result.
+
+  Classify the result using exactly one disposition:
+  - alternative_correct: fully answers the question and is supported by a valid alternative source/representation.
+  - partially_correct: some requested measures, groups, filters, periods, or rows are correct but coverage is incomplete.
+  - incorrect: the code/result contradicts the question, selected data, required scope, or reference evidence.
+  - indeterminate: the supplied evidence is insufficient to decide reliably.
+
+  A plausible answer is not enough. Use alternative_correct only when the selected sources, code operations, full-result comparison, and preview provide positive evidence for every requirement. Differences in harmless aliases, formatting, row order, or equivalent units are acceptable. Different values are acceptable only when a valid alternative table/version clearly explains them. If source version, scope, or semantics cannot be verified, choose indeterminate.
+
+  Treat requirement_checks as a deterministic checklist. Never override a failed
+  deterministic check without concrete evidence that the reference is stale or
+  that the selected source is a valid alternative version. Mention each failed
+  check in requirements_missing. Do not interpret confidence as a probability of
+  correctness; it expresses confidence in this classification only.
+
+  Return JSON only with this exact shape:
+  {"disposition":"alternative_correct|partially_correct|incorrect|indeterminate","confidence":0.0,"all_requirements_verified":false,"rationale":"concise evidence-based explanation","requirements_met":["..."],"requirements_missing":["..."]}
+
+  GENERATED RESULT PREVIEW is created by the evaluator. It is not the shape returned by the generated code. If preview_is_truncated is true, do not treat omitted preview rows as missing output. Use DETERMINISTIC FULL-RESULT COMPARISON to judge completeness across the full result.
+
+  QUESTION:
+  {{ question }}
+
+  EXPECTED RESULT DESCRIPTION:
+  {{ expected_description }}
+
+  GOLD RESULT PREVIEW:
+  {{ reference_result_preview }}
+
+  SELECTED TABLES:
+  {{ selected_tables }}
+
+  SELECTED TABLE METADATA:
+  {{ selected_metadata }}
+
+  GENERATED CODE:
+  {{ generated_code }}
+
+  DETERMINISTIC FULL-RESULT COMPARISON:
+  {{ deterministic_comparison }}
+
+  GENERATED RESULT PREVIEW:
+  {{ generated_result_preview }}

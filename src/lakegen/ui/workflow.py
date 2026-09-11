@@ -1,6 +1,8 @@
 from __future__ import annotations
 import uuid
 import os
+import time
+import logging
 
 import asyncio
 from dataclasses import dataclass
@@ -18,6 +20,7 @@ from lakegen.ui.i18n import t
 from lakegen.ui.state import (
     LakeGenSession,
     WorkflowCancelled,
+    WorkflowTimedOut,
     apply_phase2_keyword_rejection,
     get_runtime_settings,
     get_session,
@@ -28,28 +31,63 @@ from lakegen.ui.streaming import (
 )
 from lakegen.phases import (
     phase1_generate_keywords,
-    phase1_retrieve_candidates,
     phase2_select_tables,
+    phase12_agent,
     phase3_generate_and_execute,
     phase4_synthesize,
 )
-from lakegen.resources import (
-    get_all_csv_files,
+from lakegen.core.resources import (
+    get_all_table_files,
     get_llm,
     get_prompt_manager,
     get_solr,
 )
-from lakegen.utils import save_experiment_log, BASE_DIR
+from lakegen.core.logger import save_experiment_log
+from lakegen.core.config import BASE_DIR, LOG_DIR
+from lakegen.manifest import create_manifest, persist_manifest
+from lakegen.reproducibility import initialize_reproducibility
+from lakegen.tracing import (
+    HumanGate,
+    PhaseName,
+    build_llm_phase_records,
+    summarize_tool_calls,
+    normalize_hint,
+)
+from lakegen.experiment_config import ToolAccess
+from lakegen.orchestrated_context import prepare_discovery_context
+from lakegen.phases.orchestrated_discovery import (
+    OrchestratedContextPreparationError,
+    OrchestratedSelectorError,
+    RetrievalRequestProtocolError,
+    run_unified_orchestrated_discovery,
+    selector_retry_reason,
+    select_from_prepared_context,
+)
 
+from llama_index.core import Settings
+
+Settings.embed_model = "local:BAAI/bge-small-en-v1.5"
 
 WORKFLOW_LOCK = asyncio.Lock()
 MAX_RETRIES = 3
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ExecutionOutcome:
     status: str
     reason: str = ""
+
+
+def _record_orchestrated_telemetry(session: LakeGenSession, prepared, invocations: int) -> None:
+    telemetry = session.tool_access_telemetry
+    telemetry["llm_invocations"] += invocations
+    mode = session.runtime.retrieval.mode.value
+    calls = telemetry["orchestrator_retrieval_calls"]
+    calls[mode] = calls.get(mode, 0) + 1
+    telemetry["prepared_candidate_count"] = prepared.prepared_candidate_count
+    telemetry["retrieved_hit_count"] = prepared.retrieved_hit_count
+    telemetry["prepared_context_utf8_bytes"] = len(prepared.stable_json().encode("utf-8"))
 
 
 def _fenced_text(content: str) -> str:
@@ -88,6 +126,9 @@ async def _ask_choice(
     content: str,
     choices: list[tuple[str, str, str]],
     *,
+    phase: PhaseName,
+    gate: HumanGate,
+    approved_value: str,
     remove_after_answer: bool = False,
 ) -> str:
     message = cl.AskActionMessage(
@@ -99,25 +140,48 @@ async def _ask_choice(
         timeout=24 * 60 * 60,
         raise_on_timeout=False,
     )
+    started = time.monotonic()
     response = await message.send()
     if remove_after_answer:
         await message.remove()
-    return _action_value(response)
+    if response is None:
+        raise WorkflowTimedOut(f"Interaction timed out at {gate.value}")
+    value = _action_value(response)
+    get_session().intervention_recorder.record_approval(
+        phase=phase,
+        gate=gate,
+        approved=value == approved_value,
+        elapsed_seconds=round(time.monotonic() - started, 3),
+    )
+    return value
 
 
-async def _ask_hint(content: str, *, remove_after_answer: bool = False) -> str:
+async def _ask_hint(
+    content: str,
+    *,
+    phase: PhaseName,
+    gate: HumanGate,
+    remove_after_answer: bool = False,
+) -> str:
     message = cl.AskUserMessage(
         content=f"{content}\n\n{t('hint.skip_suffix')}",
         timeout=10 * 60,
         raise_on_timeout=False,
     )
+    started = time.monotonic()
     response = await message.send()
     if remove_after_answer:
         await message.remove()
-    if not response:
-        return ""
-    hint = str(response.get("output") or "").strip()
-    return "" if hint.lower() in {"", "skip", "none", "no"} else hint
+    if response is None:
+        raise WorkflowTimedOut(f"Interaction timed out at {gate.value}")
+    hint = normalize_hint(response.get("output") or "")
+    get_session().intervention_recorder.record_hint(
+        phase=phase,
+        gate=gate,
+        provided=bool(hint),
+        elapsed_seconds=round(time.monotonic() - started, 3),
+    )
+    return hint
 
 
 def _keyword_list(keywords: list[str]) -> str:
@@ -131,6 +195,12 @@ async def _generate_keywords(
     hint: str,
     label: str,
 ) -> cl.Step:
+    # Gather previously generated keywords in the session to avoid repeating them
+    avoid_kws = []
+    for run in session.phase1_runs:
+        avoid_kws.extend(run.get("keywords", []))
+    avoid_kws = list(dict.fromkeys(avoid_kws))
+
     async with cl.Step(name=session.text("phase1.step"), type="llm", default_open=True) as step:
         async with StepStreamBridge(step) as bridge:
             stream_box = CumulativeMarkdownEmitter(
@@ -141,6 +211,7 @@ async def _generate_keywords(
                 bridge.emit,
                 session.text("phase1.model_reasoning"),
             )
+            phase_started = time.monotonic()
             kws, raw, tok, reasoning = await cl.make_async(phase1_generate_keywords)(
                 session.query,
                 llm,
@@ -149,7 +220,10 @@ async def _generate_keywords(
                 portal_name=session.runtime.portal_name,
                 stream_placeholder=stream_box,
                 reasoning_placeholder=reasoning_box,
+                avoid_keywords=avoid_kws,
             )
+            session.phase_seconds["discovery"] += time.monotonic() - phase_started
+            session.llm_call_counts["discovery"] += 1
         session.keywords = kws
         session.raw_keywords = raw
         session.tokens["p1"] += tok
@@ -181,6 +255,9 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
                 ("approve_keywords", "approve", session.text("phase1.approve")),
                 ("recalculate_keywords", "recalculate", session.text("phase1.recalculate")),
             ],
+            phase="discovery",
+            gate=HumanGate.KEYWORD_APPROVAL,
+            approved_value="approve",
             remove_after_answer=True,
         )
         if action == "approve":
@@ -190,6 +267,8 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
         session.check_cancelled()
         hint = await _ask_hint(
             session.text("phase1.change_hint"),
+            phase="discovery",
+            gate=HumanGate.KEYWORD_HINT,
             remove_after_answer=True,
         )
         label = session.text("phase1.recalculation")
@@ -200,9 +279,8 @@ async def _select_tables_once(
     llm,
     pm,
     solr,
-    all_csv: list[str],
+    all_files: list[str],
     *,
-    initial_retrieval: bool,
     hint: str,
     accumulate_tokens: bool,
 ) -> tuple[bool, cl.Step]:
@@ -213,30 +291,70 @@ async def _select_tables_once(
         auto_collapse=True,
     ) as step:
         async with StepStreamBridge(step) as bridge:
-            if initial_retrieval:
-                result = await cl.make_async(_retrieve_and_select_tables)(
-                    session,
-                    llm,
-                    pm,
-                    solr,
-                    all_csv,
-                    hint,
-                    bridge.emit,
-                )
+            phase_started = time.monotonic()
+            if session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                try:
+                    prepared, smeta = await cl.make_async(prepare_discovery_context)(
+                        query=session.query, keywords=session.keywords,
+                        solr_client=solr, all_files=all_files,
+                        retrieval_config=session.runtime.retrieval,
+                    )
+                except WorkflowCancelled:
+                    raise
+                except Exception as exc:
+                    wrapped = OrchestratedContextPreparationError(str(exc))
+                    session.tool_access_telemetry["preparation_error"] = f"{type(wrapped).__name__}: {wrapped}"
+                    raise wrapped from exc
+                cands = [candidate.dataset for candidate in prepared.candidates]
+                if cands:
+                    try:
+                        sel, reasoning, trace, tok2 = await cl.make_async(
+                            select_from_prepared_context
+                        )(
+                            query=session.query, llm=llm, context=prepared,
+                            all_files=all_files,
+                            architecture=session.runtime.experiment.discovery_architecture,
+                            hint=hint, stream_callback=bridge.emit,
+                            cancel_check=session.check_cancelled,
+                        )
+                    except WorkflowCancelled:
+                        raise
+                    except OrchestratedSelectorError as exc:
+                        session.tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                        raise
+                    selector_calls = 1
+                else:
+                    sel, reasoning, trace, tok2 = [], "REJECT_KEYWORDS: No datasets found in the prepared context", "", 0
+                    selector_calls = 0
+                    session.tool_access_telemetry["empty_context_retries"] += 1
+                _record_orchestrated_telemetry(session, prepared, 1 + selector_calls)
+                result = (sel, cands, smeta, reasoning, trace, tok2)
+                retry_reason = selector_retry_reason(sel, reasoning)
+                if retry_reason is not None:
+                    result = ([], cands, smeta, retry_reason, trace, tok2)
+                    if cands:
+                        session.tool_access_telemetry["empty_context_retries"] += 1
             else:
                 result = await cl.make_async(phase2_select_tables)(
-                    session.query,
-                    llm,
-                    pm,
-                    all_csv,
-                    session.candidates,
-                    session.solr_metadata_map,
-                    session.runtime.csv_dir,
-                    session.runtime.db_path,
+                    query=session.query,
+                    llm=llm,
+                    pm=pm,
+                    all_files=all_files,
+                    keywords=session.keywords,
+                    solr_client=solr,
+                    csv_dir=session.runtime.csv_dir,
                     hint=hint,
+                    portal_name=session.runtime.portal_name,
                     stream_callback=bridge.emit,
                     cancel_check=session.check_cancelled,
+                    retrieval_config=session.runtime.retrieval,
                 )
+            session.phase_seconds["discovery"] += time.monotonic() - phase_started
+            session.llm_call_counts["discovery"] += (
+                selector_calls
+                if session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT
+                else 1
+            )
 
         sel, cands, smeta, reasoning, trace, tok2 = result
         if apply_phase2_keyword_rejection(
@@ -267,65 +385,16 @@ async def _select_tables_once(
         return True, step
 
 
-def _retrieve_and_select_tables(
-    session: LakeGenSession,
-    llm,
-    pm,
-    solr,
-    all_csv: list[str],
-    hint: str,
-    stream_callback,
-):
-    cands, smeta, activity_log_parts = phase1_retrieve_candidates(
-        session.keywords,
-        solr,
-        all_csv,
-        stream_callback=stream_callback,
-    )
-
-    # make a tmp folder with a link to the actual file
-    tmp_folder = BASE_DIR / f".tmp_link_datasets_{uuid.uuid4()}"
-    os.mkdir(tmp_folder)
-
-    # link each file from the original position into the tmp folder
-    for cand_file in cands:
-        os.symlink(session.runtime.csv_dir / cand_file, tmp_folder / cand_file)
-
-    phase2_res =  phase2_select_tables(
-        session.query,
-        llm,
-        pm,
-        all_csv,
-        cands,
-        smeta,
-        tmp_folder, # session.runtime.csv_dir, # pass the tmp folder instead of the complete one
-        session.runtime.db_path,
-        activity_log_parts=activity_log_parts,
-        hint=hint,
-        stream_callback=stream_callback,
-        cancel_check=session.check_cancelled,
-    )
-
-    # clear the tmp folder 
-    for file in os.listdir(tmp_folder):
-        os.remove(tmp_folder / file)
-    os.rmdir(tmp_folder)
-
-    return phase2_res 
-
-
 async def _run_table_gate(
     session: LakeGenSession,
     llm,
     pm,
     solr,
-    all_csv: list[str],
+    all_files: list[str],
     *,
-    initial_retrieval: bool,
     initial_hint: str = "",
 ) -> str:
     hint = initial_hint
-    rerun_retrieval = initial_retrieval
     first = True
 
     while True:
@@ -335,8 +404,7 @@ async def _run_table_gate(
             llm,
             pm,
             solr,
-            all_csv,
-            initial_retrieval=rerun_retrieval,
+            all_files,
             hint=hint,
             accumulate_tokens=not first,
         )
@@ -344,33 +412,31 @@ async def _run_table_gate(
         first = False
 
         if not ok:
-            action = await _ask_choice(
-                session.text(
+            import chainlit as cl
+            await cl.Message(
+                content=session.text(
                     "phase2.architect_rejected",
                     feedback=session.fallback_reason,
-                ),
-                [
-                    (
-                        "regenerate_keywords",
-                        "regenerate",
-                        session.text("phase2.generate_keywords"),
-                    )
-                ],
-                remove_after_answer=True,
-            )
+                ) + "\n\n🔄 **Auto-correcting:** Sending feedback to Phase 1 for new keywords..."
+            ).send()
+            
             phase2_step.default_open = False
             await phase2_step.update()
-            return "keywords_rejected" if action == "regenerate" else "cancelled"
+            return "keywords_rejected"
 
         action = await _ask_choice(
             session.text(
                 "phase2.review_tables",
-                tables="\n".join(f"- `{table}`" for table in session.tables),
+                tables="\n".join(f"- `{table}`" for table in session.tables)
+                    + f"\n\n**Reasoning:**\n{session.architect_reasoning}",
             ),
             [
                 ("approve_tables", "approve", session.text("phase2.approve")),
                 ("recalculate_tables", "recalculate", session.text("phase2.recalculate")),
             ],
+            phase="discovery",
+            gate=HumanGate.DATASET_APPROVAL,
+            approved_value="approve",
             remove_after_answer=True,
         )
 
@@ -384,12 +450,151 @@ async def _run_table_gate(
         session.check_cancelled()
         hint = await _ask_hint(
             session.text("phase2.change_hint"),
+            phase="discovery",
+            gate=HumanGate.DATASET_HINT,
             remove_after_answer=True,
         )
-        rerun_retrieval = True
+
+
+# ── Unified Gate (phase12) — kept for A/B testing ─────────────
+# Uncomment this block and comment the two-phase flow below to use the
+# unified single-agent approach instead.
+
+async def _run_unified_gate(
+    session: LakeGenSession,
+    llm,
+    pm,
+    solr,
+    all_files: list[str],
+    initial_hint: str = "",
+) -> str:
+    hint = initial_hint
+    first = True
+    empty_context_retries = 0
+
+    while True:
+        session.check_cancelled()
+        async with cl.Step(
+            name="Phase 1 & 2 (Unified Architect & Search)",
+            type="run",
+            default_open=True,
+            auto_collapse=True
+        ) as step:
+            async with StepStreamBridge(step) as bridge:
+                phase_started = time.monotonic()
+                if session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+                    try:
+                        discovery = await cl.make_async(run_unified_orchestrated_discovery)(
+                            query=session.query, llm=llm, solr_client=solr,
+                            all_files=all_files,
+                            retrieval_config=session.runtime.retrieval, hint=hint,
+                            stream_callback=bridge.emit,
+                            cancel_check=session.check_cancelled,
+                        )
+                    except WorkflowCancelled:
+                        raise
+                    except RetrievalRequestProtocolError as exc:
+                        session.tool_access_telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
+                        raise
+                    except OrchestratedContextPreparationError as exc:
+                        session.tool_access_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                        raise
+                    except OrchestratedSelectorError as exc:
+                        session.tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                        raise
+                    selected, keywords, smeta = discovery.selected_datasets, discovery.keywords, discovery.metadata
+                    reasoning, trace, tokens = discovery.reasoning, discovery.trace, discovery.tokens
+                    unified_calls = discovery.llm_invocations
+                    _record_orchestrated_telemetry(
+                        session, discovery.prepared_context, discovery.llm_invocations
+                    )
+                else:
+                    selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
+                        query=session.query,
+                        llm=llm,
+                        pm=pm,
+                        all_files=all_files,
+                        solr_client=solr,
+                        csv_dir=session.runtime.csv_dir,
+                        hint=hint,
+                        portal_name=session.runtime.portal_name,
+                        stream_callback=bridge.emit,
+                        cancel_check=session.check_cancelled,
+                        retrieval_config=session.runtime.retrieval,
+                    )
+                    unified_calls = 1
+                session.phase_seconds["discovery"] += time.monotonic() - phase_started
+                session.llm_call_counts["discovery"] += unified_calls
+
+            session.tables = selected
+            session.keywords = keywords
+            session.candidates = selected
+            session.solr_metadata_map = smeta
+            session.architect_reasoning = reasoning
+            session.full_trace = trace
+            if first:
+                session.tokens["p1"] = tokens
+                session.tokens["p2"] = 0
+            else:
+                session.tokens["p1"] += tokens
+
+            step.output = (
+                f"**Keywords used:** {_keyword_list(keywords)}\n\n"
+                f"**Tables selected:** " + ", ".join(f"`{t}`" for t in selected) + "\n\n"
+                f"**Reasoning:**\n{reasoning}\n\n"
+                f"- Tokens: `{tokens}`\n\n"
+                f"***Full agent activity log:***\n\n"
+                f"{trace}\n\n"
+            )
+
+        if (
+            session.runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT
+            and not selected
+        ):
+            empty_context_retries += 1
+            session.tool_access_telemetry["empty_context_retries"] += 1
+            if empty_context_retries >= MAX_RETRIES:
+                session.execution_error = reasoning
+                return "failed"
+            hint = reasoning
+            first = False
+            continue
+
+        first = False
+
+        action = await _ask_choice(
+            session.text(
+                "phase2.review_tables",
+                tables=f"**Keywords:** {_keyword_list(keywords)}\n\n**Tables:**\n" + "\n".join(f"- `{table}`" for table in session.tables) + f"\n\n**Reasoning:**\n{reasoning}",
+            ),
+            [
+                ("approve_selection", "approve", "Approve Selection"),
+                ("recalculate_selection", "recalculate", "Recalculate (change hint)"),
+            ],
+            phase="discovery",
+            gate=HumanGate.DATASET_APPROVAL,
+            approved_value="approve",
+            remove_after_answer=True,
+        )
+
+        step.default_open = False
+        if action == "approve":
+            await step.update()
+            return "approved"
+
+        await step.update()
+
+        session.check_cancelled()
+        hint = await _ask_hint(
+            "What should the agent change? (e.g., use different keywords, or look for different tables)",
+            phase="discovery",
+            gate=HumanGate.DATASET_HINT,
+            remove_after_answer=True,
+        )
 
 
 async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
+    session.phase = "code"
     retries = 0
     error_msg = ""
     final_code = ""
@@ -412,6 +617,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     bridge.emit,
                     session.text("phase3.model_reasoning"),
                 )
+                phase_started = time.monotonic()
                 phase3_result = await cl.make_async(phase3_generate_and_execute)(
                     session.query,
                     session.tables,
@@ -423,12 +629,20 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     session.runtime.csv_dir,
                     retries=retries,
                     error_msg=error_msg,
+                    previous_code=final_code,
                     force_execution=session.force_execution,
                     stream_placeholder=code_box,
                     reasoning_placeholder=reasoning_box,
                     cancel_check=session.check_cancelled,
                     run_dir=session.run_dir,
+                    seed=session.runtime.experiment.seed,
+                    seed_instruction_recorder=lambda: setattr(
+                        session, "generated_code_seed_instruction_provided", True
+                    ),
+                    coder_context_level=session.runtime.experiment.coder_context_level,
                 )
+                session.phase_seconds["code"] += time.monotonic() - phase_started
+                session.llm_call_counts["code"] += 1
 
             session.tokens["p3"] += phase3_result.tokens
             final_code = phase3_result.clean_code
@@ -489,12 +703,16 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         raw_result = f"Execution failed after {MAX_RETRIES} attempts. Last error: {error_msg}"
 
     async with cl.Step(name=session.text("phase4.step"), type="llm", default_open=True) as step:
+        session.phase = "result"
+        phase_started = time.monotonic()
         answer, tok4 = await cl.make_async(phase4_synthesize)(
             session.query,
             raw_result,
             llm,
             pm,
         )
+        session.phase_seconds["result"] += time.monotonic() - phase_started
+        session.llm_call_counts["result"] += 1
         session.tokens["p4"] = tok4
         step.output = answer
 
@@ -507,7 +725,7 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         ),
         cl.Text(
             name="execution_output.txt",
-            content=str(raw_result or ""),
+            content=str(raw_result) if raw_result else "No output generated.",
             language="text",
             display="side",
         ),
@@ -521,65 +739,203 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
         elements=elements,
     ).send()
 
+    code_history_parts = []
+    for att in code_attempts:
+        code_history_parts.append(f"--- Attempt {att['attempt']} ({att['status']}) ---")
+        code_history_parts.append(f"Code:\n{att['clean_code']}")
+        if att['error']:
+            code_history_parts.append(f"Error:\n{att['error']}\n")
+        else:
+            code_history_parts.append("Status: Success\n")
+    full_code_history = "\n".join(code_history_parts)
+    session.final_code = full_code_history
+    session.raw_result = raw_result
+    session.final_answer = answer
+    session.retries = retries
+    session.execution_error = str(err or "")
+    return ExecutionOutcome(status="done")
+
+
+def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None:
+    """Persist exactly one terminal Chainlit record for the current run."""
+
+    if session.finalized:
+        return
+    session.finalized = True
+    safe_error = str(error or session.execution_error).replace("\n", " ")[:500]
+    elapsed = round(time.monotonic() - session.started_at, 3)
+    if session.runtime.experiment.tool_access == ToolAccess.AGENTIC:
+        session.tool_access_telemetry.setdefault(
+            "configured_tool_access", ToolAccess.AGENTIC.value
+        )
+        session.tool_access_telemetry["llm_invocations"] = (
+            session.llm_call_counts["discovery"]
+        )
+        session.tool_access_telemetry["agent_direct_tools"] = [
+            str(item["type"]) for item in summarize_tool_calls(session.full_trace)
+        ]
+    trace = {
+        "status": status,
+        "phase_reached": session.phase,
+        "discovery": {
+            "keywords": list(session.keywords),
+            "selected_datasets": list(session.tables),
+        },
+        "tool_access": session.tool_access_telemetry,
+        "llm_calls": build_llm_phase_records(
+            total_tokens={
+                "discovery": session.tokens["p1"] + session.tokens["p2"],
+                "code": session.tokens["p3"],
+                "result": session.tokens["p4"],
+            },
+            phase_invocations=session.llm_call_counts,
+        ),
+        "phase_metrics": {
+            **{
+                phase: {"latency_seconds": round(seconds, 6)}
+                for phase, seconds in session.phase_seconds.items()
+            },
+            "total": {"latency_seconds": elapsed},
+        },
+        "tool_calls": summarize_tool_calls(session.full_trace),
+        "retries": session.retries,
+        "errors": [safe_error] if safe_error else [],
+        "code": session.final_code or None,
+        "execution_outcome": {
+            "status": status,
+            "raw_result": session.raw_result,
+            "error": safe_error or None,
+        },
+        "human_interventions": session.intervention_recorder.to_list(),
+        "configuration": session.manifest.get("resolved_config", {}),
+        "reproducibility": initialize_reproducibility(
+            session.runtime.experiment.seed
+        ).telemetry(
+            generated_code_seed_instruction_provided=(
+                session.generated_code_seed_instruction_provided
+            )
+        ),
+    }
     save_experiment_log(
         question=session.query,
-        code=final_code,
-        result=raw_result if raw_result else "",
-        retries=retries,
+        code=session.final_code,
+        result=session.raw_result if session.raw_result is not None else "",
+        retries=session.retries,
         reasoning=session.architect_reasoning,
         tables=session.tables,
         raw_keywords=session.raw_keywords,
         final_keywords=session.keywords,
-        debug_raw="",
-        final_result=answer,
+        final_result=session.final_answer,
         full_trace=session.full_trace,
         tokens_phase1=session.tokens["p1"],
         tokens_phase2=session.tokens["p2"],
         tokens_phase3=session.tokens["p3"],
         tokens_phase4=session.tokens["p4"],
-        error=err if err is not None else "",
+        error=safe_error,
+        model=session.runtime.model_name,
+        architecture=session.runtime.experiment.architecture_name,
+        status=status,
+        elapsed_seconds=elapsed,
+        extra_fields={"MANIFEST_JSON": session.manifest, "RUN_TRACE_JSON": trace},
     )
-    return ExecutionOutcome(status="done")
 
 
-async def _run_locked_workflow(question: str) -> None:
+async def _run_locked_workflow(question: str) -> str:
     session = get_session()
     runtime = get_runtime_settings()
     session.runtime = runtime
-    session.reset_for_query(question)
+    session.tool_access_telemetry = {
+        "configured_tool_access": runtime.experiment.tool_access.value,
+        "execution_path": runtime.experiment.tool_access.value,
+        "discovery_architecture": runtime.experiment.discovery_architecture.value,
+        "agent_count": 1 if runtime.use_unified_agent else 2,
+        "llm_invocations": 0,
+        "retrieval_mode": runtime.retrieval.mode.value,
+        "prepared_candidate_count": 0,
+        "retrieved_hit_count": 0,
+        "prepared_context_utf8_bytes": 0,
+        "agent_direct_tools": [],
+        "orchestrator_retrieval_calls": {},
+        "empty_context_retries": 0,
+        "request_protocol_error": None,
+        "preparation_error": None,
+        "selector_error": None,
+    }
+    session.phase = "initialization"
+    manifest = create_manifest(
+        runtime.experiment,
+        base_dir=BASE_DIR,
+        question=question,
+        run_id=session.run_id,
+    )
+    persist_manifest(manifest, LOG_DIR / "manifests")
+    session.manifest = manifest.model_dump(mode="json")
 
-    llm, _token_counter = get_llm(runtime.model_name, runtime.ollama_url)
+    llm, _token_counter = get_llm(runtime.model_name)
     solr = get_solr(runtime.solr_core)
     pm = get_prompt_manager()
-    all_csv = get_all_csv_files(runtime.csv_dir)
+    all_files = get_all_table_files(runtime.csv_dir)
+    if not all_files:
+        session.execution_error = f"No local tables found in {runtime.csv_dir}"
+        await cl.Message(
+            content=(
+                "No CSV or Parquet files were found in "
+                f"`{runtime.csv_dir}`."
+            )
+        ).send()
+        return "failed"
 
     keyword_hint = ""
+    session.phase = "discovery"
     while True:
-        await _run_keyword_gate(session, llm, pm, keyword_hint)
-        table_status = await _run_table_gate(
-            session,
-            llm,
-            pm,
-            solr,
-            all_csv,
-            initial_retrieval=True,
-        )
-        if table_status == "keywords_rejected":
-            keyword_hint = (
-                "The previous keywords led to bad tables. "
-                f"Architect feedback: {session.fallback_reason}. "
-                "Generate completely different keywords."
+        if session.runtime.use_unified_agent:
+            table_status = await _run_unified_gate(
+                session,
+                llm,
+                pm,
+                solr,
+                all_files,
+                initial_hint=keyword_hint,
             )
-            continue
-        if table_status != "approved":
-            await cl.Message(content=session.text("workflow.cancelled")).send()
-            return
+            if table_status != "approved":
+                if table_status == "failed":
+                    return "failed"
+                await cl.Message(content=session.text("workflow.cancelled")).send()
+                return "cancelled"
+        else:
+            # ── Two-phase flow: Phase 1 (keywords) → Phase 2 (search + judge) ──
+            await _run_keyword_gate(session, llm, pm, keyword_hint)
+            table_status = await _run_table_gate(
+                session,
+                llm,
+                pm,
+                solr,
+                all_files,
+            )
+            if table_status == "keywords_rejected":
+                if (
+                    session.runtime.experiment.tool_access
+                    == ToolAccess.ORCHESTRATED_CONTEXT
+                    and session.tool_access_telemetry["empty_context_retries"]
+                    >= MAX_RETRIES
+                ):
+                    session.execution_error = session.fallback_reason
+                    return "failed"
+                keyword_hint = (
+                    "The previous keywords led to bad tables. "
+                    f"Architect feedback: {session.fallback_reason}. "
+                    "Generate completely different keywords."
+                )
+                continue
+            if table_status != "approved":
+                await cl.Message(content=session.text("workflow.cancelled")).send()
+                return "cancelled"
 
         session.force_execution = False
         while True:
             outcome = await _run_execution(session, llm, pm)
             if outcome.status == "done":
-                return
+                return "completed"
 
             action = await _ask_choice(
                 session.text(
@@ -594,34 +950,49 @@ async def _run_locked_workflow(question: str) -> None:
                     ),
                     ("force_execution", "force", session.text("workflow.force_execution")),
                 ],
+                phase="code",
+                gate=HumanGate.FORCE_EXECUTION_CONFIRMATION,
+                approved_value="force",
             )
             if action == "force":
                 session.force_execution = True
                 continue
 
             session.force_execution = False
-            table_status = await _run_table_gate(
-                session,
-                llm,
-                pm,
-                solr,
-                all_csv,
-                initial_retrieval=False,
-                initial_hint=(
-                    "Previous selection rejected by Code Generator. "
-                    f"Coder feedback: {outcome.reason}"
-                ),
+
+            # Re-run Phase 1/2 with feedback from coder
+            hint_msg = (
+                "Previous selection rejected by Code Generator. "
+                f"Coder feedback: {outcome.reason}"
             )
-            if table_status == "keywords_rejected":
-                keyword_hint = (
-                    "The previous keywords led to bad tables. "
-                    f"Architect feedback: {session.fallback_reason}. "
-                    "Generate completely different keywords."
+            if session.runtime.use_unified_agent:
+                table_status = await _run_unified_gate(
+                    session, llm, pm, solr, all_files, initial_hint=hint_msg
                 )
-                break
-            if table_status != "approved":
-                await cl.Message(content=session.text("workflow.cancelled")).send()
-                return
+                if table_status != "approved":
+                    await cl.Message(content=session.text("workflow.cancelled")).send()
+                    return "cancelled"
+            else:
+                table_status = await _run_table_gate(
+                    session,
+                    llm,
+                    pm,
+                    solr,
+                    all_files,
+                    initial_hint=hint_msg,
+                )
+                if table_status == "keywords_rejected":
+                    keyword_hint = (
+                        "The previous keywords led to bad tables. "
+                        f"Architect feedback: {session.fallback_reason}. "
+                        "Generate completely different keywords."
+                    )
+                    break
+                if table_status != "approved":
+                    await cl.Message(content=session.text("workflow.cancelled")).send()
+                    return "cancelled"
+
+        # If we broke out due to keywords_rejected, loop back to Phase 1
         if keyword_hint:
             continue
 
@@ -635,9 +1006,26 @@ async def run_lakegen_workflow(question: str) -> None:
         await cl.Message(
             content=t("workflow.locked")
         ).send()
+        return
 
     async with WORKFLOW_LOCK:
+        session = get_session()
+        status = "failed"
+        error = ""
         try:
-            await _run_locked_workflow(question.strip())
-        except WorkflowCancelled:
+            status = await _run_locked_workflow(question.strip())
+        except WorkflowTimedOut as exc:
+            status = "timed_out"
+            error = f"{type(exc).__name__}: {exc}"
+        except (asyncio.CancelledError, WorkflowCancelled):
+            status = "cancelled"
             raise
+        except Exception as exc:
+            status = "failed"
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            try:
+                _finalize_run(session, status, error)
+            except Exception:
+                logger.exception("Could not persist the Chainlit experiment record")

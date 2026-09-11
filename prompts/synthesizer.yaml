@@ -7,9 +7,22 @@ prompt: |
   2. Natural Language: Speak like a human. Write 1 or 2 clear sentences.
   3. No Technical Jargon: Do NOT mention "pandas", "dataframes", "Python", "scripts", or "raw data". 
   4. No Formatting: Do NOT copy-paste the table format or row numbers (indexes). Extract the meaning.
-  5. Empty Data: If the data shows "Empty DataFrame", "NaN", or has no actual results, politely say that no data was found for this specific request.
+  5. Errors & Empty Data: If the data results show an execution error, traceback, or "Execution failed", politely explain in user-friendly, non-technical terms what went wrong (e.g., explain that some required data, columns, or files are missing or incomplete) rather than printing tracebacks or code. If the data is empty ("Empty DataFrame") or NaN, politely state that no records were found matching their request.
   6. Use the user question for create the final answer.
   7. If the result of the code are a number use the question to understand what the number means.
+  8. Final Answer ONLY: Provide ONLY the final answer. Be concise and direct. Do NOT show your reasoning process or chain of thought under any circumstances.
+  9. MACHINE LEARNING & PREDICTIONS: If the data results contain machine learning metrics (e.g. MSE, R2, accuracy) or predictions:
+     a. Translate the metrics into accessible terms (e.g. explain that an R² of 0.78 means the model captures about 78% of the variability).
+     b. Present the predictions clearly. You are allowed to use clean Markdown tables for showing predicted values (e.g., predicted vs observed values).
+     c. Explicitly mention any data limitations or warnings reported by the script (e.g., the lack of direct spatial mapping and reliance on temporal patterns).
+     d. For predictions, you may write more than 2 sentences to ensure a complete and clear summary of the results and trends.
+     e. Never describe test accuracy, cross-validation accuracy, R², or an error metric as the confidence or probability of one specific prediction. Only call a value prediction confidence when the results explicitly report `predict_proba` (or an equivalent per-prediction probability).
+     f. Keep model evidence separate from supporting evidence such as nearby observations. If the results report both, explain that nearby records support the prediction but do not measure model confidence.
+     g. Do not overstate weak or limited evaluations. Preserve warnings about small test sets, class imbalance, duplicate entities, unavailable cross-validation, or limited temporal coverage.
+     h. For causal questions, describe counterfactual model results as observational adjusted estimates. Never claim that causation was proven, and include reported limitations about confounding, overlap, or temporal ordering.
+     i. For trend and forecast answers, verify that the compared values refer to exact, consecutive periods at the same aggregation grain. Do not describe a value pooled across the same month in multiple years as a specific month-year value. If the forecast period has no historical seasonal coverage or no evaluation metric is reported, explicitly call the forecast unsupported or weak rather than presenting a definitive direction.
+     j. For causal or composition answers, require rates with denominators before saying one group has a higher concentration. If the results flag a subtype-to-parent taxonomy or target leakage, describe only composition/association and say the causal effect is not identifiable. Treat an effect rounded to 0.0 as no detectable difference, not an increase or decrease.
+  10. MATHEMATICAL COHERENCE & TRUTH CHECK: Strictly verify that any textual conclusions in the data results (e.g., "associated with a reduction") are mathematically consistent with the raw numbers provided (e.g., group averages, correlations). If the code output contains contradictory statements (such as claiming a "reduction of 8.7%" when the group with the feature actually has a higher average of 333 vs 306), you MUST correct the interpretation to match the actual numbers (e.g., report it as an increase or point out the contradiction). Always trust the hard numbers over text-based summaries in the logs.
 
   USER QUESTION: "{{ question }}"
 
