@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-Hola
-=======
-Ciaooooooooo
->>>>>>> 37b7559 (prova commit)
-
 # LakeGen
 
 LakeGen answers natural-language questions over collections of tables. It finds
