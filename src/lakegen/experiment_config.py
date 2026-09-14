@@ -117,7 +117,6 @@ class ExperimentConfig(FrozenModel):
     discovery_architecture: DiscoveryArchitecture = DiscoveryArchitecture.UNIFIED
     tool_access: ToolAccess = ToolAccess.AGENTIC
     retrieval: RetrievalExperimentConfig = Field(default_factory=_default_retrieval)
-    planner_enabled: bool = False
     reviewers: ReviewerConfig = Field(default_factory=ReviewerConfig)
     max_revision_rounds: int = Field(default=3, ge=0)
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL

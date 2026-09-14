@@ -484,7 +484,6 @@ def run_question(
                         retrieval_config=runtime.retrieval,
                         state=selection_state,
                         retrieval_observer=agentic_retrieval_observer,
-                        planner_enabled=experiment.planner_enabled,
                         require_semantic_plan=experiment.require_semantic_plan,
                     )
                     phase_invocation_counts["discovery"] += 1

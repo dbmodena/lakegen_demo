@@ -81,11 +81,6 @@ retrieval:
   # It applies only when fusion_method is rrf and must be an integer > 0.
   rrf_k: 60
 
-# Enables an explicit planning phase.
-# Schema alternatives: false | true
-# Only false is currently implemented; validation rejects true.
-planner_enabled: false
-
 # Automatic reviewers for the different phases. Every field is boolean, but
 # only false is currently supported; validation rejects any enabled reviewer.
 reviewers:

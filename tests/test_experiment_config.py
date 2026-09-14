@@ -26,7 +26,7 @@ def test_default_config_matches_existing_interactive_workflow(monkeypatch):
     assert config.tool_access == "agentic"
     assert config.retrieval.mode == "keyword"
     assert config.retrieval.top_k == 20
-    assert config.planner_enabled is False
+    assert "planner_enabled" not in config.model_dump()
     assert not any(config.reviewers.model_dump().values())
     assert config.max_revision_rounds == 3
     assert config.coder_context_level == "full"
@@ -110,8 +110,9 @@ def test_unimplemented_combinations_are_rejected(update):
         ExperimentConfig.model_validate(update)
 
 
-def test_semantic_planner_is_supported():
-    assert ExperimentConfig(planner_enabled=True).planner_enabled is True
+def test_semantic_planner_is_not_a_configurable_switch():
+    with pytest.raises(ValidationError):
+        ExperimentConfig(planner_enabled=True)
 
 
 @pytest.mark.parametrize("level", ["full", "schema_only", "minimal"])

@@ -220,7 +220,6 @@ def phase12_agent(
     retrieval_config: RetrievalConfig | None = None,
     state: P12State | None = None,
     retrieval_observer: Callable[[RetrievalRun], None] | None = None,
-    planner_enabled: bool = False,
     require_semantic_plan: bool = True,
 ) -> tuple[list[str], list[str], SolrMetadata, str, str, int]:
 
@@ -286,14 +285,14 @@ def phase12_agent(
             emit_stream=emit_stream,
             cancel_check=cancel_check,
             tools=agent_tools,
-            max_iterations=16 if planner_enabled else 10,
+            max_iterations=16,
             max_repeats=3,
-            max_tool_calls=12 if planner_enabled else 8,
+            max_tool_calls=12,
             timeout_seconds=300,
         )
     except Phase2AgentStall as stall_err:
         state.initial_stall_reason = str(stall_err)
-        if planner_enabled and require_semantic_plan and state.inspected_candidates():
+        if require_semantic_plan and state.inspected_candidates():
             state.recovery_started = True
             emit_stream(
                 "\n\n**Semantic planner recovery started**\n"
@@ -351,7 +350,7 @@ def phase12_agent(
     except Exception as agent_err:
         err_msg = str(agent_err)
         state.initial_stall_reason = f"{type(agent_err).__name__}: {err_msg}"
-        if planner_enabled and require_semantic_plan and state.inspected_candidates():
+        if require_semantic_plan and state.inspected_candidates():
             state.recovery_started = True
             emit_stream(
                 "\n\n**Semantic planner recovery started after discovery error**\n"
@@ -405,7 +404,7 @@ def phase12_agent(
             agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
     finally:
         if (
-            planner_enabled and require_semantic_plan
+            require_semantic_plan
             and state.confirmed_tables
             and not state.selection_plan.get("coder_brief")
             and not state.selection_plan.get("semantic_plan")
