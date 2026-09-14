@@ -251,6 +251,7 @@ def make_runtime_settings(
             candidate_multiplier=candidate_multiplier,
         )
     )
+    retrieval = retrieval.for_portal(core)
     resolved_config = config or load_experiment_config(overrides={
         "model": model,
         "core": core,

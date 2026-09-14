@@ -86,6 +86,8 @@ retrieval:
 
   # Original Pneuma backend settings. They are used only with mode: pneuma.
   # The independent service must already contain a generated Pneuma index.
+  # NYC and UK are routed automatically to their dedicated Pneuma services.
+  # These values remain the fallback for other portals.
   pneuma_index_name: lakegen
   pneuma_base_url: http://localhost:8765
   pneuma_timeout_seconds: 120

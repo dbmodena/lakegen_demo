@@ -7,6 +7,10 @@ from enum import StrEnum
 import os
 
 DEFAULT_TOP_K = 20
+PNEUMA_PORTAL_ROUTES = {
+    "nyc": ("http://localhost:8765", "lakegen-cohere-v4-1024"),
+    "uk": ("http://localhost:8766", "lakegen-cohere-v4-1024"),
+}
 
 
 class RetrievalMode(StrEnum):
@@ -100,6 +104,22 @@ class RetrievalConfig:
 
     def with_mode(self, mode: RetrievalMode | str) -> "RetrievalConfig":
         return replace(self, mode=RetrievalMode(mode))
+
+    def for_portal(self, portal: str) -> "RetrievalConfig":
+        """Select the independent Pneuma service belonging to a portal."""
+        normalized = portal.strip().casefold()
+        route = PNEUMA_PORTAL_ROUTES.get(normalized)
+        if route is None:
+            return self
+        default_url, default_index = route
+        env_prefix = f"LAKEGEN_PNEUMA_{normalized.upper()}"
+        return replace(
+            self,
+            pneuma_index_name=os.environ.get(
+                f"{env_prefix}_INDEX_NAME", default_index
+            ),
+            pneuma_base_url=os.environ.get(f"{env_prefix}_BASE_URL", default_url),
+        )
 
     @classmethod
     def from_env(

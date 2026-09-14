@@ -368,6 +368,17 @@ For an OCI-built index, use the identical embedding model at query time:
   --port 8765
 ```
 
+LakeGen routes Pneuma automatically by the selected Solr core:
+
+- `nyc` uses `/data/pneuma/nyc`, served on port `8765`;
+- `uk` uses `/data/pneuma/uk`, served on port `8766`;
+- both use the index name `lakegen-cohere-v4-1024`.
+
+The routes are internal defaults rather than extra experiment fields. They can
+still be overridden, when needed, with
+`LAKEGEN_PNEUMA_NYC_BASE_URL`, `LAKEGEN_PNEUMA_NYC_INDEX_NAME`,
+`LAKEGEN_PNEUMA_UK_BASE_URL`, and `LAKEGEN_PNEUMA_UK_INDEX_NAME`.
+
 Then select `pneuma` as the retrieval mode. For another port, update
 `retrieval.pneuma_base_url` in the experiment configuration.
 

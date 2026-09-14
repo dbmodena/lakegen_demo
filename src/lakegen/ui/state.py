@@ -49,6 +49,7 @@ class RuntimeSettings:
     experiment: ExperimentConfig | None = None
 
     def __post_init__(self) -> None:
+        self.retrieval = self.retrieval.for_portal(self.solr_core)
         if self.experiment is None:
             self.experiment = load_experiment_config(overrides={
                 "model": self.model_name,
@@ -99,7 +100,9 @@ class RuntimeSettings:
         if retrieval_mode not in RETRIEVAL_MODE_OPTIONS:
             retrieval_mode = default.retrieval.mode
         
-        retrieval = RetrievalConfig.from_env(mode=retrieval_mode)
+        retrieval = RetrievalConfig.from_env(mode=retrieval_mode).for_portal(
+            selected_solr_core
+        )
         experiment = load_experiment_config(overrides={
             "model": model_name,
             "core": selected_solr_core,
