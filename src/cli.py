@@ -56,6 +56,7 @@ from lakegen.tracing import (
 from lakegen.runner import ExperimentRunner
 from lakegen.experiment_config import InteractionMode
 from lakegen.orchestrated_context import prepare_discovery_context
+from lakegen.retrieval.intent import intent_entities
 from lakegen.phases.orchestrated_discovery import (
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
@@ -150,11 +151,6 @@ MAX_RETRIES = 3
 MAX_KEYWORD_RETRIES = 3
 
 
-def _stream_to_terminal(delta: str) -> None:
-    """Stream callback that prints directly to stdout."""
-    print(delta, end="", flush=True)
-
-
 def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     workflow_started = time.monotonic()
     reproducibility = initialize_reproducibility(runtime.experiment.seed)
@@ -230,11 +226,13 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             tool_access_telemetry["agent_direct_tools"] = [
                 str(item["type"]) for item in summarize_tool_calls(trace)
             ]
+        searched_keywords, unused_concepts = runtime.retrieval.mode.split_keywords(keywords)
         save_experiment_log(
             question=question, code=final_code,
             result=raw_result if raw_result is not None else "",
             retries=retries, reasoning=reasoning, tables=selected,
-            raw_keywords="", final_keywords=keywords, debug_raw="",
+            raw_keywords="", final_keywords=searched_keywords,
+            unused_concepts=unused_concepts, debug_raw="",
             final_result=answer, full_trace=trace,
             tokens_phase1=tokens["p1"], tokens_phase2=tokens["p2"],
             tokens_phase3=tokens["p3"], tokens_phase4=tokens["p4"],
@@ -246,7 +244,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 "MANIFEST_JSON": manifest.model_dump(mode="json"),
                 "RUN_TRACE_JSON": {
                     "status": status, "phase_reached": phase_reached,
-                    "discovery": {"keywords": keywords, "selected_datasets": selected},
+                    "discovery": {"keywords": searched_keywords, "unused_concepts": unused_concepts, "selected_datasets": selected},
                     "tool_access": tool_access_telemetry,
                     "llm_calls": build_llm_phase_records(
                         total_tokens={"discovery": tokens["p1"] + tokens["p2"], "code": tokens["p3"], "result": tokens["p4"]},
@@ -320,8 +318,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                         query=question, llm=llm, solr_client=solr,
                         all_files=all_files, retrieval_config=runtime.retrieval,
                         table_dir=runtime.csv_dir,
-                        hint=keyword_hint, stream_callback=_stream_to_terminal,
-                    )
+                        hint=keyword_hint,                    )
                 except (RetrievalRequestProtocolError, OrchestratedContextPreparationError, OrchestratedSelectorError) as exc:
                     phase_seconds["discovery"] += time.monotonic() - phase_started
                     llm_call_counts["discovery"] = tool_access_telemetry["llm_invocations"]
@@ -343,8 +340,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     csv_dir=runtime.csv_dir,
                     hint=keyword_hint,
                     portal_name=runtime.portal_name,
-                    stream_callback=_stream_to_terminal,
                     retrieval_config=runtime.retrieval,
+                    discovery_config=runtime.discovery,
                 )
                 actual_discovery_calls = 1
             phase_seconds["discovery"] += time.monotonic() - phase_started
@@ -397,6 +394,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
             hint=keyword_hint,
             portal_name=runtime.portal_name,
             avoid_keywords=attempted_keywords,
+            value_search=runtime.retrieval.mode.value_keywords,
+            verbatim_entities=runtime.retrieval.mode.verbatim_entities,
         )
         phase_seconds["discovery"] += time.monotonic() - phase_started
         llm_call_counts["discovery"] += 1
@@ -436,6 +435,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     query=question, keywords=keywords, solr_client=solr,
                     all_files=all_files, retrieval_config=runtime.retrieval,
                     table_dir=runtime.csv_dir,
+                    entities=intent_entities(raw_content),
                 )
             except OrchestratedContextPreparationError as exc:
                 tool_access_telemetry["llm_invocations"] += 1
@@ -451,8 +451,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     selected, reasoning, trace, tok2 = select_from_prepared_context(
                         query=question, llm=llm, context=prepared, all_files=all_files,
                         architecture=runtime.experiment.discovery_architecture,
-                        hint=keyword_hint, stream_callback=_stream_to_terminal,
-                    )
+                        hint=keyword_hint,                    )
                 except OrchestratedSelectorError as exc:
                     tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
                     record_orchestrated(prepared, 2)
@@ -476,8 +475,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 csv_dir=runtime.csv_dir,
                 hint=keyword_hint,
                 portal_name=runtime.portal_name,
-                stream_callback=_stream_to_terminal,
                 retrieval_config=runtime.retrieval,
+                entities=intent_entities(raw_content),
             )
         phase_seconds["discovery"] += time.monotonic() - phase_started
         llm_call_counts["discovery"] += selector_calls if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT else 1
@@ -606,8 +605,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                         discovery = run_unified_context(
                             query=question, llm=llm, solr_client=solr,
                             all_files=all_files, retrieval_config=runtime.retrieval,
-                            hint=keyword_hint, stream_callback=_stream_to_terminal,
-                        )
+                            hint=keyword_hint,                        )
                     except (RetrievalRequestProtocolError, OrchestratedContextPreparationError, OrchestratedSelectorError) as exc:
                         phase_seconds["discovery"] += time.monotonic() - phase_started
                         llm_call_counts["discovery"] = tool_access_telemetry["llm_invocations"]
@@ -627,8 +625,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                         csv_dir=runtime.csv_dir,
                         hint=keyword_hint,
                         portal_name=runtime.portal_name,
-                        stream_callback=_stream_to_terminal,
                         retrieval_config=runtime.retrieval,
+                        discovery_config=runtime.discovery,
                     )
                     rerun_calls = 1
                 phase_seconds["discovery"] += time.monotonic() - phase_started
@@ -645,6 +643,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     hint=keyword_hint,
                     portal_name=runtime.portal_name,
                     avoid_keywords=attempted_keywords,
+                    value_search=runtime.retrieval.mode.value_keywords,
+                    verbatim_entities=runtime.retrieval.mode.verbatim_entities,
                 )
                 phase_seconds["discovery"] += time.monotonic() - phase_started
                 llm_call_counts["discovery"] += 1
@@ -658,6 +658,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                             query=question, keywords=keywords, solr_client=solr,
                             all_files=all_files, retrieval_config=runtime.retrieval,
                             table_dir=runtime.csv_dir,
+                            entities=intent_entities(raw_content),
                         )
                     except OrchestratedContextPreparationError as exc:
                         tool_access_telemetry["llm_invocations"] += 1
@@ -673,8 +674,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                                 query=question, llm=llm, context=prepared,
                                 all_files=all_files,
                                 architecture=runtime.experiment.discovery_architecture,
-                                hint=keyword_hint, stream_callback=_stream_to_terminal,
-                            )
+                                hint=keyword_hint,                            )
                         except OrchestratedSelectorError as exc:
                             tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
                             record_orchestrated(prepared, 2)
@@ -696,8 +696,8 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                         csv_dir=runtime.csv_dir,
                         hint=keyword_hint,
                         portal_name=runtime.portal_name,
-                        stream_callback=_stream_to_terminal,
                         retrieval_config=runtime.retrieval,
+                        entities=intent_entities(raw_content),
                     )
                     rerun_selector_calls = 1
                 phase_seconds["discovery"] += time.monotonic() - phase_started

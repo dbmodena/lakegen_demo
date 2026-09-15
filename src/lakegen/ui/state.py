@@ -15,6 +15,7 @@ from lakegen.core.types import SolrMetadata
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.experiment_config import (
+    DiscoveryConfig,
     DiscoveryArchitecture,
     ExperimentConfig,
     InteractionMode,
@@ -69,6 +70,12 @@ class RuntimeSettings:
     @property
     def portal_name(self) -> str:
         return SOLR_CORE_PORTAL_NAMES.get(self.solr_core, self.solr_core)
+
+    @property
+    def discovery(self) -> DiscoveryConfig:
+        """Discovery bounds for this run; ``__post_init__`` always resolves one."""
+        assert self.experiment is not None
+        return self.experiment.discovery
 
     @classmethod
     def default(cls) -> "RuntimeSettings":

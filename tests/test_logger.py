@@ -97,7 +97,7 @@ def test_full_trace_is_written_to_text_but_never_to_api_csv(tmp_path, monkeypatc
         code="print('ok')",
         result="ok",
         retries=0,
-        full_trace="ToolCall: search_solr\nToolResult: table.parquet",
+        full_trace="ToolCall: search_tables\nToolResult: table.parquet",
         csv_filename="api_experiments_log.csv",
     )
 
@@ -108,10 +108,10 @@ def test_full_trace_is_written_to_text_but_never_to_api_csv(tmp_path, monkeypatc
         row = next(reader)
 
     assert "FULL_TRACE" not in reader.fieldnames
-    assert "search_solr" not in " ".join(str(value) for value in row.values())
+    assert "search_tables" not in " ".join(str(value) for value in row.values())
     text_log = (tmp_path / "experiments_log.txt").read_text(encoding="utf-8")
     assert "=== WORKFLOW TRACE ===" in text_log
-    assert "ToolCall: search_solr" in text_log
+    assert "ToolCall: search_tables" in text_log
 
 
 def test_existing_api_csv_drops_legacy_full_trace_column(tmp_path, monkeypatch):
@@ -160,3 +160,30 @@ def test_existing_api_csv_with_large_field_can_evolve_schema(tmp_path, monkeypat
         rows = list(csv.DictReader(csv_file))
     assert "AGENT_THINKING" not in rows[0]
     assert rows[1]["QUESTION"] == "New question?"
+
+
+def test_question_only_retrieval_logs_concepts_as_not_searched(tmp_path, monkeypatch):
+    monkeypatch.setattr(experiment_logger, "LOG_DIR", tmp_path)
+
+    experiment_logger.save_experiment_log(
+        question="Which region has the most posts?",
+        code="print('ok')",
+        result="ok",
+        retries=0,
+        final_keywords=[],
+        unused_concepts=["Home Office", "salaries"],
+        csv_filename="api_experiments_log.csv",
+    )
+
+    with (tmp_path / "api_experiments_log.csv").open(
+        newline="", encoding="utf-8"
+    ) as csv_file:
+        row = next(csv.DictReader(csv_file))
+    assert row["KEYWORDS_FINAL"] == ""
+    assert row["UNUSED_CONCEPTS"] == "Home Office, salaries"
+    text_log = (tmp_path / "experiments_log.txt").read_text(encoding="utf-8")
+    assert "KEYWORDS (final elaborated)" not in text_log
+    assert (
+        "CONCEPTS NOT SEARCHED (retrieval used only the question): "
+        "Home Office, salaries"
+    ) in text_log

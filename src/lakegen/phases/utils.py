@@ -1,13 +1,9 @@
 import json
-import os
 import re
-import uuid
 from pathlib import Path
 
 from lakegen.phases.logging import format_phase2_solr_results
 from lakegen.core.types import SolrMetadata, StreamCallback
-# from src.indexes.blend_indexer import BlendIndexer
-import blend
 
 
 MAX_CANDIDATE_DESCRIPTION_CHARS = 320
@@ -28,17 +24,28 @@ def emit_agent_activity(
 
 
 def match_local_csv(doc: dict, all_files: list[str]) -> str | None:
-    dataset_id = doc.get("dataset_id")
-    resource_id = doc.get("resource_id")
-    return next(
-        (
-            filename
-            for filename in all_files
-            if (dataset_id and dataset_id in filename)
-            or (resource_id and resource_id in filename)
-        ),
-        None,
-    )
+    dataset_id = str(doc.get("dataset_id") or "").strip()
+    resource_id = str(doc.get("resource_id") or "").strip()
+    # The file named after this exact resource wins: UK files are named
+    # <dataset_id>___<resource_id>, NYC files <resource_id>. A substring match
+    # alone maps every resource of a UK dataset to the dataset's first file, so
+    # it is only a fallback, and the resource id is tried before the dataset id.
+    stems = {resource_id.casefold()} if resource_id else set()
+    if dataset_id and resource_id:
+        stems.add(f"{dataset_id}___{resource_id}".casefold())
+    if stems:
+        exact = next(
+            (name for name in all_files if Path(name).stem.casefold() in stems),
+            None,
+        )
+        if exact is not None:
+            return exact
+    for identifier in (resource_id, dataset_id):
+        if identifier:
+            found = next((name for name in all_files if identifier in name), None)
+            if found is not None:
+                return found
+    return None
 
 
 def solr_metadata_from_doc(doc: dict) -> dict[str, object]:
@@ -89,47 +96,6 @@ def emit_candidate_summary(
         format_phase2_solr_results(candidates, metadata, "Candidate tables")
         + "\n\n---\n\n**Agent activity log**\n",
     )
-
-
-def prepare_candidate_index(
-    candidates: list[str],
-    csv_dir: Path,
-    db_path: Path,
-    activity_log_parts: list[str],
-    stream_callback: StreamCallback | None = None,
-) -> Path:
-    blend_db = db_path.parent / f"temp_blend_{uuid.uuid4().hex}.db"
-    try:
-        print(
-            f"[phase2 tables] building BLEND index db={blend_db.name} "
-            f"files={candidates}",
-            flush=True,
-        )
-        emit_agent_activity(
-            activity_log_parts,
-            stream_callback,
-            "\n**Preparing BLEND index**\n"
-            f"- Candidate files: `{len(candidates)}`\n"
-            f"- Temporary DB: `{blend_db.name}`\n",
-        )
-
-        indexer = blend.BLEND(db_path=db_path)
-        _blend_load_opts = {"ignore_errors": True, "infer_schema_length": 0, "n_rows": 10000}
-        blend.index_tables_seq(indexer, csv_dir, load_opts=_blend_load_opts, log_stdout=True)
-
-        # indexer = BlendIndexer(csv_dir=csv_dir, db_path=blend_db)
-        # indexer.build_index(specific_files=candidates, silent=True)
-        print(f"[phase2 tables] BLEND ready db={blend_db.name}", flush=True)
-        emit_agent_activity(activity_log_parts, stream_callback, "- Status: `ready`\n")
-    except Exception:
-        if blend_db.exists():
-            try:
-                os.remove(blend_db)
-            except Exception:
-                pass
-        raise
-
-    return blend_db
 
 
 def _bounded_text(value: object, max_chars: int) -> str:
@@ -205,7 +171,7 @@ def format_candidate_context(candidates: list[str], solr_meta: SolrMetadata) -> 
             column_count = len(columns)
 
         lines = [
-            f"Candidate {display_rank} (Solr rank {solr_rank})",
+            f"Candidate {display_rank} (retrieval rank {solr_rank})",
             f"  File: {filename}",
             f"  Title: {title}",
             f"  Description: {description}",

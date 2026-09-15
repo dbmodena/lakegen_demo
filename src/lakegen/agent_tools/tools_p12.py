@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from pathlib import Path
 from typing import Callable, Literal, Mapping
 from pydantic import BaseModel, Field, model_validator
@@ -8,10 +9,10 @@ from llama_index.core.tools import FunctionTool
 from llama_index.core import VectorStoreIndex
 from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 
-from lakegen.core.types import SolrMetadata
+from lakegen.core.types import SolrMetadata, StreamCallback
+from lakegen.experiment_config import DiscoveryConfig
 from lakegen.agent_tools.tools_p2 import (
-    MAX_INSPECTIONS_PER_FILE,
-    _find_schema_matches,
+    _check_join_union,
     _inspect_columns,
     _rank_for_missing_requirements,
     _requirement_terms,
@@ -403,13 +404,6 @@ class P12State:
 class Phase12ToolsManager:
     """Manager for Phase 1 & 2 unified tools to avoid closures and improve testability."""
 
-    INITIAL_CANDIDATES = 10
-    EXPANSION_SIZE = 5
-    MAX_EXPANSIONS = 1
-    MAX_SEARCH_ATTEMPTS = 1
-    INITIAL_SHORTLIST_SIZE = 3
-    MAX_INSPECTED_CANDIDATES = 5
-    
     def __init__(
         self,
         state: P12State,
@@ -419,6 +413,8 @@ class Phase12ToolsManager:
         question: str = "",
         retrieval_config: RetrievalConfig | None = None,
         retrieval_observer: Callable[[RetrievalRun], None] | None = None,
+        discovery_config: DiscoveryConfig | None = None,
+        notice_callback: StreamCallback | None = None,
     ):
         self.state = state
         self.solr_client = solr_client
@@ -427,6 +423,21 @@ class Phase12ToolsManager:
         self.question = question
         self.retrieval_config = retrieval_config or RetrievalConfig()
         self.retrieval_observer = retrieval_observer
+        self.discovery = discovery_config or DiscoveryConfig()
+        self.notice_callback = notice_callback
+
+    def _emit_notice(self, text: str) -> None:
+        """Report to the operator, never to the agent.
+
+        This is deliberately not part of any tool's return value: the agent must
+        choose concepts on the merits of the question, not adapt to whichever
+        retriever happens to be configured. Falls back to stdout when no channel
+        is wired, so a standalone run still says what searched.
+        """
+        if self.notice_callback is not None:
+            self.notice_callback(text)
+        else:
+            print(text, end="", flush=True)
 
     def _search_cache_key(self, keywords: list[str]) -> tuple[str, ...]:
         return tuple(dict.fromkeys(
@@ -434,6 +445,40 @@ class Phase12ToolsManager:
         ))
 
     def _search_tool_description(self) -> str:
+        if self.retrieval_config.mode.value_keywords:
+            # Cell-value retrieval matches row contents only, so the agent must be
+            # asked for values the rows store; a dataset topic finds little.
+            return (
+                "Search for tables whose cells contain the supplied values. Pass "
+                "`values` as a list of up to 8 values likely to appear verbatim in "
+                "the cells of the needed tables, written the way the data would "
+                "store them: category labels, place or entity names, codes, or "
+                'years (for example ["Brooklyn", "suspension", "2016-17"]). Each '
+                "value is matched whole, so a value with spaces stays one entry. "
+                "Only these values are searched: not the question, and not titles "
+                "or column names. Exactly one initial search is allowed. Use the "
+                "bounded metadata and schema previews to shortlist the strongest "
+                "candidates, then verify them with inspect_columns before "
+                "selecting tables."
+            )
+        if self.retrieval_config.mode.verbatim_entities:
+            # Entities are matched against table content as written, so the agent
+            # names them the way the question does rather than describing a topic.
+            return (
+                "Search for relevant tables using the retrieval strategy configured "
+                "by the experiment. Pass `entities` as a list of the specific, "
+                "named, canonical entities the question mentions explicitly that "
+                "would typically appear verbatim in a database: identifiers, "
+                "symbols, codes, or names, each written exactly as it appears in "
+                "the question with its original casing and punctuation, and listed "
+                'once (for example ["East River", "P.S. 123"]). Do not pass general '
+                "concepts or categories; pass an empty list when the question names "
+                "none. The tool applies the original question and the configured "
+                "retrieval parameters automatically. Exactly one initial search is "
+                "allowed. Use the bounded metadata and schema previews to shortlist "
+                "the strongest candidates, then verify them with inspect_columns "
+                "before selecting tables."
+            )
         return (
             "Search for relevant tables using the retrieval strategy configured by "
             "the experiment. Provide 1-2 concise dataset concepts in the portal's "
@@ -444,19 +489,49 @@ class Phase12ToolsManager:
             "them with inspect_columns before selecting tables."
         )
 
-    def search_solr(self, concepts_str: str = "") -> str:
+    def search_tables(self, concepts_str: str = "") -> str:
         """Search for relevant tables using one or two dataset concepts."""
+        return self._search(
+            [item.strip() for item in concepts_str.split(" ") if item.strip()]
+        )
+
+    def search_table_values(self, values: list[str]) -> str:
+        """Search for tables whose cells contain the listed values."""
+        # Each value stays whole: "East River" is one search value, not two.
+        return self._search([
+            " ".join(str(value).split())
+            for value in values or []
+            if str(value).strip()
+        ])
+
+    def search_table_entities(self, entities: list[str]) -> str:
+        """Search for tables using the entities the question names verbatim."""
+        # Each entity stays whole. An empty list is still a search: the question
+        # is ranked as usual, with no content search behind it.
+        listed = [
+            " ".join(str(entity).split())
+            for entity in entities or []
+            if str(entity).strip()
+        ]
+        return self._search(listed, entities=listed)
+
+    def _search(
+        self, supplied_concepts: list[str], entities: list[str] | None = None
+    ) -> str:
+        """Run the configured retrieval once for the supplied search terms."""
         try:
-            supplied_concepts = [
-                item.strip() for item in concepts_str.split(" ") if item.strip()
-            ]
             keywords = list(supplied_concepts)
-            if self.retrieval_config.mode in (
-                RetrievalMode.SEMANTIC,
-                RetrievalMode.PNEUMA,
+            if (
+                self.retrieval_config.mode.ranks_question_only
+                or self.retrieval_config.mode.verbatim_entities
             ):
                 keywords = []
             elif not keywords:
+                if self.retrieval_config.mode.value_keywords:
+                    return (
+                        "No values provided. Search with a list of values likely to "
+                        "appear in the cells of the needed tables."
+                    )
                 return "No concepts provided. Search with one or two dataset concepts."
             if (
                 self.retrieval_config.mode
@@ -467,22 +542,26 @@ class Phase12ToolsManager:
                     "Configured retrieval skipped: representation generation already "
                     "failed for this request. " + self.state.semantic_failure
                 )
-            key = self._search_cache_key(keywords)
+            # Keyed on what the agent supplied, as in every mode. Question-only
+            # modes drop the concepts before retrieval, and keying on that empty
+            # list told the agent that a different search repeated the first.
+            key = self._search_cache_key([*supplied_concepts, *(entities or [])])
             if key in self.state.search_cache:
                 return (
                     "Search skipped: identical concepts were already used. Do not "
                     "repeat this search.\n"
                     + self.state.search_cache[key]
                 )
-            if self.state.inspection_cache:
+            if self.state.inspection_cache and not self.discovery.search_after_inspection:
                 return (
                     "Search refinement blocked: a candidate has already been "
                     "inspected. Use the existing evidence or one guided expansion."
                 )
-            if len(self.state.search_attempts) >= self.MAX_SEARCH_ATTEMPTS:
+            if len(self.state.search_attempts) >= self.discovery.max_search_attempts:
                 return (
-                    "Search limit reached (1 initial attempt). Do not call "
-                    "search_solr again; inspect, expand once if needed, then select."
+                    f"Search limit reached ({self.discovery.max_search_attempts} "
+                    "attempt(s)). Do not call search_tables again; inspect, expand "
+                    "if needed, then select."
                 )
             self.state.used_keywords = supplied_concepts
             self.state.keyword_history.append(keywords)
@@ -492,25 +571,27 @@ class Phase12ToolsManager:
                 retriever = get_table_retrieval_service(
                     self.solr_client,
                     self.retrieval_config,
-                    *([self.csv_dir] if self.retrieval_config.mode == RetrievalMode.DUCKDB_AGENTIC else []),
+                    *([self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []),
                 )
             else:
                 retriever = get_table_retrieval_service(
                     self.solr_client,
                     self.retrieval_config,
-                    *([self.csv_dir] if self.retrieval_config.mode == RetrievalMode.DUCKDB_AGENTIC else []),
+                    *([self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []),
                     observer=self.retrieval_observer,
                 )
-            # Solr candidates must first be mapped and de-duplicated against
+            # Retrieved candidates must first be mapped and de-duplicated against
             # local files.  Request a wider ranked list here and apply the
             # workflow's final top_k only after that mapping below.
-            fetch_k = max(15, self.retrieval_config.top_k)
+            fetch_k = max(self.discovery.fetch_floor, self.retrieval_config.top_k)
+            retrieval_started = time.monotonic()
             hits = retriever.retrieve(
                 question=self.question,
                 keywords=keywords,
                 top_k=fetch_k,
                 lexical_fetch_k=fetch_k,
                 q_op="AND",
+                entities=entities,
             )
             search_mode = (
                 "AND" if self.retrieval_config.mode == RetrievalMode.KEYWORD
@@ -530,6 +611,18 @@ class Phase12ToolsManager:
                     q_op="OR",
                 )
                 search_mode = "OR fallback"
+
+            searched = (
+                "the question only"
+                if self.retrieval_config.mode.ranks_question_only
+                else f"concepts {list(keywords)}"
+            )
+            self._emit_notice(
+                f"\n> \U0001f50e **Retrieval:** `{self.retrieval_config.mode.value}` "
+                f"\u00b7 {searched} "
+                f"\u00b7 {len(hits)} ranked hits in "
+                f"{time.monotonic() - retrieval_started:.1f}s\n"
+            )
 
             current_candidates: list[str] = []
             for hit in hits:
@@ -566,7 +659,7 @@ class Phase12ToolsManager:
             ]
             candidates = self.state.all_candidates
             self.state.visible_candidate_count = min(
-                self.INITIAL_CANDIDATES,
+                self.discovery.initial_candidates,
                 len(candidates),
             )
             visible_candidates = candidates[: self.state.visible_candidate_count]
@@ -590,7 +683,7 @@ class Phase12ToolsManager:
 
             response = (
                 f"Attempt: {attempt}\nConcepts supplied: {self.state.used_keywords}\n\n"
-                "Candidates in Solr order after local-file mapping:\n"
+                "Candidates in retrieval order after local-file mapping:\n"
                 + format_candidate_context(visible_candidates, self.state.solr_meta)
                 + (
                     f"\n{len(candidates) - len(visible_candidates)} additional "
@@ -612,7 +705,7 @@ class Phase12ToolsManager:
                 f"{detail}. The retrieval request has finished and must not be repeated."
             )
         except Exception as exc:
-            return f"Error querying Solr: {exc}."
+            return f"Error during table retrieval: {exc}."
 
     def inspect_columns(self, file_name: str | None = None, filename: str | None = None) -> str:
         """
@@ -622,7 +715,7 @@ class Phase12ToolsManager:
         most two requests per file are useful; repeated requests use a cache.
         If the question has a date or time range, compare it with the reported
         temporal coverage before selecting the table.
-        Use this only after identifying a valid table file with search_solr.
+        Use this only after identifying a valid table file with search_tables.
         Normally inspect the 2-4 strongest candidates from the bounded metadata
         preview instead of inspecting every retrieved table.
         """
@@ -637,14 +730,14 @@ class Phase12ToolsManager:
         if name not in visible_candidates:
             return (
                 f"Error: {name} is not currently visible. Inspect only candidates "
-                "already shown by search_solr or expand_candidates."
+                "already shown by search_tables or expand_candidates."
             )
         attempted_candidates = len(self.state.inspection_counts)
         if key not in self.state.inspection_cache:
             current_limit = (
-                self.INITIAL_SHORTLIST_SIZE
+                self.discovery.initial_shortlist_size
                 if self.state.expansion_count == 0
-                else self.MAX_INSPECTED_CANDIDATES
+                else self.discovery.max_inspected_candidates
             )
             if attempted_candidates >= current_limit:
                 if (
@@ -662,17 +755,18 @@ class Phase12ToolsManager:
                 )
         count = self.state.inspection_counts.get(key, 0) + 1
         self.state.inspection_counts[key] = count
-        if count > MAX_INSPECTIONS_PER_FILE:
+        if count > self.discovery.max_inspections_per_file:
             return (
                 f"Inspection skipped: {name} has already been inspected "
-                f"{MAX_INSPECTIONS_PER_FILE} times. Use the cached schema and "
+                f"{self.discovery.max_inspections_per_file} times. Use the cached schema and "
                 "continue with confirm_unified_selection."
             )
         if key not in self.state.inspection_cache:
             self.state.inspection_cache[key] = _inspect_columns(self.csv_dir, name)
             return self.state.inspection_cache[key]
         return (
-            f"Cached inspection (attempt {count}/{MAX_INSPECTIONS_PER_FILE}):\n"
+            f"Cached inspection (attempt {count}/"
+            f"{self.discovery.max_inspections_per_file}):\n"
             + self.state.inspection_cache[key]
         )
 
@@ -696,24 +790,24 @@ class Phase12ToolsManager:
                 "Expansion blocked: provide concrete missing requirements such as "
                 "a measure, dimension, period, filter, or join key."
             )
-        if self.state.expansion_count >= self.MAX_EXPANSIONS:
+        if self.state.expansion_count >= self.discovery.max_expansions:
             return (
                 "Expansion limit reached. Do not call expand_candidates again "
-                "or search_solr again; select among the inspected candidates."
+                "or search_tables again; select among the inspected candidates."
             )
         if self.state.visible_candidate_count >= len(self.state.all_candidates):
             return "No additional candidates are available."
         start = self.state.visible_candidate_count
         hidden = self.state.all_candidates[start:]
         newly_visible = _rank_for_missing_requirements(
-            hidden, self.state.solr_meta, requirements, self.EXPANSION_SIZE
+            hidden, self.state.solr_meta, requirements, self.discovery.expansion_size
         )
         if not newly_visible:
             self.state.expansion_count += 1
             self.state.expansion_requirements = requirements
             return (
                 "No hidden candidate has metadata matching the missing requirements. "
-                "Do not call expand_candidates or search_solr again; select or "
+                "Do not call expand_candidates or search_tables again; select or "
                 "reject using the inspected evidence."
             )
         selected = set(newly_visible)
@@ -743,13 +837,13 @@ class Phase12ToolsManager:
             + f"\n\n{next_step}"
         )
 
-    def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
+    def check_join_union(self, file_name_1: str, file_name_2: str) -> str:
         """
-        Use Valentine to identify matching columns, then verify their practical
-        joinability through overlap, coverage, uniqueness, cardinality, and
-        estimated join expansion.
+        Check whether two tables join or union with each other. Reports the join
+        key columns when they join, the aligned columns when they union, or that
+        they neither join nor union.
         """
-        return _find_schema_matches(self.csv_dir, file_name_1, file_name_2)
+        return _check_join_union(self.csv_dir, file_name_1, file_name_2)
 
     def confirm_unified_selection(
         self,
@@ -1313,15 +1407,35 @@ class Phase12ToolsManager:
             return_direct=True,
         )]
 
+    def _search_tool(self) -> FunctionTool:
+        if self.retrieval_config.mode.verbatim_entities:
+            # Entities are matched whole, so the agent passes a real list, as for
+            # cell values. The tool keeps its name for prompts and activity logs.
+            return FunctionTool.from_defaults(
+                fn=self.search_table_entities,
+                name="search_tables",
+                description=self._search_tool_description(),
+            )
+        if self.retrieval_config.mode.value_keywords:
+            # Values are searched whole, so the agent passes a real list; splitting
+            # a string on spaces would turn "East River" into two searches. The
+            # tool keeps its name, so prompts and activity logs are unchanged.
+            return FunctionTool.from_defaults(
+                fn=self.search_table_values,
+                name="search_tables",
+                description=self._search_tool_description(),
+            )
+        return FunctionTool.from_defaults(
+            fn=self.search_tables,
+            description=self._search_tool_description(),
+        )
+
     def get_tools(self) -> list[FunctionTool]:
         return [
-            FunctionTool.from_defaults(
-                fn=self.search_solr,
-                description=self._search_tool_description(),
-            ),
+            self._search_tool(),
             FunctionTool.from_defaults(fn=self.inspect_columns),
             FunctionTool.from_defaults(fn=self.expand_candidates),
-            FunctionTool.from_defaults(fn=self.find_schema_matches),
+            FunctionTool.from_defaults(fn=self.check_join_union),
             FunctionTool.from_defaults(fn=self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),
         ]
 
@@ -1334,6 +1448,8 @@ def make_p12_tools(
     question: str = "",
     retrieval_config: RetrievalConfig | None = None,
     retrieval_observer: Callable[[RetrievalRun], None] | None = None,
+    discovery_config: DiscoveryConfig | None = None,
+    notice_callback: StreamCallback | None = None,
 ):
     """
     Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
@@ -1347,5 +1463,7 @@ def make_p12_tools(
         question=question,
         retrieval_config=retrieval_config,
         retrieval_observer=retrieval_observer,
+        discovery_config=discovery_config,
+        notice_callback=notice_callback,
     )
     return manager.get_tools()

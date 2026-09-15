@@ -16,6 +16,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from src.client_solr import LocalSolrClient
+from lakegen.experiment_config import load_experiment_config
 from lakegen.retrieval.config import FusionMethod, RetrievalConfig, RetrievalMode
 from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
@@ -85,24 +86,99 @@ class BenchmarkCase:
     relevant_table_ids: tuple[str, ...]
 
 
+def _generated_case_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten a generated-queries file into benchmark case rows.
+
+    The file nests records as ``ENGINE -> table scope -> group -> record``, and
+    each group's ``_meta.tables`` maps the aliases its records use (``Table_0``)
+    to table ids. Only successful records are cases. The generator often asks
+    the same question over the same tables once per engine; it is kept once, so
+    no question weighs twice in the means.
+    """
+
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    for engine, scopes in payload.items():
+        if not isinstance(scopes, dict):
+            continue
+        for scope, groups in scopes.items():
+            if not isinstance(groups, dict):
+                continue
+            for group_name, group in groups.items():
+                if not isinstance(group, dict):
+                    continue
+                table_ids = (group.get("_meta") or {}).get("tables") or {}
+                for key, record in group.items():
+                    if key == "_meta" or not isinstance(record, dict):
+                        continue
+                    if record.get("status") != "success":
+                        continue
+                    location = f"{engine}/{scope}/{group_name}/{key}"
+                    aliases = [
+                        table.get("name") if isinstance(table, dict) else table
+                        for table in record.get("tables") or []
+                    ]
+                    if not aliases or any(alias not in table_ids for alias in aliases):
+                        raise ValueError(
+                            f"Generated query {location} uses tables {aliases} that "
+                            "its group's _meta.tables does not resolve"
+                        )
+                    relevant = list(
+                        dict.fromkeys(str(table_ids[alias]) for alias in aliases)
+                    )
+                    question = str(record.get("question", "")).strip()
+                    key = (question, tuple(sorted(relevant)))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rows.append(
+                        {
+                            "id": record.get("client_id") or location,
+                            "question": question,
+                            # The keyword choice of build_benchmark.py, so a case
+                            # searches identically in a sample drawn from this file.
+                            "keywords": record.get("question_keywords")
+                            or record.get("plan_keywords"),
+                            "relevant_table_ids": relevant,
+                        }
+                    )
+    if not rows:
+        raise ValueError(
+            "Benchmark input must be a list, an object with a cases list, or a "
+            "generated-queries file with successful queries"
+        )
+    return rows
+
+
 def load_benchmark_cases(path: Path) -> list[BenchmarkCase]:
+    """Load a curated benchmark or a generated-queries file.
+
+    A curated benchmark (``benchmark/100q_nyc.json``) is a list of cases or an
+    object with a ``cases`` list. Any other object is read as a generated-queries
+    file (``generated_queries_semantic.json``), see ``_generated_case_rows``.
+    """
+
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    rows = payload.get("cases") if isinstance(payload, dict) else payload
+    if isinstance(payload, dict) and "cases" not in payload:
+        rows = _generated_case_rows(payload)
+    else:
+        rows = payload.get("cases") if isinstance(payload, dict) else payload
     if not isinstance(rows, list):
         raise ValueError("Benchmark input must be a list or an object with a cases list")
     cases: list[BenchmarkCase] = []
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ValueError(f"Case {index} is not an object")
+        case_id = row.get("id", index)
         relevant = row.get("relevant_table_ids") or row.get("gold_table_ids")
         if not relevant:
-            raise ValueError(f"Case {index} has no relevant_table_ids")
+            raise ValueError(f"Case {case_id} has no relevant_table_ids")
         keywords = row.get("keywords")
         if not keywords:
-            raise ValueError(f"Case {index} has no fixed retrieval keywords")
+            raise ValueError(f"Case {case_id} has no fixed retrieval keywords")
         cases.append(
             BenchmarkCase(
-                case_id=str(row.get("id", index)),
+                case_id=str(case_id),
                 question=str(row["question"]).strip(),
                 keywords=tuple(map(str, keywords)),
                 relevant_table_ids=tuple(dict.fromkeys(map(str, relevant))),
@@ -208,6 +284,7 @@ def run_retriever_benchmark(
     include_rrf: bool = True,
     k_values: Sequence[int] = (1, 5, 10),
     embedding_model: EmbeddingModel | None = None,
+    table_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run exactly one retrieval per case for each explicit experiment config."""
 
@@ -216,8 +293,19 @@ def run_retriever_benchmark(
         base = replace(base, top_k=max(k_values))
     experiments: dict[str, Any] = {}
     for label, config in _experiment_configs(base, modes, alphas, include_rrf):
+        if config.mode.requires_table_dir and table_dir is None:
+            # Recorded rather than skipped silently: a missing arm must not read
+            # as an arm that scored nothing.
+            experiments[label] = {
+                "status": "skipped",
+                "reason": f"mode {config.mode.value} requires --table-dir",
+            }
+            continue
         service = TableRetrievalService(
-            solr, config, embedding_model=embedding_model
+            solr,
+            config,
+            embedding_model=embedding_model,
+            table_dir=str(table_dir) if table_dir is not None else None,
         )
         rows: list[dict[str, Any]] = []
         metric_rows: list[dict[str, float]] = []
@@ -473,8 +561,22 @@ def append_benchmark_metrics_log(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input", type=Path)
-    parser.add_argument("--core", default="nyc")
+    parser.add_argument(
+        "input",
+        type=Path,
+        nargs="?",
+        help="Curated benchmark or generated-queries JSON "
+        "(default: benchmark.path from --config)",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Experiment YAML/JSON supplying benchmark.path, the core, and the "
+        "retrieval settings every experiment starts from",
+    )
+    parser.add_argument(
+        "--core", default=None, help="Solr core (default: the config's, else nyc)"
+    )
     parser.add_argument(
         "--solr-base-url",
         default=os.environ.get("SOLR_BASE_URL", "http://localhost:8983/solr"),
@@ -482,8 +584,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--table-dir", type=Path)
-    parser.add_argument("--top-k", type=int, default=10)
-    parser.add_argument("--candidate-multiplier", type=int, default=5)
+    parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--candidate-multiplier", type=int, default=None)
     parser.add_argument("--alphas", type=float, nargs="+", default=(0.25, 0.5, 0.75))
     parser.add_argument(
         "--metrics-log",
@@ -499,15 +601,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    cases = load_benchmark_cases(args.input)
+    experiment = load_experiment_config(args.config) if args.config else None
+    input_path = args.input
+    if input_path is None and experiment is not None and experiment.benchmark.path:
+        input_path = Path(experiment.benchmark.path)
+    if input_path is None:
+        parser.error("give a benchmark file, or --config with benchmark.path set")
+    core = args.core or (experiment.core if experiment is not None else "nyc")
+    base_config = replace(
+        experiment.retrieval.to_runtime() if experiment is not None else RetrievalConfig(),
+        **{
+            name: value
+            for name, value in {
+                "top_k": args.top_k,
+                "candidate_multiplier": args.candidate_multiplier,
+            }.items()
+            if value is not None
+        },
+    )
+
+    cases = load_benchmark_cases(input_path)
     report = run_retriever_benchmark(
-        LocalSolrClient(args.core, base_url=args.solr_base_url),
+        LocalSolrClient(core, base_url=args.solr_base_url),
         cases,
-        base_config=RetrievalConfig(
-            top_k=args.top_k,
-            candidate_multiplier=args.candidate_multiplier,
-        ),
+        base_config=base_config,
         alphas=args.alphas,
+        table_dir=args.table_dir,
     )
     if args.table_dir:
         report["gold_validation"] = validate_gold_tables(cases, args.table_dir)
@@ -522,8 +641,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         report,
         args.metrics_log,
         run_id=run_id,
-        core=args.core,
-        source_path=str(args.input),
+        core=core,
+        source_path=str(input_path),
         source_job_ids=_parse_job_id_map(args.source_job_id),
     )
     return 0

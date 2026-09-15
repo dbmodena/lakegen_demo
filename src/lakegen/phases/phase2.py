@@ -4,7 +4,7 @@ import os
 import re
 import sys
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from llama_index.core import Settings
@@ -51,6 +51,7 @@ def _solr_and_search(
     all_files: list[str],
     retrieval_config: RetrievalConfig | None = None,
     table_dir: Path | None = None,
+    entities: Sequence[str] | None = None,
 ) -> tuple[list[str], SolrMetadata]:
     """Execute the configured retriever and return candidates + metadata."""
     candidates: list[str] = []
@@ -60,7 +61,7 @@ def _solr_and_search(
     try:
         retriever = get_table_retrieval_service(
             solr_client, config,
-            **({"table_dir": table_dir} if config.mode == RetrievalMode.DUCKDB_AGENTIC else {}),
+            **({"table_dir": table_dir} if config.mode.requires_table_dir else {}),
         )
         hits = retriever.retrieve(
             question=query,
@@ -68,6 +69,7 @@ def _solr_and_search(
             top_k=config.top_k,
             lexical_fetch_k=max(15, config.top_k),
             q_op="AND",
+            entities=entities,
         )
         print(
             f"[phase2] {config.mode} retrieval keywords={keywords} "
@@ -113,6 +115,7 @@ def phase2_select_tables(
     cancel_check: Callable[[], None] | None = None,
     retrieval_config: RetrievalConfig | None = None,
     selection_state: object | None = None,
+    entities: Sequence[str] | None = None,
 ) -> Phase2SelectionResult:
     """Run the configured retriever, then judge the retrieved tables.
 
@@ -135,6 +138,7 @@ def phase2_select_tables(
         all_files,
         config,
         csv_dir,
+        entities,
     )
 
     # ── Step 2: No results → reject keywords back to Phase 1 ─────────
@@ -155,7 +159,7 @@ def phase2_select_tables(
             )
         return [], [], {}, no_result_msg, trace, 0
 
-    # ── Step 3: Prepare agent with judge-only tools (no search_solr) ──
+    # ── Step 3: Prepare agent with judge-only tools (no search_tables) ──
     tools_manager = Phase2JudgeToolsManager(
         candidates,
         csv_dir,
@@ -169,6 +173,7 @@ def phase2_select_tables(
         "system_prompt",
         portal_name=portal_name,
         hint=hint,
+        value_search=config.mode.value_keywords,
     )
 
     token_counter = next(

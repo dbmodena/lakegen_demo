@@ -7,6 +7,7 @@ discovery agent.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import json
 from pathlib import Path
 from typing import Any
@@ -95,13 +96,14 @@ def prepare_discovery_context(
     all_files: list[str],
     retrieval_config: RetrievalConfig,
     table_dir: Path | None = None,
+    entities: Sequence[str] | None = None,
 ) -> tuple[PreparedDiscoveryContext, SolrMetadata]:
     """Run the existing retriever and map its ranked hits to local datasets."""
 
     retriever = get_table_retrieval_service(
         solr_client,
         retrieval_config,
-        *([table_dir] if retrieval_config.mode.value == "duckdb_agentic" else []),
+        *([table_dir] if retrieval_config.mode.requires_table_dir else []),
     )
     hits = retriever.retrieve(
         question=query,
@@ -109,6 +111,7 @@ def prepare_discovery_context(
         top_k=retrieval_config.top_k,
         lexical_fetch_k=15,
         q_op="AND",
+        entities=entities,
     )
     candidates: list[PreparedCandidate] = []
     metadata_by_dataset: SolrMetadata = {}

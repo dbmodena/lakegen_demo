@@ -63,7 +63,8 @@ The supported Solr cores and data portals are `nyc`, `valencia`, `bologna`,
 
 All settings and their accepted values are documented in
 `config/experiment.example.yaml`. Copy or edit that file to define a repeatable
-experiment.
+experiment. Its `benchmark.path` setting names the input file of the
+retrieval-only benchmark (see section 7).
 
 The main environment variables are:
 
@@ -199,7 +200,80 @@ the effective value. Example YAML files are loaded only when supplied.
 - `semantic`: vector search using the complete question.
 - `hybrid`: combines lexical and semantic results.
 - `duckdb_agentic`: searches local Parquet files without a Solr index.
+Each modality's evidence families are weighted by `grep_value_weight` (cell
+matches) and `grep_metadata_weight` (filename, column names, catalog fields),
+and `pneuma_seeker`'s content stage by `pneuma_content_weight`, with its
+title, column-name and cell evidence weighted by `pneuma_table_name_weight`,
+`pneuma_column_name_weight` and `pneuma_cell_weight`. A family
+weighted `0` is **not computed**: it cannot change a ranking, so the work is
+skipped rather than performed and multiplied away. Weighting values `0` turns
+grep into a metadata-only search that reads no cells at all; weighting metadata
+`0` is what `grep_values` does by mode. Setting both to `0` is rejected, and
+`pneuma_content_weight: 0` makes `pneuma_seeker` exactly equal to `pneuma`.
+
+All three local-Parquet modalities (`grep`, `grep_values`, `pneuma_seeker`) scan
+**every file in the lake by default**. The per-file scan is an independent
+bounded read, so it runs as a parallel map over `scan_workers` worker processes
+(default 16): on a 2,673-file/179 GB lake an exhaustive `grep_values` search
+takes ~10s end to end, against ~52s scanning one file at a time. Every polars
+query runs in those workers, never in the application process: polars has
+segfaulted under this load, and a worker crash now costs a retried batch instead
+of the app. Setting `grep_max_files` reintroduces a cut for deliberately
+cheap runs, but a cut is an *approximation, not just a saving*: it changes which
+files are read and the IDF (or per-keyword maximum) the survivors are scored
+with, so a capped run is not comparable with a full one. Such runs mark
+themselves `truncated` in their evidence.
+
+- `grep`: regex search over local Parquet files without a Solr index. Unlike
+  `duckdb_agentic` it casts every column to text, so matches in numeric and
+  temporal columns count too, and it reads one column at a time through the
+  streaming engine so a multi-GB table stays within bounded memory. Ranking is
+  TF-IDF over the query terms, with per-file frequency normalized by row count.
+  Filenames, column names, and the catalog contribute alongside the cells.
+- `grep_values`: the same retriever restricted to cell values. Filenames,
+  column names, and catalog metadata never select or score a file, so a table
+  is found only where the question's terms appear in its data. The discovery
+  prompts ask the model for a list of values likely to be stored in the rows
+  (category labels, place names, codes, years) instead of dataset topics, and
+  the search uses exactly those values, each matched whole: nothing is split,
+  aliased, or added from the question. The catalog is
+  still read for the title, description, and tags a hit displays, which leaves
+  the ranking as the only difference from `grep`. Where a lake exceeds
+  `grep_max_files` there is no free signal left to order it by, so a bounded
+  prefix read of every file replaces the metadata prefilter and
+  `grep_probe_rows_per_file` becomes the knob that trades cost for reach into
+  long tables; a lake under that cap is scanned whole.
 - `pneuma`: uses a separately prepared Pneuma index and service.
+- `pneuma_seeker`: Pneuma augmented as in the *Pneuma-Seeker* paper (§5.3),
+  "Pneuma + content search + table enumeration". The content search follows
+  the paper's reference implementation. Under this mode the discovery prompts
+  ask for entities with its extraction rules (specific, named, canonical strings
+  written as the question writes them, never general concepts), and each entity
+  is scanned for across the local Parquet with its case-insensitive,
+  word-bounded regex: `art` does not match `Department`, and `New York` matches
+  `NEW-YORK`. Per entity and table, `pneuma_table_name_weight` x a match in the
+  table's catalog title + `pneuma_column_name_weight` x matching column names +
+  `pneuma_cell_weight` x matching cells (3, 2 and 1 by default, as upstream) is
+  damped by `log(1 + raw)` and normalized per entity; a table's
+  content score is its mean over the entities times the fraction it matched,
+  fused with Pneuma's own ranking weighted by `pneuma_content_weight`. A
+  question naming no entity gets no content search, so its ranking is Pneuma's.
+  The entities a hit matched are appended to its description. Tables whose
+  identifiers form a family (`water_body_testing_2020` -> `..._\d{4}`) are then
+  enumerated, which is what plain top-k retrieval cannot do. Knowing
+  deviations: Pneuma's service returns ranks but no scores, so the fusion uses
+  `1/rank`; the fusion is the paper's weighted combination, where the reference
+  code only fills the top-k slots Pneuma leaves over; matching cells are counted
+  rather than regex occurrences; a table's name is its catalog title, matched
+  once per table, because the lakes name files by opaque id; and enumeration
+  runs automatically rather than as an agent action.
+  Set `pneuma_enumerate_tables: false` to reproduce the paper's middle ablation
+  arm. The cell scan reads every row and every column of every file, one column
+  and one chunk of rows at a time so a worker's memory stays bounded; only
+  `grep_max_files` can cut it short. Note
+  that both shipped cores name tables by opaque id
+  (`43nn-pn8j`), which no family pattern matches, so enumeration contributes
+  nothing there; it needs a lake with semantic filenames.
 
 ### Enable semantic and hybrid retrieval
 
@@ -303,8 +377,35 @@ Use the returned `job_id` with `/v1/batches/JOB_ID` to monitor the run.
 
 ### Retrieval-only benchmark
 
-This compares keyword, semantic, and hybrid retrieval without running the
-agents, code generation, or answer synthesis:
+This compares the retrieval modes without running the agents, code generation,
+or answer synthesis. Every case is retrieved once per mode, and the ranking is
+scored against the case's gold tables with Hit@k, Recall@k, MRR, and nDCG@k for
+k = 1, 5, and 10.
+
+#### Input files
+
+Two input formats are accepted and detected automatically:
+
+- **Curated benchmark**, such as `benchmark/100q_nyc.json` (see section 6): a
+  list of cases, or an object with a `cases` list. Each case needs `question`,
+  `keywords`, and `relevant_table_ids`.
+- **Generated-queries file**, such as `generated_queries_semantic.json`, as
+  written by the query generator. Its questions are nested as
+  `ENGINE -> table scope -> group -> record`, and they become cases as follows:
+  - only records with `status: success` become cases;
+  - the gold tables are the record's `tables`, whose aliases (`Table_0`) are
+    resolved to table ids through the group's `_meta.tables`. An alias that does
+    not resolve stops the load with an error naming the record, for example
+    `PANDAS/multi_table/mt_0/0`;
+  - the search keywords are the record's `question_keywords`, the same choice
+    `build_benchmark.py` makes, so a question is searched identically in a
+    sample built from the same file;
+  - the case id is the record's `client_id`;
+  - the generator sometimes asks the same question over the same tables once
+    for Pandas and once for SQL. Such a question counts once, so it does not
+    weigh twice in the averages.
+
+#### Run with a file
 
 ```bash
 PYTHONPATH=src:. uv run python -m lakegen.retrieval.benchmark \
@@ -313,9 +414,68 @@ PYTHONPATH=src:. uv run python -m lakegen.retrieval.benchmark \
   --output logs/nyc_retrieval_benchmark.json
 ```
 
-Useful optional arguments include `--top-k`, `--candidate-multiplier`,
-`--alphas`, and `--table-dir`. Run the module with `--help` for the complete
-list.
+The same command accepts a generated-queries file in place of
+`benchmark/100q_nyc.json`. Without `--config`, every mode starts from the
+default retrieval settings.
+
+#### Run from an experiment configuration
+
+Set the input file in the `benchmark` section of the experiment configuration:
+
+```yaml
+benchmark:
+  path: /path/to/orqa/data/nyc/candidates_discovery/generated_queries_semantic.json
+```
+
+Then pass `--config` instead of a file:
+
+```bash
+PYTHONPATH=src:. uv run python -m lakegen.retrieval.benchmark \
+  --config config/experiment.example.yaml \
+  --output logs/nyc_generated_retrieval_benchmark.json
+```
+
+The configuration supplies:
+
+- `benchmark.path`: the input file, curated or generated. A relative path is
+  resolved from the working directory;
+- `core`: the Solr core to query;
+- `retrieval`: the settings every mode starts from, such as the embedding
+  model, the Pneuma service, and the grep weights.
+
+Command-line values take precedence: a positional file replaces
+`benchmark.path`, and `--core`, `--top-k`, and `--candidate-multiplier` replace
+the configured values. Only this command reads `benchmark.path`; the CLI,
+Chainlit, and API workflows ignore it.
+
+#### Modes, options, and outputs
+
+Every retrieval mode is run. `semantic` and `hybrid` need the vector index from
+section 5, and `pneuma` and `pneuma_seeker` need the Pneuma service from
+section 8. Hybrid runs once per `--alphas` value (default `0.25 0.5 0.75`),
+plus once with reciprocal rank fusion.
+
+- `--table-dir`: the local Parquet directory. `grep`, `grep_values`,
+  `duckdb_agentic`, and `pneuma_seeker` need it, and without it they are
+  recorded as skipped. When it is given, every gold table must exist in it,
+  otherwise the run fails without writing the report.
+- `--output`: the JSON report, with every case's ranking and the mean metrics
+  of each mode.
+- `--metrics-log`: the CSV file the mean metrics are appended to (default
+  `logs/retrieval_benchmarks_log.csv`).
+
+Run the module with `--help` for the complete list.
+
+#### Known limitation: keyword search
+
+The keyword search requires every keyword to match (`q.op=AND` in
+`src/client_solr.py`). With the five to seven keywords a question carries, most
+searches return no table at all. In September 2026, on the NYC core, 189 of the
+223 generated cases and 90 of the 100 cases of `benchmark/100q_nyc.json` got an
+empty keyword ranking, for a Hit@10 of 0.04 and 0.03. All of their gold tables
+are present in the core, so these scores reflect the all-keywords rule rather
+than missing data. Keep this in mind when comparing modes that use the keyword
+search, including `hybrid`.
 
 ## 8. Pneuma retrieval (optional)
 

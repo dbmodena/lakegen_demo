@@ -115,7 +115,11 @@ def _run_tool_free_turn(
 
     def emit(delta: str) -> None:
         stream.write(delta or "")
-        if stream_callback is not None and delta:
+        if not delta:
+            return
+        # Every phase owns the terminal; stream_callback is the extra UI channel.
+        print(delta, end="", flush=True)
+        if stream_callback is not None:
             stream_callback(delta)
 
     response = run_agent_workflow(
@@ -176,7 +180,11 @@ def run_unified_orchestrated_discovery(
 ) -> DiscoveryResult:
     """Run two turns of one logical tool-free agent with explicit chat history."""
     pm = PromptManager()
-    system = pm.render("retrieval_intent", "system_prompt")
+    value_search = retrieval_config.mode.value_keywords
+    system = pm.render(
+        "retrieval_intent", "system_prompt", value_search=value_search,
+        verbatim_entities=retrieval_config.mode.verbatim_entities,
+    )
     first_user = pm.render(
         "retrieval_intent", "user_prompt", question=query,
         catalog=portal_name, schema="not supplied",
@@ -202,11 +210,18 @@ def run_unified_orchestrated_discovery(
             tokens=first_tokens, llm_invocations=1, agent_count=1,
             retry_keywords=False, retry_reason=reason,
         )
+    keywords = request.search_terms(value_search)
+    if not keywords:
+        # A cell-value search has nothing to look for unless values were listed;
+        # falling back to concepts would search dataset topics against cells.
+        raise RetrievalRequestProtocolError(
+            "resolved retrieval intent lists no search_values"
+        )
     try:
         prepared, metadata = prepare_discovery_context(
-            query=query, keywords=request.keywords, solr_client=solr_client,
+            query=query, keywords=keywords, solr_client=solr_client,
             all_files=all_files, retrieval_config=retrieval_config,
-            table_dir=table_dir,
+            table_dir=table_dir, entities=request.entities,
         )
         prepared.agent_json()
     except WorkflowCancelled:
@@ -217,7 +232,7 @@ def run_unified_orchestrated_discovery(
     if not candidates:
         reason = "REJECT_KEYWORDS: No datasets found in the prepared context"
         return DiscoveryResult(
-            selected_datasets=[], candidates=[], keywords=request.keywords,
+            selected_datasets=[], candidates=[], keywords=keywords,
             metadata=metadata, reasoning=reason,
             trace="--- Unified Orchestrated Turn 1 ---\n" + first_trace,
             tokens=first_tokens, llm_invocations=1, agent_count=1,
@@ -243,7 +258,7 @@ def run_unified_orchestrated_discovery(
         raise OrchestratedSelectorError(str(exc)) from exc
     retry_reason = selector_retry_reason(selected, reasoning)
     return DiscoveryResult(
-        selected_datasets=selected, candidates=candidates, keywords=request.keywords,
+        selected_datasets=selected, candidates=candidates, keywords=keywords,
         metadata=metadata,
         trace=("--- Unified Orchestrated Turn 1 ---\n" + first_trace
                + "\n--- Unified Orchestrated Turn 2 ---\n" + second_trace),

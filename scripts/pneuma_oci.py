@@ -192,6 +192,8 @@ class OCICompatOpenAI(OpenAI):
         temperature: float,
         top_p: float,
         seed: int | None,
+        json_schema: dict[str, Any] | None = None,
+        json_schema_name: str = "response",
     ) -> str:
         model_id = self._oci_settings.llm_model
         # Pneuma supplies its OpenAI default model name. Only an explicit OCI
@@ -226,6 +228,14 @@ class OCICompatOpenAI(OpenAI):
         }
         if seed is not None:
             request_kwargs["seed"] = int(seed)
+        if json_schema is not None:
+            # Strict schema-constrained decoding: the response is generated as
+            # JSON matching the schema rather than requested in prose.
+            request_kwargs["response_format"] = self._oci_models.JsonSchemaResponseFormat(
+                json_schema=self._oci_models.ResponseJsonSchema(
+                    name=json_schema_name, schema=json_schema, is_strict=True
+                )
+            )
         token_budget = max(
             int(max_tokens), self._oci_settings.min_llm_output_tokens
         )
@@ -248,7 +258,8 @@ class OCICompatOpenAI(OpenAI):
                 if text.strip():
                     return text
             if empty_attempt < self._oci_settings.empty_response_attempts:
-                if empty_attempt == 1:
+                # The plain-text nudge would contradict a JSON schema.
+                if empty_attempt == 1 and json_schema is None:
                     for message in reversed(oci_messages):
                         contents = getattr(message, "content", None) or []
                         if contents and hasattr(contents[0], "text"):
@@ -257,7 +268,8 @@ class OCICompatOpenAI(OpenAI):
                 token_budget *= 2
                 print(
                     f"[oci] empty chat response; retrying with "
-                    f"neutral_suffix=true max_tokens={token_budget}",
+                    f"neutral_suffix={str(json_schema is None).lower()} "
+                    f"max_tokens={token_budget}",
                     flush=True,
                 )
         raise RuntimeError("OCI chat response was empty after retries")

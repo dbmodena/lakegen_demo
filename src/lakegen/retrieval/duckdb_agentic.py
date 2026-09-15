@@ -22,7 +22,7 @@ _STOPWORDS = {
     "the", "and", "for", "with", "from", "that", "this", "what", "which",
     "where", "when", "who", "how", "are", "was", "were", "has", "have",
     "dei", "del", "della", "delle", "degli", "con", "per", "che", "come",
-    "quale", "quali", "dove", "sono", "nel", "nella", "nelle", "una", "uno",
+    "quale", "quali", "dove", "sono", "nel", "nella", "nelle", "una", "uno", "in"
 }
 _TERM_ALIASES = {
     "borough": ("boro",),

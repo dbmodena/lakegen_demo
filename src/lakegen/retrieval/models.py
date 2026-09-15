@@ -21,6 +21,27 @@ def document_key(document: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def min_max_normalize(scores: dict[str, float]) -> dict[str, float]:
+    """Normalize finite scores, using 1.0 for a non-empty constant list.
+
+    A constant list has no spread, so the usual formula is undefined. Assigning
+    one preserves the fact that every item was positively retrieved by that
+    branch; empty and non-finite inputs contribute no signal.
+
+    It lives here rather than beside its first caller because ``retrievers``
+    imports ``pneuma``, so a retriever that needs it cannot import it from there.
+    """
+    finite = {key: float(value) for key, value in scores.items() if math.isfinite(value)}
+    if not finite:
+        return {}
+    low = min(finite.values())
+    high = max(finite.values())
+    if high == low:
+        return {key: 1.0 for key in finite}
+    scale = high - low
+    return {key: (value - low) / scale for key, value in finite.items()}
+
+
 @dataclass
 class RetrievalHit:
     document: dict[str, Any]

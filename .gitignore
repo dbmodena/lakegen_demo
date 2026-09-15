@@ -65,3 +65,8 @@ src/.files/
 Thumbs.db
 
 /backups/
+tests/
+.claude
+.gitignore
+.chainlit
+.tmp_link_datasets_b09debcb-8c99-4217-a34d-9f10b0aa8272

@@ -3,7 +3,9 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.experiment_config import ExperimentConfig
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.tracing import HumanGate
+from lakegen.ui.sections import format_retrieval_keywords
 from lakegen.ui.state import LakeGenSession, WorkflowTimedOut
 
 from lakegen.ui import workflow
@@ -15,10 +17,22 @@ def _session() -> LakeGenSession:
     runtime = SimpleNamespace(
         model_name=config.model,
         experiment=config,
+        retrieval=RetrievalConfig(),
     )
     session = LakeGenSession(runtime=runtime, query="Question?")
     session.manifest = {"run_id": session.run_id, "resolved_config": {"core": "nyc"}}
     return session
+
+
+def test_chat_flags_keywords_that_question_only_retrieval_never_searches():
+    session = _session()
+    assert format_retrieval_keywords(session, ["Home", "Office"]) == "`Home`, `Office`"
+
+    session.runtime.retrieval = RetrievalConfig(mode=RetrievalMode.PNEUMA)
+    flagged = format_retrieval_keywords(session, ["Home", "Office"])
+
+    assert flagged.startswith("_none; retrieval uses only the question_")
+    assert "not searched: `Home`, `Office`" in flagged
 
 
 @pytest.mark.parametrize(

@@ -183,6 +183,81 @@ def test_rendered_discovery_prompts_are_mode_neutral():
     assert all(forbidden.search(prompt) is None for prompt in rendered)
 
 
+def test_value_search_prompts_ask_for_cell_values_without_naming_the_retriever():
+    """grep_values matches cell contents only, so its search terms must be values.
+
+    Rendering without the flag leaves every prompt as it was, so the other arms
+    of the experiment keep identical instructions.
+    """
+    prompt_manager = PromptManager()
+
+    def render(name, **extra):
+        return prompt_manager.render(name, "system_prompt", **extra)
+
+    topic_architect = render("unified_architect", portal_name="NYC", hint="")
+    value_architect = render(
+        "unified_architect", portal_name="NYC", hint="", value_search=True
+    )
+    assert render(
+        "unified_architect", portal_name="NYC", hint="", value_search=False
+    ) == topic_architect
+    assert "metadata-oriented dataset concepts" in topic_architect
+    assert "metadata-oriented dataset concepts" not in value_architect
+    assert "values that could appear verbatim in the rows" in value_architect
+
+    topic_intent = render("retrieval_intent")
+    value_intent = render("retrieval_intent", value_search=True)
+    assert "do not add numbers as concepts" in topic_intent
+    assert "appear verbatim as cell values" in value_intent
+    assert "`search_values`" in value_intent
+    assert "`search_values`" not in topic_intent
+
+    value_judge = render("data_architect", portal_name="NYC", hint="", value_search=True)
+    assert "Suggest values likely to appear in the rows" in value_judge
+
+    forbidden = re.compile(r"\b(keyword|semantic|hybrid|bm25|knn|grep)\b", re.IGNORECASE)
+    assert all(
+        forbidden.search(prompt) is None
+        for prompt in (value_architect, value_intent, value_judge)
+    )
+
+
+def test_verbatim_entity_prompts_ask_for_entities_as_the_question_writes_them():
+    """pneuma_seeker scans table content for entities, so they must be named verbatim.
+
+    Rendering without the flag leaves both prompts as they were, so the other
+    arms of the experiment keep identical instructions.
+    """
+    prompt_manager = PromptManager()
+
+    def render(name, **extra):
+        return prompt_manager.render(name, "system_prompt", **extra)
+
+    plain_intent = render("retrieval_intent")
+    entity_intent = render("retrieval_intent", verbatim_entities=True)
+    assert render("retrieval_intent", verbatim_entities=False) == plain_intent
+    assert "real-world entities explicitly required" in plain_intent
+    assert "real-world entities explicitly required" not in entity_intent
+    assert "exactly as it appears in the question" in entity_intent
+
+    plain_architect = render("unified_architect", portal_name="NYC", hint="")
+    entity_architect = render(
+        "unified_architect", portal_name="NYC", hint="", verbatim_entities=True
+    )
+    assert render(
+        "unified_architect", portal_name="NYC", hint="", verbatim_entities=False
+    ) == plain_architect
+    assert "metadata-oriented dataset concepts" not in entity_architect
+    assert "exactly as it appears in the question" in entity_architect
+
+    forbidden = re.compile(
+        r"\b(keyword|semantic|hybrid|bm25|knn|grep|pneuma)\b", re.IGNORECASE
+    )
+    assert all(
+        forbidden.search(prompt) is None for prompt in (entity_intent, entity_architect)
+    )
+
+
 def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
     hit = RetrievalHit(
         document={"resource_id": "table", "title": "Table", "columns": []},
@@ -599,3 +674,56 @@ def test_empty_unified_context_retries_and_never_reaches_phase3(
     assert telemetry["empty_context_retries"] == 3
     assert telemetry["orchestrator_retrieval_calls"] == {"keyword": 3}
     assert telemetry["llm_invocations"] == 3
+
+
+def test_intent_search_values_are_optional_normalized_and_chosen_by_mode():
+    plain = parse_retrieval_intent(_intent(["road incidents"]))
+    assert plain.search_values == []
+
+    listed = parse_retrieval_intent(_intent(
+        ["road incidents"], search_values=[" East   River ", "east river", "2016-17"]
+    ))
+    assert listed.search_values == ["East River", "2016-17"]
+    assert listed.search_terms(value_search=True) == ["East River", "2016-17"]
+    assert listed.search_terms(value_search=False) == ["road incidents"]
+
+
+def test_value_mode_orchestration_searches_the_listed_values(monkeypatch):
+    calls = []
+    response = _intent(["road incidents"], search_values=["Queens", "2024"])
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **_kwargs: (response, "trace", 1),
+    )
+
+    def fake_prepare(**kwargs):
+        calls.append(kwargs["keywords"])
+        raise RuntimeError("stop after retrieval")
+
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context", fake_prepare
+    )
+    with pytest.raises(RuntimeError, match="stop after retrieval"):
+        run_unified_orchestrated_discovery(
+            query="How many?", llm=object(), solr_client=object(), all_files=[],
+            retrieval_config=RetrievalConfig(mode=RetrievalMode.GREP_VALUES),
+        )
+
+    assert calls == [["Queens", "2024"]]
+
+
+def test_value_mode_rejects_an_intent_that_lists_no_values(monkeypatch):
+    """Falling back to concepts would search dataset topics against cells."""
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **_kwargs: (_intent(["road incidents"]), "trace", 1),
+    )
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        lambda **_kwargs: pytest.fail("searched without any listed values"),
+    )
+    with pytest.raises(ValueError, match="search_values"):
+        run_unified_orchestrated_discovery(
+            query="How many?", llm=object(), solr_client=object(), all_files=[],
+            retrieval_config=RetrievalConfig(mode=RetrievalMode.GREP_VALUES),
+        )

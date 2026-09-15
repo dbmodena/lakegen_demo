@@ -67,14 +67,28 @@ class RetrievalExperimentConfig(FrozenModel):
     fusion_method: FusionMethod = FusionMethod.WEIGHTED
     rrf_k: int = Field(default=60, gt=0)
     pneuma_index_name: str = Field(default="lakegen", min_length=1)
-    pneuma_base_url: str = Field(default="http://localhost:8765", min_length=1)
+    pneuma_base_url: str = Field(default="http://localhost:8767", min_length=1)
     pneuma_timeout_seconds: float = Field(default=120.0, gt=0)
+    pneuma_content_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    pneuma_enumerate_tables: bool = True
+    pneuma_table_name_weight: float = Field(default=3.0, ge=0.0)
+    pneuma_column_name_weight: float = Field(default=2.0, ge=0.0)
+    pneuma_cell_weight: float = Field(default=1.0, ge=0.0)
     duckdb_max_files: int = Field(default=250, gt=0)
     duckdb_max_columns_per_file: int = Field(default=40, gt=0)
     duckdb_sample_rows: int = Field(default=3, gt=0)
     duckdb_max_scan_rows_per_file: int = Field(default=100_000, gt=0)
     duckdb_probe_files: int = Field(default=25, gt=0)
     duckdb_probe_rows_per_file: int = Field(default=1_000, gt=0)
+    grep_max_files: int | None = Field(default=None, gt=0)
+    grep_max_columns_per_file: int = Field(default=40, gt=0)
+    grep_max_scan_rows_per_file: int = Field(default=100_000, gt=0)
+    grep_sample_rows: int = Field(default=3, gt=0)
+    grep_probe_files: int = Field(default=25, gt=0)
+    grep_probe_rows_per_file: int = Field(default=1_000, gt=0)
+    scan_workers: int = Field(default=16, gt=0)
+    grep_value_weight: float = Field(default=1.0, ge=0.0)
+    grep_metadata_weight: float = Field(default=1.0, ge=0.0)
 
     @classmethod
     def from_runtime(cls, value: RetrievalConfig) -> "RetrievalExperimentConfig":
@@ -82,6 +96,54 @@ class RetrievalExperimentConfig(FrozenModel):
 
     def to_runtime(self) -> RetrievalConfig:
         return RetrievalConfig(**self.model_dump())
+
+
+class DiscoveryConfig(FrozenModel):
+    """How far the discovery agent may look before it must commit to a selection.
+
+    Every field is a strictness dial. The defaults reproduce the bounds that were
+    previously hardcoded in ``Phase12ToolsManager``, so an unconfigured run keeps
+    the established behaviour and only a deliberate override loosens it.
+
+    Note that ``retrieval.top_k`` decides how many candidates are *retained* and
+    ``initial_candidates`` how many of them the agent *sees*. Expansion draws on
+    the difference, so with the defaults (both 10) there is nothing hidden and
+    ``expand_candidates`` can never fire. To give it something to reveal, either
+    raise ``retrieval.top_k`` or lower ``initial_candidates``.
+    """
+
+    # How many retrieved candidates the agent sees before any expansion.
+    initial_candidates: int = Field(default=10, gt=0)
+    # How many further candidates one guided expansion reveals.
+    expansion_size: int = Field(default=5, ge=0)
+    max_expansions: int = Field(default=1, ge=0)
+    max_search_attempts: int = Field(default=1, gt=0)
+    # Distinct candidates the agent may inspect, before and after expanding.
+    initial_shortlist_size: int = Field(default=3, gt=0)
+    max_inspected_candidates: int = Field(default=5, gt=0)
+    # Re-inspections of one already-inspected file; the first look is not a repeat.
+    max_inspections_per_file: int = Field(default=2, gt=0)
+    # Whether inspecting a candidate still forecloses searching again. Inspection
+    # is how the agent learns a candidate is wrong, so leaving this false means it
+    # cannot act on what it just learned.
+    search_after_inspection: bool = False
+
+    @property
+    def fetch_floor(self) -> int:
+        """Fewest ranked hits worth requesting from the retriever.
+
+        Enough to fill the visible window and every configured expansion, since
+        mapping hits onto local files discards some of them.
+        """
+        return self.initial_candidates + self.expansion_size * self.max_expansions
+
+    @model_validator(mode="after")
+    def validate_inspection_budget(self) -> "DiscoveryConfig":
+        if self.initial_shortlist_size > self.max_inspected_candidates:
+            raise ValueError(
+                "initial_shortlist_size must not exceed max_inspected_candidates"
+            )
+        return self
 
 
 class ReviewerConfig(FrozenModel):
@@ -97,6 +159,15 @@ class GateConfig(FrozenModel):
     datasets: bool = True
     plan: bool = False
     result: bool = False
+
+
+class BenchmarkConfig(FrozenModel):
+    # Input of the retriever-only benchmark (``python -m
+    # lakegen.retrieval.benchmark --config``): a curated case file such as
+    # benchmark/100q_nyc.json, or a generated-queries file such as
+    # generated_queries_semantic.json. Relative paths resolve against the
+    # working directory. The interactive and batch workflows ignore it.
+    path: str | None = Field(default=None, min_length=1)
 
 
 def _default_retrieval() -> RetrievalExperimentConfig:
@@ -117,6 +188,8 @@ class ExperimentConfig(FrozenModel):
     discovery_architecture: DiscoveryArchitecture = DiscoveryArchitecture.UNIFIED
     tool_access: ToolAccess = ToolAccess.AGENTIC
     retrieval: RetrievalExperimentConfig = Field(default_factory=_default_retrieval)
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
+    benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)
     reviewers: ReviewerConfig = Field(default_factory=ReviewerConfig)
     max_revision_rounds: int = Field(default=3, ge=0)
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL

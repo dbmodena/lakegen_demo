@@ -29,6 +29,7 @@ from lakegen.phases import (
 )
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode, evaluate_ranking
+from lakegen.retrieval.intent import intent_entities
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.coder_experiment import run_coder_context_sweep, serialize_retry_error
@@ -501,6 +502,8 @@ def run_question(
                             hint=hint,
                             portal_name=runtime.portal_name,
                             avoid_keywords=attempted_keywords,
+                            value_search=runtime.retrieval.mode.value_keywords,
+                            verbatim_entities=runtime.retrieval.mode.verbatim_entities,
                         )
                     )
                     phase_invocation_counts["discovery"] += 1
@@ -513,6 +516,7 @@ def run_question(
                         portal_name=runtime.portal_name,
                         retrieval_config=runtime.retrieval,
                         selection_state=selection_state,
+                        entities=intent_entities(raw_keywords),
                     )
                     phase_invocation_counts["discovery"] += 1
                     context_telemetry["llm_invocations"] += 2
@@ -566,7 +570,7 @@ def run_question(
                     prepared = discovery_result.prepared_context
                     keywords_rejected = discovery_result.retry_keywords
                 else:
-                    keywords, _raw_keywords, tokens_p1, reasoning_p1 = (
+                    keywords, raw_keywords, tokens_p1, reasoning_p1 = (
                         phase1_generate_keywords(
                             query=question,
                             llm=llm,
@@ -574,6 +578,8 @@ def run_question(
                             hint=hint,
                             portal_name=runtime.portal_name,
                             avoid_keywords=attempted_keywords,
+                            value_search=runtime.retrieval.mode.value_keywords,
+                            verbatim_entities=runtime.retrieval.mode.verbatim_entities,
                         )
                     )
                     phase_invocation_counts["discovery"] += 1
@@ -582,6 +588,7 @@ def run_question(
                             query=question, keywords=keywords, solr_client=solr,
                             all_files=all_files, retrieval_config=runtime.retrieval,
                             table_dir=runtime.csv_dir,
+                            entities=intent_entities(raw_keywords),
                         )
                     except Exception as preparation_error:
                         exc = OrchestratedContextPreparationError(str(preparation_error))
@@ -1300,6 +1307,7 @@ def run_question(
                     "NDCG_AT_5": metrics["nDCG@5"],
                     "NDCG_AT_10": metrics["nDCG@10"],
                 })
+            searched_keywords, unused_concepts = retrieval.mode.split_keywords(keywords)
             try:
                 save_experiment_log(
                     question=question,
@@ -1308,7 +1316,8 @@ def run_question(
                     retries=result.retries,
                     reasoning=reasoning,
                     tables=selected,
-                    final_keywords=keywords,
+                    final_keywords=searched_keywords,
+                    unused_concepts=unused_concepts,
                     final_result=result.answer,
                     full_trace=trace,
                     tokens_phase1=discovery_phase_tokens["p1"],

@@ -34,6 +34,10 @@ class RetrievalIntent(BaseModel):
     status: Literal["resolved", "unresolved"]
     concepts: list[str] = Field(max_length=2)
     entities: list[str]
+    # Asked for only when retrieval matches cell contents (grep_values): the
+    # values to search for, each kept whole. Optional, so every other mode's
+    # intent is unchanged.
+    search_values: list[str] = Field(default_factory=list)
     measures: list[str]
     filters: list[IntentFilter]
     time_constraints: list[IntentFilter]
@@ -43,7 +47,10 @@ class RetrievalIntent(BaseModel):
     join_requirements: list[JoinRequirement]
     missing_evidence: list[str]
 
-    @field_validator("concepts", "entities", "measures", "group_by", "missing_evidence", mode="before")
+    @field_validator(
+        "concepts", "entities", "search_values", "measures", "group_by",
+        "missing_evidence", mode="before",
+    )
     @classmethod
     def normalize_strings(cls, value: list[str]) -> list[str]:
         if not isinstance(value, list):
@@ -74,6 +81,10 @@ class RetrievalIntent(BaseModel):
     def keywords(self) -> list[str]:
         return list(self.concepts)
 
+    def search_terms(self, value_search: bool) -> list[str]:
+        """What retrieval searches with: the listed cell values, or the concepts."""
+        return list(self.search_values) if value_search else self.keywords
+
 
 def parse_retrieval_intent(response: str) -> RetrievalIntent:
     match = re.fullmatch(r"\s*RETRIEVAL_INTENT:\s*(\{.*\})\s*", response, re.DOTALL)
@@ -84,3 +95,19 @@ def parse_retrieval_intent(response: str) -> RetrievalIntent:
         return RetrievalIntent.model_validate(payload)
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         raise ValueError(f"invalid retrieval_intent: {exc}") from exc
+
+
+def intent_entities(response: str) -> list[str]:
+    """Entities from a raw ``RETRIEVAL_INTENT`` envelope, or none.
+
+    The Pneuma-Seeker content search wants strings that appear verbatim in
+    tables, which is exactly what the discovery agent already extracted. This
+    reads them back out of the envelope Phase 1 returns, so no call site has to
+    change shape and no second LLM call is made. An unresolved or unparsable
+    intent yields no entities, and the retriever falls back to its tokenizer.
+    """
+    try:
+        intent = parse_retrieval_intent(response)
+    except ValueError:
+        return []
+    return list(intent.entities) if intent.status == "resolved" else []

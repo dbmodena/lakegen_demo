@@ -32,10 +32,10 @@ def format_cli_log_value(value: Any, max_len: int = 160) -> str:
 
 
 PHASE2_TOOL_LABELS = {
+    "search_tables": "Search tables",
     "inspect_columns": "Inspect columns",
     "preview_data": "Preview rows",
-    "find_exact_overlaps": "Check exact overlaps",
-    "find_schema_matches": "Check schema matches",
+    "check_join_union": "Check join/union",
     "confirm_table_selection": "Confirm table selection",
 }
 

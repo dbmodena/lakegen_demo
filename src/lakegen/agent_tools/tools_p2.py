@@ -1,4 +1,3 @@
-import sys
 import json
 import re
 from functools import lru_cache
@@ -7,8 +6,6 @@ from pathlib import Path
 from typing import Literal
 from pydantic import BaseModel, Field
 from llama_index.core.tools import FunctionTool
-from valentine import valentine_match
-from valentine.algorithms import ComaPy
 
 from lakegen.core.table_io import iter_table_chunks, read_table, table_row_count
 from lakegen.core.types import SolrMetadata
@@ -17,18 +14,13 @@ from lakegen.agent_tools.requirement_ledger import (
     build_requirement_ledger,
     requirement_ledger_blockers,
 )
-
-try:
-    try:
-        sloth_dir = Path(__file__).resolve().parent / "lakegen" / "data_integration_tools" / "sloth"
-        if str(sloth_dir) not in sys.path:
-            sys.path.append(str(sloth_dir))
-        from lakegen.data_integration_tools.sloth.sloth import sloth
-    except ImportError:
-        from lakegen.data_integration_tools.sloth import sloth
-except ImportError as e:
-    print(f"❌ Critical error: impossible to import sloth: {e}")
-    # sys.exit(1)
+from lakegen.agent_tools.schema_matching import (
+    SM_MACRO_AVG_THRESHOLD,
+    SM_MICRO_AVG_THRESHOLD,
+    join_evidence,
+    union_evidence,
+    verify_pair_schema,
+)
 
 # ==========================================
 # TOOLS
@@ -38,8 +30,6 @@ MAX_SCHEMA_SAMPLE_ROWS = 500
 MAX_SCHEMA_COLUMNS = 80
 MAX_UNIQUE_VALUES = 8
 MAX_PREVIEW_COLUMNS = 20
-MAX_JOINABILITY_MATCHES = 5
-JOINABILITY_SAMPLE_ROWS = 5000
 MAX_TEMPORAL_PROFILE_COLUMNS = 4
 PROFILE_CHUNK_ROWS = 100_000
 MAX_TEMPORAL_PROFILE_ROWS = 500_000
@@ -306,206 +296,93 @@ def _preview_data(table_dir: Path, file_name: str, n_rows: int = 3) -> str:
         return f"Error: {str(e)}"
 
 
-def _find_exact_overlaps(table_dir: Path, file_name_1: str, file_name_2: str) -> str:
-    path_1 = _table_path(table_dir, file_name_1)
-    path_2 = _table_path(table_dir, file_name_2)
-    try:
-        df1 = read_table(path_1, nrows=5000).astype(str)
-        df2 = read_table(path_2, nrows=5000).astype(str)
-        r_tab = [df1[col].tolist() for col in df1.columns]
-        s_tab = [df2[col].tolist() for col in df2.columns]
-        results = sloth(
-            r_tab=r_tab,
-            s_tab=s_tab,
-            min_a=10,
-            min_w=1,
-            max_w=min(len(df1.columns), len(df2.columns)),
-            min_h=5,
-            max_h=min(len(df1), len(df2)),
-            complete=False,
-            verbose=False,
+def _format_join_union(
+    file_name_1: str,
+    file_name_2: str,
+    q_columns: list[str],
+    evidence: dict[str, object],
+    table_shapes: tuple[tuple[int, int], tuple[int, int]],
+) -> str:
+    """State whether two tables join or union with each other, never mere schema overlap."""
+    left, right = f"'{file_name_1}'", f"'{file_name_2}'"
+    average, best = evidence["sm_macro_avg"], evidence["sm_micro_avg"]
+    sizes = "; ".join(
+        f"{name} {rows:,} rows x {columns} columns"
+        for name, (rows, columns) in zip((left, right), table_shapes)
+    )
+    lines = [
+        f"Join/union check between {left} and {right} "
+        f"(Valentine over all rows and columns: {sizes})."
+    ]
+
+    # The average never exceeds the best score, so OrQa's pair gate passes
+    # exactly when the best column pair supports a join.
+    join = join_evidence(evidence)
+    if not join["supported"]:
+        lines.append(
+            f"NO RELATIONSHIP: {left} neither joins nor unions with {right} "
+            f"(best match score {best:.3f} < {SM_MICRO_AVG_THRESHOLD})."
         )
-        if not results:
-            return "No exact overlap found."
-        return "Exact overlap found!"
-    except Exception as e:
-        return f"Error in SLOTH when comparing '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
+        return "\n".join(lines)
 
+    def key_pair(q_col: str, r_col: str) -> str:
+        return f"{q_col} ({file_name_1}) = {r_col} ({file_name_2})"
 
-def _normalize_join_values(series: pd.Series) -> pd.Series:
-    """Normalize non-null values before measuring exact equi-join overlap."""
-    values = series.dropna()
-    if values.empty:
-        return pd.Series(dtype="string")
-
-    if pd.api.types.is_numeric_dtype(values.dtype):
-        numeric = pd.to_numeric(values, errors="coerce").dropna()
-        return numeric.map(lambda value: format(float(value), ".15g"))
-
-    normalized = values.astype("string").str.strip().str.casefold()
-    return normalized[normalized != ""]
-
-
-def _joinability_metrics(left: pd.Series, right: pd.Series) -> dict[str, object]:
-    left_values = _normalize_join_values(left)
-    right_values = _normalize_join_values(right)
-    left_counts = left_values.value_counts()
-    right_counts = right_values.value_counts()
-    common_values = left_counts.index.intersection(right_counts.index)
-
-    left_distinct = len(left_counts)
-    right_distinct = len(right_counts)
-    common_distinct = len(common_values)
-    union_distinct = left_distinct + right_distinct - common_distinct
-
-    left_common_rows = int(left_counts.loc[common_values].sum()) if common_distinct else 0
-    right_common_rows = int(right_counts.loc[common_values].sum()) if common_distinct else 0
-    estimated_inner_rows = (
-        int((left_counts.loc[common_values] * right_counts.loc[common_values]).sum())
-        if common_distinct
-        else 0
+    q_key, r_key = join["key"]
+    lines.append(
+        f"JOIN: {left} joins {right} on {key_pair(q_key, r_key)} "
+        f"(match score {join['score']:.3f} >= {SM_MICRO_AVG_THRESHOLD})."
     )
+    if join["alternatives"]:
+        lines.append(
+            "  Alternative join keys: "
+            + "; ".join(
+                f"{key_pair(q_col, r_col)} ({score:.3f})"
+                for q_col, r_col, score in join["alternatives"]
+            )
+        )
 
-    left_unique = (
-        bool((left_counts.loc[common_values] == 1).all())
-        if common_distinct
-        else False
-    )
-    right_unique = (
-        bool((right_counts.loc[common_values] == 1).all())
-        if common_distinct
-        else False
-    )
-    if not common_distinct:
-        relationship = "undetermined"
-    elif left_unique and right_unique:
-        relationship = "one-to-one"
-    elif left_unique:
-        relationship = "one-to-many"
-    elif right_unique:
-        relationship = "many-to-one"
+    union = union_evidence(evidence, q_columns)
+    if union["supported"]:
+        aligned = ", ".join(
+            f"{q_col} -> {r_col} ({score:.3f})"
+            for q_col, r_col, score in zip(
+                union["q_columns"], union["r_columns"], union["column_scores"]
+            )
+        )
+        lines.append(
+            f"UNION: {left} unions with {right}, aligning {left} -> {right} columns: "
+            f"{aligned}; {len(set(union['q_columns']))} of {len(q_columns)} columns of "
+            f"{left} aligned (average match score {average:.3f} >= {SM_MACRO_AVG_THRESHOLD})."
+        )
     else:
-        relationship = "many-to-many"
-
-    left_distinct_coverage = common_distinct / left_distinct if left_distinct else 0.0
-    right_distinct_coverage = common_distinct / right_distinct if right_distinct else 0.0
-    containment = max(left_distinct_coverage, right_distinct_coverage)
-
-    if not common_distinct:
-        verdict = "not joinable: no common values in the sample"
-    elif relationship == "many-to-many" and containment >= 0.5:
-        verdict = "risky: value overlap exists but the join is many-to-many"
-    elif containment >= 0.8:
-        verdict = "joinable candidate"
-    elif containment >= 0.4:
-        verdict = "partially joinable"
-    else:
-        verdict = "weak join candidate"
-
-    matched_baseline = max(left_common_rows, right_common_rows, 1)
-    return {
-        "common_distinct": common_distinct,
-        "left_distinct_coverage": left_distinct_coverage,
-        "right_distinct_coverage": right_distinct_coverage,
-        "jaccard": common_distinct / union_distinct if union_distinct else 0.0,
-        "left_row_coverage": left_common_rows / len(left_values) if len(left_values) else 0.0,
-        "right_row_coverage": right_common_rows / len(right_values) if len(right_values) else 0.0,
-        "left_uniqueness": left_distinct / len(left_values) if len(left_values) else 0.0,
-        "right_uniqueness": right_distinct / len(right_values) if len(right_values) else 0.0,
-        "relationship": relationship,
-        "estimated_inner_rows": estimated_inner_rows,
-        "expansion_factor": estimated_inner_rows / matched_baseline,
-        "verdict": verdict,
-    }
+        lines.append(
+            f"UNION: {left} does not union with {right} "
+            f"(average match score {average:.3f} < {SM_MACRO_AVG_THRESHOLD})."
+        )
+    return "\n".join(lines)
 
 
-def _find_schema_matches(table_dir: Path, file_name_1: str, file_name_2: str) -> str:
-
-    path_1 = _table_path(table_dir, file_name_1)
-    path_2 = _table_path(table_dir, file_name_2)
-
+def _check_join_union(table_dir: Path, file_name_1: str, file_name_2: str) -> str:
+    """Decide with OrQa's Valentine criteria whether two tables join or union."""
     try:
-        df1 = read_table(path_1, nrows=JOINABILITY_SAMPLE_ROWS)
-        same_file = path_1.resolve() == path_2.resolve()
-        df2 = df1 if same_file else read_table(path_2, nrows=JOINABILITY_SAMPLE_ROWS)
-        same_schema = list(df1.columns) == list(df2.columns)
-
-        if same_schema:
-            # Valentine is needlessly expensive when the schemas already provide
-            # an exact, position-preserving correspondence.
-            ranked_matches = [(column, column, 1.0) for column in df1.columns]
-            analysis_method = "Exact-schema"
-            similarity_label = "Schema similarity"
-        else:
-            matcher = ComaPy(use_instances=True)
-            matches = valentine_match(
-                df1.astype("string"),
-                df2.astype("string"),
-                matcher,
-            )
-
-            if not matches:
-                return "No schema matches found."
-
-            ranked_matches = [
-                (col1, col2, score)
-                for ((_, col1), (_, col2)), score in sorted(
-                    matches.items(),
-                    key=lambda item: item[1],
-                    reverse=True,
-                )
-                if score > 0.0 and col1 in df1.columns and col2 in df2.columns
-            ]
-            analysis_method = "Valentine"
-            similarity_label = "Valentine similarity"
-        if not ranked_matches:
-            return "No schema matches found."
-
-        lines = [
-            f"{analysis_method} joinability analysis between '{file_name_1}' and '{file_name_2}':",
-            f"Sample: first {JOINABILITY_SAMPLE_ROWS} rows per table; comparisons use normalized exact values.",
+        frames = [
+            read_table(_table_path(table_dir, file_name))
+            for file_name in (file_name_1, file_name_2)
         ]
-        for index, (col1, col2, score) in enumerate(
-            ranked_matches[:MAX_JOINABILITY_MATCHES],
-            start=1,
-        ):
-            metrics = _joinability_metrics(df1[col1], df2[col2])
-            lines.extend(
-                [
-                    "",
-                    f"{index}. {col1} <-> {col2}",
-                    f"   {similarity_label}: {score:.4f}",
-                    (
-                        f"   Distinct overlap: {metrics['common_distinct']} "
-                        f"(left {metrics['left_distinct_coverage']:.1%}, "
-                        f"right {metrics['right_distinct_coverage']:.1%}, "
-                        f"Jaccard {metrics['jaccard']:.1%})"
-                    ),
-                    (
-                        f"   Row coverage: left {metrics['left_row_coverage']:.1%}, "
-                        f"right {metrics['right_row_coverage']:.1%}"
-                    ),
-                    (
-                        f"   Key uniqueness: left {metrics['left_uniqueness']:.1%}, "
-                        f"right {metrics['right_uniqueness']:.1%}"
-                    ),
-                    (
-                        f"   Cardinality: {metrics['relationship']}; "
-                        f"estimated inner-join rows {metrics['estimated_inner_rows']:,}; "
-                        f"expansion {metrics['expansion_factor']:.2f}x"
-                    ),
-                    f"   Verdict: {metrics['verdict']}",
-                ]
-            )
-
-        omitted = len(ranked_matches) - MAX_JOINABILITY_MATCHES
-        if omitted > 0:
-            lines.extend(["", f"... {omitted} lower-scoring matches omitted"])
-
-        return _compact_tool_output("\n".join(lines))
-
+        evidence = verify_pair_schema(*frames)
     except Exception as e:
-        return f"Error in Valentine matcher for '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
+        return f"Error checking join/union between '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
+
+    return _compact_tool_output(
+        _format_join_union(
+            file_name_1,
+            file_name_2,
+            list(frames[0].columns),
+            evidence,
+            (frames[0].shape, frames[1].shape),
+        )
+    )
 
 
 _EXPANSION_STOPWORDS = {
@@ -703,13 +580,13 @@ class Phase2JudgeToolsManager:
             + f"\n\n{next_step}"
         )
 
-    def find_schema_matches(self, file_name_1: str, file_name_2: str) -> str:
+    def check_join_union(self, file_name_1: str, file_name_2: str) -> str:
         """
-        Use Valentine to identify matching columns, then verify their practical
-        joinability through value overlap, row coverage, key uniqueness,
-        cardinality, and estimated join expansion.
+        Check whether two tables join or union with each other. Reports the join
+        key columns when they join, the aligned columns when they union, or that
+        they neither join nor union.
         """
-        return _find_schema_matches(self.csv_dir, file_name_1, file_name_2)
+        return _check_join_union(self.csv_dir, file_name_1, file_name_2)
 
     def confirm_table_selection(
         self,
@@ -801,7 +678,7 @@ class Phase2JudgeToolsManager:
         return [
             FunctionTool.from_defaults(fn=self.inspect_columns),
             FunctionTool.from_defaults(fn=self.expand_candidates),
-            FunctionTool.from_defaults(fn=self.find_schema_matches),
+            FunctionTool.from_defaults(fn=self.check_join_union),
             FunctionTool.from_defaults(fn=self.confirm_table_selection, fn_schema=ConfirmSelectionSchema, return_direct=True),
             FunctionTool.from_defaults(fn=self.reject_selection, fn_schema=RejectSelectionSchema, return_direct=True),
         ]
@@ -813,10 +690,10 @@ def make_p2_judge_tools(
 ) -> list:
     """
     Build tools for the Phase 2 *judge-only* agent.
-    Does NOT include search_solr — the Solr query is done programmatically
+    Does NOT include search_tables — retrieval is done programmatically
     before the agent runs, and candidates are provided in the prompt.
 
-    Tools: inspect_columns, find_schema_matches (Valentine),
+    Tools: inspect_columns, check_join_union (Valentine),
            confirm_table_selection.
     """
     manager = Phase2JudgeToolsManager(candidates, csv_dir)

@@ -74,10 +74,16 @@ def phase1_generate_keywords(
     stream_reasoning: bool = True,
     cancel_check: Callable[[], None] | None = None,
     avoid_keywords: list[str] | None = None,
+    value_search: bool = False,
+    verbatim_entities: bool = False,
 ) -> tuple[list[str], str, int, str]:
     system_prompt = pm.render(
         "retrieval_intent",
-        "system_prompt"
+        "system_prompt",
+        # Cell-value retrieval needs terms the rows store, not dataset topics.
+        value_search=value_search,
+        # Content search scans for entities, so they must be named as written.
+        verbatim_entities=verbatim_entities,
     )
 
     avoid_keywords_str = ", ".join(avoid_keywords) if avoid_keywords else ""
@@ -208,7 +214,9 @@ def phase1_generate_keywords(
     raw_content = visible_content.strip()
     try:
         intent = parse_retrieval_intent(raw_content)
-        extracted = intent.keywords if intent.status == "resolved" else []
+        extracted = (
+            intent.search_terms(value_search) if intent.status == "resolved" else []
+        )
     except ValueError:
         extracted = []
 

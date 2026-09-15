@@ -13,7 +13,7 @@ from lakegen.core.config import LOG_DIR
 
 CSV_LOG_COLUMNS = [
     "ID", "TIMESTAMP", "MODEL", "ARCHITECTURE", "QUESTION",
-    "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "RETRIES",
+    "TABLES_SELECTED", "KEYWORDS_RAW", "KEYWORDS_FINAL", "UNUSED_CONCEPTS", "RETRIES",
     "SUCCESS", "REASONING", "DEBUG_RAW", "RAW_RESULT", "FINAL_RESULT",
     "TOKENS_PHASE1", "TOKENS_PHASE2", "TOKENS_PHASE3", "TOKENS_PHASE4",
     "ERROR",
@@ -23,7 +23,7 @@ API_CSV_LOG_COLUMNS = [
     "ID", "TIMESTAMP", "JOB_ID", "SOURCE_PATH", "SOURCE_ID",
     "EXECUTION_ATTEMPT", "IS_FINAL_ATTEMPT", "EXPERIMENT_ID", "MANIFEST_ID", "MODEL",
     "ARCHITECTURE", "CORE", "PORTAL_NAME", "STATUS", "QUESTION",
-    "TABLES_SELECTED", "KEYWORDS_FINAL", "SOURCE_RELEVANT_TABLE_IDS",
+    "TABLES_SELECTED", "KEYWORDS_FINAL", "UNUSED_CONCEPTS", "SOURCE_RELEVANT_TABLE_IDS",
     "RETRIEVAL_MODE", "TOP_K", "HYBRID_ALPHA", "CANDIDATE_MULTIPLIER",
     "REPRESENTATION_VERSION", "EMBEDDING_MODEL", "EMBEDDING_BASE_URL",
     "VECTOR_FIELD", "LEXICAL_QUERY_FIELDS", "MISSING_SIGNAL_POLICY",
@@ -123,7 +123,8 @@ def save_experiment_log(
     reasoning: str = "", 
     tables: list = None, 
     raw_keywords: str = "", 
-    final_keywords: list = None, 
+    final_keywords: list = None,
+    unused_concepts: list | None = None, 
     debug_raw: str = "", 
     final_result: str = "", 
     full_trace: str = "", 
@@ -153,6 +154,7 @@ def save_experiment_log(
     architecture_str = f"\nARCHITECTURE: {architecture}" if architecture else ""
     raw_kw_str = f"\nKEYWORDS (model raw output): {raw_keywords}" if raw_keywords else ""
     final_kw_str = f"\nKEYWORDS (final elaborated): {', '.join(final_keywords)}" if final_keywords else ""
+    unused_str = f"\nCONCEPTS NOT SEARCHED (retrieval used only the question): {', '.join(unused_concepts)}" if unused_concepts else ""
     final_result_str = f"\nFINAL RESULT (Phase 4):\n{final_result}" if final_result else ""
     debug_raw_str = f"\nDEBUG RAW:\n{debug_raw}" if debug_raw else ""
     llm_thinking_str = f"\n{'-'*40}\nMODEL THINKING (Phase 3 - Code Generator):\n{llm_thinking}\n{'-'*40}" if llm_thinking else ""
@@ -167,7 +169,7 @@ def save_experiment_log(
     reasoning_txt = "\n\n".join(reasoning_parts) if reasoning_parts else reasoning
     
     tokens_str = f"\nTOKENS: Phase1={tokens_phase1} | Phase2={tokens_phase2} | Phase3={tokens_phase3} | Phase4={synthesis_tokens}" if any([tokens_phase1, tokens_phase2, tokens_phase3, synthesis_tokens]) else ""
-    log_entry = f"\n{'='*50}\nDATA: {timestamp}{model_str}{architecture_str}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}{tokens_str}\nRETRIES: {retries}{llm_thinking_str}\nCODE (extracted):\n{code}\n\nRAW OUTPUT (Phase 3):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
+    log_entry = f"\n{'='*50}\nDATA: {timestamp}{model_str}{architecture_str}\nQUESTION: {question}{tables_str}{raw_kw_str}{final_kw_str}{unused_str}\nMODEL REASONING (Agent Trace):\n{reasoning_txt}{debug_raw_str}{tokens_str}\nRETRIES: {retries}{llm_thinking_str}\nCODE (extracted):\n{code}\n\nRAW OUTPUT (Phase 3):\n{result}{final_result_str}{error_str}\n{'='*50}\n"
     with open(txt_path, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
@@ -192,6 +194,7 @@ def save_experiment_log(
         "TABLES_SELECTED": ", ".join(tables) if tables else "",
         "KEYWORDS_RAW":    raw_keywords,
         "KEYWORDS_FINAL":  ", ".join(final_keywords) if final_keywords else "",
+        "UNUSED_CONCEPTS": ", ".join(unused_concepts) if unused_concepts else "",
         "RETRIES":         retries,
         "SUCCESS":         success,
         "REASONING":       reasoning,

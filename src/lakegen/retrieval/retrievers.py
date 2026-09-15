@@ -17,7 +17,13 @@ from lakegen.retrieval.config import (
 )
 from lakegen.retrieval.embeddings import EmbeddingModel, get_embedding_model
 from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
-from lakegen.retrieval.models import RetrievalHit, RetrievalRun, document_key
+from lakegen.retrieval.grep import GrepRetriever
+from lakegen.retrieval.models import (
+    RetrievalHit,
+    RetrievalRun,
+    document_key,
+    min_max_normalize,
+)
 from lakegen.retrieval.pneuma import (
     DocumentResolver,
     PneumaClient,
@@ -58,24 +64,6 @@ def _response_hits(response: dict[str, Any], limit: int) -> list[RetrievalHit]:
     for rank, hit in enumerate(ordered[:limit], 1):
         hit.rank = rank
     return ordered[:limit]
-
-
-def min_max_normalize(scores: dict[str, float]) -> dict[str, float]:
-    """Normalize finite scores, using 1.0 for a non-empty constant list.
-
-    A constant list has no spread, so the usual formula is undefined. Assigning
-    one preserves the fact that every item was positively retrieved by that
-    branch; empty and non-finite inputs contribute no signal.
-    """
-    finite = {key: float(value) for key, value in scores.items() if math.isfinite(value)}
-    if not finite:
-        return {}
-    low = min(finite.values())
-    high = max(finite.values())
-    if high == low:
-        return {key: 1.0 for key in finite}
-    scale = high - low
-    return {key: (value - low) / scale for key, value in finite.items()}
 
 
 def _best_finite_hits(hits: Sequence[RetrievalHit]) -> dict[str, RetrievalHit]:
@@ -361,15 +349,23 @@ class TableRetrievalService:
             if self.semantic is not None and config.mode == RetrievalMode.HYBRID
             else None
         )
+        # Both Pneuma modalities are the same retriever; it reads the mode to
+        # decide whether content search and enumeration run at all.
         self.pneuma = (
             PneumaRetriever(
                 config,
                 pneuma_document_resolver or SolrPneumaDocumentResolver(solr),
                 client=pneuma_client,
+                table_dir=table_dir,
             )
-            if config.mode == RetrievalMode.PNEUMA
+            if config.mode.is_pneuma
+            and (table_dir is not None or config.mode is RetrievalMode.PNEUMA)
             else None
         )
+        if config.mode.is_pneuma and self.pneuma is None:
+            raise ValueError(
+                f"{config.mode.value} retrieval requires a local table_dir"
+            )
         self.duckdb_agentic = (
             DuckDBAgenticRetriever(config, table_dir)
             if config.mode == RetrievalMode.DUCKDB_AGENTIC and table_dir is not None
@@ -377,6 +373,17 @@ class TableRetrievalService:
         )
         if config.mode == RetrievalMode.DUCKDB_AGENTIC and self.duckdb_agentic is None:
             raise ValueError("duckdb_agentic retrieval requires a local table_dir")
+        # Both grep modalities are the same retriever; it reads the mode to decide
+        # whether anything outside the cells may select or score a file.
+        self.grep = (
+            GrepRetriever(config, table_dir)
+            if config.mode.is_grep and table_dir is not None
+            else None
+        )
+        if config.mode.is_grep and self.grep is None:
+            raise ValueError(
+                f"{config.mode.value} retrieval requires a local table_dir"
+            )
 
     def retrieve(
         self,
@@ -386,6 +393,7 @@ class TableRetrievalService:
         top_k: int | None = None,
         lexical_fetch_k: int | None = None,
         q_op: str = "AND",
+        entities: Sequence[str] | None = None,
     ) -> list[RetrievalHit]:
         requested_k = top_k or self.config.top_k
         started = time.monotonic()
@@ -406,9 +414,16 @@ class TableRetrievalService:
             elif self.config.mode == RetrievalMode.HYBRID:
                 assert self.hybrid is not None
                 hits = self.hybrid.retrieve(question, keywords, top_k=requested_k)
-            elif self.config.mode == RetrievalMode.PNEUMA:
+            elif self.config.mode.is_pneuma:
                 assert self.pneuma is not None
-                hits = self.pneuma.retrieve(question, top_k=requested_k)
+                hits = self.pneuma.retrieve(
+                    question,
+                    top_k=requested_k,
+                    entities=entities,
+                )
+            elif self.config.mode.is_grep:
+                assert self.grep is not None
+                hits = self.grep.retrieve(question, keywords, top_k=requested_k)
             else:
                 assert self.duckdb_agentic is not None
                 hits = self.duckdb_agentic.retrieve(

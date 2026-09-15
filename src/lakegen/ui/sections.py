@@ -26,8 +26,18 @@ def format_hint(hint: str) -> str:
     return f"`{hint}`" if hint else t("summary.none")
 
 
+def format_retrieval_keywords(session: LakeGenSession, keywords: list[str]) -> str:
+    """Keywords as the chat shows them, flagged when retrieval never searches them."""
+    listed = ", ".join(f"`{kw}`" for kw in keywords) or t("summary.none")
+    if session.runtime.retrieval.mode.ranks_question_only:
+        return t("summary.question_only_keywords", keywords=listed)
+    return listed
+
+
 def build_phase1_summary(session: LakeGenSession, approval_hint: str = "") -> str:
     keywords = ", ".join(f"`{kw}`" for kw in session.keywords)
+    if session.runtime.retrieval.mode.ranks_question_only:
+        keywords = format_retrieval_keywords(session, session.keywords)
     lines = [
         f"**{t('summary.confirmed_keywords')}**",
         keywords or t("summary.no_keywords"),

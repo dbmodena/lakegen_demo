@@ -15,6 +15,7 @@ from lakegen.ui.sections import (
     build_phase2_summary,
     build_phase3_summary,
     build_phase4_summary,
+    format_retrieval_keywords,
 )
 from lakegen.ui.i18n import t
 from lakegen.ui.state import (
@@ -55,6 +56,7 @@ from lakegen.tracing import (
 )
 from lakegen.experiment_config import ToolAccess
 from lakegen.orchestrated_context import prepare_discovery_context
+from lakegen.retrieval.intent import intent_entities
 from lakegen.phases.orchestrated_discovery import (
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
@@ -118,6 +120,51 @@ def _action_value(response: Any) -> str:
     return str(payload.get("value") or "")
 
 
+# A pending AskActionMessage waits on ``sio.call(..., to=sid)``, where ``sid`` is
+# the websocket id captured when it was sent (chainlit/socket.py). A reconnect
+# rebinds the session's emitter but cannot rebind that already-awaiting call, so
+# its acknowledgement never arrives. The buttons stay on screen, and clicking one
+# falls through to the HTTP action endpoint, which 404s because nothing is
+# registered there. Registering real callbacks gives those clicks somewhere to
+# land: the websocket reply and the HTTP reply resolve the same future, whichever
+# arrives first.
+_PENDING_CHOICES: dict[str, tuple[str, asyncio.Future[str]]] = {}
+
+_CHOICE_ACTIONS = (
+    "approve_keywords",
+    "recalculate_keywords",
+    "approve_tables",
+    "recalculate_tables",
+    "approve_selection",
+    "recalculate_selection",
+    "force_execution",
+)
+
+
+def _choice_session_key() -> str:
+    session = getattr(cl.context, "session", None)
+    return str(getattr(session, "id", "") or "")
+
+
+async def _on_choice_action(action: Any) -> str:
+    """Answer a choice whose websocket acknowledgement can no longer arrive."""
+    payload = getattr(action, "payload", None) or {}
+    pending = _PENDING_CHOICES.get(_choice_session_key())
+    if pending is None:
+        return "This prompt is no longer active."
+    nonce, future = pending
+    # The nonce stops a click on a superseded prompt from answering whichever
+    # question happens to be open now.
+    if payload.get("gate") != nonce or future.done():
+        return "This prompt is no longer active."
+    future.set_result(str(payload.get("value") or ""))
+    return ""
+
+
+for _choice_action in _CHOICE_ACTIONS:
+    cl.action_callback(_choice_action)(_on_choice_action)
+
+
 async def _ask_choice(
     content: str,
     choices: list[tuple[str, str, str]],
@@ -127,22 +174,38 @@ async def _ask_choice(
     approved_value: str,
     remove_after_answer: bool = False,
 ) -> str:
+    nonce = uuid.uuid4().hex
     message = cl.AskActionMessage(
         content=content,
         actions=[
-            cl.Action(name=name, payload={"value": value}, label=label)
+            cl.Action(name=name, payload={"value": value, "gate": nonce}, label=label)
             for name, value, label in choices
         ],
         timeout=24 * 60 * 60,
         raise_on_timeout=False,
     )
     started = time.monotonic()
-    response = await message.send()
+    fallback: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    key = _choice_session_key()
+    _PENDING_CHOICES[key] = (nonce, fallback)
+    ask = asyncio.ensure_future(message.send())
+    try:
+        done, _ = await asyncio.wait(
+            {ask, fallback}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if ask in done:
+            response = ask.result()
+            if response is None:
+                raise WorkflowTimedOut(f"Interaction timed out at {gate.value}")
+            value = _action_value(response)
+        else:
+            value = fallback.result()
+    finally:
+        _PENDING_CHOICES.pop(key, None)
+        if not ask.done():
+            ask.cancel()
     if remove_after_answer:
         await message.remove()
-    if response is None:
-        raise WorkflowTimedOut(f"Interaction timed out at {gate.value}")
-    value = _action_value(response)
     get_session().intervention_recorder.record_approval(
         phase=phase,
         gate=gate,
@@ -180,10 +243,6 @@ async def _ask_hint(
     return hint
 
 
-def _keyword_list(keywords: list[str]) -> str:
-    return ", ".join(f"`{kw}`" for kw in keywords) or t("summary.none")
-
-
 async def _generate_keywords(
     session: LakeGenSession,
     llm,
@@ -217,6 +276,8 @@ async def _generate_keywords(
                 stream_placeholder=stream_box,
                 reasoning_placeholder=reasoning_box,
                 avoid_keywords=avoid_kws,
+                value_search=session.runtime.retrieval.mode.value_keywords,
+                verbatim_entities=session.runtime.retrieval.mode.verbatim_entities,
             )
             session.phase_seconds["discovery"] += time.monotonic() - phase_started
             session.llm_call_counts["discovery"] += 1
@@ -226,7 +287,7 @@ async def _generate_keywords(
         session.record_phase1_run(label, hint, kws, raw, tok, reasoning)
         step.output = (
             f"{t('summary.keywords').title()}: "
-            f"{_keyword_list(kws)}\n\n"
+            f"{format_retrieval_keywords(session, kws)}\n\n"
             f"{t('summary.tokens').title()}: `{tok}`"
         )
     return step
@@ -245,7 +306,7 @@ async def _run_keyword_gate(session: LakeGenSession, llm, pm, initial_hint: str)
         action = await _ask_choice(
             session.text(
                 "phase1.review_keywords",
-                keywords=_keyword_list(session.keywords),
+                keywords=format_retrieval_keywords(session, session.keywords),
             ),
             [
                 ("approve_keywords", "approve", session.text("phase1.approve")),
@@ -294,6 +355,8 @@ async def _select_tables_once(
                         query=session.query, keywords=session.keywords,
                         solr_client=solr, all_files=all_files,
                         retrieval_config=session.runtime.retrieval,
+                        table_dir=session.runtime.csv_dir,
+                        entities=intent_entities(session.raw_keywords or ""),
                     )
                 except WorkflowCancelled:
                     raise
@@ -344,6 +407,7 @@ async def _select_tables_once(
                     stream_callback=bridge.emit,
                     cancel_check=session.check_cancelled,
                     retrieval_config=session.runtime.retrieval,
+                    entities=intent_entities(session.raw_keywords or ""),
                 )
             session.phase_seconds["discovery"] += time.monotonic() - phase_started
             session.llm_call_counts["discovery"] += (
@@ -484,6 +548,7 @@ async def _run_unified_gate(
                             query=session.query, llm=llm, solr_client=solr,
                             all_files=all_files,
                             retrieval_config=session.runtime.retrieval, hint=hint,
+                            table_dir=session.runtime.csv_dir,
                             stream_callback=bridge.emit,
                             cancel_check=session.check_cancelled,
                         )
@@ -535,7 +600,7 @@ async def _run_unified_gate(
                 session.tokens["p1"] += tokens
 
             step.output = (
-                f"**Keywords used:** {_keyword_list(keywords)}\n\n"
+                f"**Keywords used:** {format_retrieval_keywords(session, keywords)}\n\n"
                 f"**Tables selected:** " + ", ".join(f"`{t}`" for t in selected) + "\n\n"
                 f"**Reasoning:**\n{reasoning}\n\n"
                 f"- Tokens: `{tokens}`\n\n"
@@ -561,7 +626,7 @@ async def _run_unified_gate(
         action = await _ask_choice(
             session.text(
                 "phase2.review_tables",
-                tables=f"**Keywords:** {_keyword_list(keywords)}\n\n**Tables:**\n" + "\n".join(f"- `{table}`" for table in session.tables) + f"\n\n**Reasoning:**\n{reasoning}",
+                tables=f"**Keywords:** {format_retrieval_keywords(session, keywords)}\n\n**Tables:**\n" + "\n".join(f"- `{table}`" for table in session.tables) + f"\n\n**Reasoning:**\n{reasoning}",
             ),
             [
                 ("approve_selection", "approve", "Approve Selection"),
@@ -770,11 +835,15 @@ def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None
         session.tool_access_telemetry["agent_direct_tools"] = [
             str(item["type"]) for item in summarize_tool_calls(session.full_trace)
         ]
+    searched_keywords, unused_concepts = session.runtime.retrieval.mode.split_keywords(
+        session.keywords
+    )
     trace = {
         "status": status,
         "phase_reached": session.phase,
         "discovery": {
-            "keywords": list(session.keywords),
+            "keywords": searched_keywords,
+            "unused_concepts": unused_concepts,
             "selected_datasets": list(session.tables),
         },
         "tool_access": session.tool_access_telemetry,
@@ -820,7 +889,8 @@ def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None
         reasoning=session.architect_reasoning,
         tables=session.tables,
         raw_keywords=session.raw_keywords,
-        final_keywords=session.keywords,
+        final_keywords=searched_keywords,
+        unused_concepts=unused_concepts,
         final_result=session.final_answer,
         full_trace=session.full_trace,
         tokens_phase1=session.tokens["p1"],

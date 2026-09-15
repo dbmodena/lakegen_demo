@@ -196,9 +196,9 @@ def test_agentic_retrieval_telemetry_keeps_hits_scores_and_job_context(
 def test_tool_telemetry_counts_calls_without_counting_results_twice():
     trace = """
 **Phase 2 tool #1: Run tool**
-- Tool: `search_solr`
+- Tool: `search_tables`
 **Phase 2 tool #1 result**
-- Tool: `search_solr`
+- Tool: `search_tables`
 **Phase 2 tool #2: Inspect columns**
 - Tool: `inspect_columns`
 **Phase 2 tool #2 result**
@@ -207,7 +207,7 @@ def test_tool_telemetry_counts_calls_without_counting_results_twice():
 
     assert summarize_tool_calls(trace) == [
         {"phase": "discovery", "type": "inspect_columns", "count": 1},
-        {"phase": "discovery", "type": "search_solr", "count": 1},
+        {"phase": "discovery", "type": "search_tables", "count": 1},
     ]
 
 

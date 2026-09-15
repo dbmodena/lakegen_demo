@@ -224,7 +224,7 @@ def test_default_search_retains_hidden_candidates_for_expansion(monkeypatch, tmp
     files = [f"table-{i}.parquet" for i in range(1, 21)]
     state = P12State()
     manager = Phase12ToolsManager(state, object(), files, tmp_path)
-    manager.search_solr("values")
+    manager.search_tables("values")
     assert len(state.all_candidates) == 20
     assert state.visible_candidate_count == 10
     manager.inspect_columns(files[0])
@@ -282,7 +282,7 @@ def test_fallback_does_not_turn_narrative_into_a_join():
     assert plan["combination_strategy"] == "unspecified"
 
 
-def test_search_returns_bounded_schema_preview_in_solr_order(
+def test_search_returns_bounded_schema_preview_in_retrieval_order(
     monkeypatch, tmp_path
 ):
     columns = [
@@ -320,10 +320,10 @@ def test_search_returns_bounded_schema_preview_in_solr_order(
         retrieval_config=RetrievalConfig(mode=RetrievalMode.SEMANTIC, top_k=10),
     )
 
-    result = manager.search_solr("schools")
+    result = manager.search_tables("schools")
 
-    assert "Candidates in Solr order" in result
-    assert "Candidate 1 (Solr rank 1)" in result
+    assert "Candidates in retrieval order" in result
+    assert "Candidate 1 (retrieval rank 1)" in result
     assert "Description: A useful dataset description." in result
     assert "Indexed schema preview: 12 of 15 columns" in result
     assert "column_0 [string]" in result
@@ -357,9 +357,9 @@ def test_unified_search_allows_one_initial_search_then_guided_expansion(
         retrieval_config=RetrievalConfig(top_k=10),
     )
 
-    first = manager.search_solr("school")
-    second = manager.search_solr("bandwidth")
-    repeated = manager.search_solr("bandwidth")
+    first = manager.search_tables("school")
+    second = manager.search_tables("bandwidth")
+    repeated = manager.search_tables("bandwidth")
 
     assert "generic.parquet" in first
     assert second.startswith("Search limit reached")
@@ -368,7 +368,7 @@ def test_unified_search_allows_one_initial_search_then_guided_expansion(
     assert len(state.search_attempts) == 1
     assert calls == [["school"]]
 
-    limited = manager.search_solr("third distinct concept")
+    limited = manager.search_tables("third distinct concept")
     assert limited.startswith("Search limit reached")
 
 
@@ -387,16 +387,17 @@ def test_search_refinement_is_blocked_after_schema_inspection(monkeypatch, tmp_p
         P12State(), object(), ["table.parquet"], tmp_path,
         question="value", retrieval_config=RetrievalConfig(top_k=10),
     )
-    manager.search_solr("first concept")
+    manager.search_tables("first concept")
     manager.inspect_columns("table.parquet")
 
-    assert manager.search_solr("new concept").startswith(
+    assert manager.search_tables("new concept").startswith(
         "Search refinement blocked"
     )
 
 
-def test_configured_search_contract_is_mode_neutral_while_semantic_uses_question(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize("mode", [RetrievalMode.SEMANTIC, RetrievalMode.PNEUMA])
+def test_configured_search_contract_is_mode_neutral_while_question_only_modes_use_question(
+    monkeypatch, tmp_path, mode
 ):
     calls = []
 
@@ -415,20 +416,22 @@ def test_configured_search_contract_is_mode_neutral_while_semantic_uses_question
         ["gold.parquet"],
         tmp_path,
         question="Which school has the highest bandwidth?",
-        retrieval_config=RetrievalConfig(
-            mode=RetrievalMode.SEMANTIC, top_k=3
-        ),
+        retrieval_config=RetrievalConfig(mode=mode, top_k=3),
     )
 
-    first = manager.search_solr("invented keyword")
-    repeated = manager.search_solr("different invented keyword")
+    first = manager.search_tables("invented keyword")
+    repeated = manager.search_tables("invented keyword")
+    different = manager.search_tables("different invented keyword")
     description = manager.get_tools()[0].metadata.description
 
     assert "gold.parquet" in first
-    assert repeated.startswith("Search skipped: identical concepts")
     assert calls == [("Which school has the highest bandwidth?", [], 15)]
     assert state.used_keywords == ["invented", "keyword"]
     assert "Provide 1-2 concise dataset concepts" in description
+    # Deduplicated by the agent's own concepts, as in keyword modes: a different
+    # search is not "identical", it is over the attempt limit.
+    assert repeated.startswith("Search skipped: identical concepts")
+    assert different.startswith("Search limit reached (1 attempt(s))")
 
 
 def test_semantic_embedding_failure_is_labeled_and_not_retried_by_agent(
@@ -455,8 +458,8 @@ def test_semantic_embedding_failure_is_labeled_and_not_retried_by_agent(
         retrieval_config=RetrievalConfig(mode=RetrievalMode.SEMANTIC),
     )
 
-    first = manager.search_solr("school")
-    repeated = manager.search_solr("different keywords")
+    first = manager.search_tables("school")
+    repeated = manager.search_tables("different keywords")
 
     assert first.startswith("Error generating the configured retrieval representation")
     assert "must not be repeated" in first
@@ -464,18 +467,68 @@ def test_semantic_embedding_failure_is_labeled_and_not_retried_by_agent(
     assert calls == [1]
 
 
-def test_search_tool_description_is_identical_for_all_retrieval_modes(tmp_path):
-    descriptions = []
-    for mode in RetrievalMode:
-        manager = Phase12ToolsManager(
-            P12State(), object(), [], tmp_path,
-            question="Which tables are relevant?",
-            retrieval_config=RetrievalConfig(mode=mode),
-        )
-        descriptions.append(manager.get_tools()[0].metadata.description)
+def _search_description(tmp_path, mode):
+    manager = Phase12ToolsManager(
+        P12State(), object(), [], tmp_path,
+        question="Which tables are relevant?",
+        retrieval_config=RetrievalConfig(mode=mode),
+    )
+    return manager.get_tools()[0].metadata.description
 
-    assert len(set(descriptions)) == 1
-    assert "Provide 1-2 concise dataset concepts" in descriptions[0]
+
+def test_search_tool_description_is_identical_for_all_topic_based_modes(tmp_path):
+    """The agent is not told which retriever runs, so it cannot adapt to it.
+
+    grep_values and pneuma_seeker are the exceptions: one matches cell contents
+    only and the other scans for named entities, so asking either arm for
+    dataset topics would handicap it by construction.
+    """
+    descriptions = {
+        _search_description(tmp_path, mode)
+        for mode in RetrievalMode
+        if not (mode.value_keywords or mode.verbatim_entities)
+    }
+
+    assert len(descriptions) == 1
+    assert "Provide 1-2 concise dataset concepts" in descriptions.pop()
+
+
+def test_pneuma_seeker_asks_the_agent_for_verbatim_entities(monkeypatch, tmp_path):
+    description = _search_description(tmp_path, RetrievalMode.PNEUMA_SEEKER)
+    assert "exactly as it appears in the question" in description
+    assert "dataset concepts" not in description
+    assert "pneuma" not in description.lower()  # still never names the retriever
+
+    calls = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            calls.append(kwargs)
+            return [_hit("table", 1, ["value"])]
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+    )
+    manager = Phase12ToolsManager(
+        P12State(), object(), ["table.parquet"], tmp_path,
+        question="Ferry trips on the East River",
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.PNEUMA_SEEKER),
+    )
+    assert manager.get_tools()[0].metadata.name == "search_tables"
+
+    result = manager.search_table_entities(["East  River"])
+
+    assert "table.parquet" in result
+    assert calls[0]["entities"] == ["East River"]
+    assert calls[0]["keywords"] == []  # Pneuma ranks the question itself
+
+
+def test_grep_values_asks_the_agent_for_cell_values(tmp_path):
+    description = _search_description(tmp_path, RetrievalMode.GREP_VALUES)
+
+    assert "values likely to appear verbatim in the cells" in description
+    assert "dataset concepts" not in description
+    assert "grep" not in description.lower()  # still never names the retriever
 
 
 @pytest.mark.parametrize("mode", list(RetrievalMode))
@@ -498,15 +551,16 @@ def test_search_tool_allows_one_initial_call_for_every_backend(
         retrieval_config=RetrievalConfig(mode=mode),
     )
 
-    first = manager.search_solr("road incidents")
-    second = manager.search_solr("traffic crashes")
+    first = manager.search_tables("road incidents")
+    second = manager.search_tables("traffic crashes")
 
     assert "table.parquet" in first
     assert len(calls) == 1
     assert calls[0]["question"] == "Count road incidents"
     expected_concepts = (
         []
-        if mode in (RetrievalMode.SEMANTIC, RetrievalMode.PNEUMA)
+        if mode
+        in (RetrievalMode.SEMANTIC, RetrievalMode.PNEUMA, RetrievalMode.PNEUMA_SEEKER)
         else ["road", "incidents"]
     )
     assert calls[0]["keywords"] == expected_concepts
@@ -1107,7 +1161,7 @@ def test_solr_candidates_are_mapped_and_deduplicated_before_final_top_k(
         retrieval_config=RetrievalConfig(top_k=2),
     )
 
-    result = manager.search_solr("useful")
+    result = manager.search_tables("useful")
 
     assert calls[0]["top_k"] == calls[0]["lexical_fetch_k"] == 15
     assert state.all_candidates == ["local-a.parquet", "local-b.parquet"]
@@ -1143,7 +1197,7 @@ def test_solr_candidate_order_is_preserved_without_schema_reranking(
         retrieval_config=RetrievalConfig(top_k=2),
     )
 
-    result = manager.search_solr("requested")
+    result = manager.search_tables("requested")
 
     assert state.all_candidates == [
         "solr-first.parquet",
@@ -1178,7 +1232,7 @@ def test_unified_adaptive_candidates_reveal_ten_then_five(
         retrieval_config=RetrievalConfig(top_k=20),
     )
 
-    initial = manager.search_solr("tables")
+    initial = manager.search_tables("tables")
     assert "table-10.parquet" in initial
     assert "table-11.parquet" not in initial
     assert "10 additional ranked candidates" in initial
@@ -1282,3 +1336,44 @@ def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_pat
     final_expansion = manager.expand_candidates("table")
     assert "Expansion limit reached" in final_expansion
     assert "Do not call expand_candidates again" in final_expansion
+
+
+def test_grep_values_search_tool_takes_a_list_and_passes_values_whole(
+    monkeypatch, tmp_path
+):
+    """A space-separated string would split "East River"; a list cannot."""
+    calls = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            calls.append(kwargs["keywords"])
+            return []
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+    )
+    manager = Phase12ToolsManager(
+        P12State(), object(), [], tmp_path,
+        question="Which tables are relevant?",
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.GREP_VALUES),
+    )
+    tool = manager.get_tools()[0]
+
+    assert tool.metadata.name == "search_tables"
+    parameters = tool.metadata.get_parameters_dict()
+    assert parameters["properties"]["values"]["type"] == "array"
+    result = tool.call(values=[" East  River ", "2016-17", ""]).content
+
+    assert calls == [["East River", "2016-17"]]
+    assert "grep" not in result.lower()  # the agent is still not told the retriever
+
+
+def test_other_modes_keep_the_space_separated_concepts_tool(tmp_path):
+    manager = Phase12ToolsManager(
+        P12State(), object(), [], tmp_path,
+        question="Which tables are relevant?",
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.GREP),
+    )
+
+    parameters = manager.get_tools()[0].metadata.get_parameters_dict()
+    assert "concepts_str" in parameters["properties"]

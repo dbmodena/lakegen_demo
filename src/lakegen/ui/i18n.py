@@ -60,6 +60,7 @@ _MESSAGES: dict[str, str] = {
     "summary.generation_attempts": "Generation attempts",
     "summary.tokens": "tokens",
     "summary.keywords": "keywords",
+    "summary.question_only_keywords": "_none; retrieval uses only the question_ (not searched: {keywords})",
     "summary.hint": "hint",
     "summary.candidate_tables": "Candidate tables",
     "summary.selected_tables": "Selected tables",

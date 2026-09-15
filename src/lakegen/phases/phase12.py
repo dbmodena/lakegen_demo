@@ -33,6 +33,7 @@ from lakegen.ui.state import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
+from lakegen.experiment_config import DiscoveryConfig
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
 from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
 from lakegen.retrieval import RetrievalConfig
@@ -221,9 +222,20 @@ def phase12_agent(
     state: P12State | None = None,
     retrieval_observer: Callable[[RetrievalRun], None] | None = None,
     require_semantic_plan: bool = True,
+    discovery_config: DiscoveryConfig | None = None,
 ) -> tuple[list[str], list[str], SolrMetadata, str, str, int]:
 
     state = state or P12State()
+    stream_trace = io.StringIO()
+
+    def emit_stream(delta: str) -> None:
+        if not delta:
+            return
+        stream_trace.write(delta)
+        print(delta, end="", flush=True)
+        if stream_callback is not None:
+            stream_callback(delta)
+
     tools_manager = Phase12ToolsManager(
         state,
         solr_client,
@@ -232,6 +244,9 @@ def phase12_agent(
         question=query,
         retrieval_config=retrieval_config,
         retrieval_observer=retrieval_observer,
+        discovery_config=discovery_config,
+        # Terminal, frontend, and the saved activity log -- but never the prompt.
+        notice_callback=emit_stream,
     )
     agent_tools = tools_manager.get_tools()
 
@@ -239,7 +254,9 @@ def phase12_agent(
         "unified_architect",
         "system_prompt",
         portal_name=portal_name,
-        hint=hint
+        hint=hint,
+        value_search=(retrieval_config or RetrievalConfig()).mode.value_keywords,
+        verbatim_entities=(retrieval_config or RetrievalConfig()).mode.verbatim_entities,
     )
 
     token_counter = next(
@@ -255,16 +272,6 @@ def phase12_agent(
         "user_prompt",
         question=query
     )
-
-    stream_trace = io.StringIO()
-
-    def emit_stream(delta: str) -> None:
-        if not delta:
-            return
-        stream_trace.write(delta)
-        print(delta, end="", flush=True)
-        if stream_callback is not None:
-            stream_callback(delta)
 
     thinking_capture = ThinkingCapture()
     dispatcher = get_dispatcher()

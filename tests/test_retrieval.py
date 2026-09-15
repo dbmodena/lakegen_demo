@@ -1,11 +1,19 @@
 import json
 import math
 import csv
+import time
 
 import pytest
 
 from index_retrieval import validate_source_coverage
 from src.client_solr import LocalSolrClient
+from scripts.pneuma_judge import (
+    JudgeError,
+    RelevanceJudgment,
+    StructuredRelevanceJudge,
+    order_by_relevance,
+    structured_relevance_prompt,
+)
 from lakegen.retrieval import (
     HybridRetriever,
     FusionMethod,
@@ -17,15 +25,18 @@ from lakegen.retrieval import (
     RetrievalMode,
     SemanticRetriever,
     SolrEmbeddingIndexer,
+    SolrPneumaDocumentResolver,
     ensure_vector_schema,
     evaluate_ranking,
     min_max_normalize,
     represent_table,
     validate_stored_replacement_schema,
 )
+from lakegen.retrieval import benchmark as benchmark_module
 from lakegen.retrieval.benchmark import (
     BenchmarkCase,
     append_benchmark_metrics_log,
+    load_benchmark_cases,
     run_retriever_benchmark,
 )
 from lakegen.retrieval.embeddings import (
@@ -130,6 +141,28 @@ def test_pneuma_retriever_rejects_failed_response():
 
     with pytest.raises(RuntimeError, match="missing index"):
         retriever.retrieve("question", top_k=1)
+
+
+class FakeCatalogSolr:
+    def __init__(self, documents):
+        self.documents = list(documents)
+
+    def iter_documents(self, *, fields, sort_field):
+        return iter(self.documents)
+
+
+def test_solr_pneuma_resolver_maps_dataset_resource_file_names():
+    # UK files are named <dataset_id>___<resource_id>; NYC files by resource id.
+    first = {"dataset_id": "DS-1", "resource_id": "res-2", "title": "First"}
+    sibling = {"dataset_id": "DS-1", "resource_id": "res-3", "title": "Sibling"}
+    nyc = {"dataset_id": "abcd-1234", "resource_id": "abcd-1234", "title": "NYC"}
+    resolver = SolrPneumaDocumentResolver(FakeCatalogSolr([first, sibling, nyc]))
+
+    # The pair picks the resource, not the dataset's first document.
+    assert resolver("/lake/uk/parquet/ds-1___RES-3.parquet") is sibling
+    assert resolver("/lake/uk/parquet/DS-1___res-2.parquet") is first
+    assert resolver("/lake/nyc/parquet/abcd-1234.parquet") is nyc
+    assert resolver("/lake/uk/parquet/DS-1___res-9.parquet") is None
 
 
 def hit(resource_id, score, rank):
@@ -874,3 +907,249 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
         client.knn_select(
             [math.nan], vector_field="table_embedding", top_k=10
         )
+
+
+def _generated_queries_payload():
+    bus_lanes = {
+        "question": "How many bus lanes are in Brooklyn?",
+        "question_keywords": ["bus", "lane", "Brooklyn"],
+        "tables": [{"name": "Table_0"}],
+        "client_id": "q-bus",
+        "status": "success",
+    }
+    return {
+        "PANDAS": {
+            "single_table": {
+                "st_0": {
+                    "_meta": {"tables": {"Table_0": "bus-lanes"}},
+                    "0": bus_lanes,
+                    "1": {
+                        **bus_lanes,
+                        "question": "Rejected question?",
+                        "client_id": "q-rejected",
+                        "status": "failure",
+                    },
+                },
+            },
+            "multi_table": {
+                "mt_0": {
+                    "_meta": {
+                        "tables": {
+                            "Table_0": "fares-2017",
+                            "Table_1": "fares-2018",
+                            "Table_2": "unused",
+                        }
+                    },
+                    "0": {
+                        "question": "Total fare in 2017 and 2018?",
+                        "question_keywords": ["fare", "2017", "2018"],
+                        "tables": ["Table_1", "Table_0", "Table_1"],
+                        "client_id": "q-fares",
+                        "status": "success",
+                    },
+                },
+            },
+        },
+        # The same question over the same table, generated again for SQL.
+        "SQL": {
+            "single_table": {
+                "st_0": {
+                    "_meta": {"tables": {"Table_0": "bus-lanes"}},
+                    "0": {**bus_lanes, "client_id": "q-bus-sql"},
+                },
+            },
+        },
+    }
+
+
+def test_benchmark_loads_each_successful_generated_query_once(tmp_path):
+    path = tmp_path / "generated_queries_semantic.json"
+    path.write_text(json.dumps(_generated_queries_payload()), encoding="utf-8")
+
+    assert load_benchmark_cases(path) == [
+        BenchmarkCase(
+            "q-bus",
+            "How many bus lanes are in Brooklyn?",
+            ("bus", "lane", "Brooklyn"),
+            ("bus-lanes",),
+        ),
+        BenchmarkCase(
+            "q-fares",
+            "Total fare in 2017 and 2018?",
+            ("fare", "2017", "2018"),
+            ("fares-2018", "fares-2017"),
+        ),
+    ]
+
+
+def test_benchmark_rejects_generated_query_with_unresolved_table_alias(tmp_path):
+    payload = _generated_queries_payload()
+    payload["PANDAS"]["multi_table"]["mt_0"]["0"]["tables"] = ["Table_9"]
+    path = tmp_path / "generated_queries_semantic.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="PANDAS/multi_table/mt_0/0"):
+        load_benchmark_cases(path)
+
+
+def test_benchmark_cli_takes_input_core_and_retrieval_settings_from_config(
+    tmp_path, monkeypatch
+):
+    generated = tmp_path / "generated_queries_semantic.json"
+    generated.write_text(json.dumps(_generated_queries_payload()), encoding="utf-8")
+    config = tmp_path / "experiment.yaml"
+    config.write_text(
+        f"core: uk\nbenchmark:\n  path: {generated}\n"
+        "retrieval:\n  top_k: 20\n  alpha: 0.25\n",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_run(solr, cases, *, base_config, **kwargs):
+        captured.update(core=solr.core, cases=cases, base_config=base_config)
+        return {"created_at": "2026-01-01T00:00:00+00:00", "experiments": {}}
+
+    monkeypatch.setattr(benchmark_module, "run_retriever_benchmark", fake_run)
+
+    exit_code = benchmark_module.main(
+        [
+            "--config",
+            str(config),
+            "--candidate-multiplier",
+            "3",
+            "--output",
+            str(tmp_path / "report.json"),
+            "--metrics-log",
+            str(tmp_path / "retrieval_benchmarks_log.csv"),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["core"] == "uk"
+    assert [case.case_id for case in captured["cases"]] == ["q-bus", "q-fares"]
+    assert captured["base_config"].top_k == 20
+    assert captured["base_config"].alpha == 0.25
+    assert captured["base_config"].candidate_multiplier == 3
+
+
+def test_benchmark_cli_requires_input_or_configured_benchmark_path(tmp_path):
+    config = tmp_path / "experiment.yaml"
+    config.write_text("core: nyc\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        benchmark_module.main(
+            ["--config", str(config), "--output", str(tmp_path / "report.json")]
+        )
+
+
+def test_only_question_ranking_modes_leave_discovery_keywords_unsearched():
+    assert {mode for mode in RetrievalMode if mode.ranks_question_only} == {
+        RetrievalMode.SEMANTIC,
+        RetrievalMode.PNEUMA,
+    }
+    assert RetrievalMode.PNEUMA.split_keywords(["Home", "Office"]) == (
+        [],
+        ["Home", "Office"],
+    )
+    assert RetrievalMode.HYBRID.split_keywords(["Home"]) == (["Home"], [])
+    assert RetrievalMode.KEYWORD.split_keywords(None) == ([], [])
+
+
+class ScriptedTransport:
+    """A judge transport replaying canned responses and recording each request."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.requests = []
+
+    def __call__(self, messages, **params):
+        self.requests.append({"messages": [dict(message) for message in messages], **params})
+        return self.responses.pop(0)
+
+
+def test_structured_judge_decodes_greedily_against_the_verdict_schema():
+    transport = ScriptedTransport('{"relevant": true, "reason": "It has FTE posts per region."}')
+
+    judgment = StructuredRelevanceJudge(transport, retry_delay=0).judge("Is it relevant?")
+
+    assert judgment == RelevanceJudgment(relevant=True, reason="It has FTE posts per region.")
+    (request,) = transport.requests
+    assert request["temperature"] == 0.0
+    assert request["schema"] == RelevanceJudgment.model_json_schema()
+    assert request["schema"]["additionalProperties"] is False
+    assert [message["role"] for message in request["messages"]] == ["system", "user"]
+    assert request["messages"][1]["content"] == "Is it relevant?"
+    with pytest.raises(ValueError):
+        RelevanceJudgment(relevant=True, reason="   ")
+
+
+def test_structured_judge_feeds_errors_back_until_the_verdict_validates():
+    transport = ScriptedTransport(
+        "**Yes**, the table is relevant.",
+        '{"relevant": "maybe", "reason": "Unsure."}',
+        '```json\n{"relevant": false, "reason": "No Asylum rows."}\n```',
+    )
+
+    judgment = StructuredRelevanceJudge(transport, retry_delay=0).judge("Is it relevant?")
+
+    assert judgment.relevant is False
+    first, after_json_error, after_validation_error = (
+        request["messages"] for request in transport.requests
+    )
+    # Rebuilt on every attempt, never appended to; the system message is fixed.
+    assert len(after_json_error) == len(after_validation_error) == 2
+    assert after_json_error[0] == after_validation_error[0] == first[0]
+    assert "JSON PARSING ERROR" in after_json_error[1]["content"]
+    assert "**Yes**, the table is relevant." in after_json_error[1]["content"]
+    assert "SCHEMA VALIDATION ERROR" in after_validation_error[1]["content"]
+    assert "  - relevant:" in after_validation_error[1]["content"]
+
+
+def test_structured_judge_raises_rather_than_guessing_a_verdict():
+    transport = ScriptedTransport("Yes", "Yes", "Yes")
+
+    with pytest.raises(JudgeError, match="no valid verdict after 3 attempt"):
+        StructuredRelevanceJudge(transport, retry_delay=0).judge("Is it relevant?")
+
+
+def test_judge_all_returns_verdicts_in_document_order_across_workers():
+    def transport(messages, **_params):
+        prompt = messages[1]["content"]
+        index = int(prompt[-1])
+        time.sleep(0.01 * (5 - index))  # later documents answer first
+        return json.dumps({"relevant": index % 2 == 0, "reason": prompt})
+
+    judge = StructuredRelevanceJudge(transport, workers=4, retry_delay=0)
+    judgments = judge.judge_all([f"document {index}" for index in range(5)])
+
+    assert [judgment.reason for judgment in judgments] == [
+        f"document {index}" for index in range(5)
+    ]
+    assert [judgment.relevant for judgment in judgments] == [True, False, True, False, True]
+
+
+def test_order_by_relevance_moves_irrelevant_documents_behind_in_fused_order():
+    def verdict(relevant):
+        return RelevanceJudgment(relevant=relevant, reason="r")
+
+    nodes = ["a", "b", "c", "d"]
+    verdicts = [verdict(False), verdict(True), verdict(False), verdict(True)]
+
+    assert order_by_relevance(nodes, verdicts) == ["b", "d", "a", "c"]
+    with pytest.raises(ValueError):
+        order_by_relevance(nodes, verdicts[:1])
+
+
+def test_structured_relevance_prompt_changes_only_the_answer_instruction():
+    pneuma_prompt = (
+        "and this question:\n/*\nWhich?\n*/\n"
+        "Is the table relevant to answer the question? Begin your answer with yes/no."
+    )
+
+    prompt = structured_relevance_prompt(pneuma_prompt)
+
+    assert prompt == (
+        "and this question:\n/*\nWhich?\n*/\n"
+        "Is the table relevant to answer the question? "
+        "Answer with the JSON verdict described in the system message."
+    )

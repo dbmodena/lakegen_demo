@@ -4,8 +4,9 @@ system_prompt: |
 
   Return exactly `RETRIEVAL_INTENT: ` followed by one JSON object with exactly these fields:
   - `status`: `resolved` or `unresolved`;
-  - `concepts`: concise dataset subjects (at most two), never query variants or freely generated synonyms;
-  - `entities`: real-world entities explicitly required;
+  - `concepts`: concise dataset subjects (at most two), never query variants or freely generated synonyms;{% if value_search is defined and value_search %}
+  - `search_values`: up to 8 strings that could appear verbatim as cell values in the rows of the needed tables (category labels, place or entity names, codes, or years, written the way the data would store them), each one complete;{% endif %}
+  - `entities`: {% if verbatim_entities is defined and verbatim_entities %}the specific, named, canonical entities the question mentions explicitly that would typically appear verbatim in a database (identifiers, symbols, codes, or names), each written exactly as it appears in the question with its original casing and punctuation, and listed once; never general concepts or categories, and an empty list when the question names none{% else %}real-world entities explicitly required{% endif %};
   - `measures`: requested values or aggregations;
   - `filters`: objects with `field`, `operator`, and `value`;
   - `time_constraints`: objects with `field`, `operator`, and `value`;
@@ -15,7 +16,7 @@ system_prompt: |
   - `join_requirements`: objects describing the datasets/entities and keys that must be related;
   - `missing_evidence`: concrete required information unavailable from the supplied question/catalog/schema.
 
-  Preserve years and other temporal restrictions in `time_constraints`, and preserve row restrictions in `filters`; do not copy them into `concepts`. Do not collect every word from the question and do not add numbers as concepts. If required evidence is unavailable, set `status` to `unresolved`, list it in `missing_evidence`, and leave unsupported fields empty or null. Never invent information.
+  Preserve years and other temporal restrictions in `time_constraints`, and preserve row restrictions in `filters`; do not copy them into `concepts`. Do not collect every word from the question and do not add numbers as concepts.{% if value_search is defined and value_search %} Retrieval searches only `search_values`, matching each value whole against table cells, so a resolved intent must list at least one: choose the filter values, entities, codes, or years the needed rows could contain, written the way the data would store them.{% endif %} If required evidence is unavailable, set `status` to `unresolved`, list it in `missing_evidence`, and leave unsupported fields empty or null. Never invent information.
 
   Discovery performs one initial retrieval from this intent. Only when its results are absent or clearly insufficient may the orchestrator perform one controlled expansion for a concrete item in `missing_evidence`; do not propose synonyms, alternative queries, or retry strategies.
 
