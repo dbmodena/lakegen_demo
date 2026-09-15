@@ -749,6 +749,7 @@ def summarize_code_evaluations(
         "final_execution_success_rate": rate("final_execution_success"),
         "structured_output_rate": rate("structured_output_valid"),
         "result_type_match_rate": rate("result_type_match"),
+        "format_compliance_rate": rate("format_compliance"),
         "exact_result_match_rate": rate("exact_result_match"),
         "representation_equivalent_match_rate": rate(
             "representation_equivalent_match"
@@ -759,6 +760,8 @@ def summarize_code_evaluations(
         ) if count else 0.0,
         "pass_at_1": rate("pass_at_1"),
         "success_within_3": rate("success_within_3"),
+        "semantic_pass_at_1": rate("semantic_pass_at_1"),
+        "semantic_success_within_3": rate("semantic_success_within_3"),
         "mean_attempts": mean("attempt_count"),
         "mean_generation_attempts": mean("generation_attempt_count"),
         "mean_execution_attempts": mean("execution_attempt_count"),

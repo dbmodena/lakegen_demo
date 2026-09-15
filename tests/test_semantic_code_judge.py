@@ -1,10 +1,15 @@
+import json
 from types import SimpleNamespace
 
 from lakegen.semantic_code_judge import judge_semantic_code_result
 
 
 class FakePromptManager:
+    def __init__(self):
+        self.kwargs = {}
+
     def render(self, *_args, **kwargs):
+        self.kwargs = kwargs
         return f"Question: {kwargs['question']}"
 
 
@@ -104,3 +109,39 @@ def test_semantic_judge_downgrades_unverified_alternative():
 
     assert judgment["requested_disposition"] == "alternative_correct"
     assert judgment["disposition"] == "indeterminate"
+
+
+def test_semantic_judge_input_omits_expected_and_serialized_result_types():
+    prompt_manager = FakePromptManager()
+    judge_semantic_code_result(
+        question="How many records?",
+        expected_description="The requested count",
+        reference_result=[{"count": 10}],
+        selected_tables=["events.parquet"],
+        selected_metadata={},
+        generated_code="print(10)",
+        generated_result=10,
+        deterministic_evaluation={
+            "expected_result_type": "table",
+            "result_type_match": False,
+            "exact_result_match": False,
+            "representation_equivalent_match": True,
+            "requirement_checks": {"result_type": False, "row_count": True},
+            "row_f1": 1.0,
+        },
+        llm=FakeLlm(
+            '{"disposition":"alternative_correct","confidence":0.95,'
+            '"all_requirements_verified":true,"rationale":"Equivalent",'
+            '"requirements_met":["count"],"requirements_missing":[]}'
+        ),
+        prompt_manager=prompt_manager,
+    )
+
+    comparison = json.loads(prompt_manager.kwargs["deterministic_comparison"])
+    assert "expected_result_type" not in comparison
+    assert "result_type_match" not in comparison
+    assert "exact_result_match" not in comparison
+    assert "representation_equivalent_match" not in comparison
+    assert "result_type" not in comparison["requirement_checks"]
+    assert "original_result_type" not in prompt_manager.kwargs["reference_result_preview"]
+    assert "original_result_type" not in prompt_manager.kwargs["generated_result_preview"]

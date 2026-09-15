@@ -35,6 +35,10 @@ def test_runtime_attempt_trace_drives_pass_metrics_and_dispositions():
     assert summary["attempt_count"] == 2
     assert summary["pass_at_1"] is False
     assert summary["success_within_3"] is True
+    assert summary["semantic_pass_at_1"] is False
+    assert summary["semantic_success_within_3"] is True
+    assert summary["semantic_correctness"] == "correct"
+    assert summary["format_compliance"] is True
     assert summary["evaluation_disposition"] == "correct"
 
 

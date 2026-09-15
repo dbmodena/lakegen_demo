@@ -31,7 +31,11 @@ class CodeAttemptEvaluator:
             "execution_success": False,
             "structured_output_valid": False,
             "result_type_match": False,
+            "format_compliance": False,
             "exact_result_match": False,
+            "semantic_correctness": "not_evaluated",
+            "semantic_pass_at_1": False,
+            "semantic_success_within_3": False,
             "pass_at_1": False,
             "success_within_3": False,
             "attempt_count": 0,
@@ -117,9 +121,20 @@ class CodeAttemptEvaluator:
             "execution_success": any(item["execution_success"] for item in attempts),
             "structured_output_valid": any(item["structured_output_valid"] for item in attempts),
             "result_type_match": False,
+            "format_compliance": False,
             "exact_result_match": False,
             "pass_at_1": bool(attempts and attempts[0].get("exact_result_match")),
             "success_within_3": any(item.get("exact_result_match") for item in attempts[:3]),
+            "semantic_pass_at_1": bool(attempts and (
+                attempts[0].get("exact_result_match")
+                or attempts[0].get("representation_equivalent_match")
+            )),
+            "semantic_success_within_3": any(
+                item.get("exact_result_match")
+                or item.get("representation_equivalent_match")
+                for item in attempts[:3]
+            ),
+            "semantic_correctness": "not_evaluated",
             "attempt_count": len(attempts),
             "execution_attempt_count": len(attempts),
             "successful_execution_attempt_count": sum(
@@ -142,10 +157,12 @@ class CodeAttemptEvaluator:
             key: value for key, value in latest.items()
             if key not in {"attempt", "error", "applicable"}
         })
+        summary["format_compliance"] = bool(latest.get("result_type_match"))
         if latest.get("exact_result_match") or latest.get("representation_equivalent_match"):
             summary.update({
                 "error_category": None,
                 "evaluation_disposition": "correct",
+                "semantic_correctness": "correct",
                 "supported_correct": True,
             })
         elif not latest["generation_success"]:
@@ -169,4 +186,5 @@ class CodeAttemptEvaluator:
             and not latest.get("representation_equivalent_match")
         ):
             summary["evaluation_disposition"] = "pending_semantic_review"
+            summary["semantic_correctness"] = "pending_semantic_review"
         return summary

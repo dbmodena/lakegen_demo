@@ -35,7 +35,7 @@ def _bounded_json(value: Any, *, max_chars: int = 8_000) -> str:
 
 
 def _result_preview(value: Any, *, sample_size: int = 6) -> Mapping[str, Any]:
-    """Describe an evaluator-created preview without changing result semantics."""
+    """Describe result content without exposing its serialization type."""
 
     if isinstance(value, list):
         truncated = len(value) > sample_size * 2
@@ -43,13 +43,11 @@ def _result_preview(value: Any, *, sample_size: int = 6) -> Mapping[str, Any]:
         if truncated:
             items = [*items, *value[-sample_size:]]
         return {
-            "original_result_type": "list",
             "total_items": len(value),
             "preview_is_truncated": truncated,
             "sample_items": items,
         }
     return {
-        "original_result_type": type(value).__name__,
         "preview_is_truncated": False,
         "value": value,
     }
@@ -57,8 +55,6 @@ def _result_preview(value: Any, *, sample_size: int = 6) -> Mapping[str, Any]:
 
 def _comparison_facts(evaluation: Mapping[str, Any]) -> dict[str, Any]:
     useful_keys = {
-        "expected_result_type", "result_type_match", "exact_result_match",
-        "representation_equivalent_match",
         "column_precision", "column_recall", "column_f1", "row_precision",
         "row_recall", "row_f1", "cell_accuracy", "item_precision",
         "item_recall", "item_f1", "numeric_absolute_error",
@@ -66,7 +62,13 @@ def _comparison_facts(evaluation: Mapping[str, Any]) -> dict[str, Any]:
         "order_required", "order_correct", "column_aliases",
         "requirement_checks", "requirement_pass_rate", "key_columns",
     }
-    return {key: evaluation[key] for key in useful_keys if key in evaluation}
+    facts = {key: evaluation[key] for key in useful_keys if key in evaluation}
+    checks = facts.get("requirement_checks")
+    if isinstance(checks, Mapping):
+        facts["requirement_checks"] = {
+            key: value for key, value in checks.items() if key != "result_type"
+        }
+    return facts
 
 
 def _extract_json(text: str) -> Mapping[str, Any]:

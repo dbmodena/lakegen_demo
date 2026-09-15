@@ -422,7 +422,16 @@ def run_question(
             canonical_disposition = "completed_with_warnings"
         evaluation.update({
             "evaluation_disposition": canonical_disposition,
+            "semantic_correctness": disposition,
             "supported_correct": disposition == "alternative_correct",
+            "semantic_pass_at_1": (
+                disposition == "alternative_correct"
+                and int(evaluation.get("attempt_count") or 0) == 1
+            ),
+            "semantic_success_within_3": (
+                disposition == "alternative_correct"
+                and 0 < int(evaluation.get("attempt_count") or 0) <= 3
+            ),
             "semantic_judge_used": True,
             "semantic_judge_model": experiment.semantic_code_judge_model,
             "semantic_judge_tokens": judge_tokens,
