@@ -1299,24 +1299,71 @@ def run_question(
                 extra_fields.update(log_context)
             gold_tables = extra_fields.get("SOURCE_RELEVANT_TABLE_IDS")
             if isinstance(gold_tables, list) and gold_tables:
-                ranking = [
-                    re.sub(r"\.(?:parquet|pq|csv)$", "", table, flags=re.I)
-                    for table in selected
+                ranking_entries = [
+                    entry for entry in getattr(result, "ranking", [])
+                    if isinstance(entry, dict)
                 ]
-                metrics = evaluate_ranking(ranking, gold_tables, k_values=(1, 5, 10))
+                if ranking_entries:
+                    final_attempt = max(
+                        int(entry.get("attempt", 1)) for entry in ranking_entries
+                    )
+                    ranking = [
+                        str(entry["resource_id"])
+                        for entry in sorted(
+                            (
+                                entry for entry in ranking_entries
+                                if int(entry.get("attempt", 1)) == final_attempt
+                            ),
+                            key=lambda entry: int(entry.get("rank", 0)),
+                        )
+                        if entry.get("resource_id")
+                    ]
+                else:
+                    ranking = [
+                        re.sub(r"\.(?:parquet|pq|csv)$", "", table, flags=re.I)
+                        .rsplit("___", 1)[-1]
+                        for table in selected
+                    ]
+                normalized_gold = [str(table).rsplit("___", 1)[-1] for table in gold_tables]
+                metrics = evaluate_ranking(
+                    ranking, normalized_gold, k_values=(1, 5, 10, 15, 20)
+                )
                 extra_fields.update({
                     "HIT_AT_1": metrics["Hit@1"],
                     "HIT_AT_5": metrics["Hit@5"],
                     "HIT_AT_10": metrics["Hit@10"],
+                    "HIT_AT_15": metrics["Hit@15"],
+                    "HIT_AT_20": metrics["Hit@20"],
                     "RECALL_AT_1": metrics["Recall@1"],
                     "RECALL_AT_5": metrics["Recall@5"],
                     "RECALL_AT_10": metrics["Recall@10"],
+                    "RECALL_AT_15": metrics["Recall@15"],
+                    "RECALL_AT_20": metrics["Recall@20"],
                     "MRR": metrics["MRR"],
                     "NDCG_AT_1": metrics["nDCG@1"],
                     "NDCG_AT_5": metrics["nDCG@5"],
                     "NDCG_AT_10": metrics["nDCG@10"],
+                    "NDCG_AT_15": metrics["nDCG@15"],
+                    "NDCG_AT_20": metrics["nDCG@20"],
                 })
             searched_keywords, unused_concepts = retrieval.mode.split_keywords(keywords)
+            coder_variants = (
+                result.coder_context_experiment.get("variants", {})
+                if isinstance(result.coder_context_experiment, dict)
+                else {}
+            )
+            coder_variant_tokens = {
+                name: int(coder_variants.get(name, {}).get("tokens", 0) or 0)
+                for name in ("full", "schema_only", "minimal")
+            }
+            extra_fields.update({
+                "TOKENS_CODE_FULL": coder_variant_tokens["full"],
+                "TOKENS_CODE_SCHEMA_ONLY": coder_variant_tokens["schema_only"],
+                "TOKENS_CODE_MINIMAL": coder_variant_tokens["minimal"],
+                "TOKENS_CODE_UNATTRIBUTED": max(
+                    0, int(result.tokens.get("p3", 0) or 0) - sum(coder_variant_tokens.values())
+                ),
+            })
             try:
                 save_experiment_log(
                     question=question,

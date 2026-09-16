@@ -79,7 +79,7 @@ retrieval:
   # Result fusion method used in hybrid mode:
   #   - weighted: normalizes scores and applies the alpha weight
   #   - rrf: Reciprocal Rank Fusion; combines ranks and ignores alpha
-  fusion_method: rrf
+  fusion_method: weighted
 
   # Reciprocal Rank Fusion smoothing constant: score = 1 / (rrf_k + rank).
   # It applies only when fusion_method is rrf and must be an integer > 0.
