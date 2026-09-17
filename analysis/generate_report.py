@@ -38,6 +38,18 @@ LABEL_OVERRIDES = {
     "SelectionRecall": "Selection Recall",
     "SelectionPrecision": "Selection Precision",
     "ExactSelection": "Exact Selection",
+    "AlternativeHit@1": "Alternative Hit@1",
+    "AlternativeHit@5": "Alternative Hit@5",
+    "AlternativeHit@10": "Alternative Hit@10",
+    "AlternativeRecall@10": "Alternative Recall@10",
+    "AlternativeFullCoverage@10": "Alternative Full Coverage@10",
+    "AlternativeMRR": "Alternative MRR",
+    "AlternativeSelectionHit": "Alternative Selection Hit",
+    "AlternativeSelectionRecall": "Alternative Selection Recall",
+    "AlternativeSelectionPrecision": "Alternative Selection Precision",
+    "AlternativeExactSelection": "Alternative Exact Selection",
+    "AlternativeOnlySelection": "Alternative-only Selection",
+    "StrictMissRescued": "Strict Miss Rescued",
 }
 METRIC_DESCRIPTIONS = (
     ("Retrieval Hit@k", "Quota di domande per cui il retriever colloca almeno una tabella gold nelle prime k posizioni."),
@@ -272,13 +284,82 @@ def selection_summary(table_metrics: dict[str, Any]) -> str:
     return metric_table("2. Tabelle finali selezionate dall'agente", metrics, keys)
 
 
+def augmented_retrieval_summary(table_metrics: dict[str, Any]) -> str:
+    augmented = table_metrics.get("augmented_retrieval", {})
+    eligible = int(augmented.get("eligible_case_count", 0))
+    if not eligible:
+        return (
+            "<section><h2>3. Retrieval aumentata — dataset alternativi</h2>"
+            "<p>Nessuna domanda del benchmark dichiara dataset alternativi "
+            "accettati. Le metriche strict restano invariate.</p></section>"
+        )
+    retrieval = augmented.get("mean_retrieval_metrics", {})
+    selection = augmented.get("mean_selection_metrics", {})
+    metric_rows = []
+    for name in (
+        "AlternativeHit@1", "AlternativeHit@5", "AlternativeHit@10",
+        "AlternativeRecall@10", "AlternativeFullCoverage@10", "AlternativeMRR",
+    ):
+        if name in retrieval:
+            metric_rows.append(
+                f"<tr><td>{html.escape(label(name))}</td><td>{pct(retrieval[name])}</td></tr>"
+            )
+    for name in (
+        "AlternativeSelectionHit", "AlternativeSelectionRecall",
+        "AlternativeSelectionPrecision", "AlternativeExactSelection",
+        "AlternativeOnlySelection", "StrictMissRescued",
+    ):
+        if name in selection:
+            metric_rows.append(
+                f"<tr><td>{html.escape(label(name))}</td><td>{pct(selection[name])}</td></tr>"
+            )
+    case_rows = []
+    for case in augmented.get("cases", []):
+        gold = set(case.get("gold_table_ids", []))
+        alternatives = sorted({
+            value
+            for group in case.get("accepted_table_groups", [])
+            for value in group
+            if value not in gold
+        })
+        selected = set(case.get("selected_table_ids", []))
+        selected_gold = bool(gold & selected)
+        selected_alternative = bool(set(alternatives) & selected)
+        outcome = (
+            "gold" if selected_gold
+            else "alternative" if selected_alternative
+            else "miss"
+        )
+        render_ids = lambda values: "<br>".join(
+            f"<code>{html.escape(str(value))}</code>" for value in values
+        ) or "—"
+        case_rows.append(
+            f"<tr><td>{html.escape(str(case.get('case_id', '')))}</td>"
+            f"<td>{html.escape(str(case.get('question', '')))}</td>"
+            f"<td>{render_ids(sorted(gold))}</td>"
+            f"<td>{render_ids(alternatives)}</td>"
+            f"<td>{render_ids(sorted(selected))}</td>"
+            f"<td>{html.escape(outcome)}</td></tr>"
+        )
+    return (
+        "<section><h2>3. Retrieval aumentata — dataset alternativi</h2>"
+        f"<p>Valutazione separata su {eligible} domande con almeno un'alternativa. "
+        "Le metriche strict delle sezioni precedenti non vengono modificate.</p>"
+        "<table><thead><tr><th>Metrica aumentata</th><th>Valore</th></tr></thead>"
+        f"<tbody>{''.join(metric_rows)}</tbody></table>"
+        "<h3>Dettaglio per domanda</h3><table><thead><tr><th>ID</th><th>Domanda</th>"
+        "<th>Gold</th><th>Alternative ammesse</th><th>Selezionate</th><th>Esito</th></tr></thead>"
+        f"<tbody>{''.join(case_rows)}</tbody></table></section>"
+    )
+
+
 def expansion_summary(table_metrics: dict[str, Any]) -> str:
     metrics = table_metrics.get("expansion_metrics", {})
     queries = int(metrics.get("query_count", 0))
     contributions = int(metrics.get("gold_selected_beyond_initial_count", 0))
     rate = float(metrics.get("gold_selected_beyond_initial_rate", 0))
     return (
-        "<section><h2>3. Contributo osservabile dell'espansione</h2>"
+        "<section><h2>4. Contributo osservabile dell'espansione</h2>"
         "<p>Conta i casi in cui l'agente ha usato l'espansione e ha poi selezionato "
         "una tabella gold che nel ranking originale era oltre le prime 10.</p>"
         f"<div class=\"cards\"><div class=\"card\"><span>Espansioni usate</span><strong>{queries}</strong></div>"
@@ -321,7 +402,7 @@ def table_count_analysis(table_metrics: dict[str, Any]) -> str:
     if not rows:
         return ""
     return (
-        "<section><h2>4. Comportamento all'aumentare delle tabelle richieste</h2>"
+        "<section><h2>5. Comportamento all'aumentare delle tabelle richieste</h2>"
         "<p>Le fasce sono definite dal numero di tabelle gold, non dal numero scelto dall'agente. "
         "Full Coverage@20 richiede che tutte le gold siano presenti nelle prime 20.</p>"
         "<table><thead><tr><th>Gold richieste</th><th>Query</th><th>Casi risultato applicabili</th><th>Retrieval Recall@20</th>"
@@ -453,6 +534,11 @@ def write_csv(path: Path, job: dict[str, Any]) -> None:
             rows.append((area, group, name, value))
     for name, value in retrieval.get("expansion_metrics", {}).items():
         rows.append(("expansion", "observed_contribution", name, value))
+    augmented = retrieval.get("augmented_retrieval", {})
+    rows.append(("augmented", "coverage", "eligible_case_count", augmented.get("eligible_case_count", 0)))
+    for group in ("mean_retrieval_metrics", "mean_selection_metrics"):
+        for name, value in augmented.get(group, {}).items():
+            rows.append(("augmented", group, name, value))
     for bucket, values in retrieval.get("table_count_analysis", {}).items():
         for name, value in values.items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -499,6 +585,21 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
     selection = table.get("mean_selection_metrics", {})
     lines.extend(["", "## Selezione finale dell'agente", "", "| Metrica | Valore |", "|---|---:|"])
     lines.extend(f"| {key} | {pct(selection[key])} |" for key in ("SelectionHit", "SelectionRecall", "SelectionPrecision", "ExactSelection") if key in selection)
+    augmented = table.get("augmented_retrieval", {})
+    eligible = int(augmented.get("eligible_case_count", 0))
+    lines.extend(["", "## Retrieval aumentata — dataset alternativi", ""])
+    if not eligible:
+        lines.append("Nessuna domanda dichiara dataset alternativi accettati; le metriche strict restano invariate.")
+    else:
+        lines.extend([
+            f"- Domande con alternative: **{eligible}**", "",
+            "| Metrica | Valore |", "|---|---:|",
+        ])
+        for group in ("mean_retrieval_metrics", "mean_selection_metrics"):
+            lines.extend(
+                f"| {name} | {pct(value)} |"
+                for name, value in augmented.get(group, {}).items()
+            )
     expansion = table.get("expansion_metrics", {})
     lines.extend([
         "", "## Contributo osservabile dell'espansione", "",
@@ -580,6 +681,7 @@ def generate(
         metric_descriptions(),
         retrieval_comparison(table),
         selection_summary(table),
+        augmented_retrieval_summary(table),
         expansion_summary(table),
         table_count_analysis(table),
         performance_summary(job, table),

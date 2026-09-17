@@ -97,6 +97,24 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
         )
 
     aliases = list(dict.fromkeys(aliases))
+    relevant_table_ids = list(dict.fromkeys(str(table_map[alias]) for alias in aliases))
+    retrieval_tables = record.get("retrieval", {}).get("tables", {})
+    accepted_table_alternatives: dict[str, list[str]] = {}
+    if isinstance(retrieval_tables, dict):
+        normalized_contract = {
+            str(table_id).rsplit("___", 1)[-1]: details
+            for table_id, details in retrieval_tables.items()
+            if isinstance(details, dict)
+        }
+        for table_id in relevant_table_ids:
+            resource_id = table_id.rsplit("___", 1)[-1]
+            alternatives = normalized_contract.get(resource_id, {}).get(
+                "accepted_table_ids", []
+            )
+            if isinstance(alternatives, list):
+                accepted_table_alternatives[table_id] = list(dict.fromkeys(
+                    str(value) for value in alternatives if str(value).strip()
+                ))
     difficulty = _difficulty(record.get("difficulty"))
     keywords = record.get("question_keywords") or record.get("plan_keywords") or []
     if not isinstance(keywords, list) or not any(str(value).strip() for value in keywords):
@@ -105,7 +123,8 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
         "id": str(record.get("client_id") or f"{item['engine']}-{item['query_kind']}-{item['group']}-{item['record_key']}"),
         "question": record["question"].strip(),
         "keywords": list(dict.fromkeys(str(value) for value in keywords if str(value).strip())),
-        "relevant_table_ids": list(dict.fromkeys(str(table_map[alias]) for alias in aliases)),
+        "relevant_table_ids": relevant_table_ids,
+        "accepted_table_alternatives": accepted_table_alternatives,
         "table_aliases": {alias: table_map[alias] for alias in aliases},
         "tables": raw_tables,
         "query_kind": item["query_kind"],
@@ -208,6 +227,7 @@ def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: s
     # Sampling-only and source-navigation metadata stays in sample_metadata.
     output_fields = (
         "id", "question", "keywords", "relevant_table_ids", "table_aliases",
+        "accepted_table_alternatives",
         "reference_code", "reference_result", "expected_result_type",
         "expected_result_description", "evaluation_contract",
     )

@@ -90,3 +90,20 @@ def test_exposes_dataset_specific_default_paths():
     assert benchmark.DEFAULT_DATASET == "nyc"
     assert benchmark.DEFAULT_PATHS["uk"][1] == benchmark.Path("benchmark/100q_uk.json")
     assert benchmark.DEFAULT_PATHS["nyc"][1] == benchmark.Path("benchmark/100q_nyc.json")
+
+
+def test_preserves_accepted_table_alternatives():
+    payload = _payload(easy_single=1)
+    record = payload["PANDAS"]["generated"]["group"]["0"]
+    record["retrieval"] = {
+        "contract_version": 1,
+        "tables": {
+            "table_0": {"accepted_table_ids": ["table_alt", "table_alt"]},
+        },
+    }
+
+    case = benchmark._normalize(benchmark._records(payload)[0])
+
+    assert case["accepted_table_alternatives"] == {
+        "table_0": ["table_alt"],
+    }

@@ -334,6 +334,7 @@ def _append_batch_table_metrics(
     metric_rows: list[dict[str, float]] = []
     successful_metric_rows: list[dict[str, float]] = []
     selection_metric_rows: list[dict[str, float]] = []
+    augmented_case_rows: list[dict[str, Any]] = []
     expansion_query_count = 0
     expansion_contribution_count = 0
     for source, entry in zip(questions, results, strict=True):
@@ -361,6 +362,68 @@ def _append_batch_table_metrics(
             "SelectionPrecision": matches / len(selected_set) if selected_set else 0.0,
             "ExactSelection": float(selected_set == relevant_set),
         })
+        raw_alternatives = source.get("log_fields", {}).get(
+            "SOURCE_ACCEPTED_TABLE_ALTERNATIVES", {}
+        )
+        alternative_lookup = {
+            _resource_id(key): {
+                _resource_id(value) for value in values
+                if str(value).strip()
+            }
+            for key, values in raw_alternatives.items()
+            if isinstance(values, list)
+        } if isinstance(raw_alternatives, dict) else {}
+        accepted_groups = [
+            {resource_id, *alternative_lookup.get(resource_id, set())}
+            for resource_id in relevant
+        ]
+        has_alternatives = any(len(group) > 1 for group in accepted_groups)
+        if has_alternatives:
+            augmented_retrieval: dict[str, float] = {}
+            for k in (1, 5, 10, 15, 20):
+                candidates = set(ranking[:k])
+                covered = sum(bool(group & candidates) for group in accepted_groups)
+                augmented_retrieval[f"AlternativeHit@{k}"] = float(covered > 0)
+                augmented_retrieval[f"AlternativeRecall@{k}"] = covered / len(accepted_groups)
+                augmented_retrieval[f"AlternativeFullCoverage@{k}"] = float(
+                    covered == len(accepted_groups)
+                )
+            first_rank = next(
+                (rank for rank, value in enumerate(ranking, 1)
+                 if any(value in group for group in accepted_groups)),
+                None,
+            )
+            augmented_retrieval["AlternativeMRR"] = (
+                1.0 / first_rank if first_rank else 0.0
+            )
+            covered_groups = sum(bool(group & selected_set) for group in accepted_groups)
+            strict_hit = bool(relevant_set & selected_set)
+            augmented_selection = {
+                "AlternativeSelectionHit": float(covered_groups > 0),
+                "AlternativeSelectionRecall": covered_groups / len(accepted_groups),
+                "AlternativeSelectionPrecision": (
+                    covered_groups / len(selected_set) if selected_set else 0.0
+                ),
+                "AlternativeExactSelection": float(
+                    covered_groups == len(accepted_groups)
+                    and len(selected_set) == len(accepted_groups)
+                ),
+                "AlternativeOnlySelection": float(
+                    covered_groups > 0 and not strict_hit
+                ),
+                "StrictMissRescued": float(
+                    not strict_hit and covered_groups > 0
+                ),
+            }
+            augmented_case_rows.append({
+                "case_id": str(source.get("source_id") or source.get("source_path")),
+                "question": source["question"],
+                "gold_table_ids": relevant,
+                "accepted_table_groups": [sorted(group) for group in accepted_groups],
+                "selected_table_ids": selected,
+                "retrieval_metrics": augmented_retrieval,
+                "selection_metrics": augmented_selection,
+            })
         if result.get("discovery", {}).get("expansion_used"):
             expansion_query_count += 1
             ranks = {resource_id: rank for rank, resource_id in enumerate(ranking, 1)}
@@ -515,6 +578,16 @@ def _append_batch_table_metrics(
                 successful_metric_rows
             ),
             "mean_selection_metrics": mean_metrics(selection_metric_rows),
+            "augmented_retrieval": {
+                "eligible_case_count": len(augmented_case_rows),
+                "mean_retrieval_metrics": mean_metrics([
+                    case["retrieval_metrics"] for case in augmented_case_rows
+                ]),
+                "mean_selection_metrics": mean_metrics([
+                    case["selection_metrics"] for case in augmented_case_rows
+                ]),
+                "cases": augmented_case_rows,
+            },
             "expansion_metrics": {
                 "query_count": expansion_query_count,
                 "gold_selected_beyond_initial_count": expansion_contribution_count,
@@ -561,6 +634,7 @@ def _append_batch_table_metrics(
             "mean_metrics_successful_queries"
         ],
         "mean_selection_metrics": experiment_report["mean_selection_metrics"],
+        "augmented_retrieval": experiment_report["augmented_retrieval"],
         "expansion_metrics": experiment_report["expansion_metrics"],
         "table_count_analysis": experiment_report["table_count_analysis"],
         "performance_metrics": experiment_report["performance_metrics"],

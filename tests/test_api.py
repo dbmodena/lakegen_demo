@@ -504,6 +504,45 @@ def test_batch_metrics_skip_legacy_questions_without_gold_tables(tmp_path, monke
     assert not (tmp_path / "logs" / "retrieval_benchmarks_log.csv").exists()
 
 
+def test_augmented_metrics_report_alternative_selection_without_changing_strict_metrics():
+    questions = [{
+        "question": "Alternative?",
+        "source_path": "$.cases[0].question",
+        "source_id": "q-alt",
+        "log_fields": {
+            "SOURCE_RELEVANT_TABLE_IDS": ["family___gold"],
+            "SOURCE_ACCEPTED_TABLE_ALTERNATIVES": {
+                "family___gold": ["alternative"],
+            },
+        },
+    }]
+    results = [{"result": {
+        "tables": ["alternative.parquet"],
+        "ranking": [{
+            "attempt": 1, "rank": 1, "resource_id": "alternative",
+        }],
+        "error": "",
+    }}]
+    settings = {"resolved_config": {
+        "experiment_id": "alternatives",
+        "core": "uk",
+        "coder_context_level": "full",
+        "automatic_test_coder": False,
+        "retrieval": {"mode": "hybrid", "fusion_method": "weighted"},
+    }}
+
+    metrics = api._append_batch_table_metrics(
+        "job-alt", questions, results, settings, append_log=False
+    )
+
+    assert metrics["mean_selection_metrics"]["SelectionHit"] == 0.0
+    augmented = metrics["augmented_retrieval"]
+    assert augmented["eligible_case_count"] == 1
+    assert augmented["mean_retrieval_metrics"]["AlternativeHit@1"] == 1.0
+    assert augmented["mean_selection_metrics"]["AlternativeSelectionHit"] == 1.0
+    assert augmented["mean_selection_metrics"]["StrictMissRescued"] == 1.0
+
+
 @pytest.mark.asyncio
 async def test_multipart_batch_propagates_question_file_id(tmp_path, monkeypatch):
     submitted = {}
