@@ -74,7 +74,10 @@ def classify_execution_error(message: str, *, stage: str = "execution") -> dict[
     text = str(message or "Unknown execution error")
     lowered = text.casefold()
     category = "runtime_error"
-    if "forbidden code fragment 'import sys'" in lowered:
+    # Imports are blocked by the execution sandbox, but a coder can safely
+    # repair them by removing the import.  Keep genuinely dangerous operations
+    # (subprocess, eval, exec, and similar) in the terminal security category.
+    if re.search(r"forbidden code fragment ['\"]import\s+", lowered):
         category = "forbidden_import"
     elif stage == "preflight":
         category = "column_resolution_error"

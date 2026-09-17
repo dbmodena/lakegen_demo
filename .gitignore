@@ -36,6 +36,10 @@ benchmark/*
 !benchmark/100q_nyc.json
 !benchmark/100q_uk.json
 
+# Local tmux orchestration helpers for one-off UK retrieval runs.
+scripts/run_uk_retrieval_suite.sh
+scripts/monitor_uk_retrieval_suite.sh
+
 # Pneuma local runtime, virtual environment, and generated indexes.
 .pneuma/
 .venv-pneuma/

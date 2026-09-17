@@ -2,9 +2,9 @@
 """Build a UK or NYC benchmark from successful generated questions and code.
 
 The source JSON is authoritative: this tool does not generate questions and
-does not execute or otherwise modify the generated reference code.  It selects
-100 successful Pandas questions deterministically, preserving their question,
-code, expected result and table aliases.
+does not execute or otherwise modify the generated reference code. It selects
+100 successful generated questions deterministically, preserving their
+question, code, expected result and table aliases.
 """
 
 from __future__ import annotations
@@ -108,7 +108,6 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
         "relevant_table_ids": list(dict.fromkeys(str(table_map[alias]) for alias in aliases)),
         "table_aliases": {alias: table_map[alias] for alias in aliases},
         "tables": raw_tables,
-        "engine": item["engine"],
         "query_kind": item["query_kind"],
         "source_group": item["group"],
         "difficulty": difficulty,
@@ -180,19 +179,36 @@ def _select(cases: list[dict[str, Any]], *, count: int, seed: int) -> tuple[list
 def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: str = "") -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
     rejected: list[str] = []
-    for item in _records(payload):
-        if item["engine"].casefold() != "pandas" or item["record"].get("status") != "success":
+    seen_questions: set[tuple[str, tuple[str, ...]]] = set()
+    # Equivalent questions produced through different engines count once.
+    # Sorting makes the retained reference case deterministic without imposing
+    # an engine requirement on the benchmark.
+    for item in sorted(
+        _records(payload),
+        key=lambda value: (
+            value["engine"], value["query_kind"], value["group"], value["record_key"],
+        ),
+    ):
+        if item["record"].get("status") != "success":
             continue
         try:
-            candidates.append(_normalize(item))
+            candidate = _normalize(item)
         except ValueError as exc:
             rejected.append(str(exc))
+            continue
+        identity = (
+            candidate["question"],
+            tuple(sorted(candidate["relevant_table_ids"])),
+        )
+        if identity not in seen_questions:
+            seen_questions.add(identity)
+            candidates.append(candidate)
     selected, matrix = _select(candidates, count=count, seed=seed)
     # The remaining fields drive retrieval and direct reference/code metrics.
     # Sampling-only and source-navigation metadata stays in sample_metadata.
     output_fields = (
         "id", "question", "keywords", "relevant_table_ids", "table_aliases",
-        "engine", "reference_code", "reference_result", "expected_result_type",
+        "reference_code", "reference_result", "expected_result_type",
         "expected_result_description", "evaluation_contract",
     )
     return {
@@ -200,7 +216,6 @@ def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: s
             "source": source,
             "sampling_seed": seed,
             "count": len(selected),
-            "engine_filter": "PANDAS",
             "status_filter": "success",
             "selection": "balanced_by_difficulty_and_table_scope",
             "difficulty_quotas": _difficulty_quotas(count),

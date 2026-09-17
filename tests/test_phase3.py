@@ -1478,13 +1478,13 @@ def test_benchmark_secret_never_enters_agent_prompts(tmp_path, monkeypatch):
     }.issubset(set(result.coder_context_audit["excluded_field_names"]))
 
 
-def test_execution_error_classifier_marks_security_failures_non_retryable():
+def test_execution_error_classifier_allows_retry_for_forbidden_os_import():
     error = classify_execution_error(
         "Security Error: forbidden code fragment 'import os'."
     )
 
-    assert error["category"] == "security_error"
-    assert error["retryable"] is False
+    assert error["category"] == "forbidden_import"
+    assert error["retryable"] is True
 
 
 def test_execution_error_classifier_allows_retry_for_forbidden_sys_import():
@@ -1494,6 +1494,15 @@ def test_execution_error_classifier_allows_retry_for_forbidden_sys_import():
 
     assert error["category"] == "forbidden_import"
     assert error["retryable"] is True
+
+
+def test_execution_error_classifier_keeps_dangerous_operations_non_retryable():
+    error = classify_execution_error(
+        "Security Error: forbidden code fragment 'subprocess'."
+    )
+
+    assert error["category"] == "security_error"
+    assert error["retryable"] is False
 
 
 def test_finalization_recovery_requires_structured_latest_inspection():

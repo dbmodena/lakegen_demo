@@ -57,7 +57,7 @@ def main() -> None:
     temporary.replace(job_path)
 
     if args.report_output:
-        generate(job, args.report_output)
+        generate(job, args.report_output, questions=questions)
         print(f"Report rigenerato: {args.report_output}")
     print(f"Metriche retroattive salvate: {job_path}")
 

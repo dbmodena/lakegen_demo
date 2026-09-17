@@ -3,7 +3,10 @@ import pytest
 import build_benchmark as benchmark
 
 
-def _payload(*, easy_single=0, easy_multi=0, medium_single=0, medium_multi=0, hard_single=0, hard_multi=0):
+def _payload(
+    *, easy_single=0, easy_multi=0, medium_single=0, medium_multi=0,
+    hard_single=0, hard_multi=0, engine="PANDAS",
+):
     counts = {
         ("easy", "single"): easy_single, ("easy", "multi"): easy_multi,
         ("medium", "single"): medium_single, ("medium", "multi"): medium_multi,
@@ -21,7 +24,7 @@ def _payload(*, easy_single=0, easy_multi=0, medium_single=0, medium_multi=0, ha
                 "expected_result_type": "number",
             }
             index += 1
-    return {"PANDAS": {"generated": {"group": group}}}
+    return {engine: {"generated": {"group": group}}}
 
 
 def test_builds_exact_difficulty_and_one_third_multi_table_sample():
@@ -41,7 +44,7 @@ def test_builds_exact_difficulty_and_one_third_multi_table_sample():
         result["sample_metadata"]["strata"][difficulty]["multi_table"]
         for difficulty in ("easy", "medium", "hard")
     ) == 34
-    assert not {"tables", "query_kind", "source_group", "difficulty", "table_scope"} & cases[0].keys()
+    assert not {"tables", "engine", "query_kind", "source_group", "difficulty", "table_scope"} & cases[0].keys()
     assert result["sample_metadata"]["difficulty_quotas"] == {"easy": 34, "medium": 33, "hard": 33}
 
 
@@ -53,6 +56,19 @@ def test_excludes_non_successful_records_and_requires_generated_code():
 
     with pytest.raises(ValueError, match="Cannot satisfy"):
         benchmark.build_benchmark(payload, count=6)
+
+
+def test_accepts_successful_records_from_an_engine_other_than_pandas():
+    payload = _payload(
+        easy_single=1, easy_multi=1, medium_single=1,
+        medium_multi=1, hard_single=1, hard_multi=1, engine="SQL",
+    )
+
+    result = benchmark.build_benchmark(payload, count=3)
+
+    assert len(result["cases"]) == 3
+    assert "engine_filter" not in result["sample_metadata"]
+    assert all("engine" not in case for case in result["cases"])
 
 
 def test_uses_exact_one_third_multi_table_split():

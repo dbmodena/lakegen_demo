@@ -321,7 +321,8 @@ selected core.
 ## 6. Create benchmark files
 
 `build_benchmark.py` does not generate new questions. It selects valid,
-successful Pandas cases from an existing generated-query JSON file and writes a
+successful cases from an existing generated-query JSON file, regardless of the
+source engine, and writes a
 deterministic benchmark sample.
 
 Create the default 100-question NYC benchmark:

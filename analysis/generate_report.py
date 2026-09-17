@@ -9,6 +9,7 @@ from datetime import datetime
 import html
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -77,6 +78,152 @@ def bar(value: float, color: str = "#2563eb") -> str:
     return (
         '<div class="bar-track"><div class="bar" '
         f'style="width:{width:.2f}%;background:{color}"></div></div>'
+    )
+
+
+def display(value: Any) -> str:
+    """Format compact, human-readable values from persisted job metadata."""
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, bool):
+        return "Sì" if value else "No"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(item) for item in value) or "—"
+    return str(value)
+
+
+def key_value_table(rows: list[tuple[str, Any]]) -> str:
+    return "<table><tbody>" + "".join(
+        f"<tr><td>{html.escape(name)}</td><td>{html.escape(display(value))}</td></tr>"
+        for name, value in rows
+    ) + "</tbody></table>"
+
+
+def configuration_summary(job: dict[str, Any]) -> str:
+    """Show the resolved, decision-relevant configuration without dumping secrets."""
+    config = job.get("settings", {}).get("resolved_config", {})
+    retrieval = config.get("retrieval", {})
+    discovery = config.get("discovery", {})
+    reviewers = config.get("reviewers", {})
+    gates = config.get("gates", {})
+    main_rows = [
+        ("Esperimento", config.get("experiment_id")),
+        ("Seed", config.get("seed")),
+        ("Core", config.get("core")),
+        ("Modello", config.get("model")),
+        ("Architettura discovery", config.get("discovery_architecture")),
+        ("Accesso agli strumenti", config.get("tool_access")),
+        ("Contesto coder", config.get("coder_context_level")),
+        ("Test automatico dei contesti coder", config.get("automatic_test_coder")),
+        ("Piano semantico obbligatorio", config.get("require_semantic_plan")),
+        ("Semantic code judge", config.get("semantic_code_judge_enabled")),
+        ("Modello semantic judge", config.get("semantic_code_judge_model")),
+        ("Modalità di interazione", config.get("interaction_mode")),
+        ("Massimi round di revisione", config.get("max_revision_rounds")),
+    ]
+    retrieval_rows = [
+        ("Modalità", retrieval.get("mode")),
+        ("Top-k", retrieval.get("top_k")),
+        ("Fusione", retrieval.get("fusion_method")),
+        ("Alpha ibrido", retrieval.get("alpha")),
+        ("Moltiplicatore candidati", retrieval.get("candidate_multiplier")),
+        ("Versione rappresentazione", retrieval.get("representation_version")),
+        ("Modello embedding", retrieval.get("embedding_model")),
+        ("Politica segnali mancanti", retrieval.get("missing_signal_policy")),
+    ]
+    discovery_rows = [
+        ("Candidati iniziali visibili", discovery.get("initial_candidates")),
+        ("Dimensione espansione", discovery.get("expansion_size")),
+        ("Massime espansioni", discovery.get("max_expansions")),
+        ("Massimi tentativi di ricerca", discovery.get("max_search_attempts")),
+        ("Shortlist iniziale per ispezione", discovery.get("initial_shortlist_size")),
+        ("Massimi candidati ispezionabili", discovery.get("max_inspected_candidates")),
+        ("Ricerca dopo ispezione", discovery.get("search_after_inspection")),
+    ]
+    control_rows = [
+        (f"Gate: {name}", value) for name, value in gates.items()
+    ] + [
+        (f"Reviewer: {name}", value) for name, value in reviewers.items()
+    ]
+    controls = key_value_table(control_rows) if control_rows else "<p>Nessun gate o reviewer configurato.</p>"
+    return (
+        "<section><h2>Configurazione principale</h2>"
+        "<p>Valori risolti e usati dal job; endpoint, chiavi e altri dettagli sensibili "
+        "non vengono inclusi.</p>"
+        "<h3>Run</h3>" + key_value_table(main_rows)
+        + "<h3>Retrieval</h3>" + key_value_table(retrieval_rows)
+        + "<h3>Discovery</h3>" + key_value_table(discovery_rows)
+        + "<h3>Controlli</h3>" + controls
+        + "</section>"
+    )
+
+
+def benchmark_summary(job: dict[str, Any], questions: list[dict[str, Any]]) -> str:
+    """Describe the benchmark configuration and the immutable sampled input."""
+    config = job.get("settings", {}).get("resolved_config", {})
+    benchmark = config.get("benchmark", {})
+    engines = sorted({
+        str(question.get("log_fields", {}).get("SOURCE_ENGINE"))
+        for question in questions
+        if question.get("log_fields", {}).get("SOURCE_ENGINE")
+    })
+    result_types = sorted({
+        str(question.get("log_fields", {}).get("SOURCE_EXPECTED_RESULT_TYPE"))
+        for question in questions
+        if question.get("log_fields", {}).get("SOURCE_EXPECTED_RESULT_TYPE")
+    })
+    gold_tables = {
+        str(table)
+        for question in questions
+        for table in question.get("log_fields", {}).get("SOURCE_RELEVANT_TABLE_IDS", [])
+    }
+    source_paths = sorted({
+        re.sub(r"\[\d+\]", "[*]", str(question.get("source_path")))
+        for question in questions if question.get("source_path")
+    })
+    rows = [
+        ("Benchmark configurato", benchmark.get("path")),
+        ("Domande nel campione immutabile", len(questions)),
+        ("Engine di riferimento", engines),
+        ("Tipi di risultato attesi", result_types),
+        ("Tabelle gold distinte", len(gold_tables)),
+        ("Percorsi logici di origine", source_paths),
+    ]
+    return (
+        "<section><h2>Benchmark e campione usato</h2>"
+        "<p>Il benchmark configurato identifica la sorgente prevista; il campione sotto è quello "
+        "effettivamente persistito insieme al job e su cui sono calcolate le metriche.</p>"
+        + key_value_table(rows) + "</section>"
+    )
+
+
+def question_catalog(questions: list[dict[str, Any]]) -> str:
+    if not questions:
+        return (
+            "<section><h2>Domande usate</h2>"
+            "<p>Il file di input delle domande non è disponibile per questo job.</p></section>"
+        )
+    entries = []
+    for index, question in enumerate(questions, 1):
+        fields = question.get("log_fields", {})
+        source_id = question.get("source_id") or fields.get("SOURCE_ID") or "—"
+        details = [
+            ("ID", source_id),
+            ("Engine", fields.get("SOURCE_ENGINE")),
+            ("Tipo di risultato atteso", fields.get("SOURCE_EXPECTED_RESULT_TYPE")),
+            ("Keyword", fields.get("SOURCE_KEYWORDS")),
+            ("Tabelle gold", fields.get("SOURCE_RELEVANT_TABLE_IDS")),
+        ]
+        entries.append(
+            "<details class=\"question\"><summary>"
+            f"<span>{index}. <code>{html.escape(display(source_id))}</code></span> "
+            f"{html.escape(str(question.get('question', 'Domanda non disponibile')))}"
+            "</summary>" + key_value_table(details) + "</details>"
+        )
+    return (
+        f"<section><h2>Domande usate ({len(questions)})</h2>"
+        "<p>Apri una riga per vedere ID, keyword, tipo di risultato e tabelle gold di riferimento.</p>"
+        f"<div class=\"question-list\">{''.join(entries)}</div></section>"
     )
 
 
@@ -405,13 +552,16 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def generate(job: dict[str, Any], output_dir: Path) -> None:
+def generate(
+    job: dict[str, Any], output_dir: Path, *, questions: list[dict[str, Any]] | None = None
+) -> None:
     if job.get("status") != "completed" or not job.get("batch_metrics"):
         raise ValueError("Il job deve essere completato e contenere batch_metrics")
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics = job["batch_metrics"]
     table = metrics["table_selection"]
     code = metrics.get("code", {})
+    questions = questions or []
     cards = (
         ("Domande", job.get("question_count", 0)),
         ("Riuscite", table.get("successful_case_count", 0)),
@@ -424,6 +574,9 @@ def generate(job: dict[str, Any], output_dir: Path) -> None:
         for name, value in cards
     )
     body = "".join((
+        configuration_summary(job),
+        benchmark_summary(job, questions),
+        question_catalog(questions),
         metric_descriptions(),
         retrieval_comparison(table),
         selection_summary(table),
@@ -447,6 +600,7 @@ section{{padding:22px;margin:18px 0;overflow:auto}}table{{width:100%;border-coll
 th,td{{padding:10px;text-align:left;border-bottom:1px solid var(--line)}}th{{color:var(--muted)}}td:first-child{{font-weight:600}}
 .bar-track{{height:10px;background:#e8edf5;border-radius:10px;overflow:hidden;min-width:120px}}.bar{{height:100%;border-radius:10px}}
 .num{{text-align:right;font-variant-numeric:tabular-nums}}small{{display:block;margin-top:3px}}
+.question-list{{display:grid;gap:8px}}details.question{{border:1px solid var(--line);border-radius:8px;padding:10px 12px}}details.question summary{{cursor:pointer;font-weight:600}}details.question table{{margin-top:12px;min-width:0}}details.question td{{white-space:normal;word-break:break-word}}
 @media(max-width:600px){{main{{padding:16px}}}}
 </style></head><body><main>
 <h1>LakeGen batch report</h1><p>Job <code>{html.escape(str(job['job_id']))}</code> · {html.escape(str(job.get('finished_at', '')))}</p>
@@ -468,9 +622,15 @@ def main() -> None:
     if not job_path.is_file():
         parser.error(f"job non trovato: {job_path}")
     job = json.loads(job_path.read_text(encoding="utf-8"))
+    questions_path = job_path.with_name(f"{job.get('job_id', job_path.stem)}.questions.json")
+    questions: list[dict[str, Any]] = []
+    if questions_path.is_file():
+        candidate_questions = json.loads(questions_path.read_text(encoding="utf-8"))
+        if isinstance(candidate_questions, list):
+            questions = candidate_questions
     output = args.output or Path("reports") / str(job["job_id"])
     try:
-        generate(job, output)
+        generate(job, output, questions=questions)
     except ValueError as exc:
         parser.error(str(exc))
     print(f"Report HTML: {output / 'report.html'}")
