@@ -865,7 +865,7 @@ def phase3_generate_and_execute(
             emit_stream=emit_stream,
             cancel_check=cancel_check,
             tools=manager.get_tools(),
-            max_iterations=6,
+            max_iterations=8,
             max_repeats=3,
             max_tool_calls=5,
             timeout_seconds=600,
