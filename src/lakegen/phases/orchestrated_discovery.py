@@ -71,22 +71,46 @@ def parse_orchestrated_selection(
         if not reason.startswith("REJECT_KEYWORDS:"):
             reason = "REJECT_KEYWORDS: " + reason.removeprefix("REJECT_KEYWORDS").strip()
         return [], reason
-    match = re.fullmatch(r"\s*FINAL_PAYLOAD:\s*(\{.*\})\s*", response, re.DOTALL)
+    match = re.search(r"\bFINAL_PAYLOAD:\s*", response)
     if match is None:
         raise OrchestratedSelectorError("invalid FINAL_PAYLOAD envelope")
     try:
-        payload = json.loads(match.group(1))
-    except json.JSONDecodeError as exc:
+        payload, end = json.JSONDecoder().raw_decode(response, match.end())
+        trailing = response[end:].strip()
+        if trailing and trailing not in {"```", "`"}:
+            raise ValueError("unexpected content after FINAL_PAYLOAD object")
+    except (json.JSONDecodeError, ValueError) as exc:
         raise OrchestratedSelectorError(f"invalid FINAL_PAYLOAD JSON: {exc}") from exc
     if not isinstance(payload, dict) or set(payload) != {"tables", "reasoning"}:
         raise OrchestratedSelectorError(
-            "FINAL_PAYLOAD requires exactly string fields 'tables' and 'reasoning'"
+            "FINAL_PAYLOAD requires exactly fields 'tables' and 'reasoning'"
         )
-    if not isinstance(payload["tables"], str) or not isinstance(payload["reasoning"], str):
-        raise OrchestratedSelectorError("FINAL_PAYLOAD fields must be strings")
+    tables_value = payload["tables"]
+    if isinstance(tables_value, str):
+        table_names = [item.strip() for item in tables_value.split(",")]
+    elif isinstance(tables_value, list):
+        table_names = []
+        for item in tables_value:
+            if isinstance(item, str):
+                table_names.append(item.strip())
+                continue
+            if isinstance(item, dict):
+                names = [item.get(key) for key in ("dataset", "table", "name") if item.get(key)]
+                if len(names) == 1 and isinstance(names[0], str):
+                    table_names.append(names[0].strip())
+                    continue
+            raise OrchestratedSelectorError(
+                "FINAL_PAYLOAD 'tables' entries must be dataset strings or named objects"
+            )
+    else:
+        raise OrchestratedSelectorError(
+            "FINAL_PAYLOAD 'tables' must be a string or an array of strings"
+        )
+    if not isinstance(payload["reasoning"], str):
+        raise OrchestratedSelectorError("FINAL_PAYLOAD 'reasoning' must be a string")
     allowed = set(candidates)
     selected = []
-    for name in (item.strip() for item in payload["tables"].split(",")):
+    for name in table_names:
         if name and name in allowed and name not in selected:
             selected.append(name)
     return selected, payload["reasoning"].strip()
@@ -125,7 +149,11 @@ def _run_tool_free_turn(
     response = run_agent_workflow(
         llm=llm, system_prompt=system_prompt, user_prompt=user_prompt,
         agent_name=agent_name, emit_stream=emit, cancel_check=cancel_check,
-        tools=[], chat_history=chat_history, max_iterations=1, max_repeats=1,
+        # FunctionAgent counts the final response hand-off as another workflow
+        # iteration even when no tools are available.  A limit of one lets the
+        # model emit its answer but raises "Max iterations of 1 reached" before
+        # the handler can return it.
+        tools=[], chat_history=chat_history, max_iterations=2, max_repeats=1,
     )
     tokens = 0
     if token_counter:
@@ -133,14 +161,19 @@ def _run_tool_free_turn(
         token_counter.reset_counts()
     trace = stream.getvalue()
     stream.close()
-    return response, trace, max(tokens, get_llm_token_usage(llm))
+    # AgentStream is the model's verbatim answer.  Some FunctionAgent versions
+    # return an empty/wrapper final response for tool-free runs even though the
+    # complete protocol payload was streamed successfully.
+    protocol_response = trace.strip() or response
+    return protocol_response, trace, max(tokens, get_llm_token_usage(llm))
 
 
 def _selector_prompts(context: PreparedDiscoveryContext, hint: str) -> tuple[str, str]:
     system = (
         "You are a dataset selection agent with no tools. Reason only from the "
         "orchestrator context. Return exactly FINAL_PAYLOAD: followed by JSON with "
-        "string fields 'tables' and 'reasoning'. Never invent datasets or metadata."
+        "a 'tables' array of dataset-name strings and a string field 'reasoning'. "
+        "Never invent datasets or metadata."
     )
     user = f"Prepared discovery context:\n{context.agent_json()}\n"
     if hint:
@@ -168,7 +201,30 @@ def select_from_prepared_context(
             raise
         raise OrchestratedSelectorError(str(exc)) from exc
     candidates = [item.dataset for item in context.candidates]
-    selected, reasoning = parse_orchestrated_selection(response, candidates)
+    try:
+        selected, reasoning = parse_orchestrated_selection(response, candidates)
+    except OrchestratedSelectorError as first_error:
+        correction = (
+            "Your previous selection payload was rejected by the protocol: "
+            f"{first_error}. Return only FINAL_PAYLOAD JSON with a 'tables' array "
+            "of exact dataset names and a string 'reasoning'. Previous response:\n"
+            + response
+        )
+        try:
+            response, correction_stream, correction_tokens = _run_tool_free_turn(
+                llm=llm, system_prompt=system, user_prompt=correction,
+                agent_name="divided_context_selector",
+                stream_callback=stream_callback, cancel_check=cancel_check,
+            )
+            selected, reasoning = parse_orchestrated_selection(response, candidates)
+        except WorkflowCancelled:
+            raise
+        except Exception as exc:
+            if isinstance(exc, OrchestratedSelectorError):
+                raise
+            raise OrchestratedSelectorError(str(exc)) from exc
+        stream += "\n--- Protocol correction ---\n" + correction_stream
+        tokens += correction_tokens
     return selected, reasoning, "--- Divided Orchestrated Selector ---\n" + stream, tokens
 
 
@@ -189,13 +245,32 @@ def run_unified_orchestrated_discovery(
         "retrieval_intent", "user_prompt", question=query,
         catalog=portal_name, schema="not supplied",
     )
+    request_invocations = 1
     try:
         request_text, first_trace, first_tokens = _run_tool_free_turn(
             llm=llm, system_prompt=system, user_prompt=first_user,
             agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
             cancel_check=cancel_check,
         )
-        request = parse_retrieval_request(request_text)
+        try:
+            request = parse_retrieval_request(request_text)
+        except RetrievalRequestProtocolError as first_error:
+            correction = (
+                "Your previous retrieval intent was rejected by the protocol: "
+                f"{first_error}. Return only one corrected RETRIEVAL_INTENT JSON "
+                "object matching the system schema. Previous response:\n"
+                + request_text
+            )
+            corrected_text, corrected_trace, corrected_tokens = _run_tool_free_turn(
+                llm=llm, system_prompt=system, user_prompt=correction,
+                agent_name="unified_orchestrated_discovery",
+                stream_callback=stream_callback, cancel_check=cancel_check,
+            )
+            request = parse_retrieval_request(corrected_text)
+            request_text = corrected_text
+            first_trace += "\n--- Protocol correction ---\n" + corrected_trace
+            first_tokens += corrected_tokens
+            request_invocations = 2
     except WorkflowCancelled:
         raise
     except Exception as exc:
@@ -207,7 +282,7 @@ def run_unified_orchestrated_discovery(
         return DiscoveryResult(
             selected_datasets=[], candidates=[], keywords=[], metadata={},
             reasoning=reason, trace="--- Unified Orchestrated Turn 1 ---\n" + first_trace,
-            tokens=first_tokens, llm_invocations=1, agent_count=1,
+            tokens=first_tokens, llm_invocations=request_invocations, agent_count=1,
             retry_keywords=False, retry_reason=reason,
         )
     keywords = request.search_terms(value_search)
@@ -235,7 +310,7 @@ def run_unified_orchestrated_discovery(
             selected_datasets=[], candidates=[], keywords=keywords,
             metadata=metadata, reasoning=reason,
             trace="--- Unified Orchestrated Turn 1 ---\n" + first_trace,
-            tokens=first_tokens, llm_invocations=1, agent_count=1,
+            tokens=first_tokens, llm_invocations=request_invocations, agent_count=1,
             retry_keywords=True, retry_reason=reason, prepared_context=prepared,
         )
     selection_system, second_user = _selector_prompts(prepared, "")
@@ -243,13 +318,35 @@ def run_unified_orchestrated_discovery(
         ChatMessage(role=MessageRole.USER, content=first_user),
         ChatMessage(role=MessageRole.ASSISTANT, content=request_text),
     ]
+    selector_invocations = 1
     try:
         final_text, second_trace, second_tokens = _run_tool_free_turn(
             llm=llm, system_prompt=selection_system, user_prompt=second_user,
             agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
             cancel_check=cancel_check, chat_history=history,
         )
-        selected, reasoning = parse_orchestrated_selection(final_text, candidates)
+        try:
+            selected, reasoning = parse_orchestrated_selection(final_text, candidates)
+        except OrchestratedSelectorError as first_error:
+            correction = (
+                "Your previous selection payload was rejected by the protocol: "
+                f"{first_error}. Return only FINAL_PAYLOAD JSON with a 'tables' "
+                "array containing exact dataset names from the supplied context and "
+                "a string 'reasoning'. Previous response:\n" + final_text
+            )
+            corrected_text, corrected_trace, corrected_tokens = _run_tool_free_turn(
+                llm=llm, system_prompt=selection_system, user_prompt=correction,
+                agent_name="unified_orchestrated_discovery",
+                stream_callback=stream_callback, cancel_check=cancel_check,
+                chat_history=history,
+            )
+            selected, reasoning = parse_orchestrated_selection(
+                corrected_text, candidates
+            )
+            final_text = corrected_text
+            second_trace += "\n--- Protocol correction ---\n" + corrected_trace
+            second_tokens += corrected_tokens
+            selector_invocations = 2
     except WorkflowCancelled:
         raise
     except Exception as exc:
@@ -262,7 +359,8 @@ def run_unified_orchestrated_discovery(
         metadata=metadata,
         trace=("--- Unified Orchestrated Turn 1 ---\n" + first_trace
                + "\n--- Unified Orchestrated Turn 2 ---\n" + second_trace),
-        tokens=first_tokens + second_tokens, llm_invocations=2, agent_count=1,
+        tokens=first_tokens + second_tokens,
+        llm_invocations=request_invocations + selector_invocations, agent_count=1,
         retry_keywords=retry_reason is not None, retry_reason=retry_reason,
         reasoning=retry_reason or reasoning, prepared_context=prepared,
     )

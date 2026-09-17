@@ -15,7 +15,9 @@ from lakegen.phases.orchestrated_discovery import (
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
     RetrievalRequestProtocolError,
+    _run_tool_free_turn,
     parse_retrieval_request,
+    parse_orchestrated_selection,
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
@@ -36,6 +38,83 @@ def _intent(concepts, **overrides):
     }
     payload.update(overrides)
     return "RETRIEVAL_INTENT: " + json.dumps(payload)
+
+
+def test_tool_free_turn_allows_function_agent_to_finalize(monkeypatch):
+    captured = {}
+
+    def fake_workflow(**kwargs):
+        captured.update(kwargs)
+        return "RETRIEVAL_INTENT: {}"
+
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.run_agent_workflow", fake_workflow
+    )
+    response, _trace, _tokens = _run_tool_free_turn(
+        llm=object(), system_prompt="system", user_prompt="user", agent_name="agent"
+    )
+
+    assert response == "RETRIEVAL_INTENT: {}"
+    assert captured["tools"] == []
+    assert captured["max_iterations"] == 2
+
+
+def test_tool_free_turn_prefers_verbatim_stream_to_agent_wrapper(monkeypatch):
+    def fake_workflow(**kwargs):
+        kwargs["emit_stream"]("RETRIEVAL_INTENT: {}")
+        return "AgentOutput(response=...)"
+
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.run_agent_workflow", fake_workflow
+    )
+    response, trace, _tokens = _run_tool_free_turn(
+        llm=object(), system_prompt="system", user_prompt="user", agent_name="agent"
+    )
+
+    assert response == "RETRIEVAL_INTENT: {}"
+    assert trace == "RETRIEVAL_INTENT: {}"
+
+
+def test_selector_accepts_table_array_and_legacy_comma_separated_string():
+    candidates = ["a.csv", "b.csv"]
+    array_payload = 'FINAL_PAYLOAD: {"tables":["a.csv","b.csv"],"reasoning":"best"}'
+    legacy_payload = 'FINAL_PAYLOAD: {"tables":"a.csv, b.csv","reasoning":"best"}'
+
+    assert parse_orchestrated_selection(array_payload, candidates)[0] == candidates
+    assert parse_orchestrated_selection(legacy_payload, candidates)[0] == candidates
+
+
+def test_selector_accepts_markdown_wrapper_and_named_table_objects():
+    response = (
+        "Here is the selection:\n```json\nFINAL_PAYLOAD: "
+        '{"tables":[{"dataset":"a.csv"}],"reasoning":"best"}\n```'
+    )
+    assert parse_orchestrated_selection(response, ["a.csv"])[0] == ["a.csv"]
+
+
+@pytest.mark.parametrize(
+    "joins, expected",
+    [
+        ([{"datasets": ["left", "right"], "keys": ["borough"]}],
+         [("left", "right", ["borough"])]),
+        ([{"datasets": ["left", "right"], "key": "borough"}],
+         [("left", "right", ["borough"])]),
+        ([{"left_dataset": "left", "right_dataset": "right",
+           "left_key": "agency", "right_key": "agency"}],
+         [("left", "right", ["agency"])]),
+        ([{"dataset": "left", "key": "property_id"},
+          {"dataset": "right", "key": "property_id"}],
+         [("left", "right", ["property_id"])]),
+    ],
+)
+def test_retrieval_intent_normalizes_common_join_shapes(joins, expected):
+    parsed = parse_retrieval_intent(_intent(["records"], join_requirements=joins))
+    assert [(item.left, item.right, item.keys) for item in parsed.join_requirements] == expected
+
+
+def test_retrieval_intent_accepts_markdown_wrapper_without_trailing_prose():
+    wrapped = "```json\n" + _intent(["roads"]) + "\n```"
+    assert parse_retrieval_intent(wrapped).concepts == ["roads"]
 
 
 @pytest.mark.parametrize(

@@ -47,6 +47,68 @@ class RetrievalIntent(BaseModel):
     join_requirements: list[JoinRequirement]
     missing_evidence: list[str]
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_join_shapes(cls, value: Any) -> Any:
+        """Canonicalize common, unambiguous LLM join representations."""
+        if not isinstance(value, dict):
+            return value
+        raw_items = value.get("join_requirements")
+        if not isinstance(raw_items, list):
+            return value
+        normalized: list[Any] = []
+        singletons: list[tuple[str, list[str]]] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                normalized.append(item)
+                continue
+            if set(item) <= {"left", "right", "keys"}:
+                normalized.append(item)
+                continue
+            datasets = item.get("datasets")
+            keys = item.get("keys", item.get("key", []))
+            if isinstance(keys, str):
+                keys = [keys]
+            if (
+                isinstance(datasets, list) and len(datasets) == 2
+                and all(isinstance(part, str) and part.strip() for part in datasets)
+                and isinstance(keys, list) and all(isinstance(key, str) for key in keys)
+            ):
+                normalized.append({"left": datasets[0], "right": datasets[1], "keys": keys})
+                continue
+            if all(name in item for name in ("left_dataset", "right_dataset")):
+                join_keys = [item.get("left_key"), item.get("right_key")]
+                join_keys = list(dict.fromkeys(
+                    key for key in join_keys if isinstance(key, str) and key.strip()
+                ))
+                normalized.append({
+                    "left": item["left_dataset"],
+                    "right": item["right_dataset"],
+                    "keys": join_keys,
+                })
+                continue
+            dataset = item.get("dataset")
+            key = item.get("key", item.get("keys", []))
+            if isinstance(key, str):
+                key = [key]
+            if isinstance(dataset, str) and isinstance(key, list) and all(
+                isinstance(part, str) for part in key
+            ):
+                singletons.append((dataset, key))
+                continue
+            normalized.append(item)
+        if singletons:
+            if len(singletons) == 2:
+                shared = [key for key in singletons[0][1] if key in singletons[1][1]]
+                normalized.append({
+                    "left": singletons[0][0], "right": singletons[1][0],
+                    "keys": shared or list(dict.fromkeys(singletons[0][1] + singletons[1][1])),
+                })
+            else:
+                # A singleton cannot describe a join without inventing a side.
+                normalized.extend({"dataset": dataset, "keys": keys} for dataset, keys in singletons)
+        return {**value, "join_requirements": normalized}
+
     @field_validator(
         "concepts", "entities", "search_values", "measures", "group_by",
         "missing_evidence", mode="before",
@@ -87,11 +149,14 @@ class RetrievalIntent(BaseModel):
 
 
 def parse_retrieval_intent(response: str) -> RetrievalIntent:
-    match = re.fullmatch(r"\s*RETRIEVAL_INTENT:\s*(\{.*\})\s*", response, re.DOTALL)
+    match = re.search(r"\bRETRIEVAL_INTENT:\s*", response)
     if match is None:
         raise ValueError("invalid RETRIEVAL_INTENT envelope")
     try:
-        payload = json.loads(match.group(1))
+        payload, end = json.JSONDecoder().raw_decode(response, match.end())
+        trailing = response[end:].strip()
+        if trailing and trailing not in {"```", "`"}:
+            raise ValueError("unexpected content after RETRIEVAL_INTENT object")
         return RetrievalIntent.model_validate(payload)
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         raise ValueError(f"invalid retrieval_intent: {exc}") from exc

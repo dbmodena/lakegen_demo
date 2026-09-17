@@ -317,6 +317,8 @@ def _append_batch_table_metrics(
     questions: list[dict[str, Any]],
     results: list[dict[str, Any]],
     settings: dict[str, Any],
+    *,
+    append_log: bool = True,
 ) -> dict[str, Any] | None:
     """Log end-to-end table-selection metrics for metric-ready batches.
 
@@ -534,20 +536,21 @@ def _append_batch_table_metrics(
         "case_count": len(case_rows),
         "experiments": experiments,
     }
-    append_benchmark_metrics_log(
-        report,
-        BASE_DIR / "logs" / "retrieval_benchmarks_log.csv",
-        run_id=job_id,
-        core=str(resolved["core"]),
-        source_path=questions[0]["source_path"],
-        source_job_ids={label: job_id for label in experiments},
-        model=str(resolved.get("model") or ""),
-        architecture=str(resolved.get("discovery_architecture") or ""),
-        portal_name=str(
-            resolved.get("portal_name")
-            or SOLR_CORE_PORTAL_NAMES.get(str(resolved["core"]), resolved["core"])
-        ),
-    )
+    if append_log:
+        append_benchmark_metrics_log(
+            report,
+            BASE_DIR / "logs" / "retrieval_benchmarks_log.csv",
+            run_id=job_id,
+            core=str(resolved["core"]),
+            source_path=questions[0]["source_path"],
+            source_job_ids={label: job_id for label in experiments},
+            model=str(resolved.get("model") or ""),
+            architecture=str(resolved.get("discovery_architecture") or ""),
+            portal_name=str(
+                resolved.get("portal_name")
+                or SOLR_CORE_PORTAL_NAMES.get(str(resolved["core"]), resolved["core"])
+            ),
+        )
     experiment_report = next(iter(experiments.values()))
     return {
         "case_count": len(case_rows),
