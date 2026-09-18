@@ -395,6 +395,20 @@ def evaluate_code_result(
             if absolute_error is not None and best_pair is not None and best_pair[0] != 0
             else absolute_error
         )
+        squared_error = (
+            absolute_error * absolute_error
+            if absolute_error is not None
+            and math.isfinite(absolute_error)
+            and absolute_error <= math.sqrt(float("1.7976931348623157e308"))
+            else None
+        )
+        squared_relative_error = (
+            relative_error * relative_error
+            if relative_error is not None
+            and math.isfinite(relative_error)
+            and relative_error <= math.sqrt(float("1.7976931348623157e308"))
+            else None
+        )
         type_match = scalar_shaped and actual_number is not None
         requirement_checks = {"result_type": type_match, "numeric_value": numeric_match}
         return {
@@ -410,6 +424,8 @@ def evaluate_code_result(
             "numeric_relative_error": (
                 round(relative_error, 12) if relative_error is not None else None
             ),
+            "numeric_squared_error": squared_error,
+            "numeric_squared_relative_error": squared_relative_error,
             "requirement_checks": requirement_checks,
             "requirement_pass_rate": round(
                 sum(requirement_checks.values()) / len(requirement_checks), 6
@@ -683,6 +699,13 @@ def summarize_code_evaluations(
         ]
         return round(sum(values) / len(values), 6) if values else None
 
+    def finite_mean(key: str) -> float | None:
+        values = [
+            float(item[key]) for item in applicable
+            if item.get(key) is not None and math.isfinite(float(item[key]))
+        ]
+        return sum(values) / len(values) if values else None
+
     def robust_stats(key: str) -> dict[str, float | None]:
         values = sorted(
             float(item[key]) for item in applicable
@@ -737,6 +760,19 @@ def summarize_code_evaluations(
         bool(item.get("supported_correct", item.get("exact_result_match")))
         for item in applicable
     )
+    numeric_comparable_count = sum(
+        item.get("expected_result_type") == "number"
+        and item.get("numeric_absolute_error") is not None
+        for item in applicable
+    )
+    numeric_mse_count = sum(
+        item.get("expected_result_type") == "number"
+        and item.get("numeric_squared_error") is not None
+        for item in applicable
+    )
+    numeric_case_count = type_counts.get("number", 0)
+    mean_squared_error = finite_mean("numeric_squared_error")
+    mean_squared_relative_error = finite_mean("numeric_squared_relative_error")
     return {
         "batch_case_count": total,
         "applicable_case_count": count,
@@ -771,6 +807,21 @@ def summarize_code_evaluations(
         "mean_item_f1": mean("item_f1"),
         "mean_numeric_absolute_error": mean("numeric_absolute_error"),
         "mean_numeric_relative_error": mean("numeric_relative_error"),
+        "numeric_case_count": numeric_case_count,
+        "numeric_comparable_count": numeric_comparable_count,
+        "numeric_mse_count": numeric_mse_count,
+        "numeric_comparable_rate": round(
+            numeric_comparable_count / numeric_case_count, 6
+        ) if numeric_case_count else None,
+        "mean_numeric_squared_error": mean_squared_error,
+        "root_mean_numeric_squared_error": (
+            math.sqrt(mean_squared_error) if mean_squared_error is not None else None
+        ),
+        "mean_numeric_squared_relative_error": mean_squared_relative_error,
+        "root_mean_numeric_squared_relative_error": (
+            math.sqrt(mean_squared_relative_error)
+            if mean_squared_relative_error is not None else None
+        ),
         "numeric_absolute_error_robust": robust_stats("numeric_absolute_error"),
         "numeric_relative_error_robust": robust_stats("numeric_relative_error"),
         "mean_requirement_pass_rate": mean("requirement_pass_rate"),

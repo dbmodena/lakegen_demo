@@ -107,3 +107,21 @@ def test_preserves_accepted_table_alternatives():
     assert case["accepted_table_alternatives"] == {
         "table_0": ["table_alt"],
     }
+
+
+def test_omits_empty_accepted_table_alternatives_from_benchmark():
+    payload = _payload(easy_multi=1)
+    record = payload["PANDAS"]["generated"]["group"]["0"]
+    record["retrieval"] = {
+        "contract_version": 1,
+        "tables": {
+            "table_0": {"accepted_table_ids": []},
+            "table_1": {"accepted_table_ids": []},
+        },
+    }
+
+    case = benchmark.build_benchmark(payload, count=1)["cases"][0]
+    normalized = benchmark._normalize(benchmark._records(payload)[0])
+
+    assert "accepted_table_alternatives" not in case
+    assert normalized["accepted_table_alternatives"] is None

@@ -38,6 +38,8 @@ def test_number_evaluation_accepts_scalar_with_numeric_tolerance():
     assert evaluation["exact_result_match"] is True
     assert evaluation["numeric_match"] is True
     assert evaluation["numeric_absolute_error"] < 1e-8
+    assert evaluation["numeric_squared_error"] < 1e-16
+    assert evaluation["numeric_squared_relative_error"] < 1e-14
     assert "cell_accuracy" not in evaluation
 
 
@@ -267,8 +269,11 @@ def test_contract_applies_per_column_numeric_tolerance():
 def test_summary_reports_robust_numeric_error_statistics():
     results = [
         {"result": {"code_evaluation": {
-            "applicable": True, "numeric_absolute_error": value,
+            "applicable": True, "expected_result_type": "number",
+            "numeric_absolute_error": value,
             "numeric_relative_error": value, "requirement_pass_rate": 0.5,
+            "numeric_squared_error": value * value if value < 1e154 else None,
+            "numeric_squared_relative_error": value * value if value < 1e154 else None,
         }}}
         for value in (1.0, 2.0, 1e200)
     ]
@@ -278,6 +283,39 @@ def test_summary_reports_robust_numeric_error_statistics():
     assert summary["numeric_absolute_error_robust"]["median"] == 2.0
     assert summary["numeric_absolute_error_robust"]["p95"] > 1e100
     assert summary["mean_requirement_pass_rate"] == 0.5
+    assert summary["numeric_case_count"] == 3
+    assert summary["numeric_comparable_count"] == 3
+    assert summary["numeric_mse_count"] == 2
+    assert summary["numeric_comparable_rate"] == 1.0
+    assert summary["root_mean_numeric_squared_error"] == (2.5 ** 0.5)
+
+
+def test_summary_excludes_missing_numeric_outputs_from_mse_but_reports_coverage():
+    results = [
+        {"result": {"code_evaluation": {
+            "applicable": True, "expected_result_type": "number",
+            "numeric_absolute_error": 2.0,
+            "numeric_squared_error": 4.0,
+            "numeric_squared_relative_error": 0.25,
+        }}},
+        {"result": {"code_evaluation": {
+            "applicable": True, "expected_result_type": "number",
+            "numeric_absolute_error": None,
+            "numeric_squared_error": None,
+            "numeric_squared_relative_error": None,
+        }}},
+    ]
+
+    summary = summarize_code_evaluations(results)
+
+    assert summary["numeric_case_count"] == 2
+    assert summary["numeric_comparable_count"] == 1
+    assert summary["numeric_mse_count"] == 1
+    assert summary["numeric_comparable_rate"] == 0.5
+    assert summary["mean_numeric_squared_error"] == 4.0
+    assert summary["root_mean_numeric_squared_error"] == 2.0
+    assert summary["mean_numeric_squared_relative_error"] == 0.25
+    assert summary["root_mean_numeric_squared_relative_error"] == 0.5
 
 
 def test_list_uses_item_metrics_instead_of_table_metrics():

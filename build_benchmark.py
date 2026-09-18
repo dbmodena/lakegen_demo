@@ -112,9 +112,11 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
                 "accepted_table_ids", []
             )
             if isinstance(alternatives, list):
-                accepted_table_alternatives[table_id] = list(dict.fromkeys(
+                normalized_alternatives = list(dict.fromkeys(
                     str(value) for value in alternatives if str(value).strip()
                 ))
+                if normalized_alternatives:
+                    accepted_table_alternatives[table_id] = normalized_alternatives
     difficulty = _difficulty(record.get("difficulty"))
     keywords = record.get("question_keywords") or record.get("plan_keywords") or []
     if not isinstance(keywords, list) or not any(str(value).strip() for value in keywords):
@@ -124,7 +126,7 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
         "question": record["question"].strip(),
         "keywords": list(dict.fromkeys(str(value) for value in keywords if str(value).strip())),
         "relevant_table_ids": relevant_table_ids,
-        "accepted_table_alternatives": accepted_table_alternatives,
+        "accepted_table_alternatives": accepted_table_alternatives or None,
         "table_aliases": {alias: table_map[alias] for alias in aliases},
         "tables": raw_tables,
         "query_kind": item["query_kind"],

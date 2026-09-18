@@ -65,6 +65,9 @@ METRIC_DESCRIPTIONS = (
     ("Supported result", "Quota di risultati esatti o equivalenti e supportati dalle evidenze disponibili."),
     ("Pass@1", "Quota di casi risolti correttamente al primo tentativo di generazione."),
     ("Requirement pass rate", "Percentuale media dei requisiti della domanda soddisfatti dal risultato."),
+    ("Numeric coverage", "Quota di risultati attesi numerici che hanno prodotto uno scalare confrontabile."),
+    ("MSE / RMSE", "Errore quadratico medio e sua radice sui soli scalari numerici confrontabili; dipendono dall'unità e dalla scala."),
+    ("MSRE / RMSRE", "Versioni quadratiche relative, utili per confrontare valori numerici su scale diverse."),
 )
 
 
@@ -493,11 +496,39 @@ def code_comparison(code: dict[str, Any]) -> str:
             value = float(code[name].get(key, 0))
             cells.append(f"<td>{bar(value)}<small>{pct(value)}</small></td>")
         rows.append(f"<tr><td>{html.escape(label(key))}</td>{''.join(cells)}</tr>")
+    numeric_keys = (
+        ("numeric_comparable_rate", "Numeric coverage", True),
+        ("mean_numeric_squared_error", "MSE", False),
+        ("root_mean_numeric_squared_error", "RMSE", False),
+        ("mean_numeric_squared_relative_error", "MSRE", False),
+        ("root_mean_numeric_squared_relative_error", "RMSRE", False),
+    )
+    numeric_rows = []
+    for key, shown_label, is_rate in numeric_keys:
+        if not any(code[name].get(key) is not None for name in contexts):
+            continue
+        cells = []
+        for name in contexts:
+            value = code[name].get(key)
+            shown = "—" if value is None else pct(value) if is_rate else f"{float(value):.6g}"
+            cells.append(f'<td class="num">{shown}</td>')
+        numeric_rows.append(
+            f"<tr><td>{html.escape(shown_label)}</td>{''.join(cells)}</tr>"
+        )
+    numeric_table = (
+        "<h3>Errori dei risultati numerici</h3>"
+        "<p>MSE e RMSE usano soltanto output scalari confrontabili. I risultati mancanti "
+        "restano visibili nella copertura numerica; MSE e RMSE grezzi sono confrontabili "
+        "solo fra esperimenti con le stesse unità e domande.</p>"
+        f"<table><thead><tr><th>Metrica</th>{header}</tr></thead>"
+        f"<tbody>{''.join(numeric_rows)}</tbody></table>"
+        if numeric_rows else ""
+    )
     return (
         "<section><h2>Esecuzione del codice per livello di contesto</h2>"
         "<p>Le percentuali misurano affidabilità tecnica e correttezza del risultato.</p>"
         f"<table><thead><tr><th>Metrica</th>{header}</tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table></section>"
+        f"<tbody>{''.join(rows)}</tbody></table>{numeric_table}</section>"
     )
 
 
@@ -568,6 +599,9 @@ def write_csv(path: Path, job: dict[str, Any]) -> None:
 
 def write_markdown(path: Path, job: dict[str, Any]) -> None:
     table = job["batch_metrics"]["table_selection"]
+    def numeric_metric(values: dict[str, Any], key: str) -> str:
+        value = values.get(key)
+        return f"{float(value):.6g}" if value is not None else "—"
     retrieval = table["mean_metrics"]
     lines = [
         f"# LakeGen batch {job['job_id']}", "",
@@ -642,13 +676,18 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
                 f"{int(performance.get('coder_token_totals_by_context', {}).get(key, 0)):,} |"
             )
         lines.extend(["", "Nota: con `automatic_test_coder` attivo, P3 comprende le varianti full, schema_only e minimal; l'eventuale residuo condiviso/non attribuito copre lavoro P3 non associato a una variante salvata."])
-    lines.extend(["", "## Esecuzione codice", "", "| Contesto | Execution | Exact match | Pass@1 |", "|---|---:|---:|---:|"])
+    lines.extend(["", "## Esecuzione codice", "", "| Contesto | Execution | Exact match | Pass@1 | Numeric coverage | MSE | RMSE | MSRE | RMSRE |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for context in CONTEXT_ORDER:
         values = job["batch_metrics"].get("code", {}).get(context)
         if values:
             lines.append(
                 f"| {context} | {pct(values['execution_success_rate'])} | "
-                f"{pct(values['exact_result_match_rate'])} | {pct(values['pass_at_1'])} |"
+                f"{pct(values['exact_result_match_rate'])} | {pct(values['pass_at_1'])} | "
+                f"{pct(values['numeric_comparable_rate']) if values.get('numeric_comparable_rate') is not None else '—'} | "
+                f"{numeric_metric(values, 'mean_numeric_squared_error')} | "
+                f"{numeric_metric(values, 'root_mean_numeric_squared_error')} | "
+                f"{numeric_metric(values, 'mean_numeric_squared_relative_error')} | "
+                f"{numeric_metric(values, 'root_mean_numeric_squared_relative_error')} |"
             )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
