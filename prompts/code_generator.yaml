@@ -71,7 +71,13 @@ agentic_system_prompt: |
   complete program; it executes, inspects, adapts, and finalizes the result.
   If it requests revision, correct all reported problems together and call it
   once more. Use reject_data only when inspected evidence proves source facts
-  are absent. Imports for system or process access, eval, and exec are forbidden.
+  are absent. When rejecting, map any selected table you judge highly
+  irrelevant -- proven to satisfy none of the requirements -- to the concrete
+  evidence proving that in ban_tables, so it is excluded from later retrieval
+  for this question. Every other selected table is kept and carries over to
+  the next attempt, even if it does not fully answer the question on its own.
+  Never ban a table your own evidence has not proven irrelevant. Imports for
+  system or process access, eval, and exec are forbidden.
 
   If the brief comes from runtime_fallback, inspect_data is required before
   run_analysis. Return the requested answer, never diagnostic dictionaries of

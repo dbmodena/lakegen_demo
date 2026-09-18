@@ -94,9 +94,14 @@ class KeywordRetriever:
         solr: LocalSolrClient,
         *,
         query_fields: str | None = None,
+        or_fallback: bool = False,
     ) -> None:
         self.solr = solr
         self.query_fields = query_fields
+        # Off by default: preserves the pre-existing strict-AND baseline.
+        # When enabled, a zero-hit AND query is retried as OR instead of
+        # returning nothing (see retrieve()).
+        self.or_fallback = or_fallback
 
     def retrieve(
         self,
@@ -110,6 +115,21 @@ class KeywordRetriever:
         clean_keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
         if not clean_keywords:
             return []
+        hits = self._search(clean_keywords, top_k=top_k, q_op=q_op)
+        if self.or_fallback and not hits and q_op == "AND":
+            # q.op=AND requires every tokenized word across every keyword to
+            # appear in one document. An entity that lives only in one field
+            # (e.g. publisher) alongside a topic word that appears nowhere in
+            # the document at all makes that combination unsatisfiable, so
+            # the whole query returns zero candidates even though the
+            # document is otherwise a strong match. Fall back to a ranked OR
+            # pass rather than let retrieval collapse to nothing.
+            hits = self._search(clean_keywords, top_k=top_k, q_op="OR")
+        return hits
+
+    def _search(
+        self, clean_keywords: list[str], *, top_k: int, q_op: str
+    ) -> list[RetrievalHit]:
         params: dict[str, Any] = {
             "q_op": q_op,
             "rows": top_k,
@@ -332,6 +352,7 @@ class TableRetrievalService:
         self.keyword = KeywordRetriever(
             solr,
             query_fields=config.lexical_query_fields,
+            or_fallback=config.keyword_or_fallback,
         )
         self.semantic: SemanticRetriever | None = None
         if config.mode in (RetrievalMode.SEMANTIC, RetrievalMode.HYBRID):

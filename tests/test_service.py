@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
 from lakegen.output_validation import AnswerDisposition, validate_answer
-from lakegen.experiment_config import ExperimentConfig
+from lakegen.experiment_config import (
+    DiscoveryArchitecture, ExperimentConfig, InteractionMode, ToolAccess,
+)
 from lakegen.retrieval import RetrievalConfig
 from lakegen.service import (
     _record_semantic_plan_telemetry, _rejected_selection_signature,
@@ -195,6 +197,217 @@ def test_run_question_does_not_mark_synthesized_refusal_completed(monkeypatch, t
     assert result.status == "rejected"
     assert result.answer_disposition == "rejected"
     assert result.pipeline_stages["final_answer"] == "rejected"
+
+
+def test_last_attempt_fallback_excludes_just_rejected_tables(monkeypatch, tmp_path):
+    # Divided + agentic is the only architecture that carries a per-table ban
+    # (excluded_tables) across discovery attempts; the last-attempt fallback
+    # bug only surfaces there.
+    experiment = ExperimentConfig().model_copy(update={
+        "core": "nyc", "model": "fake",
+        "discovery_architecture": DiscoveryArchitecture.DIVIDED,
+        "tool_access": ToolAccess.AGENTIC,
+        "interaction_mode": InteractionMode.AUTONOMOUS,
+    })
+    runtime = SimpleNamespace(
+        model_name="fake", solr_core="nyc", csv_dir=tmp_path,
+        portal_name="NYC", retrieval=RetrievalConfig(), experiment=experiment,
+    )
+    (tmp_path / "bad.parquet").write_text("value\n1\n", encoding="utf-8")
+    (tmp_path / "good.parquet").write_text("value\n1\n", encoding="utf-8")
+    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
+    monkeypatch.setattr(
+        "lakegen.service.get_all_table_files",
+        lambda _path: ["bad.parquet", "good.parquet"],
+    )
+    monkeypatch.setattr(
+        "lakegen.service.phase1_generate_keywords",
+        lambda **_kwargs: (["k"], "raw", 0, "p1 reasoning"),
+    )
+
+    def fake_phase2(*, selection_state, **_kwargs):
+        # Every attempt inspects both candidates and explicitly rules out
+        # "bad.parquet"; the architect never finds a complete selection, so
+        # every attempt ends in REJECT_KEYWORDS -- including the last one.
+        selection_state.rejection_keep_tables = []
+        selection_state.rejection_skip_tables = ["bad.parquet"]
+        return (
+            [], ["bad.parquet", "good.parquet"], {},
+            "REJECT_KEYWORDS: bad.parquet has no matching rows", "trace", 0,
+        )
+
+    monkeypatch.setattr("lakegen.service.phase2_select_tables", fake_phase2)
+    generated = SimpleNamespace(
+        tokens=0, clean_code="print(1)", code_raw="print(1)",
+        rejected_reason="", error=None, raw_result="1",
+    )
+    monkeypatch.setattr(
+        "lakegen.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
+    )
+    monkeypatch.setattr(
+        "lakegen.service.phase4_synthesize", lambda *_args: ("answer", 0)
+    )
+    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+
+    result = run_question("What is the value?", runtime)
+
+    # The last-attempt fallback must not force-select a table the architect
+    # explicitly rejected in that very same attempt.
+    assert "bad.parquet" not in result.tables
+    assert result.tables == ["good.parquet"]
+
+
+def test_unified_cross_round_exclusion_persists_across_attempts(monkeypatch, tmp_path):
+    # The unified architecture previously started every discovery attempt
+    # from a blank P12State, so a table proven insufficient in attempt 1
+    # could silently resurface in attempt 2 or 3. This locks in that
+    # excluded_tables (seeded onto the fresh P12State each attempt) actually
+    # carries the ban forward, mirroring the divided architecture's test
+    # above.
+    experiment = ExperimentConfig().model_copy(update={
+        "core": "nyc", "model": "fake",
+        "discovery_architecture": DiscoveryArchitecture.UNIFIED,
+        "tool_access": ToolAccess.AGENTIC,
+        "interaction_mode": InteractionMode.AUTONOMOUS,
+    })
+    runtime = SimpleNamespace(
+        model_name="fake", solr_core="nyc", csv_dir=tmp_path,
+        portal_name="NYC", retrieval=RetrievalConfig(), experiment=experiment,
+    )
+    (tmp_path / "bad.parquet").write_text("value\n1\n", encoding="utf-8")
+    (tmp_path / "good.parquet").write_text("value\n1\n", encoding="utf-8")
+    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
+    monkeypatch.setattr(
+        "lakegen.service.get_all_table_files",
+        lambda _path: ["bad.parquet", "good.parquet"],
+    )
+
+    seen_excluded_tables = []
+
+    def fake_phase12(*, state, **_kwargs):
+        # Records what excluded_tables looked like when this attempt
+        # started, then behaves like a real retrieval: "bad.parquet" is
+        # never a candidate once excluded. Every attempt rejects, and every
+        # attempt that inspects "bad.parquet" bans it, so attempt 2 onward
+        # must never see it again.
+        seen_excluded_tables.append(set(state.excluded_tables))
+        state.all_candidates = [
+            table for table in ["bad.parquet", "good.parquet"]
+            if table.casefold() not in state.excluded_tables
+        ]
+        state.rejection_keep_tables = []
+        state.rejection_skip_tables = (
+            ["bad.parquet"] if "bad.parquet" in state.all_candidates else []
+        )
+        return (
+            list(state.all_candidates), ["k"], {},
+            "REJECT_KEYWORDS: still missing the required organisation",
+            "trace", 0,
+        )
+
+    monkeypatch.setattr("lakegen.service.phase12_agent", fake_phase12)
+    generated = SimpleNamespace(
+        tokens=0, clean_code="print(1)", code_raw="print(1)",
+        rejected_reason="", error=None, raw_result="1",
+    )
+    monkeypatch.setattr(
+        "lakegen.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
+    )
+    monkeypatch.setattr(
+        "lakegen.service.phase4_synthesize", lambda *_args: ("answer", 0)
+    )
+    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+
+    result = run_question("What is the value?", runtime)
+
+    assert seen_excluded_tables[0] == set()
+    assert seen_excluded_tables[1] == {"bad.parquet"}
+    assert seen_excluded_tables[2] == {"bad.parquet"}
+    assert "bad.parquet" not in result.tables
+    assert result.tables == ["good.parquet"]
+
+
+def test_coder_rejection_feeds_discovery_exclusion_and_carry(monkeypatch, tmp_path):
+    # The coder's own per-table judgment (reject_tables' ban_tables) must
+    # feed the same excluded_tables/carried_tables memory an architect
+    # rejection does: a table it proved unusable stays banned from the next
+    # discovery attempt, and one it found partially useful is carried
+    # forward instead of being lost with the rest of the selected set.
+    experiment = ExperimentConfig().model_copy(update={
+        "core": "nyc", "model": "fake",
+        "discovery_architecture": DiscoveryArchitecture.DIVIDED,
+        "tool_access": ToolAccess.AGENTIC,
+        "interaction_mode": InteractionMode.AUTONOMOUS,
+    })
+    runtime = SimpleNamespace(
+        model_name="fake", solr_core="nyc", csv_dir=tmp_path,
+        portal_name="NYC", retrieval=RetrievalConfig(), experiment=experiment,
+    )
+    (tmp_path / "good.parquet").write_text("value\n1\n", encoding="utf-8")
+    (tmp_path / "bad.parquet").write_text("value\n1\n", encoding="utf-8")
+    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
+    monkeypatch.setattr(
+        "lakegen.service.get_all_table_files",
+        lambda _path: ["good.parquet", "bad.parquet"],
+    )
+    monkeypatch.setattr(
+        "lakegen.service.phase1_generate_keywords",
+        lambda **_kwargs: (["k"], "raw", 0, "p1 reasoning"),
+    )
+
+    seen_excluded_tables = []
+    seen_carried_tables = []
+
+    def fake_phase2(*, excluded_tables, carried_tables, **_kwargs):
+        seen_excluded_tables.append(set(excluded_tables))
+        seen_carried_tables.append(list(carried_tables))
+        selected = list(carried_tables) or ["good.parquet", "bad.parquet"]
+        return (
+            selected, selected, {}, "the selection covers the question", "trace", 0,
+        )
+
+    monkeypatch.setattr("lakegen.service.phase2_select_tables", fake_phase2)
+
+    phase3_calls = []
+
+    def fake_phase3(*_args, **_kwargs):
+        phase3_calls.append(1)
+        if len(phase3_calls) == 1:
+            return SimpleNamespace(
+                tokens=0, clean_code="print(1)", code_raw="print(1)",
+                rejected_reason="good.parquet covers part of the answer.",
+                rejection_details={}, error=None, raw_result=None,
+                rejection_keep_tables=["good.parquet"],
+                rejection_skip_tables=["bad.parquet"],
+            )
+        return SimpleNamespace(
+            tokens=0, clean_code="print(1)", code_raw="print(1)",
+            rejected_reason="", rejection_details={}, error=None,
+            raw_result="1", rejection_keep_tables=[], rejection_skip_tables=[],
+        )
+
+    monkeypatch.setattr("lakegen.service.phase3_generate_and_execute", fake_phase3)
+    monkeypatch.setattr(
+        "lakegen.service.phase4_synthesize", lambda *_args: ("answer", 0)
+    )
+    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+
+    result = run_question("What is the value?", runtime)
+
+    assert seen_excluded_tables[0] == set()
+    assert seen_carried_tables[0] == []
+    assert seen_excluded_tables[1] == {"bad.parquet"}
+    assert seen_carried_tables[1] == ["good.parquet"]
+    assert "bad.parquet" not in result.tables
 
 
 def test_coder_revision_failure_does_not_restart_discovery(monkeypatch, tmp_path):

@@ -1349,6 +1349,71 @@ def test_structured_rejection_recovery_does_not_bypass_rejection_blockers(tmp_pa
     assert state.rejected_reason == ""
 
 
+def test_structured_rejection_recovery_forwards_ban_tables(tmp_path):
+    # The model can write a clean rejection JSON -- including ban_tables --
+    # without ever calling the reject_data tool. That payload must still
+    # split kept vs. banned tables instead of silently discarding ban_tables,
+    # the same way a real reject_data(..., ban_tables=...) call would.
+    state, manager = _two_table_agentic_tools(tmp_path)
+    manager.inspect_table("a.csv", "Year")
+    manager.inspect_table("b.csv", "Year")
+    response = "assistant: " + json.dumps({
+        "reason": "a.csv covers part of the answer, but b.csv has no matching rows.",
+        "missing_requirements": ["records for the requested organisation"],
+        "inspected_evidence": (
+            "a.csv has the requested measure column; b.csv's Year values never match."
+        ),
+        "ban_tables": {
+            "b.csv": "Year values never match the requested organisation's records",
+        },
+    })
+
+    recovered = _recover_structured_rejection(response, manager, state)
+
+    assert recovered is True
+    assert state.rejection_keep_tables == ["a.csv"]
+    assert state.rejection_skip_tables == ["b.csv"]
+
+
+def test_free_text_rejection_fallback_bans_nothing(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    (tmp_path / "a.csv").write_text("value\n1\n", encoding="utf-8")
+    (tmp_path / "b.csv").write_text("value\n1\n", encoding="utf-8")
+
+    def fake_workflow(**kwargs):
+        # The model writes a rejection as plain prose -- not valid JSON, and
+        # without calling reject_data -- forcing the last-resort
+        # _rejected_tables_reason fallback, where there is no structured
+        # ban_tables signal at all.
+        return "REJECT_TABLES: neither table has the required organisation column."
+
+    monkeypatch.setattr(
+        "lakegen.agents.agent_runner.run_agent_workflow", fake_workflow
+    )
+    monkeypatch.setattr("lakegen.phases.phase3.reset_llm_token_usage", lambda _llm: None)
+    monkeypatch.setattr("lakegen.phases.phase3.get_llm_token_usage", lambda _llm: 0)
+
+    class PM:
+        def render(self, _name, key, **kwargs):
+            if key == "agentic_system_prompt":
+                return "agentic only"
+            return f"QUESTION={kwargs.get('question')}"
+
+    result = phase3_generate_and_execute(
+        "What is the value?", ["a.csv", "b.csv"], ["a.csv", "b.csv"],
+        {}, "runtime reasoning",
+        SimpleNamespace(), PM(), tmp_path, max_run_calls=1,
+        require_semantic_plan=False,
+    )
+
+    assert result.rejected_reason
+    # No structured signal was available, so the safe default bans nothing
+    # rather than excluding a table that was never actually proven irrelevant.
+    assert result.rejection_skip_tables == []
+    assert result.rejection_keep_tables == ["a.csv", "b.csv"]
+
+
 def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
     tmp_path, monkeypatch
 ):
@@ -1872,6 +1937,78 @@ def test_reject_tables_requires_evidence_and_returns_structured_marker(tmp_path)
     assert response.startswith("REJECT_TABLES:")
     assert state.rejected_reason.startswith("The selected table")
     assert state.rejection_details["missing_requirements"] == ["records for year 2023"]
+
+
+def _two_table_agentic_tools(tmp_path):
+    (tmp_path / "a.csv").write_text("Year\n2020\n", encoding="utf-8")
+    (tmp_path / "b.csv").write_text("Year\n2020\n", encoding="utf-8")
+    state = P3State()
+    state.plan_validation = {
+        "valid": True, "locked": False, "status": "verified",
+        "revised_after_runtime_inspection": True,
+    }
+    manager = Phase3ToolsManager(
+        state,
+        tables=["a.csv", "b.csv"],
+        csv_dir=tmp_path,
+        run_dir=tmp_path / "run",
+        evaluation_result_type=None,
+        resolve_code=lambda code, _tables, _csv_dir: (code, None),
+        execute_code=lambda code, **_kwargs: ("value: 42", None, code),
+        extract_payload=lambda raw: (raw, None, None),
+        require_semantic_plan=False,
+        require_analysis_manifest=False,
+    )
+    return state, manager
+
+
+def test_reject_tables_splits_keep_and_skip_with_justification(tmp_path):
+    state, manager = _two_table_agentic_tools(tmp_path)
+    manager.inspect_table("a.csv", "Year")
+    manager.inspect_table("b.csv", "Year")
+
+    response = manager.reject_tables(
+        "a.csv covers part of the answer, but b.csv has no matching rows.",
+        ["records for the requested organisation"],
+        "a.csv has the requested measure column; b.csv's Year values never match.",
+        ban_tables={"b.csv": "Year values never match the requested organisation's records"},
+    )
+
+    assert response.startswith("REJECT_TABLES:")
+    # Only the explicitly-banned table is excluded; the other selected table
+    # is kept by default, even without an explicit endorsement.
+    assert state.rejection_keep_tables == ["a.csv"]
+    assert state.rejection_skip_tables == ["b.csv"]
+
+
+def test_reject_tables_rejects_unjustified_ban_tables(tmp_path):
+    state, manager = _two_table_agentic_tools(tmp_path)
+    manager.inspect_table("a.csv", "Year")
+    manager.inspect_table("b.csv", "Year")
+
+    with pytest.raises(ValueError, match="concrete evidence"):
+        manager.reject_tables(
+            "Neither table contains the requested organisation.",
+            ["records for the requested organisation"],
+            "Both tables lack the requested organisation entirely.",
+            ban_tables={"a.csv": "bad"},
+        )
+
+
+def test_reject_data_forwards_ban_tables_to_reject_tables(tmp_path):
+    state, manager = _two_table_agentic_tools(tmp_path)
+    manager.inspect_table("a.csv", "Year")
+    manager.inspect_table("b.csv", "Year")
+
+    manager.reject_data(
+        "a.csv covers part of the answer, but b.csv has no matching rows.",
+        ["records for the requested organisation"],
+        "a.csv has the requested measure column; b.csv's Year values never match.",
+        ban_tables={"b.csv": "Year values never match the requested organisation's records"},
+    )
+
+    assert state.rejection_keep_tables == ["a.csv"]
+    assert state.rejection_skip_tables == ["b.csv"]
 
 
 def test_reject_tables_blocks_year_column_claim_when_metadata_has_period(tmp_path):

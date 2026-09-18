@@ -51,6 +51,8 @@ class Phase3Result:
     operation_trace: dict[str, object] | None = None
     coder_context_audit: dict[str, object] | None = None
     rejection_details: dict[str, object] | None = None
+    rejection_keep_tables: list[str] = field(default_factory=list)
+    rejection_skip_tables: list[str] = field(default_factory=list)
     coder_attempt_trace: list[dict[str, object]] = field(default_factory=list)
 
 
@@ -236,11 +238,15 @@ def _recover_structured_rejection(response: str, manager, state) -> bool:
             continue
         if not isinstance(payload["missing_requirements"], list):
             continue
+        ban_tables = payload.get("ban_tables")
+        if not isinstance(ban_tables, dict):
+            ban_tables = None
         try:
             manager.reject_data(
                 str(payload["reason"]),
                 payload["missing_requirements"],
                 str(payload["inspected_evidence"]),
+                ban_tables,
             )
         except (TypeError, ValueError):
             # The same rejection validator used by the tool remains authoritative.
@@ -982,7 +988,7 @@ def phase3_generate_and_execute(
             tools=manager.get_tools(),
             max_iterations=8,
             max_repeats=3,
-            max_tool_calls=5,
+            max_tool_calls=6,
             timeout_seconds=600,
         )
     except Phase2AgentStall as exc:
@@ -1033,6 +1039,16 @@ def phase3_generate_and_execute(
         )
     else:
         rejected_reason = _rejected_tables_reason(response)
+        if rejected_reason:
+            # This is the last-resort path: the model rejected in free text
+            # that didn't parse as the structured payload
+            # _recover_structured_rejection understands, so there is no
+            # ban_tables signal to trust. Ban nothing rather than banning the
+            # whole selected set on no evidence -- the safe default matches
+            # reject_tables' own "no justification, no ban" rule instead of
+            # excluding a table that was never actually proven irrelevant.
+            state.rejection_skip_tables = []
+            state.rejection_keep_tables = list(manager.tables)
     # A model can exhaust its normal reasoning turn immediately after inspection.
     # Inspection is deterministic bookkeeping over the latest runtime result.
     # Do it when the model executed successfully but omitted the protocol call.
@@ -1130,5 +1146,7 @@ def phase3_generate_and_execute(
             ),
         },
         rejection_details=state.rejection_details or None,
+        rejection_keep_tables=list(state.rejection_keep_tables),
+        rejection_skip_tables=list(state.rejection_skip_tables),
         coder_attempt_trace=list(state.execution_attempts),
     )

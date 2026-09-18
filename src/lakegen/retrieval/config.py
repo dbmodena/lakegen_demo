@@ -105,6 +105,12 @@ class RetrievalConfig:
     embedding_base_url: str = "http://localhost:11434"
     vector_field: str = "table_embedding"
     lexical_query_fields: str | None = None
+    # Keyword mode only. q.op=AND requires every tokenized word across every
+    # keyword to appear in one document; a zero-hit AND query normally just
+    # returns nothing. When true, retry it once as q.op=OR instead of
+    # collapsing to zero candidates. Off by default to preserve the
+    # pre-existing strict-AND baseline.
+    keyword_or_fallback: bool = False
     missing_signal_policy: MissingSignalPolicy = MissingSignalPolicy.ZERO
     fusion_method: FusionMethod = FusionMethod.WEIGHTED
     rrf_k: int = 60

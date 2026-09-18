@@ -34,6 +34,7 @@ MAX_TEMPORAL_PROFILE_COLUMNS = 4
 PROFILE_CHUNK_ROWS = 100_000
 MAX_TEMPORAL_PROFILE_ROWS = 500_000
 MAX_INSPECTIONS_PER_FILE = 2
+MIN_BAN_JUSTIFICATION_CHARS = 10
 
 _TEMPORAL_COLUMN_PATTERN = re.compile(
     r"(^|_)(date|datetime|timestamp|time|year)($|_)",
@@ -103,12 +104,18 @@ class RejectSelectionSchema(BaseModel):
     suggestion: str = Field(
         description="Suggest dataset concepts, not analytical operations or row-filter values."
     )
-    keep_tables: list[str] = Field(
-        default_factory=list,
+    ban_tables: dict[str, str] = Field(
+        default_factory=dict,
         description=(
-            "Already-inspected candidates that satisfy at least one essential "
-            "requirement and should carry over to the next attempt, even though "
-            "the full set is incomplete."
+            "Already-inspected candidates you judge highly irrelevant -- they "
+            "satisfy none of the essential requirements -- mapped to the "
+            "concrete evidence proving that (e.g. 'Account Name values are "
+            "all Leeds City Council, none match Transport for Greater "
+            "Manchester'), so they are excluded from later retrieval for this "
+            "question. Every other inspected candidate is kept and carries "
+            "over to the next attempt, even if it does not yet cover every "
+            "requirement -- only actively-proven-irrelevant tables belong "
+            "here. A table without a concrete justification is not banned."
         ),
     )
 
@@ -121,12 +128,18 @@ class RejectSelectionValueSearchSchema(BaseModel):
             "not analytical operations or dataset topics."
         )
     )
-    keep_tables: list[str] = Field(
-        default_factory=list,
+    ban_tables: dict[str, str] = Field(
+        default_factory=dict,
         description=(
-            "Already-inspected candidates that satisfy at least one essential "
-            "requirement and should carry over to the next attempt, even though "
-            "the full set is incomplete."
+            "Already-inspected candidates you judge highly irrelevant -- they "
+            "satisfy none of the essential requirements -- mapped to the "
+            "concrete evidence proving that (e.g. 'Account Name values are "
+            "all Leeds City Council, none match Transport for Greater "
+            "Manchester'), so they are excluded from later retrieval for this "
+            "question. Every other inspected candidate is kept and carries "
+            "over to the next attempt, even if it does not yet cover every "
+            "requirement -- only actively-proven-irrelevant tables belong "
+            "here. A table without a concrete justification is not banned."
         ),
     )
 
@@ -459,7 +472,7 @@ class Phase2JudgeToolsManager:
     EXPANSION_SIZE = 5
     MAX_EXPANSIONS = 1
     INITIAL_SHORTLIST_SIZE = 3
-    MAX_INSPECTED_CANDIDATES = 5
+    MAX_INSPECTED_CANDIDATES = 6
 
     def __init__(
         self,
@@ -496,17 +509,37 @@ class Phase2JudgeToolsManager:
             )
         ]
 
-    def inspect_columns(self, file_name: str) -> str:
+    def inspect_columns(
+        self, file_name: str | None = None, candidate_number: int | None = None
+    ) -> str:
         """
         Returns a compact profile for one table in the active dataset.
         Shows row count, bounded min/max coverage for temporal columns, column
         types, and sample values for low-cardinality categorical columns. A
         repeated request may reuse the cached result.
         Use this to understand what data a table contains.
+
+        Prefer candidate_number -- the "Candidate N" label the candidate list
+        and expand_candidates already print above each entry -- over
+        file_name. Generated filenames are long and easy to mistype; a small
+        integer has nothing to transcribe incorrectly.
         """
-        name = file_name.strip()
+        visible = self.visible_candidates()
+        if candidate_number is not None:
+            if not (1 <= candidate_number <= len(visible)):
+                return (
+                    f"Error: candidate_number must be between 1 and "
+                    f"{len(visible)} (the currently visible candidates)."
+                )
+            name = visible[candidate_number - 1]
+        else:
+            if not file_name:
+                return (
+                    "Error: candidate_number (preferred) or file_name is required."
+                )
+            name = file_name.strip()
         key = name.casefold()
-        if name not in self.visible_candidates():
+        if name not in visible:
             return (
                 f"Error: {name} is not currently visible. Inspect only candidates "
                 "already shown by retrieval or expand_candidates."
@@ -608,7 +641,9 @@ class Phase2JudgeToolsManager:
             + ", ".join(requirements)
             + f"\nRevealed {len(newly_visible)} best-matching hidden candidates "
             "(original retrieval ranks are preserved in metadata):\n"
-            + format_candidate_context(newly_visible, self.metadata)
+            + format_candidate_context(
+                newly_visible, self.metadata, start_rank=start + 1
+            )
             + f"\n\n{next_step}"
         )
 
@@ -700,25 +735,43 @@ class Phase2JudgeToolsManager:
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
     def reject_selection(
-        self, reasoning: str, suggestion: str, keep_tables: list[str] | None = None
+        self, reasoning: str, suggestion: str, ban_tables: dict[str, str] | None = None
     ) -> str:
         """
         Use this tool when the candidates cannot yet fully cover the question's
-        essential requirements. List every already-inspected candidate that
-        satisfies at least one essential requirement in keep_tables so that
-        verified progress is not discarded; every other inspected candidate is
-        treated as ruled out and excluded from later retrieval for this question.
+        essential requirements. Map every already-inspected candidate you
+        judge highly irrelevant to the concrete evidence proving that in
+        ban_tables, so it is excluded from later retrieval for this question.
+        Every other inspected candidate is kept and carries over to the next
+        attempt, even if it does not cover every requirement.
         Calling this tool means you have finished this attempt.
         """
         inspected = self.inspected_candidates()
         by_fold = {table.casefold(): table for table in inspected}
-        kept = [
+        # A bare name with no justification is how a table could get banned
+        # on a whim rather than proven evidence. Require the model to commit
+        # to a concrete reason before it is excluded from the rest of the
+        # question.
+        unjustified = [
+            table for table, justification in (ban_tables or {}).items()
+            if table.casefold() in by_fold
+            and len(str(justification).strip()) < MIN_BAN_JUSTIFICATION_CHARS
+        ]
+        if unjustified:
+            raise ValueError(
+                "Selection blocked: ban_tables must map each highly-irrelevant "
+                "candidate to the concrete evidence proving it satisfies "
+                "nothing, not a bare name. Missing or too-short justification "
+                f"for: {', '.join(unjustified)}. Give it a real justification "
+                "or drop it from ban_tables."
+            )
+        banned = [
             by_fold[table.casefold()]
-            for table in (keep_tables or [])
+            for table in (ban_tables or {})
             if table.casefold() in by_fold
         ]
-        self.rejection_keep_tables = kept
-        self.rejection_skip_tables = [table for table in inspected if table not in kept]
+        self.rejection_skip_tables = banned
+        self.rejection_keep_tables = [table for table in inspected if table not in banned]
         return f"REJECT_KEYWORDS: {reasoning}\nSuggestion: {suggestion}"
 
     def get_tools(self) -> list[FunctionTool]:

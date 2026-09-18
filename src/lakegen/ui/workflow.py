@@ -37,6 +37,7 @@ from lakegen.phases import (
     phase3_generate_and_execute,
     phase4_synthesize,
 )
+from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.core.resources import (
     get_all_table_files,
     get_llm,
@@ -394,6 +395,12 @@ async def _select_tables_once(
                     if cands:
                         session.tool_access_telemetry["empty_context_retries"] += 1
             else:
+                # A fresh state each round mirrors the unified gate: it keeps
+                # this a genuinely new judge turn, but seeding excluded/
+                # carried tables from the session's cross-round memory stops
+                # a table already proven insufficient from resurfacing, and
+                # lets a partially-useful one carry forward.
+                divided_state = P12State()
                 result = await cl.make_async(phase2_select_tables)(
                     query=session.query,
                     llm=llm,
@@ -408,6 +415,10 @@ async def _select_tables_once(
                     cancel_check=session.check_cancelled,
                     retrieval_config=session.runtime.retrieval,
                     entities=intent_entities(session.raw_keywords or ""),
+                    selection_state=divided_state,
+                    excluded_tables=set(session.excluded_tables),
+                    carried_tables=list(session.carried_tables),
+                    carried_metadata=dict(session.carried_metadata),
                 )
             session.phase_seconds["discovery"] += time.monotonic() - phase_started
             session.llm_call_counts["discovery"] += (
@@ -426,6 +437,20 @@ async def _select_tables_once(
             tok2,
             accumulate_tokens=accumulate_tokens,
         ):
+            if session.runtime.experiment.tool_access != ToolAccess.ORCHESTRATED_CONTEXT:
+                for table in divided_state.rejection_skip_tables:
+                    session.excluded_tables.add(table.casefold())
+                for table in divided_state.rejection_keep_tables:
+                    if table.casefold() in session.excluded_tables:
+                        continue
+                    if table not in session.carried_tables:
+                        session.carried_tables.append(table)
+                    if table in smeta:
+                        session.carried_metadata[table] = smeta[table]
+                session.carried_tables = [
+                    table for table in session.carried_tables
+                    if table.casefold() not in session.excluded_tables
+                ]
             step.output = session.text(
                 "phase2.keywords_rejected",
                 reason=session.fallback_reason,
@@ -570,6 +595,18 @@ async def _run_unified_gate(
                         session, discovery.prepared_context, discovery.llm_invocations
                     )
                 else:
+                    # A fresh P12State each round keeps this a genuinely new
+                    # retrieval turn (reusing it would block new searches
+                    # after the first inspected candidate), but seeding it
+                    # with the session's accumulated cross-round memory keeps
+                    # a table already proven insufficient from silently
+                    # resurfacing (mirrors DIVIDED's excluded_tables/
+                    # carried_tables in service.py).
+                    unified_state = P12State()
+                    unified_state.excluded_tables = set(session.excluded_tables)
+                    unified_state.carried_tables = list(session.carried_tables)
+                    unified_state.carried_metadata = dict(session.carried_metadata)
+                    unified_state.inspection_cache = dict(session.carried_inspection)
                     selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
                         query=session.query,
                         llm=llm,
@@ -582,8 +619,32 @@ async def _run_unified_gate(
                         stream_callback=bridge.emit,
                         cancel_check=session.check_cancelled,
                         retrieval_config=session.runtime.retrieval,
+                        state=unified_state,
                     )
                     unified_calls = 1
+                    if reasoning.startswith("REJECT_KEYWORDS:"):
+                        for table in unified_state.rejection_skip_tables:
+                            session.excluded_tables.add(table.casefold())
+                        for table in unified_state.rejection_keep_tables:
+                            if table.casefold() in session.excluded_tables:
+                                continue
+                            if table not in session.carried_tables:
+                                session.carried_tables.append(table)
+                            if table in smeta:
+                                session.carried_metadata[table] = smeta[table]
+                            cached_inspection = unified_state.inspection_cache.get(
+                                table.casefold()
+                            )
+                            if cached_inspection:
+                                session.carried_inspection[table.casefold()] = cached_inspection
+                        session.carried_tables = [
+                            table for table in session.carried_tables
+                            if table.casefold() not in session.excluded_tables
+                        ]
+                        session.carried_inspection = {
+                            key: value for key, value in session.carried_inspection.items()
+                            if key not in session.excluded_tables
+                        }
                 session.phase_seconds["discovery"] += time.monotonic() - phase_started
                 session.llm_call_counts["discovery"] += unified_calls
 
@@ -722,6 +783,24 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
             if phase3_result.rejected_reason:
                 reason = phase3_result.rejected_reason
                 session.fallback_reason = reason
+                # The coder's own per-table judgment feeds the same
+                # cross-round memory a discovery rejection does: a table it
+                # proved unusable is banned outright, and one it found
+                # partially useful carries forward instead of being lost
+                # with the rest of the selected set.
+                for table in phase3_result.rejection_skip_tables:
+                    session.excluded_tables.add(table.casefold())
+                for table in phase3_result.rejection_keep_tables:
+                    if table.casefold() in session.excluded_tables:
+                        continue
+                    if table not in session.carried_tables:
+                        session.carried_tables.append(table)
+                    if table in session.solr_metadata_map:
+                        session.carried_metadata[table] = session.solr_metadata_map[table]
+                session.carried_tables = [
+                    table for table in session.carried_tables
+                    if table.casefold() not in session.excluded_tables
+                ]
                 generation_attempt["status"] = "rejected tables"
                 code_attempts.append(generation_attempt)
                 attempt_blocks.append(
@@ -910,6 +989,12 @@ async def _run_locked_workflow(question: str) -> str:
     session = get_session()
     runtime = get_runtime_settings()
     session.runtime = runtime
+    # The session object persists across multiple questions in one Chainlit
+    # conversation; this discovery-attempt memory must not leak between them.
+    session.excluded_tables = set()
+    session.carried_tables = []
+    session.carried_metadata = {}
+    session.carried_inspection = {}
     session.tool_access_telemetry = {
         "configured_tool_access": runtime.experiment.tool_access.value,
         "execution_path": runtime.experiment.tool_access.value,

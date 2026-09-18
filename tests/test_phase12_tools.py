@@ -23,6 +23,7 @@ def test_inspected_candidates_accepts_structured_recovery_candidates():
     }
 
     assert state.inspected_candidates() == ["events.parquet"]
+from lakegen.agent_tools import tools_p2
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback, build_requirement_ledger
 from lakegen.phases.phase12 import (
@@ -230,6 +231,139 @@ def test_default_search_retains_hidden_candidates_for_expansion(monkeypatch, tmp
     manager.inspect_columns(files[0])
     assert "table-15.parquet" in manager.expand_candidates("value")
     assert state.visible_candidate_count == 15
+
+
+def test_search_excludes_previously_rejected_tables(monkeypatch, tmp_path):
+    class FakeService:
+        def retrieve(self, **kwargs):
+            return [_hit("bad", 1, ["value"]), _hit("good", 2, ["value"])]
+
+    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    files = ["bad.parquet", "good.parquet"]
+    state = P12State()
+    state.excluded_tables = {"bad.parquet"}
+    manager = Phase12ToolsManager(state, object(), files, tmp_path)
+
+    result = manager.search_tables("value")
+
+    assert "good.parquet" in result
+    assert "bad.parquet" not in result
+    assert state.all_candidates == ["good.parquet"]
+
+
+def test_search_widens_fetch_by_excluded_count(monkeypatch, tmp_path):
+    # Excluded candidates are filtered out of the same fixed-size fetch, so
+    # without compensation every accumulated ban silently shrinks the visible
+    # pool below top_k. The raw Solr fetch must widen by the ban count
+    # (mirrors DIVIDED's fetch_k = config.top_k + len(excluded) in
+    # phase2.py's _solr_and_search).
+    captured_kwargs = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            captured_kwargs.append(kwargs)
+            return [_hit(f"table-{i}", i, ["value"]) for i in range(1, 21)]
+
+    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    files = [f"table-{i}.parquet" for i in range(1, 21)]
+
+    baseline_state = P12State()
+    Phase12ToolsManager(baseline_state, object(), files, tmp_path).search_tables("values")
+    baseline_fetch_k = captured_kwargs[-1]["top_k"]
+
+    excluded_state = P12State()
+    excluded_state.excluded_tables = {"bad-1", "bad-2", "bad-3"}
+    Phase12ToolsManager(excluded_state, object(), files, tmp_path).search_tables("values")
+    widened_fetch_k = captured_kwargs[-1]["top_k"]
+
+    assert widened_fetch_k == baseline_fetch_k + 3
+    assert captured_kwargs[-1]["lexical_fetch_k"] == widened_fetch_k
+
+
+def test_search_carries_forward_previously_kept_tables(monkeypatch, tmp_path):
+    class FakeService:
+        def retrieve(self, **kwargs):
+            return [_hit("fresh", 1, ["value"])]
+
+    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    files = ["fresh.parquet", "kept.parquet"]
+    state = P12State()
+    state.carried_tables = ["kept.parquet"]
+    state.carried_metadata = {"kept.parquet": {"title": "Kept Table"}}
+    manager = Phase12ToolsManager(state, object(), files, tmp_path)
+
+    result = manager.search_tables("value")
+
+    # Carried tables re-surface even though this round's own retrieval
+    # never returned them, and lead the ranking the same way DIVIDED's
+    # carried_tables do.
+    assert "kept.parquet" in result
+    assert "Kept Table" in result
+
+
+def test_carried_table_does_not_need_re_inspection(monkeypatch, tmp_path):
+    # A table carried forward with its cached inspect_columns text pre-seeded
+    # onto inspection_cache must count as already inspected -- otherwise
+    # every round re-burns part of its bounded inspection budget re-proving
+    # something the previous round already established.
+    class FakeService:
+        def retrieve(self, **kwargs):
+            return [_hit("fresh", 1, ["value"])]
+
+    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    inspect_calls = []
+    monkeypatch.setattr(
+        tools_p12, "_inspect_columns",
+        lambda _directory, name: inspect_calls.append(name) or f"Schema for {name}",
+    )
+    files = ["fresh.parquet", "kept.parquet"]
+    state = P12State()
+    state.carried_tables = ["kept.parquet"]
+    state.carried_metadata = {"kept.parquet": {"title": "Kept Table"}}
+    state.inspection_cache = {"kept.parquet": "Schema for kept.parquet (from a prior round)"}
+    manager = Phase12ToolsManager(state, object(), files, tmp_path)
+
+    manager.search_tables("value")
+
+    assert "kept.parquet" in state.inspected_candidates()
+    assert inspect_calls == []
+    assert state.all_candidates[0] == "kept.parquet"
+
+
+def test_reject_unified_selection_splits_inspected_candidates_into_keep_and_skip(tmp_path):
+    state = P12State()
+    state.all_candidates = ["a.parquet", "b.parquet", "c.parquet"]
+    state.inspection_cache = {
+        "a.parquet": "Schema for a.parquet",
+        "b.parquet": "Schema for b.parquet",
+        "c.parquet": "Schema for c.parquet",
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    manager.reject_unified_selection(
+        "b covers the count but not the district breakdown",
+        "look for a district-level table",
+        ban_tables={"c.parquet": "has no district or count column at all"},
+    )
+
+    # Only the explicitly-banned candidate is excluded; everything else
+    # inspected is kept by default, even without an explicit endorsement.
+    assert state.rejection_keep_tables == ["a.parquet", "b.parquet"]
+    assert state.rejection_skip_tables == ["c.parquet"]
+
+
+def test_reject_unified_selection_rejects_unjustified_ban_tables(tmp_path):
+    state = P12State()
+    state.all_candidates = ["a.parquet"]
+    state.inspection_cache = {"a.parquet": "Schema for a.parquet"}
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    with pytest.raises(ValueError, match="concrete evidence"):
+        manager.reject_unified_selection(
+            "a.parquet does not contain the required organisation",
+            "search for the correct organisation",
+            ban_tables={"a.parquet": "bad"},
+        )
 
 
 def test_partition_filters_preserve_unique_exact_table_bindings(tmp_path):
@@ -1074,6 +1208,42 @@ def test_unified_selection_blocks_proven_temporal_mismatch(tmp_path):
         manager.confirm_unified_selection("year is covered", ["history.parquet"])
 
 
+def test_divided_inspect_columns_resolves_candidate_number(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        tools_p2, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+    )
+    manager = Phase2JudgeToolsManager(
+        ["a.parquet", "b.parquet", "c.parquet"], tmp_path
+    )
+
+    # candidate_number is 1-indexed and resolves without the filename ever
+    # being typed out, so there is nothing for the model to transcribe wrong.
+    assert manager.inspect_columns(candidate_number=2) == "Schema for b.parquet"
+    assert manager.inspect_columns(candidate_number=0).startswith("Error:")
+    assert manager.inspect_columns(candidate_number=4).startswith("Error:")
+
+
+def test_divided_expand_candidates_numbering_continues_from_visible_count(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        tools_p2, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+    )
+    candidates = [f"table-{index}.parquet" for index in range(1, 21)]
+    manager = Phase2JudgeToolsManager(candidates, tmp_path)
+    manager.metadata = {
+        name: {"title": name, "description": "value"} for name in candidates
+    }
+    manager.inspect_columns(candidate_number=1)
+
+    expanded = manager.expand_candidates("value")
+    # The first newly-revealed candidate continues the same numbering the
+    # agent already saw (11), instead of resetting to "Candidate 1" and
+    # colliding with the first candidate from the initial listing.
+    assert "Candidate 11 " in expanded
+    assert "Candidate 1 " not in expanded
+
+
 def test_reject_selection_splits_inspected_candidates_into_keep_and_skip(tmp_path):
     manager = Phase2JudgeToolsManager(
         ["a.parquet", "b.parquet", "c.parquet"], tmp_path
@@ -1085,25 +1255,62 @@ def test_reject_selection_splits_inspected_candidates_into_keep_and_skip(tmp_pat
     manager.reject_selection(
         "b covers the count but not the district breakdown",
         "look for a district-level table",
-        keep_tables=["a.parquet"],
+        ban_tables={"c.parquet": "has no count or district column at all"},
     )
 
-    assert manager.rejection_keep_tables == ["a.parquet"]
-    assert manager.rejection_skip_tables == ["b.parquet", "c.parquet"]
+    # Only the explicitly-banned candidate is excluded; everything else
+    # inspected is kept by default, even without an explicit endorsement.
+    assert manager.rejection_keep_tables == ["a.parquet", "b.parquet"]
+    assert manager.rejection_skip_tables == ["c.parquet"]
 
 
-def test_reject_selection_ignores_uninspected_or_unknown_keep_tables(tmp_path):
+def test_reject_selection_ignores_uninspected_or_unknown_ban_tables(tmp_path):
     manager = Phase2JudgeToolsManager(["a.parquet", "b.parquet"], tmp_path)
     manager._inspection_cache["a.parquet"] = "Schema for a.parquet"
     # b.parquet was never inspected; c.parquet is not even a candidate.
 
     manager.reject_selection(
-        "neither table is enough", "try something else",
-        keep_tables=["b.parquet", "c.parquet"],
+        "neither table was actually judged", "try something else",
+        ban_tables={
+            "b.parquet": "has the missing district column",
+            "c.parquet": "has the missing district column",
+        },
     )
 
-    assert manager.rejection_keep_tables == []
-    assert manager.rejection_skip_tables == ["a.parquet"]
+    # A ban naming an uninspected or unknown table bans nothing; the one
+    # genuinely-inspected candidate is kept by default.
+    assert manager.rejection_keep_tables == ["a.parquet"]
+    assert manager.rejection_skip_tables == []
+
+
+def test_reject_selection_rejects_unjustified_ban_tables(tmp_path):
+    manager = Phase2JudgeToolsManager(["a.parquet", "b.parquet"], tmp_path)
+    manager._inspection_cache["a.parquet"] = "Schema for a.parquet"
+    manager._inspection_cache["b.parquet"] = "Schema for b.parquet"
+
+    with pytest.raises(ValueError, match="concrete evidence"):
+        manager.reject_selection(
+            "a.parquet does not contain the required organisation",
+            "search for the correct organisation",
+            ban_tables={"a.parquet": "bad"},
+        )
+
+    # A bare empty justification is rejected the same way.
+    with pytest.raises(ValueError, match="concrete evidence"):
+        manager.reject_selection(
+            "a.parquet does not contain the required organisation",
+            "search for the correct organisation",
+            ban_tables={"a.parquet": ""},
+        )
+
+    # State from the rejected calls above must not leak into a later, valid call.
+    manager.reject_selection(
+        "a covers the count but b lacks the district breakdown",
+        "look for a district-level table",
+        ban_tables={"b.parquet": "has no district or count column at all"},
+    )
+    assert manager.rejection_keep_tables == ["a.parquet"]
+    assert manager.rejection_skip_tables == ["b.parquet"]
 
 
 def test_phase2_selection_requires_inspection(tmp_path):
@@ -1299,6 +1506,45 @@ def test_unified_adaptive_inspection_limits_are_enforced(monkeypatch, tmp_path):
     assert manager.inspect_columns("table-4.parquet").startswith("Schema")
     assert manager.inspect_columns("table-5.parquet").startswith("Schema")
     assert manager.inspect_columns("table-6.parquet").startswith("Inspection blocked")
+
+
+def test_unified_inspect_columns_resolves_candidate_number(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+    )
+    state = P12State()
+    state.all_candidates = [f"table-{index}.parquet" for index in range(1, 4)]
+    state.visible_candidate_count = 3
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    # candidate_number is 1-indexed and resolves without the filename ever
+    # being typed out, so there is nothing for the model to transcribe wrong.
+    assert manager.inspect_columns(candidate_number=2) == "Schema for table-2.parquet"
+    assert manager.inspect_columns(candidate_number=0).startswith("Error:")
+    assert manager.inspect_columns(candidate_number=4).startswith("Error:")
+
+
+def test_unified_expand_candidates_numbering_continues_from_visible_count(
+    monkeypatch, tmp_path
+):
+    class FakeService:
+        def retrieve(self, **kwargs):
+            return [_hit(f"table-{i}", i, ["value"]) for i in range(1, 21)]
+
+    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    monkeypatch.setattr(tools_p12, "_inspect_columns", lambda *_: "Schema: value")
+    files = [f"table-{i}.parquet" for i in range(1, 21)]
+    state = P12State()
+    manager = Phase12ToolsManager(state, object(), files, tmp_path)
+    manager.search_tables("values")
+    manager.inspect_columns(files[0])
+
+    expanded = manager.expand_candidates("value")
+    # The first newly-revealed candidate continues the same numbering the
+    # agent already saw (11), instead of resetting to "Candidate 1" and
+    # colliding with the first candidate from the initial listing.
+    assert "Candidate 11 " in expanded
+    assert "Candidate 1 " not in expanded
 
 
 def test_guided_expansion_prefers_hidden_metadata_covering_missing_requirement(

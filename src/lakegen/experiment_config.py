@@ -63,6 +63,7 @@ class RetrievalExperimentConfig(FrozenModel):
     embedding_base_url: str = "http://localhost:11434"
     vector_field: str = Field(default="table_embedding", min_length=1)
     lexical_query_fields: str | None = None
+    keyword_or_fallback: bool = False
     missing_signal_policy: MissingSignalPolicy = MissingSignalPolicy.ZERO
     fusion_method: FusionMethod = FusionMethod.WEIGHTED
     rrf_k: int = Field(default=60, gt=0)
@@ -120,7 +121,7 @@ class DiscoveryConfig(FrozenModel):
     max_search_attempts: int = Field(default=1, gt=0)
     # Distinct candidates the agent may inspect, before and after expanding.
     initial_shortlist_size: int = Field(default=3, gt=0)
-    max_inspected_candidates: int = Field(default=5, gt=0)
+    max_inspected_candidates: int = Field(default=6, gt=0)
     # Re-inspections of one already-inspected file; the first look is not a repeat.
     max_inspections_per_file: int = Field(default=2, gt=0)
     # Whether inspecting a candidate still forecloses searching again. Inspection

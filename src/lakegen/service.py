@@ -362,6 +362,11 @@ def run_question(
     attempted_keywords: list[str] = []
     carried_tables: list[str] = []
     carried_metadata: dict[str, dict[str, Any]] = {}
+    # Unified only: the cached inspect_columns text for each carried table,
+    # so a table already proven good doesn't have to be re-inspected from a
+    # blank P12State every attempt -- that wasted the round's own bounded
+    # inspection budget on re-verifying what was already known.
+    carried_inspection: dict[str, str] = {}
     excluded_tables: set[str] = set()
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
     generated_code_seed_instruction_provided = False
@@ -475,9 +480,16 @@ def run_question(
                 ):
                     # A coder rejection starts a genuinely new retrieval turn.
                     # Reusing P12State would block new searches after the first
-                    # inspected candidate and could silently repeat the same set.
+                    # inspected candidate and could silently repeat the same
+                    # set, so a fresh state is still built each attempt -- but
+                    # it is seeded with the cross-round memory accumulated so
+                    # far (mirrors DIVIDED's excluded_tables/carried_tables).
                     selection_state = P12State()
                     selection_state.rejected_selections = set(rejected_selection_keys)
+                    selection_state.excluded_tables = set(excluded_tables)
+                    selection_state.carried_tables = list(carried_tables)
+                    selection_state.carried_metadata = dict(carried_metadata)
+                    selection_state.inspection_cache = dict(carried_inspection)
                     selection_states.append(selection_state)
                     (
                         selected,
@@ -502,6 +514,61 @@ def run_question(
                     )
                     phase_invocation_counts["discovery"] += 1
                     context_telemetry["llm_invocations"] += 1
+                    if reasoning.startswith("REJECT_KEYWORDS:"):
+                        attempted_keywords.extend(keywords)
+                        attempted_keywords = list(dict.fromkeys(attempted_keywords))
+                        for table in selection_state.rejection_skip_tables:
+                            excluded_tables.add(table.casefold())
+                        for table in selection_state.rejection_keep_tables:
+                            if table.casefold() in excluded_tables:
+                                continue
+                            if table not in carried_tables:
+                                carried_tables.append(table)
+                            if table in solr_meta:
+                                carried_metadata[table] = solr_meta[table]
+                            cached_inspection = selection_state.inspection_cache.get(
+                                table.casefold()
+                            )
+                            if cached_inspection:
+                                carried_inspection[table.casefold()] = cached_inspection
+                        carried_tables = [
+                            table for table in carried_tables
+                            if table.casefold() not in excluded_tables
+                        ]
+                        carried_inspection = {
+                            key: value for key, value in carried_inspection.items()
+                            if key not in excluded_tables
+                        }
+                        if selection_state.rejection_keep_tables:
+                            kept_str = ", ".join(selection_state.rejection_keep_tables)
+                            hint = (
+                                "The previous attempt already found tables that "
+                                "satisfy part of the question; those are kept and "
+                                f"must not be searched for again. Architect feedback: {reasoning}. "
+                                "Keep the concepts, entities, and time constraints "
+                                "that led to the kept tables unchanged, and adjust "
+                                "only what is needed to cover the remaining gap "
+                                f"described above. {kept_str} will already appear as "
+                                "an inspected candidate with its schema pre-loaded; "
+                                "do not spend a fresh inspect_columns call re-verifying "
+                                "it, spend that budget on the missing requirement instead."
+                            )
+                        else:
+                            hint = (
+                                "The previous keywords led to bad tables. Architect "
+                                f"feedback: {reasoning}. Generate completely different keywords."
+                            )
+                        keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
+                        if not keywords_rejected:
+                            surviving_candidates = [
+                                table for table in selection_state.all_candidates
+                                if table.casefold() not in excluded_tables
+                            ]
+                            selected = (
+                                surviving_candidates
+                                or selection_state.all_candidates
+                                or all_files
+                            )[:3]
                 elif (
                     experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED
                     and experiment.tool_access == ToolAccess.AGENTIC
@@ -553,10 +620,38 @@ def run_question(
                             table for table in carried_tables
                             if table.casefold() not in excluded_tables
                         ]
-                        hint = f"The previous keywords led to bad tables. Architect feedback: {reasoning}. Generate completely different keywords."
+                        if selection_state.rejection_keep_tables:
+                            # Some inspected tables already satisfy part of the
+                            # question and are carried over untouched. Pivoting
+                            # every concept here would risk losing that
+                            # coverage, so only the remaining gap should move.
+                            hint = (
+                                "The previous attempt already found tables that "
+                                "satisfy part of the question; those are kept and "
+                                f"must not be searched for again. Architect feedback: {reasoning}. "
+                                "Keep the concepts, entities, and time constraints "
+                                "that led to the kept tables unchanged, and adjust "
+                                "only what is needed to cover the remaining gap "
+                                "described above."
+                            )
+                        else:
+                            hint = (
+                                "The previous keywords led to bad tables. Architect "
+                                f"feedback: {reasoning}. Generate completely different keywords."
+                            )
                         keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
                         if not keywords_rejected:
-                            selected = candidates[:3] if candidates else all_files[:3]
+                            # This is the last allowed attempt. `candidates` is
+                            # this round's pre-judgment retrieval list; using it
+                            # as-is can hand Phase 3 exactly the tables the
+                            # architect just rejected above via
+                            # reject_selection. Filter those back out before
+                            # forcing a selection.
+                            surviving_candidates = [
+                                table for table in candidates
+                                if table.casefold() not in excluded_tables
+                            ]
+                            selected = (surviving_candidates or candidates or all_files)[:3]
                 elif experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED:
                     try:
                         discovery_result = run_unified_orchestrated_discovery(
@@ -1041,6 +1136,24 @@ def run_question(
                                 generated.rejected_reason,
                             )
                         )
+                        # The coder's own per-table judgment feeds the same
+                        # cross-round memory as an architect rejection: a
+                        # table it proved unusable is banned outright, and
+                        # one it found partially useful carries forward
+                        # instead of being lost with the rest of the set.
+                        for table in generated.rejection_skip_tables:
+                            excluded_tables.add(table.casefold())
+                        for table in generated.rejection_keep_tables:
+                            if table.casefold() in excluded_tables:
+                                continue
+                            if table not in carried_tables:
+                                carried_tables.append(table)
+                            if table in solr_meta:
+                                carried_metadata[table] = solr_meta[table]
+                        carried_tables = [
+                            table for table in carried_tables
+                            if table.casefold() not in excluded_tables
+                        ]
                         result.errors.append({
                             "phase": "code",
                             "type": "tables_rejected",

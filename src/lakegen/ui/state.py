@@ -153,6 +153,19 @@ class LakeGenSession:
     solr_metadata_map: SolrMetadata = field(default_factory=dict)
     fallback_reason: str = ""
     force_execution: bool = False
+    # Cross-round memory for the unified architecture (mirrors the divided
+    # architecture's excluded_tables/carried_tables in service.py): tables
+    # proven insufficient in an earlier round stay excluded from retrieval,
+    # and tables already verified to satisfy part of the question carry
+    # forward, across both "Recalculate" and "Re-evaluate tables" rounds.
+    excluded_tables: set[str] = field(default_factory=set)
+    carried_tables: list[str] = field(default_factory=list)
+    carried_metadata: SolrMetadata = field(default_factory=dict)
+    # Unified only: cached inspect_columns text per carried table, so a
+    # table already proven good doesn't have to be re-inspected from a
+    # blank P12State every round -- that wasted the round's own bounded
+    # inspection budget on re-verifying what was already known.
+    carried_inspection: dict[str, str] = field(default_factory=dict)
     tokens: dict[str, int] = field(
         default_factory=lambda: {"p1": 0, "p2": 0, "p3": 0, "p4": 0}
     )

@@ -12,6 +12,7 @@ from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.experiment_config import DiscoveryConfig
 from lakegen.agent_tools.tools_p2 import (
+    MIN_BAN_JUSTIFICATION_CHARS,
     _check_join_union,
     _inspect_columns,
     _rank_for_missing_requirements,
@@ -163,6 +164,27 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
             "inspected table evidence. Bind every filter, dimension, and measure "
             "to exact selected-table columns; never use benchmark expectations."
         )
+    )
+
+
+class RejectUnifiedSelectionSchema(BaseModel):
+    reasoning: str = Field(description="Explain step-by-step why the current candidates are not good.")
+    suggestion: str = Field(
+        description="Suggest dataset concepts, not analytical operations or row-filter values."
+    )
+    ban_tables: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Already-inspected candidates you judge highly irrelevant -- they "
+            "satisfy none of the essential requirements -- mapped to the "
+            "concrete evidence proving that (e.g. 'Parent Department is only "
+            "Crown Prosecution Service, never the requested department'), so "
+            "they are excluded from later retrieval for this question. Every "
+            "other inspected candidate is kept and carries over to the next "
+            "attempt, even if it does not yet cover every requirement -- "
+            "only actively-proven-irrelevant tables belong here. A table "
+            "without a concrete justification is not banned."
+        ),
     )
 
 
@@ -380,6 +402,16 @@ class P12State:
         self.selection_advisories: list[str] = []
         self.rejection_keep_tables: list[str] = []
         self.rejection_skip_tables: list[str] = []
+        # Cross-round memory, seeded by the caller before this round starts
+        # (mirrors DIVIDED's excluded_tables/carried_tables in service.py).
+        # excluded_tables: proven-insufficient candidates from a prior round,
+        # in this question, filtered out of fresh retrieval entirely.
+        # carried_tables: candidates a prior round already verified satisfy
+        # part of the question; re-surfaced here regardless of whether this
+        # round's retrieval finds them again.
+        self.excluded_tables: set[str] = set()
+        self.carried_tables: list[str] = []
+        self.carried_metadata: SolrMetadata = {}
 
     def inspected_candidates(self) -> list[str]:
         """Return successfully inspected candidates in retrieval order."""
@@ -554,7 +586,14 @@ class Phase12ToolsManager:
                     "repeat this search.\n"
                     + self.state.search_cache[key]
                 )
-            if self.state.inspection_cache and not self.discovery.search_after_inspection:
+            # inspection_counts, not inspection_cache: a carried-forward
+            # table's cache entry is seeded onto inspection_cache before this
+            # round's first search, so checking inspection_cache here would
+            # block search_tables outright the moment anything was carried
+            # over. inspection_counts only grows from an inspect_columns call
+            # actually made this round, so it still blocks a genuine
+            # search-after-judging within the round.
+            if self.state.inspection_counts and not self.discovery.search_after_inspection:
                 return (
                     "Search refinement blocked: a candidate has already been "
                     "inspected. Use the existing evidence or one guided expansion."
@@ -584,8 +623,15 @@ class Phase12ToolsManager:
                 )
             # Retrieved candidates must first be mapped and de-duplicated against
             # local files.  Request a wider ranked list here and apply the
-            # workflow's final top_k only after that mapping below.
-            fetch_k = max(self.discovery.fetch_floor, self.retrieval_config.top_k)
+            # workflow's final top_k only after that mapping below. Widen by
+            # the current ban count too (mirrors DIVIDED's _solr_and_search),
+            # so a banned hit shrinks the fetch instead of the final visible
+            # pool -- otherwise every accumulated ban would silently starve
+            # top_k with nothing backfilling it.
+            fetch_k = (
+                max(self.discovery.fetch_floor, self.retrieval_config.top_k)
+                + len(self.state.excluded_tables)
+            )
             retrieval_started = time.monotonic()
             hits = retriever.retrieve(
                 question=self.question,
@@ -630,7 +676,11 @@ class Phase12ToolsManager:
             for hit in hits:
                 doc = hit.document
                 matched = match_local_csv(doc, self.all_files)
-                if matched is None or matched in current_candidates:
+                if (
+                    matched is None
+                    or matched in current_candidates
+                    or matched.casefold() in self.state.excluded_tables
+                ):
                     continue
                 current_candidates.append(matched)
                 previous_rank = self.state.best_ranks.get(matched)
@@ -659,6 +709,22 @@ class Phase12ToolsManager:
             self.state.all_candidates = self.state.all_candidates[
                 : self.retrieval_config.top_k
             ]
+            # Carried candidates from a prior round already proved they
+            # satisfy part of the question; re-surface them regardless of
+            # whether this round's retrieval finds them again, even if that
+            # means displacing the weakest fresh candidate.
+            for table in self.state.carried_tables:
+                if table.casefold() in self.state.excluded_tables:
+                    continue
+                if table in self.state.all_candidates:
+                    self.state.all_candidates.remove(table)
+                self.state.all_candidates.insert(0, table)
+                if table not in self.state.solr_meta and table in self.state.carried_metadata:
+                    self.state.solr_meta[table] = self.state.carried_metadata[table]
+            if len(self.state.all_candidates) > self.retrieval_config.top_k:
+                self.state.all_candidates = self.state.all_candidates[
+                    : self.retrieval_config.top_k
+                ]
             candidates = self.state.all_candidates
             self.state.visible_candidate_count = min(
                 self.discovery.initial_candidates,
@@ -709,7 +775,12 @@ class Phase12ToolsManager:
         except Exception as exc:
             return f"Error during table retrieval: {exc}."
 
-    def inspect_columns(self, file_name: str | None = None, filename: str | None = None) -> str:
+    def inspect_columns(
+        self,
+        file_name: str | None = None,
+        filename: str | None = None,
+        candidate_number: int | None = None,
+    ) -> str:
         """
         Returns a compact profile for one table in the active dataset.
         Shows row count, bounded min/max coverage for temporal columns, column
@@ -720,15 +791,31 @@ class Phase12ToolsManager:
         Use this only after identifying a valid table file with search_tables.
         Normally inspect the 2-4 strongest candidates from the bounded metadata
         preview instead of inspecting every retrieved table.
+
+        Prefer candidate_number -- the "Candidate N" label search_tables and
+        expand_candidates already print above each entry -- over file_name or
+        filename. Generated filenames are long and easy to mistype; a small
+        integer has nothing to transcribe incorrectly.
         """
-        name = file_name or filename
-        if not name:
-            return "Error: file_name or filename parameter is required."
-        name = name.strip()
-        key = name.casefold()
         visible_candidates = self.state.all_candidates[
             : self.state.visible_candidate_count
         ]
+        if candidate_number is not None:
+            if not (1 <= candidate_number <= len(visible_candidates)):
+                return (
+                    f"Error: candidate_number must be between 1 and "
+                    f"{len(visible_candidates)} (the currently visible candidates)."
+                )
+            name = visible_candidates[candidate_number - 1]
+        else:
+            name = file_name or filename
+            if not name:
+                return (
+                    "Error: candidate_number (preferred) or file_name/filename "
+                    "is required."
+                )
+            name = name.strip()
+        key = name.casefold()
         if name not in visible_candidates:
             return (
                 f"Error: {name} is not currently visible. Inspect only candidates "
@@ -835,7 +922,9 @@ class Phase12ToolsManager:
             + ", ".join(requirements)
             + f"\nRevealed {len(newly_visible)} best-matching hidden candidates "
             "(original retrieval ranks are preserved in metadata):\n"
-            + format_candidate_context(newly_visible, self.state.solr_meta)
+            + format_candidate_context(
+                newly_visible, self.state.solr_meta, start_rank=start + 1
+            )
             + f"\n\n{next_step}"
         )
 
@@ -1162,6 +1251,44 @@ class Phase12ToolsManager:
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
+    def reject_unified_selection(
+        self, reasoning: str, suggestion: str, ban_tables: dict[str, str] | None = None
+    ) -> str:
+        """
+        Use this tool when the candidates cannot yet fully cover the question's
+        essential requirements. Map every already-inspected candidate you
+        judge highly irrelevant to the concrete evidence proving that in
+        ban_tables, so it is excluded from later retrieval for this question.
+        Every other inspected candidate is kept and carries over to the next
+        attempt, even if it does not cover every requirement.
+        Calling this tool means you have finished this attempt.
+        """
+        inspected = self.state.inspected_candidates()
+        by_fold = {table.casefold(): table for table in inspected}
+        unjustified = [
+            table for table, justification in (ban_tables or {}).items()
+            if table.casefold() in by_fold
+            and len(str(justification).strip()) < MIN_BAN_JUSTIFICATION_CHARS
+        ]
+        if unjustified:
+            raise ValueError(
+                "Selection blocked: ban_tables must map each highly-irrelevant "
+                "candidate to the concrete evidence proving it satisfies "
+                "nothing, not a bare name. Missing or too-short justification "
+                f"for: {', '.join(unjustified)}. Give it a real justification "
+                "or drop it from ban_tables."
+            )
+        banned = [
+            by_fold[table.casefold()]
+            for table in (ban_tables or {})
+            if table.casefold() in by_fold
+        ]
+        self.state.rejection_skip_tables = banned
+        self.state.rejection_keep_tables = [
+            table for table in inspected if table not in banned
+        ]
+        return f"REJECT_KEYWORDS: {reasoning}\nSuggestion: {suggestion}"
+
     def _build_coder_brief(
         self,
         tables: list[str],
@@ -1439,6 +1566,7 @@ class Phase12ToolsManager:
             FunctionTool.from_defaults(fn=self.expand_candidates),
             FunctionTool.from_defaults(fn=self.check_join_union),
             FunctionTool.from_defaults(fn=self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),
+            FunctionTool.from_defaults(fn=self.reject_unified_selection, fn_schema=RejectUnifiedSelectionSchema, return_direct=True),
         ]
 
 

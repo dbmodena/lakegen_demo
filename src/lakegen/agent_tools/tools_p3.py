@@ -20,6 +20,7 @@ import pandas as pd
 from lakegen.column_resolution import generated_column_names
 from lakegen.revision_policy import classify_revision, technical_repair_eligible
 from lakegen.data_quality import profile_table_quality
+from lakegen.agent_tools.tools_p2 import MIN_BAN_JUSTIFICATION_CHARS
 
 from lakegen.core.table_io import read_table, table_load_command
 
@@ -50,6 +51,17 @@ class RejectTablesSchema(BaseModel):
     reason: str = Field(description="Why the selected tables cannot answer the question.")
     missing_requirements: list[str] = Field(description="Concrete missing columns, periods, categories, or join keys.")
     inspected_evidence: str = Field(description="Evidence observed through inspect_table or run_code.")
+    ban_tables: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Selected tables you judge highly irrelevant -- proven to satisfy "
+            "none of the requirements -- mapped to the concrete evidence "
+            "proving that. Every other selected table is kept and carries "
+            "over to the next attempt, even if it does not fully answer the "
+            "question -- only actively-proven-irrelevant tables belong here. "
+            "A table without a concrete justification is not banned."
+        ),
+    )
 
 
 class PlanConflictSchema(BaseModel):
@@ -139,6 +151,8 @@ class P3State:
     table_profiled_columns: dict[str, set[str]] = field(default_factory=dict)
     rejected_reason: str = ""
     rejection_details: dict[str, Any] = field(default_factory=dict)
+    rejection_keep_tables: list[str] = field(default_factory=list)
+    rejection_skip_tables: list[str] = field(default_factory=list)
     lifecycle: CoderLifecycle = CoderLifecycle.NEEDS_CODE
     stop_reason: str = ""
     finalization_mode: str = ""
@@ -1687,6 +1701,7 @@ class Phase3ToolsManager:
         reason: str,
         missing_requirements: list[str],
         inspected_evidence: str,
+        ban_tables: dict[str, str] | None = None,
     ) -> str:
         """Reject the selected tables with structured evidence so discovery can retry."""
         if self.state.finished:
@@ -1716,6 +1731,29 @@ class Phase3ToolsManager:
                 },
             }, ensure_ascii=False)
             raise ValueError("REJECTION_NOT_PROVEN: " + payload)
+        by_fold = {table.casefold(): table for table in self.tables}
+        unjustified = [
+            table for table, justification in (ban_tables or {}).items()
+            if table.casefold() in by_fold
+            and len(str(justification).strip()) < MIN_BAN_JUSTIFICATION_CHARS
+        ]
+        if unjustified:
+            raise ValueError(
+                "Selection blocked: ban_tables must map each highly-irrelevant "
+                "table to the concrete evidence proving it satisfies nothing, "
+                "not a bare name. Missing or too-short justification for: "
+                f"{', '.join(unjustified)}. Give it a real justification or "
+                "drop it from ban_tables."
+            )
+        banned = [
+            by_fold[table.casefold()]
+            for table in (ban_tables or {})
+            if table.casefold() in by_fold
+        ]
+        self.state.rejection_skip_tables = banned
+        self.state.rejection_keep_tables = [
+            table for table in self.tables if table not in banned
+        ]
         self.state.rejected_reason = reason.strip()
         self.state.rejection_details = {
             "missing_requirements": missing,
@@ -3267,10 +3305,16 @@ class Phase3ToolsManager:
         return decision
 
     def reject_data(
-        self, reason: str, missing_requirements: list[str], inspected_evidence: str
+        self,
+        reason: str,
+        missing_requirements: list[str],
+        inspected_evidence: str,
+        ban_tables: dict[str, str] | None = None,
     ) -> str:
         """Terminally reject data only after consolidated inspection evidence."""
-        return self.reject_tables(reason, missing_requirements, inspected_evidence)
+        return self.reject_tables(
+            reason, missing_requirements, inspected_evidence, ban_tables
+        )
 
     def get_tools(self) -> list[FunctionTool]:
         return [

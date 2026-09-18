@@ -340,6 +340,69 @@ def test_keyword_field_weights_are_opt_in():
     assert solr.select_calls[0][1]["qf"] == "title^3 description tags"
 
 
+class FakeSolrByOp:
+    """Returns different documents depending on the q_op param, so tests can
+    assert the AND-then-OR fallback without a real Solr/Lucene query engine."""
+
+    def __init__(self, *, docs_by_op):
+        self.docs_by_op = docs_by_op
+        self.select_calls = []
+
+    def select(self, tokens, **params):
+        self.select_calls.append((list(tokens), params))
+        return {"response": {"docs": list(self.docs_by_op.get(params["q_op"], []))}}
+
+
+def test_keyword_retrieval_or_fallback_is_off_by_default():
+    solr = FakeSolrByOp(docs_by_op={"OR": [{"resource_id": "a", "score": 1.0}]})
+
+    results = KeywordRetriever(solr).retrieve(
+        ["Transport for Greater Manchester", "invoice spending"],
+        top_k=10,
+        q_op="AND",
+    )
+
+    assert results == []
+    assert [params["q_op"] for _, params in solr.select_calls] == ["AND"]
+
+
+def test_keyword_retrieval_falls_back_to_or_when_and_returns_nothing_and_enabled():
+    solr = FakeSolrByOp(
+        docs_by_op={"OR": [{"resource_id": "a", "score": 1.0}]}
+    )
+
+    results = KeywordRetriever(solr, or_fallback=True).retrieve(
+        ["Transport for Greater Manchester", "invoice spending"],
+        top_k=10,
+        q_op="AND",
+    )
+
+    assert [result.document["resource_id"] for result in results] == ["a"]
+    assert [params["q_op"] for _, params in solr.select_calls] == ["AND", "OR"]
+
+
+def test_keyword_retrieval_does_not_fall_back_when_and_already_has_hits():
+    solr = FakeSolrByOp(docs_by_op={"AND": [{"resource_id": "a", "score": 1.0}]})
+
+    results = KeywordRetriever(solr, or_fallback=True).retrieve(
+        ["acqua"], top_k=10, q_op="AND"
+    )
+
+    assert [result.document["resource_id"] for result in results] == ["a"]
+    assert len(solr.select_calls) == 1
+
+
+def test_keyword_retrieval_does_not_fall_back_when_already_or():
+    solr = FakeSolrByOp(docs_by_op={})
+
+    results = KeywordRetriever(solr, or_fallback=True).retrieve(
+        ["acqua"], top_k=10, q_op="OR"
+    )
+
+    assert results == []
+    assert len(solr.select_calls) == 1
+
+
 def test_semantic_retrieval_embeds_complete_question_and_filters_index_provenance():
     solr = FakeSolr(knn_docs=[{"resource_id": "a", "score": 0.8}])
     embedding = FakeEmbedding()

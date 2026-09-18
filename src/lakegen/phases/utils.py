@@ -141,11 +141,21 @@ def _candidate_columns(meta: dict[str, object]) -> list[dict[str, str]]:
     ]
 
 
-def format_candidate_context(candidates: list[str], solr_meta: SolrMetadata) -> str:
-    """Render bounded metadata used to shortlist real table inspections."""
+def format_candidate_context(
+    candidates: list[str], solr_meta: SolrMetadata, *, start_rank: int = 1
+) -> str:
+    """Render bounded metadata used to shortlist real table inspections.
+
+    ``start_rank`` lets a later batch (e.g. from ``expand_candidates``)
+    continue the same "Candidate N" numbering the agent already saw, rather
+    than resetting to 1 and colliding with an earlier candidate's number --
+    that numbering is also how ``inspect_columns(candidate_number=...)``
+    resolves a candidate deterministically, without the agent retyping a
+    long generated filename.
+    """
 
     blocks: list[str] = []
-    for display_rank, filename in enumerate(candidates, start=1):
+    for display_rank, filename in enumerate(candidates, start=start_rank):
         meta = solr_meta.get(filename, {})
         title = _bounded_text(meta.get("title", "Unknown"), 200) or "Unknown"
         description = _bounded_text(
