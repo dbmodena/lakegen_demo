@@ -243,7 +243,7 @@ def run_unified_orchestrated_discovery(
     )
     first_user = pm.render(
         "retrieval_intent", "user_prompt", question=query,
-        catalog=portal_name, schema="not supplied",
+        catalog=portal_name, schema="not supplied", hint=hint,
     )
     request_invocations = 1
     try:

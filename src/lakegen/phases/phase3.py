@@ -17,6 +17,7 @@ from prompts.prompt_manager import PromptManager
 from lakegen.core.config import BASE_DIR
 from lakegen.core.table_io import read_table, table_load_command
 from lakegen.column_resolution import resolve_generated_code_columns
+from lakegen.data_quality import profile_table_quality
 from lakegen.code_evaluation import (
     evaluation_output_instruction,
     extract_evaluation_payload,
@@ -76,6 +77,59 @@ _ERROR_PATTERNS = [
     "required column is missing",
     "required columns are missing",
 ]
+
+
+# Prepended to every executed script. It never runs user code, only wraps
+# pandas' merge entry points so a many-to-many join on non-unique keys (the
+# "massive Cartesian product" failure mode already banned for geo joins in
+# code_generator.yaml) raises a clear, coachable error instead of silently
+# producing a huge, wrong result or hanging until the execution timeout.
+_CARTESIAN_GUARD_PREAMBLE = '''
+import pandas as _lakegen_pd_guard
+
+
+def _lakegen_check_merge_blowup(left_len, right_len, result_len, keys, label):
+    baseline = max(left_len, right_len, 1)
+    if result_len > 50000 and result_len > baseline * 25:
+        raise RuntimeError(
+            "CARTESIAN_PRODUCT_DETECTED: "
+            f"{label} on {keys!r} produced {result_len} rows from left={left_len} "
+            f"rows and right={right_len} rows. This indicates a many-to-many join "
+            "on non-unique keys. Aggregate each side to one row per key before "
+            "merging (e.g. groupby(key).agg(...)), or verify the join keys are "
+            "actually unique identifiers."
+        )
+
+
+_lakegen_original_df_merge = _lakegen_pd_guard.DataFrame.merge
+
+
+def _lakegen_guarded_df_merge(self, right, *args, **kwargs):
+    result = _lakegen_original_df_merge(self, right, *args, **kwargs)
+    keys = kwargs.get("on") or kwargs.get("left_on") or kwargs.get("right_on") or "unspecified"
+    _lakegen_check_merge_blowup(
+        len(self), len(right) if hasattr(right, "__len__") else 0, len(result), keys, "DataFrame.merge"
+    )
+    return result
+
+
+_lakegen_pd_guard.DataFrame.merge = _lakegen_guarded_df_merge
+_lakegen_original_pd_merge = _lakegen_pd_guard.merge
+
+
+def _lakegen_guarded_pd_merge(left, right, *args, **kwargs):
+    result = _lakegen_original_pd_merge(left, right, *args, **kwargs)
+    keys = kwargs.get("on") or kwargs.get("left_on") or kwargs.get("right_on") or "unspecified"
+    _lakegen_check_merge_blowup(
+        len(left) if hasattr(left, "__len__") else 0,
+        len(right) if hasattr(right, "__len__") else 0,
+        len(result), keys, "pd.merge",
+    )
+    return result
+
+
+_lakegen_pd_guard.merge = _lakegen_guarded_pd_merge
+'''
 
 
 _TABPFN_INTENT_KEYWORDS = {
@@ -223,7 +277,7 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
     coding_dir = run_dir or BASE_DIR / "coding" / uuid.uuid4().hex
     coding_dir.mkdir(parents=True, exist_ok=True)
     fp = coding_dir / "script.py"
-    fp.write_text(code, encoding="utf-8")
+    fp.write_text(_CARTESIAN_GUARD_PREAMBLE + "\n\n" + code, encoding="utf-8")
 
     workflow_exhausted = False
     try:
@@ -257,6 +311,14 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
                 "You hallucinated a file path or name. "
                 "Use the EXACT file paths provided in the AVAILABLE TABLES section. "
                 f"\n\nFull Traceback:\n{detail[-500:]}"
+            )
+        elif "CARTESIAN_PRODUCT_DETECTED" in detail:
+            error_msg = (
+                "FATAL ERROR: Cartesian product detected during a merge. "
+                "The join key(s) are not unique on one or both sides, so the merge "
+                "produced a huge, incorrect result. Aggregate each side to one row "
+                "per key before merging, or verify the join keys are true unique "
+                f"identifiers.\n\nFull Traceback:\n{detail[-500:]}"
             )
         else:
             error_msg = f"[Exit code {result.returncode}] {detail[-800:]}"
@@ -313,6 +375,7 @@ def _build_coder_tables_info(
     max_sample_cols = 15
     max_sample_rows = 2
     max_cell_width = 40
+    profile_sample_rows = 500
 
     info_lines = ["AVAILABLE TABLES:"]
     for idx, fn in enumerate(tables, 1):
@@ -335,7 +398,7 @@ def _build_coder_tables_info(
         if description:
             info_lines.append(f"   Resource description: {description}")
 
-        rows_to_read = max_sample_rows + 1 if context_level == CoderContextLevel.FULL else 0
+        rows_to_read = profile_sample_rows if context_level == CoderContextLevel.FULL else 0
         df = read_table(filepath, nrows=rows_to_read)
 
         # The local file is the execution schema and therefore the sole source
@@ -391,6 +454,31 @@ def _build_coder_tables_info(
 
         if context_level == CoderContextLevel.SCHEMA_ONLY:
             continue
+
+        quality_findings = profile_table_quality(df)
+        if quality_findings:
+            info_lines.append(
+                "   Data quality (literal evidence from the sampled rows above — "
+                "clean using exactly these observed tokens, never invent others):"
+            )
+            for column, evidence in quality_findings.items():
+                parts = []
+                if "blank_or_null_pct" in evidence:
+                    parts.append(f"{evidence['blank_or_null_pct']}% blank/null")
+                if evidence.get("sentinel_tokens_observed"):
+                    tokens = ", ".join(
+                        f"{token!r}x{count}"
+                        for token, count in evidence["sentinel_tokens_observed"].items()
+                    )
+                    parts.append(f"sentinel tokens observed: {tokens}")
+                if evidence.get("numeric_format_examples"):
+                    parts.append(
+                        "numeric formatting noise, e.g. "
+                        f"{evidence['numeric_format_examples']}"
+                    )
+                info_lines.append(
+                    f"     - {column}: {'; '.join(parts)} (n={evidence['sampled_rows']} sampled)"
+                )
 
         sample_df = df.head(max_sample_rows).copy()
         if len(sample_df.columns) > max_sample_cols:
@@ -543,6 +631,20 @@ def phase3_generate_code(
             "Write the best executable Pandas script possible using only the "
             "available paths and columns. If the data is insufficient, the "
             "script must print a concise explanation of what is missing."
+        )
+
+    if retries > 0:
+        # Correction turns bury the question under previous code, the error,
+        # and table info. Restating it last (closest to where the model
+        # actually writes the fix) keeps the full original ask in view instead
+        # of narrowing to "make this error go away."
+        user_prompt += (
+            "\n\nORIGINAL QUESTION (verbatim, re-read before finalizing this "
+            f"correction):\n\"{query}\"\n"
+            "Fix only what the reported error requires. Do not silently drop, "
+            "simplify, or narrow any other filter, grouping, measure, ordering, "
+            "or limit that this question asks for and that the previous code "
+            "already computed correctly."
         )
 
     messages = [
@@ -846,6 +948,19 @@ def phase3_generate_and_execute(
             default=str,
         )
     )
+    if retries > 0:
+        # Correction turns bury the question under previous code, the error,
+        # and table/plan JSON. Restating it last (closest to where the model
+        # actually writes the fix) keeps the full original ask in view instead
+        # of narrowing to "make this error go away."
+        user_prompt += (
+            "\n\nORIGINAL QUESTION (verbatim, re-read before finalizing this "
+            f"correction):\n\"{query}\"\n"
+            "Fix only what the reported error requires. Do not silently drop, "
+            "simplify, or narrow any other filter, grouping, measure, ordering, "
+            "or limit that this question asks for and that the previous code "
+            "already computed correctly."
+        )
     reset_llm_token_usage(llm)
 
     def emit_stream(delta: str) -> None:

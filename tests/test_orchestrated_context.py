@@ -242,13 +242,6 @@ def test_rendered_discovery_prompts_are_mode_neutral():
         prompt_manager.render(
             "unified_architect", "user_prompt", question="Count road incidents"
         ),
-        prompt_manager.render("keyword_generator", "system_prompt"),
-        prompt_manager.render(
-            "keyword_generator", "user_prompt",
-            portal_name="NYC", question="Count road incidents",
-            raw_keywords_str="road incidents", avoid_keywords_str="",
-            keyword_hint="",
-        ),
         prompt_manager.render(
             "data_architect", "system_prompt", portal_name="NYC", hint=""
         ),

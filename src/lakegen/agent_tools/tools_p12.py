@@ -378,6 +378,8 @@ class P12State:
         self.rejected_selections: set[tuple[str, ...]] = set()
         self.selection_plan: dict[str, object] = {}
         self.selection_advisories: list[str] = []
+        self.rejection_keep_tables: list[str] = []
+        self.rejection_skip_tables: list[str] = []
 
     def inspected_candidates(self) -> list[str]:
         """Return successfully inspected candidates in retrieval order."""
@@ -675,14 +677,14 @@ class Phase12ToolsManager:
 
             if not current_candidates and not candidates:
                 response = (
-                    f"Attempt: {attempt}\nConcepts supplied: {self.state.used_keywords}\n"
+                    f"Attempt: {attempt}\nSearched: {searched}\n"
                     "No tables found. Evaluate the empty candidate set."
                 )
                 self.state.search_cache[key] = response
                 return response
 
             response = (
-                f"Attempt: {attempt}\nConcepts supplied: {self.state.used_keywords}\n\n"
+                f"Attempt: {attempt}\nSearched: {searched}\n\n"
                 "Candidates in retrieval order after local-file mapping:\n"
                 + format_candidate_context(visible_candidates, self.state.solr_meta)
                 + (

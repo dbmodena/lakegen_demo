@@ -1074,6 +1074,38 @@ def test_unified_selection_blocks_proven_temporal_mismatch(tmp_path):
         manager.confirm_unified_selection("year is covered", ["history.parquet"])
 
 
+def test_reject_selection_splits_inspected_candidates_into_keep_and_skip(tmp_path):
+    manager = Phase2JudgeToolsManager(
+        ["a.parquet", "b.parquet", "c.parquet"], tmp_path
+    )
+    manager._inspection_cache["a.parquet"] = "Schema for a.parquet"
+    manager._inspection_cache["b.parquet"] = "Schema for b.parquet"
+    manager._inspection_cache["c.parquet"] = "Schema for c.parquet"
+
+    manager.reject_selection(
+        "b covers the count but not the district breakdown",
+        "look for a district-level table",
+        keep_tables=["a.parquet"],
+    )
+
+    assert manager.rejection_keep_tables == ["a.parquet"]
+    assert manager.rejection_skip_tables == ["b.parquet", "c.parquet"]
+
+
+def test_reject_selection_ignores_uninspected_or_unknown_keep_tables(tmp_path):
+    manager = Phase2JudgeToolsManager(["a.parquet", "b.parquet"], tmp_path)
+    manager._inspection_cache["a.parquet"] = "Schema for a.parquet"
+    # b.parquet was never inspected; c.parquet is not even a candidate.
+
+    manager.reject_selection(
+        "neither table is enough", "try something else",
+        keep_tables=["b.parquet", "c.parquet"],
+    )
+
+    assert manager.rejection_keep_tables == []
+    assert manager.rejection_skip_tables == ["a.parquet"]
+
+
 def test_phase2_selection_requires_inspection(tmp_path):
     manager = Phase2JudgeToolsManager(["table.parquet"], tmp_path)
 

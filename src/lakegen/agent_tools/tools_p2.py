@@ -100,7 +100,35 @@ class ConfirmSelectionSchema(BaseModel):
 
 class RejectSelectionSchema(BaseModel):
     reasoning: str = Field(description="Explain step-by-step why the current tables are not good.")
-    suggestion: str = Field(description="Suggest better keywords to search for.")
+    suggestion: str = Field(
+        description="Suggest dataset concepts, not analytical operations or row-filter values."
+    )
+    keep_tables: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Already-inspected candidates that satisfy at least one essential "
+            "requirement and should carry over to the next attempt, even though "
+            "the full set is incomplete."
+        ),
+    )
+
+
+class RejectSelectionValueSearchSchema(BaseModel):
+    reasoning: str = Field(description="Explain step-by-step why the current tables are not good.")
+    suggestion: str = Field(
+        description=(
+            "Suggest values likely to appear in the rows of the missing table, "
+            "not analytical operations or dataset topics."
+        )
+    )
+    keep_tables: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Already-inspected candidates that satisfy at least one essential "
+            "requirement and should carry over to the next attempt, even though "
+            "the full set is incomplete."
+        ),
+    )
 
 
 def _compact_tool_output(text: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS) -> str:
@@ -439,11 +467,15 @@ class Phase2JudgeToolsManager:
         csv_dir: Path,
         question: str = "",
         metadata: SolrMetadata | None = None,
+        value_search: bool = False,
     ):
         self.candidates = candidates
         self.csv_dir = Path(csv_dir)
         self.question = question
         self.metadata = metadata or {}
+        self.value_search = value_search
+        self.rejection_keep_tables: list[str] = []
+        self.rejection_skip_tables: list[str] = []
         self.visible_candidate_count = min(self.INITIAL_CANDIDATES, len(candidates))
         self.expansion_count = 0
         self.expansion_requirements: list[str] = []
@@ -667,20 +699,38 @@ class Phase2JudgeToolsManager:
         }
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
-    def reject_selection(self, reasoning: str, suggestion: str) -> str:
+    def reject_selection(
+        self, reasoning: str, suggestion: str, keep_tables: list[str] | None = None
+    ) -> str:
         """
-        CRITICAL: Use this tool ONLY when NONE of the candidate tables are relevant to the user's question.
-        Calling this tool means you have successfully finished the task by rejecting the candidates.
+        Use this tool when the candidates cannot yet fully cover the question's
+        essential requirements. List every already-inspected candidate that
+        satisfies at least one essential requirement in keep_tables so that
+        verified progress is not discarded; every other inspected candidate is
+        treated as ruled out and excluded from later retrieval for this question.
+        Calling this tool means you have finished this attempt.
         """
+        inspected = self.inspected_candidates()
+        by_fold = {table.casefold(): table for table in inspected}
+        kept = [
+            by_fold[table.casefold()]
+            for table in (keep_tables or [])
+            if table.casefold() in by_fold
+        ]
+        self.rejection_keep_tables = kept
+        self.rejection_skip_tables = [table for table in inspected if table not in kept]
         return f"REJECT_KEYWORDS: {reasoning}\nSuggestion: {suggestion}"
 
     def get_tools(self) -> list[FunctionTool]:
+        reject_schema = (
+            RejectSelectionValueSearchSchema if self.value_search else RejectSelectionSchema
+        )
         return [
             FunctionTool.from_defaults(fn=self.inspect_columns),
             FunctionTool.from_defaults(fn=self.expand_candidates),
             FunctionTool.from_defaults(fn=self.check_join_union),
             FunctionTool.from_defaults(fn=self.confirm_table_selection, fn_schema=ConfirmSelectionSchema, return_direct=True),
-            FunctionTool.from_defaults(fn=self.reject_selection, fn_schema=RejectSelectionSchema, return_direct=True),
+            FunctionTool.from_defaults(fn=self.reject_selection, fn_schema=reject_schema, return_direct=True),
         ]
 
 

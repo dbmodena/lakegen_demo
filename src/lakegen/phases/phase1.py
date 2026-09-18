@@ -1,11 +1,6 @@
 import re
 from collections.abc import Callable
 
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-from nltk.stem import WordNetLemmatizer
-from nltk.corpus import stopwords
-import nltk
-
 from llama_index.core.llms import ChatMessage, LLM
 from llama_index.core import Settings
 
@@ -16,26 +11,6 @@ from lakegen.core.token_usage import (
     reset_llm_token_usage,
 )
 from lakegen.retrieval.intent import parse_retrieval_intent
-
-
-def extract_wordnet_query_keywords(query: str) -> str:
-    lemmatizer = WordNetLemmatizer()
-    words = re.findall(r'\b\w+\b', query.lower())
-    
-    try:
-        ita_stops = set(stopwords.words('italian'))
-        spa_stops = set(stopwords.words('spanish'))
-        fra_stops = set(stopwords.words('french'))
-    except LookupError:
-        nltk.download('stopwords', quiet=True)
-        ita_stops = set(stopwords.words('italian'))
-        spa_stops = set(stopwords.words('spanish'))
-        fra_stops = set(stopwords.words('french'))
-        
-    combined_stops = ita_stops.union(spa_stops).union(fra_stops).union(ENGLISH_STOP_WORDS)
-    
-    extracted_keywords = [lemmatizer.lemmatize(w) for w in words if w not in combined_stops]
-    return ", ".join(list(dict.fromkeys(extracted_keywords)))
 
 
 def split_thinking_blocks(text: str) -> tuple[str, str]:
@@ -94,6 +69,8 @@ def phase1_generate_keywords(
         question=query,
         catalog=portal_name,
         schema="not supplied",
+        avoid_keywords_str=avoid_keywords_str,
+        hint=hint,
     )
 
     messages = [

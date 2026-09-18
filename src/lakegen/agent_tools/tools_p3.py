@@ -19,6 +19,7 @@ import pandas as pd
 
 from lakegen.column_resolution import generated_column_names
 from lakegen.revision_policy import classify_revision, technical_repair_eligible
+from lakegen.data_quality import profile_table_quality
 
 from lakegen.core.table_io import read_table, table_load_command
 
@@ -91,6 +92,8 @@ def classify_execution_error(message: str, *, stage: str = "execution") -> dict[
         category = "missing_file"
     elif "syntaxerror" in lowered or "indentationerror" in lowered:
         category = "syntax_error"
+    elif "cartesian_product_detected" in lowered:
+        category = "join_error"
     elif "mergeerror" in lowered or "join" in lowered and "error" in lowered:
         category = "join_error"
     elif "typeerror" in lowered or "valueerror" in lowered:
@@ -1478,6 +1481,72 @@ class Phase3ToolsManager:
                 f"Use the post-rename label in downstream expressions: {replacements}."
             )
 
+    def _enrich_join_error(self, error: dict[str, Any]) -> None:
+        if error.get("category") != "join_error":
+            return
+        error.setdefault(
+            "repair_hint",
+            "Aggregate each side to one row per join key (e.g. "
+            "groupby(key).agg(...)) before merging, or confirm the join keys are "
+            "true unique identifiers. Do not merge row-by-row on broad "
+            "category/geo codes shared by many rows on either side.",
+        )
+        error.setdefault(
+            "next_actions", ["aggregate_before_join", "verify_unique_join_keys"]
+        )
+
+    def _table_quality_profile(self, table: str) -> dict[str, dict]:
+        frame = self.state.table_samples.get(table)
+        if frame is None:
+            try:
+                frame = read_table(self.csv_dir / table.strip(), nrows=500)
+            except Exception:
+                return {}
+        try:
+            return profile_table_quality(frame)
+        except Exception:
+            return {}
+
+    def _enrich_type_error(self, error: dict[str, Any]) -> None:
+        if error.get("category") != "type_error":
+            return
+        message = str(error.get("message") or "")
+        match = re.search(
+            r"(?:could not convert string to float|invalid literal for \w+\(\) "
+            r"with base \d+|could not convert)[^:]*:?\s*'([^']*)'",
+            message,
+        )
+        offending_value = match.group(1).strip().casefold() if match else ""
+        culprits: dict[str, dict[str, Any]] = {}
+        for table in self.tables:
+            for column, evidence in self._table_quality_profile(table).items():
+                tokens = {
+                    str(token).casefold()
+                    for token in (evidence.get("sentinel_tokens_observed") or {})
+                }
+                has_numeric_noise = bool(evidence.get("numeric_format_examples"))
+                if offending_value:
+                    if offending_value not in tokens:
+                        continue
+                elif not tokens and not has_numeric_noise:
+                    continue
+                culprits[f"{table}::{column}"] = evidence
+        if not culprits:
+            return
+        error["dirty_columns_detected"] = culprits
+        example_cols = ", ".join(sorted(culprits)[:5])
+        error["repair_hint"] = (
+            "Numeric conversion failed because of literal non-numeric tokens "
+            f"observed during profiling in these columns: {example_cols}. Replace "
+            "exactly those observed tokens (do not invent new ones) with NaN "
+            "before pd.to_numeric, e.g. "
+            "df[col] = df[col].replace(<observed tokens>, pd.NA); "
+            "df[col] = pd.to_numeric(df[col], errors='coerce')."
+        )
+        error.setdefault(
+            "next_actions", ["clean_using_observed_tokens", "retry_conversion"]
+        )
+
     def _reject_after_repeated_missing_column(self, error: dict[str, Any]) -> None:
         """Escalate a repeated, genuinely absent column back to discovery."""
         if error.get("category") != "missing_column":
@@ -1908,6 +1977,8 @@ class Phase3ToolsManager:
             self.state.raw_result = None
             self.state.execution_error = classify_execution_error(error)
             self._enrich_column_error(self.state.execution_error)
+            self._enrich_join_error(self.state.execution_error)
+            self._enrich_type_error(self.state.execution_error)
             self._reject_after_repeated_missing_column(self.state.execution_error)
             decision = classify_revision(
                 execution_error=self.state.execution_error,

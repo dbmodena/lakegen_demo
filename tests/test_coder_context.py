@@ -56,6 +56,34 @@ def test_output_shape_is_question_derived_only():
     assert infer_output_shape("How many records are there?")["result_type"] == "number"
 
 
+def test_coder_context_preserves_requirement_ledger_evidence():
+    ledger = [
+        {
+            "kind": "filter", "request": "year = 2022", "status": "bound",
+            "evidence": {"table": "crimes.csv", "columns": ["Year"]},
+            "role": "final", "reference_answer": SECRET,
+        },
+    ]
+    context = CoderContext.build(
+        question="How many crimes in 2022?", selected_tables=["crimes.csv"],
+        table_metadata={}, selection_plan={"requirement_ledger": ledger},
+    )
+    assert context.selection_plan["requirement_ledger"] == [{
+        "kind": "filter", "request": "year = 2022", "status": "bound",
+        "evidence": {"table": "crimes.csv", "columns": ["Year"]},
+        "role": "final",
+    }]
+    assert SECRET not in json.dumps(context.__dict__)
+
+
+def test_coder_context_drops_non_list_requirement_ledger():
+    context = CoderContext.build(
+        question="How many crimes in 2022?", selected_tables=["crimes.csv"],
+        table_metadata={}, selection_plan={"requirement_ledger": "not-a-list"},
+    )
+    assert context.selection_plan["requirement_ledger"] == []
+
+
 def test_coder_context_preserves_explicit_requirements_for_fallback():
     requirements = {
         "filters": [{"table": "runtime.csv", "column": "status", "value": "completed"}],

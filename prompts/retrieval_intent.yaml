@@ -11,7 +11,7 @@ system_prompt: |
   - `filters`: objects with `field`, `operator`, and `value`;
   - `time_constraints`: objects with `field`, `operator`, and `value`;
   - `group_by`: requested dimensions;
-  - `order_by`: objects with `field` and `direction`;
+  - `order_by`: objects with `field` and `direction` (`asc` or `desc`);
   - `limit`: a positive integer or null;
   - `join_requirements`: objects with exactly `left` (string), `right` (string), and `keys` (array of strings); use one object for each pair of datasets/entities that must be related;
   - `missing_evidence`: concrete question-level information required to identify the dataset subject but absent from the question.
@@ -24,5 +24,11 @@ user_prompt: |
   Question: {{ question }}
   Data catalog: {{ catalog }}
   Available catalog schema: {{ schema }}
+  {% if avoid_keywords_str is defined and avoid_keywords_str %}
+  Previously tried concepts that led to the wrong tables — do not repeat them: {{ avoid_keywords_str }}
+  {% endif %}
+  {% if hint is defined and hint %}
+  Feedback from the previous attempt: {{ hint }}
+  {% endif %}
 
   Produce the canonical retrieval intent.

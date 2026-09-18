@@ -62,7 +62,7 @@ from lakegen.tracing import (
 )
 
 
-MAX_CODE_ATTEMPTS = 2
+MAX_CODE_ATTEMPTS = 3
 MAX_TABLE_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
 
@@ -360,6 +360,9 @@ def run_question(
     rejected_plan_feedback: dict[str, dict[str, Any]] = {}
     last_coder_rejection: dict[str, Any] | None = None
     attempted_keywords: list[str] = []
+    carried_tables: list[str] = []
+    carried_metadata: dict[str, dict[str, Any]] = {}
+    excluded_tables: set[str] = set()
     phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
     generated_code_seed_instruction_provided = False
     context_telemetry: dict[str, Any] = {
@@ -526,6 +529,9 @@ def run_question(
                         retrieval_config=runtime.retrieval,
                         selection_state=selection_state,
                         entities=intent_entities(raw_keywords),
+                        carried_tables=carried_tables,
+                        carried_metadata=carried_metadata,
+                        excluded_tables=excluded_tables,
                     )
                     phase_invocation_counts["discovery"] += 1
                     context_telemetry["llm_invocations"] += 2
@@ -534,6 +540,19 @@ def run_question(
                     if reasoning.startswith("REJECT_KEYWORDS:"):
                         attempted_keywords.extend(keywords)
                         attempted_keywords = list(dict.fromkeys(attempted_keywords))
+                        for table in selection_state.rejection_skip_tables:
+                            excluded_tables.add(table.casefold())
+                        for table in selection_state.rejection_keep_tables:
+                            if table.casefold() in excluded_tables:
+                                continue
+                            if table not in carried_tables:
+                                carried_tables.append(table)
+                            if table in solr_meta:
+                                carried_metadata[table] = solr_meta[table]
+                        carried_tables = [
+                            table for table in carried_tables
+                            if table.casefold() not in excluded_tables
+                        ]
                         hint = f"The previous keywords led to bad tables. Architect feedback: {reasoning}. Generate completely different keywords."
                         keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
                         if not keywords_rejected:
@@ -665,6 +684,8 @@ def run_question(
                     "semantic_planner_attempts": selection_state.semantic_planner_attempts,
                     "semantic_draft_present": bool(selection_state.semantic_draft),
                     "outcome": "keywords_rejected" if keywords_rejected else "selected",
+                    "kept_tables": list(carried_tables),
+                    "skipped_tables": sorted(excluded_tables),
                 })
                 if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:
                     discovery_phase_tokens["p1"] += tokens_p1

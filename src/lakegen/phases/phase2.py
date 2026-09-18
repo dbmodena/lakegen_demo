@@ -4,7 +4,7 @@ import os
 import re
 import sys
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 from llama_index.core import Settings
@@ -52,11 +52,26 @@ def _solr_and_search(
     retrieval_config: RetrievalConfig | None = None,
     table_dir: Path | None = None,
     entities: Sequence[str] | None = None,
+    carried_tables: Sequence[str] = (),
+    carried_metadata: SolrMetadata | None = None,
+    excluded_tables: Iterable[str] = (),
 ) -> tuple[list[str], SolrMetadata]:
-    """Execute the configured retriever and return candidates + metadata."""
+    """Execute the configured retriever and return candidates + metadata.
+
+    ``carried_tables`` are candidates a previous, rejected attempt already
+    verified as partially satisfying the question; they are re-surfaced here
+    regardless of whether this round's retrieval finds them again.
+    ``excluded_tables`` were inspected and ruled out by a previous attempt and
+    must not be re-proposed.
+    """
     candidates: list[str] = []
     metadata: SolrMetadata = {}
     config = retrieval_config or RetrievalConfig()
+    excluded = {str(table).casefold() for table in excluded_tables}
+    # Retrieval itself truncates to top_k, so asking for exactly top_k would
+    # let a skip-listed hit shrink the final pool instead of being replaced by
+    # the next-ranked table just outside the previous cutoff.
+    fetch_k = config.top_k + len(excluded)
 
     try:
         retriever = get_table_retrieval_service(
@@ -66,8 +81,8 @@ def _solr_and_search(
         hits = retriever.retrieve(
             question=query,
             keywords=keywords,
-            top_k=config.top_k,
-            lexical_fetch_k=max(15, config.top_k),
+            top_k=fetch_k,
+            lexical_fetch_k=max(15, fetch_k),
             q_op="AND",
             entities=entities,
         )
@@ -80,7 +95,11 @@ def _solr_and_search(
         for hit in hits:
             doc = hit.document
             matched = match_local_csv(doc, all_files)
-            if matched is None or matched in candidates:
+            if (
+                matched is None
+                or matched in candidates
+                or matched.casefold() in excluded
+            ):
                 continue
             candidates.append(matched)
             metadata[matched] = solr_metadata_from_doc(doc)
@@ -97,6 +116,17 @@ def _solr_and_search(
         # disguised as a failed Phase 1 keyword query.
         if config.mode != RetrievalMode.KEYWORD:
             raise
+
+    for table in carried_tables:
+        if table.casefold() in excluded:
+            continue
+        if table in candidates:
+            candidates.remove(table)
+        candidates.insert(0, table)
+        if carried_metadata and table in carried_metadata:
+            metadata[table] = carried_metadata[table]
+    if len(candidates) > config.top_k:
+        candidates = candidates[: config.top_k]
 
     return candidates, metadata
 
@@ -116,6 +146,9 @@ def phase2_select_tables(
     retrieval_config: RetrievalConfig | None = None,
     selection_state: object | None = None,
     entities: Sequence[str] | None = None,
+    carried_tables: Sequence[str] = (),
+    carried_metadata: SolrMetadata | None = None,
+    excluded_tables: Iterable[str] = (),
 ) -> Phase2SelectionResult:
     """Run the configured retriever, then judge the retrieved tables.
 
@@ -128,6 +161,9 @@ def phase2_select_tables(
     Returns:
         (selected, all_candidates, solr_meta, reasoning, full_trace, tokens)
     """
+    if selection_state is not None:
+        selection_state.rejection_keep_tables = []
+        selection_state.rejection_skip_tables = []
 
     # ── Step 1: table retrieval (programmatic, not agent-driven) ─────
     config = retrieval_config or RetrievalConfig()
@@ -139,6 +175,9 @@ def phase2_select_tables(
         config,
         csv_dir,
         entities,
+        carried_tables=carried_tables,
+        carried_metadata=carried_metadata,
+        excluded_tables=excluded_tables,
     )
 
     # ── Step 2: No results → reject keywords back to Phase 1 ─────────
@@ -165,6 +204,7 @@ def phase2_select_tables(
         csv_dir,
         question=query,
         metadata=solr_meta,
+        value_search=config.mode.value_keywords,
     )
     agent_tools = tools_manager.get_tools()
 
@@ -195,6 +235,8 @@ def phase2_select_tables(
         keywords_str=" ".join(keywords),
         enriched_candidates_info=candidate_context,
         table_hint=hint,
+        value_search=config.mode.value_keywords,
+        ranks_question_only=config.mode.ranks_question_only,
     )
 
     stream_trace = io.StringIO()
@@ -297,6 +339,9 @@ def phase2_select_tables(
         all_files,
         candidates,
     )
+    if selection_state is not None:
+        selection_state.rejection_keep_tables = list(tools_manager.rejection_keep_tables)
+        selection_state.rejection_skip_tables = list(tools_manager.rejection_skip_tables)
     if selection_state is not None and tools_manager.selection_plan:
         selection_state.selection_plan = dict(tools_manager.selection_plan)
         selection_state.selection_plan_source = (

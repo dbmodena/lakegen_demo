@@ -58,6 +58,35 @@ def test_execute_code_identifies_the_forbidden_fragment(tmp_path):
     assert "Remove it completely" in error
 
 
+def test_execute_code_detects_cartesian_product_from_many_to_many_merge(tmp_path):
+    output, error, _code = _execute_code(
+        "import pandas as pd\n"
+        "left = pd.DataFrame({'key': [1] * 300})\n"
+        "right = pd.DataFrame({'key': [1] * 300})\n"
+        "merged = left.merge(right, on='key')\n"
+        "print(len(merged))\n",
+        run_dir=tmp_path,
+    )
+
+    assert output is None
+    assert "Cartesian product detected" in error
+    assert "Aggregate each side" in error
+
+
+def test_execute_code_allows_ordinary_one_to_many_merge(tmp_path):
+    output, error, _code = _execute_code(
+        "import pandas as pd\n"
+        "left = pd.DataFrame({'key': [1, 2, 3]})\n"
+        "right = pd.DataFrame({'key': [1, 2, 3], 'value': ['a', 'b', 'c']})\n"
+        "merged = left.merge(right, on='key')\n"
+        "print(len(merged))\n",
+        run_dir=tmp_path,
+    )
+
+    assert error is None
+    assert output == "3"
+
+
 def _agentic_tools(tmp_path, *, execute=None, question="", table_metadata=None):
     state = P3State()
     state.analysis_contract = {
@@ -1193,6 +1222,55 @@ def test_missing_column_error_reports_post_rename_label(tmp_path):
     assert "available_columns" not in state.execution_error
 
 
+def test_join_error_is_enriched_with_repair_hint(tmp_path):
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            None,
+            "RuntimeError: CARTESIAN_PRODUCT_DETECTED: DataFrame.merge on 'key' "
+            "produced 90000 rows from left=300 rows and right=300 rows.",
+            code,
+        ),
+    )
+
+    manager.run_code("merged = left.merge(right, on='key')")
+
+    assert state.execution_error["category"] == "join_error"
+    assert "Aggregate each side" in state.execution_error["repair_hint"]
+    assert state.execution_error["next_actions"] == [
+        "aggregate_before_join", "verify_unique_join_keys"
+    ]
+
+
+def test_type_error_is_enriched_with_observed_sentinel_tokens(tmp_path):
+    # "unknown" is not one of pandas' default read_csv na_values, so it
+    # survives parsing as a literal string alongside numeric-looking values,
+    # unlike "N/A"/"null"/"none" which pandas silently turns into real NaN.
+    (tmp_path / "table.csv").write_text(
+        "borough,amount\nBronx,unknown\nQueens,120\nBrooklyn,unknown\n",
+        encoding="utf-8",
+    )
+    state, manager = _agentic_tools(
+        tmp_path,
+        execute=lambda code, **_kwargs: (
+            None,
+            "ValueError: could not convert string to float: 'unknown'",
+            code,
+        ),
+    )
+
+    manager.run_code("df['amount'] = df['amount'].astype(float)")
+
+    assert state.execution_error["category"] == "type_error"
+    culprits = state.execution_error["dirty_columns_detected"]
+    assert "table.csv::amount" in culprits
+    assert culprits["table.csv::amount"]["sentinel_tokens_observed"]["unknown"] == 2
+    assert "table.csv::amount" in state.execution_error["repair_hint"]
+    assert state.execution_error["next_actions"] == [
+        "clean_using_observed_tokens", "retry_conversion"
+    ]
+
+
 def test_generated_missing_column_is_computational_not_discovery_failure(tmp_path):
     state, manager = _agentic_tools(
         tmp_path,
@@ -1325,6 +1403,57 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
     assert result.coder_lifecycle == "finished"
     assert result.finalization_mode == "deterministic_validation"
     assert len(captured_prompts) == 1
+
+
+def test_correction_turn_restates_original_question_near_the_end(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    (tmp_path / "table.csv").write_text("value\n1\n", encoding="utf-8")
+    captured_prompts = []
+
+    def fake_workflow(**kwargs):
+        captured_prompts.append(kwargs["user_prompt"])
+        by_name = {tool.metadata.name: tool for tool in kwargs["tools"]}
+        by_name["run_analysis"].call(
+            code="import json\nprint('__LAKEGEN_EVAL_JSON__' + json.dumps(1))"
+        )
+        return ""
+
+    monkeypatch.setattr(
+        "lakegen.agents.agent_runner.run_agent_workflow", fake_workflow
+    )
+    monkeypatch.setattr("lakegen.phases.phase3.reset_llm_token_usage", lambda _llm: None)
+    monkeypatch.setattr("lakegen.phases.phase3.get_llm_token_usage", lambda _llm: 0)
+
+    class PM:
+        def render(self, _name, key, **kwargs):
+            if key == "agentic_system_prompt":
+                return "agentic only"
+            return f"QUESTION={kwargs.get('question')}\n{kwargs.get('tables_info')}"
+
+    question = "How many records are there?"
+    common_kwargs = dict(
+        selection_plan={"requirements": {"result_type": "number"}},
+    )
+
+    phase3_generate_and_execute(
+        question, ["table.csv"], ["table.csv"], {}, "reasoning",
+        SimpleNamespace(), PM(), tmp_path, retries=0, max_run_calls=1,
+        **common_kwargs,
+    )
+    phase3_generate_and_execute(
+        question, ["table.csv"], ["table.csv"], {}, "reasoning",
+        SimpleNamespace(), PM(), tmp_path, retries=1,
+        error_msg="KeyError: 'value'", previous_code="print(1)", max_run_calls=1,
+        **common_kwargs,
+    )
+
+    assert len(captured_prompts) == 2
+    initial_prompt, correction_prompt = captured_prompts
+    assert "ORIGINAL QUESTION" not in initial_prompt
+    assert "ORIGINAL QUESTION" in correction_prompt
+    assert question in correction_prompt.rsplit("ORIGINAL QUESTION", 1)[-1]
+    assert correction_prompt.index("ORIGINAL QUESTION") > len(correction_prompt) - 700
 
 
 def test_iteration_limit_preserves_latest_structured_result_with_warnings(

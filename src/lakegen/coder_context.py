@@ -13,7 +13,10 @@ _PLAN_FIELDS = frozenset({
     "requirement_coverage", "table_roles", "combination_strategy",
     "uncovered_requirements", "alternatives_rejected", "semantic_plan",
     "recovered_from_existing_discovery_context", "coder_brief",
-    "requirements",
+    "requirements", "requirement_ledger",
+})
+_LEDGER_ITEM_FIELDS = frozenset({
+    "kind", "request", "status", "evidence", "role", "computation", "shape",
 })
 _REQUIREMENT_FIELDS = frozenset({
     "grouping", "measures", "filters", "temporal_filters", "ordering", "limit",
@@ -112,6 +115,32 @@ def _allowlisted_metadata(value: Mapping[str, Any]) -> dict[str, Any]:
     return clean
 
 
+def _allowlisted_ledger_evidence(evidence: Any) -> Any:
+    if isinstance(evidence, Mapping):
+        return {key: evidence[key] for key in _BINDING_FIELDS if key in evidence}
+    if isinstance(evidence, list):
+        return [
+            {key: entry[key] for key in _BINDING_FIELDS if key in entry}
+            if isinstance(entry, Mapping) else entry
+            for entry in evidence
+        ]
+    return evidence
+
+
+def _allowlisted_requirement_ledger(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        entry = {key: item[key] for key in _LEDGER_ITEM_FIELDS if key in item}
+        if "evidence" in entry:
+            entry["evidence"] = _allowlisted_ledger_evidence(entry["evidence"])
+        cleaned.append(entry)
+    return cleaned
+
+
 def _allowlisted_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     clean: dict[str, Any] = {}
     for key in _PLAN_FIELDS:
@@ -125,6 +154,8 @@ def _allowlisted_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
                 field: value[field] for field in _CODER_BRIEF_FIELDS
                 if field in value
             }
+        elif key == "requirement_ledger":
+            clean[key] = _allowlisted_requirement_ledger(value)
         elif key == "semantic_plan" and isinstance(value, Mapping):
             semantic: dict[str, Any] = {}
             for semantic_key in _SEMANTIC_PLAN_FIELDS:
