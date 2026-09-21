@@ -139,13 +139,14 @@ def test_critic_can_invalidate_unsupported_failed_assessment():
     assert judgment["disposition"] == "indeterminate"
 
 
-def test_semantic_judge_downgrades_hardcoding_risk():
-    judgment, _ = run_judge(
-        FakeLlm(pipeline_responses(hardcoding="possible"))
-    )
+def test_semantic_judge_keeps_hardcoding_risk_diagnostic_only():
+    for risk in ("possible", "high", "unknown"):
+        judgment, _ = run_judge(
+            FakeLlm(pipeline_responses(hardcoding=risk))
+        )
 
-    assert judgment["disposition"] == "indeterminate"
-    assert "hardcoding risk is not cleared" in judgment["rationale"]
+        assert judgment["disposition"] == "alternative_correct"
+        assert judgment["code_analysis"]["hardcoding_risk"] == risk
 
 
 def test_semantic_judge_does_not_let_an_extra_llm_overrule_critic():

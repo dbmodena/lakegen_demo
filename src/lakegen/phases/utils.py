@@ -67,6 +67,8 @@ def solr_metadata_from_doc(doc: dict) -> dict[str, object]:
     ]
     return {
         "title": doc.get("title", ""),
+        "publisher": doc.get("publisher", ""),
+        "resource_name": doc.get("resource_name", doc.get("title", "")),
         "description": doc.get("description", ""),
         "tags": [str(tag) for tag in tags],
         "columns.name": [column["name"] for column in structured_columns],

@@ -513,7 +513,8 @@ def semantic_judge_summary(code: dict[str, Any]) -> str:
     return (
         "<section><h2>Diagnostica semantic judge LLM</h2>"
         "<p>Il downgrade indica che il modello aveva richiesto un esito corretto, ma "
-        "i gate su evidenze, critica, hardcoding o fonte alternativa non lo hanno confermato.</p>"
+        "i gate su evidenze, critica o fonte alternativa non lo hanno confermato. "
+        "Il segnale di possibile hardcoding resta diagnostico e non causa downgrade.</p>"
         f"<table><thead><tr><th>Metrica</th>{header}</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></section>"
     )
@@ -707,7 +708,11 @@ def generate(
         count_comparison("Categorie di errore del codice", code, "error_categories"),
         count_comparison("Esiti della valutazione", code, "evaluation_dispositions"),
         count_comparison("Esiti del semantic judge", code, "semantic_judge_outcomes"),
-        count_comparison("Rischio hardcoding rilevato", code, "semantic_judge_hardcoding_risks"),
+        count_comparison(
+            "Segnale diagnostico di possibile hardcoding",
+            code,
+            "semantic_judge_hardcoding_risks",
+        ),
     ))
     document = f"""<!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

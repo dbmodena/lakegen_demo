@@ -13,6 +13,8 @@ def test_coder_context_is_explicit_allowlist_and_drops_benchmark_secret():
         table_metadata={
             "runtime.parquet": {
                 "title": "Runtime title",
+                "publisher": "Runtime publisher",
+                "resource_name": "Runtime resource",
                 "description": "Observed resource",
                 "columns": [{"name": "borough", "description": "Borough"}],
                 "reference_result": SECRET,
@@ -42,6 +44,8 @@ def test_coder_context_is_explicit_allowlist_and_drops_benchmark_secret():
     serialized = json.dumps(context.__dict__, default=str)
     assert SECRET not in serialized
     assert "reference_result" not in context.table_metadata["runtime.parquet"]
+    assert context.table_metadata["runtime.parquet"]["publisher"] == "Runtime publisher"
+    assert context.table_metadata["runtime.parquet"]["resource_name"] == "Runtime resource"
     assert "reference_code" not in context.selection_plan["semantic_plan"]
     assert "evidence_map" not in context.selection_plan["semantic_plan"]
     assert context.audit()["reference_accessed_by_coder"] is False

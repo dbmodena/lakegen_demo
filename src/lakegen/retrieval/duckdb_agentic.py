@@ -121,6 +121,7 @@ def _load_normalized_metadata(path_text: str) -> dict[str, dict[str, Any]]:
             )
             catalog[resource_id.casefold()] = {
                 "title": str(resource.get("name") or "").strip(),
+                "resource_name": str(resource.get("name") or "").strip(),
                 "description": str(resource.get("description") or "").strip(),
                 "tags": tuple(tag for tag in tags if tag),
                 "columns": _named_values(resource.get("columns_name")),
@@ -157,6 +158,10 @@ def _load_normalized_metadata(path_text: str) -> dict[str, dict[str, Any]]:
             resource_description = str(child.get("description") or "").strip()
             catalog[key] = {
                 "title": resource_title or package_title,
+                "resource_name": resource_title,
+                "publisher": str(
+                    organization.get("title") or organization.get("name") or ""
+                ).strip(),
                 "description": " ".join(
                     part for part in (package_description, resource_description) if part
                 ),
@@ -173,6 +178,8 @@ class _CatalogEntry:
     rows: int
     columns: tuple[tuple[str, str], ...]
     title: str = ""
+    publisher: str = ""
+    resource_name: str = ""
     description: str = ""
     tags: tuple[str, ...] = ()
     metadata_term_scores: tuple[tuple[str, float], ...] = ()
@@ -278,6 +285,8 @@ class DuckDBAgenticRetriever:
                     parquet.metadata.num_rows,
                     columns,
                     title=str(metadata.get("title", "")),
+                    publisher=str(metadata.get("publisher", "")),
+                    resource_name=str(metadata.get("resource_name", "")),
                     description=str(metadata.get("description", "")),
                     tags=tuple(metadata.get("tags", ())),
                     metadata_term_scores=tuple(scores.items()),
@@ -535,6 +544,8 @@ class DuckDBAgenticRetriever:
                     "resource_id": entry.path.name,
                     "dataset_id": entry.path.stem,
                     "title": entry.title or entry.path.stem.replace("_", " "),
+                    "publisher": entry.publisher,
+                    "resource_name": entry.resource_name,
                     "description": (
                         ((entry.description + " ") if entry.description else "")
                         + f"DuckDB keyword evidence: {len(primary_terms)} primary terms, "

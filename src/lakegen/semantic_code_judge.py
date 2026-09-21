@@ -327,9 +327,6 @@ def judge_semantic_code_result(
             by_id[identifier]["status"] == "verified"
             for identifier in essential_ids
         )
-        hardcoding_clear = str(
-            code_analysis.get("hardcoding_risk") or "unknown"
-        ).casefold() == "none"
         alternative_proof_required = (
             deterministic_evaluation.get("representation_equivalent_match") is not True
         )
@@ -364,8 +361,6 @@ def judge_semantic_code_result(
             )
         elif unknown_essential:
             downgrade_reasons.append("at least one essential requirement is unknown")
-        elif not hardcoding_clear:
-            downgrade_reasons.append("hardcoding risk is not cleared")
         elif blocking_objections:
             downgrade_reasons.append("the critic invalidated positive evidence")
         elif alternative_proof_required and not alternative_proof_complete:

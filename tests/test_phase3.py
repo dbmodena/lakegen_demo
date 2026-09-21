@@ -2316,6 +2316,8 @@ def test_coder_context_adds_bounded_resource_and_column_semantics(tmp_path):
     metadata = {
         table.name: {
             "title": "Vision Zero Street Improvement Projects",
+            "publisher": "NYC Department of Transportation",
+            "resource_name": "Street Improvement Projects.csv",
             "description": "Project corridors and their program years.",
             "columns": [
                 {"name": "sip_year", "description": "Street Improvement Project program year."},
@@ -2329,6 +2331,8 @@ def test_coder_context_adds_bounded_resource_and_column_semantics(tmp_path):
     )
 
     assert "Resource title: Vision Zero" in context
+    assert "Publisher: NYC Department of Transportation" in context
+    assert "Resource name: Street Improvement Projects.csv" in context
     assert "sip_year: Street Improvement Project program year." in context
     assert "Temporal ambiguity: sip_year, end_date" in context
 

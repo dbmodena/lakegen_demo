@@ -396,11 +396,19 @@ def _build_coder_tables_info(
             fn, (table_metadata or {}).get(Path(fn).stem, {})
         )
         title = " ".join(str(metadata.get("title") or "").split())[:160]
+        publisher = " ".join(str(metadata.get("publisher") or "").split())[:160]
+        resource_name = " ".join(
+            str(metadata.get("resource_name") or "").split()
+        )[:160]
         description = " ".join(
             str(metadata.get("description") or "").split()
         )[:320]
         if title:
             info_lines.append(f"   Resource title: {title}")
+        if publisher:
+            info_lines.append(f"   Publisher: {publisher}")
+        if resource_name:
+            info_lines.append(f"   Resource name: {resource_name}")
         if description:
             info_lines.append(f"   Resource description: {description}")
 

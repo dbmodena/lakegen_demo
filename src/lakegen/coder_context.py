@@ -7,7 +7,9 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
-_METADATA_FIELDS = frozenset({"title", "description", "topics", "columns"})
+_METADATA_FIELDS = frozenset({
+    "title", "description", "publisher", "resource_name", "topics", "columns",
+})
 _COLUMN_FIELDS = frozenset({"name", "description", "data_type", "dtype"})
 _PLAN_FIELDS = frozenset({
     "requirement_coverage", "table_roles", "combination_strategy",
