@@ -215,6 +215,7 @@ def phase12_agent(
     solr_client: LocalSolrClient,
     csv_dir: Path,
     hint: str = "",
+    retrieval_memory: str = "",
     portal_name: str = "",
     stream_callback: StreamCallback | None = None,
     cancel_check: Callable[[], None] | None = None,
@@ -255,6 +256,7 @@ def phase12_agent(
         "system_prompt",
         portal_name=portal_name,
         hint=hint,
+        retrieval_memory=retrieval_memory,
         value_search=(retrieval_config or RetrievalConfig()).mode.value_keywords,
         verbatim_entities=(retrieval_config or RetrievalConfig()).mode.verbatim_entities,
     )

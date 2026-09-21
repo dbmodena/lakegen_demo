@@ -54,6 +54,8 @@ class DiscoveryResult(BaseModel):
     retry_keywords: bool = False
     retry_reason: str | None = None
     prepared_context: PreparedDiscoveryContext | None = None
+    failed_keyword_combinations: list[list[str]] = Field(default_factory=list)
+    retrieval_memory_events: list[dict[str, object]] = Field(default_factory=list)
 
 
 def parse_retrieval_request(response: str) -> RetrievalRequest:
@@ -233,6 +235,10 @@ def run_unified_orchestrated_discovery(
     retrieval_config: RetrievalConfig, hint: str = "",
     stream_callback: StreamCallback | None = None, cancel_check=None,
     table_dir=None, portal_name: str = "",
+    retrieval_memory: str = "",
+    failed_keyword_combinations: list[frozenset[str]] | None = None,
+    max_zero_result_retries: int = 0,
+    memory_enabled: bool = False,
 ) -> DiscoveryResult:
     """Run two turns of one logical tool-free agent with explicit chat history."""
     pm = PromptManager()
@@ -244,6 +250,7 @@ def run_unified_orchestrated_discovery(
     first_user = pm.render(
         "retrieval_intent", "user_prompt", question=query,
         catalog=portal_name, schema="not supplied", hint=hint,
+        retrieval_memory=retrieval_memory,
     )
     request_invocations = 1
     try:
@@ -277,6 +284,43 @@ def run_unified_orchestrated_discovery(
         if isinstance(exc, RetrievalRequestProtocolError):
             raise
         raise RetrievalRequestProtocolError(str(exc)) from exc
+    hard_bans = [frozenset(item) for item in (failed_keyword_combinations or []) if item]
+    memory_events: list[dict[str, object]] = []
+
+    def remember_failed_keywords(values: list[str]) -> None:
+        failed = frozenset(
+            term.casefold() for value in values for term in value.split() if term.strip()
+        )
+        if not failed or any(known <= failed for known in hard_bans):
+            return
+        hard_bans[:] = [known for known in hard_bans if not failed < known]
+        hard_bans.append(failed)
+        hard_bans.sort(key=lambda item: (len(item), sorted(item)))
+
+    def banned_subset(values: list[str]) -> frozenset[str] | None:
+        proposed = frozenset(
+            term.casefold() for value in values for term in value.split() if term.strip()
+        )
+        matches = [known for known in hard_bans if known <= proposed]
+        return min(matches, key=lambda item: (len(item), sorted(item)), default=None)
+
+    def corrected_request(constraint: str) -> RetrievalRequest:
+        nonlocal first_trace, first_tokens, request_invocations, request_text
+        response, trace, tokens = _run_tool_free_turn(
+            llm=llm,
+            system_prompt=system,
+            user_prompt=(first_user + "\nOrchestrator feedback: " + constraint),
+            agent_name="unified_orchestrated_discovery",
+            stream_callback=stream_callback,
+            cancel_check=cancel_check,
+        )
+        request = parse_retrieval_request(response)
+        request_text = response
+        first_trace += "\n--- Orchestrator retrieval correction ---\n" + trace
+        first_tokens += tokens
+        request_invocations += 1
+        return request
+
     if request.status == "unresolved":
         reason = "UNRESOLVED_RETRIEVAL_INTENT: " + "; ".join(request.missing_evidence)
         return DiscoveryResult(
@@ -285,24 +329,52 @@ def run_unified_orchestrated_discovery(
             tokens=first_tokens, llm_invocations=request_invocations, agent_count=1,
             retry_keywords=False, retry_reason=reason,
         )
-    keywords = request.search_terms(value_search)
-    if not keywords:
-        # A cell-value search has nothing to look for unless values were listed;
-        # falling back to concepts would search dataset topics against cells.
-        raise RetrievalRequestProtocolError(
-            "resolved retrieval intent lists no search_values"
+    lexical_mode = retrieval_config.mode.value in {"keyword", "hybrid"}
+    zero_retries = 0
+    blocked_corrections = 0
+    while True:
+        keywords = request.search_terms(value_search)
+        if not keywords:
+            # A cell-value search has nothing to look for unless values were listed;
+            # falling back to concepts would search dataset topics against cells.
+            raise RetrievalRequestProtocolError(
+                "resolved retrieval intent lists no search_values"
+            )
+        blocked = banned_subset(keywords) if lexical_mode and memory_enabled else None
+        if blocked is not None:
+            blocked_corrections += 1
+            if blocked_corrections > 3:
+                raise RetrievalRequestProtocolError(
+                    "retrieval intent repeatedly contains a known zero-result subset"
+                )
+            request = corrected_request(
+                "This strict-AND query contains the known zero-result subset "
+                f"{{{', '.join(sorted(blocked))}}}. Return a different intent that excludes it."
+            )
+            continue
+        try:
+            prepared, metadata = prepare_discovery_context(
+                query=query, keywords=keywords, solr_client=solr_client,
+                all_files=all_files, retrieval_config=retrieval_config,
+                table_dir=table_dir, entities=request.entities,
+            )
+            prepared.agent_json()
+        except WorkflowCancelled:
+            raise
+        except Exception as exc:
+            raise OrchestratedContextPreparationError(str(exc)) from exc
+        if prepared.candidates or not lexical_mode:
+            break
+        if memory_enabled:
+            remember_failed_keywords(keywords)
+            memory_events.append({"outcome": "zero_results", "terms": list(keywords)})
+        if zero_retries >= max_zero_result_retries:
+            break
+        zero_retries += 1
+        request = corrected_request(
+            "The previous strict-AND retrieval returned zero local candidates. "
+            "Return a genuinely different intent; do not reuse its terms."
         )
-    try:
-        prepared, metadata = prepare_discovery_context(
-            query=query, keywords=keywords, solr_client=solr_client,
-            all_files=all_files, retrieval_config=retrieval_config,
-            table_dir=table_dir, entities=request.entities,
-        )
-        prepared.agent_json()
-    except WorkflowCancelled:
-        raise
-    except Exception as exc:
-        raise OrchestratedContextPreparationError(str(exc)) from exc
     candidates = [item.dataset for item in prepared.candidates]
     if not candidates:
         reason = "REJECT_KEYWORDS: No datasets found in the prepared context"
@@ -312,6 +384,8 @@ def run_unified_orchestrated_discovery(
             trace="--- Unified Orchestrated Turn 1 ---\n" + first_trace,
             tokens=first_tokens, llm_invocations=request_invocations, agent_count=1,
             retry_keywords=True, retry_reason=reason, prepared_context=prepared,
+            failed_keyword_combinations=[sorted(item) for item in hard_bans],
+            retrieval_memory_events=memory_events,
         )
     selection_system, second_user = _selector_prompts(prepared, "")
     history = [
@@ -354,6 +428,13 @@ def run_unified_orchestrated_discovery(
             raise
         raise OrchestratedSelectorError(str(exc)) from exc
     retry_reason = selector_retry_reason(selected, reasoning)
+    if retry_reason is not None and memory_enabled:
+        memory_events.append({
+            "outcome": "insufficient_coverage",
+            "terms": list(keywords),
+            "tables": list(candidates),
+            "reason": retry_reason,
+        })
     return DiscoveryResult(
         selected_datasets=selected, candidates=candidates, keywords=keywords,
         metadata=metadata,
@@ -363,4 +444,6 @@ def run_unified_orchestrated_discovery(
         llm_invocations=request_invocations + selector_invocations, agent_count=1,
         retry_keywords=retry_reason is not None, retry_reason=retry_reason,
         reasoning=retry_reason or reasoning, prepared_context=prepared,
+        failed_keyword_combinations=[sorted(item) for item in hard_bans],
+        retrieval_memory_events=memory_events,
     )

@@ -561,7 +561,7 @@ def test_configured_search_contract_is_mode_neutral_while_question_only_modes_us
     assert "gold.parquet" in first
     assert calls == [("Which school has the highest bandwidth?", [], 15)]
     assert state.used_keywords == ["invented", "keyword"]
-    assert "Provide 1-2 concise dataset concepts" in description
+    assert "Pass `concepts` as a list of 1-2 concise dataset concepts" in description
     # Deduplicated by the agent's own concepts, as in keyword modes: a different
     # search is not "identical", it is over the attempt limit.
     assert repeated.startswith("Search skipped: identical concepts")
@@ -624,7 +624,7 @@ def test_search_tool_description_is_identical_for_all_topic_based_modes(tmp_path
     }
 
     assert len(descriptions) == 1
-    assert "Provide 1-2 concise dataset concepts" in descriptions.pop()
+    assert "Pass `concepts` as a list of 1-2 concise dataset concepts" in descriptions.pop()
 
 
 def test_pneuma_seeker_asks_the_agent_for_verbatim_entities(monkeypatch, tmp_path):
@@ -763,6 +763,41 @@ def test_keyword_failed_subset_rejection_does_not_spend_retry_budget(
     limited = manager.search_tables("eta")
 
     assert calls == [["alpha"], ["epsilon"], ["zeta"]]
+    assert limited.startswith("Search limit reached")
+
+
+def test_hybrid_zero_results_use_keyword_banlist_and_retry_budget(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            calls.append(kwargs["keywords"])
+            return []
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
+    )
+    state = P12State()
+    manager = Phase12ToolsManager(
+        state, object(), [], tmp_path,
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.HYBRID),
+    )
+
+    first = manager.search_tables("alpha beta")
+    narrower = manager.search_tables("alpha")
+    blocked = manager.search_tables("alpha gamma")
+    manager.search_tables("delta")
+    limited = manager.search_tables("epsilon")
+
+    assert "added to the zero-result banlist" in first
+    assert "added to the zero-result banlist" in narrower
+    assert "known zero-result keyword subset {alpha}" in blocked
+    assert [sorted(item) for item in state.failed_keyword_combinations] == [
+        ["alpha"], ["delta"]
+    ]
+    assert calls == [["alpha", "beta"], ["alpha"], ["delta"]]
     assert limited.startswith("Search limit reached")
 
 
@@ -1713,7 +1748,7 @@ def test_grep_values_search_tool_takes_a_list_and_passes_values_whole(
     assert "grep" not in result.lower()  # the agent is still not told the retriever
 
 
-def test_other_modes_keep_the_space_separated_concepts_tool(tmp_path):
+def test_other_topic_modes_share_the_concepts_list_tool(tmp_path):
     manager = Phase12ToolsManager(
         P12State(), object(), [], tmp_path,
         question="Which tables are relevant?",
@@ -1721,4 +1756,43 @@ def test_other_modes_keep_the_space_separated_concepts_tool(tmp_path):
     )
 
     parameters = manager.get_tools()[0].metadata.get_parameters_dict()
-    assert "concepts_str" in parameters["properties"]
+    assert parameters["properties"]["concepts"]["type"] == "array"
+
+
+def test_keyword_tool_preserves_multiword_concepts(monkeypatch, tmp_path):
+    calls = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            calls.append(kwargs["keywords"])
+            return []
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+    )
+    manager = Phase12ToolsManager(
+        P12State(), object(), [], tmp_path,
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.KEYWORD),
+    )
+    tool = manager.get_tools()[0]
+
+    parameters = tool.metadata.get_parameters_dict()
+    assert parameters["properties"]["concepts"]["type"] == "array"
+    tool.call(
+        concepts=[" Transport  for Greater Manchester ", "invoices"]
+    )
+
+    assert calls == [["Transport for Greater Manchester", "invoices"]]
+
+
+def test_keyword_banlist_uses_actual_and_terms_inside_concepts(tmp_path):
+    state = P12State()
+    state.failed_keyword_combinations = [frozenset({"belfast", "lough"})]
+    manager = Phase12ToolsManager(
+        state, object(), [], tmp_path,
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.KEYWORD),
+    )
+
+    result = manager.search_keyword_concepts(["Belfast Lough", "cells"])
+
+    assert "known zero-result keyword subset {belfast, lough}" in result

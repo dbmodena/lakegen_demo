@@ -54,6 +54,14 @@ from lakegen.phases.orchestrated_discovery import (
     select_from_prepared_context,
 )
 from lakegen.manifest import ExperimentManifest, create_manifest, persist_manifest
+from lakegen.keyword_memory import (
+    format_question_retrieval_memory,
+    load_keyword_memory,
+    load_question_retrieval_memory,
+    persist_keyword_memory,
+    persist_question_retrieval_memory,
+    question_memory_key,
+)
 from lakegen.reproducibility import initialize_reproducibility
 from lakegen.tracing import (
     build_llm_phase_records,
@@ -361,6 +369,30 @@ def run_question(
     rejected_plan_feedback: dict[str, dict[str, Any]] = {}
     last_coder_rejection: dict[str, Any] | None = None
     attempted_keywords: list[str] = []
+    # Unified lexical memory belongs to the whole question, not one selection
+    # round. A fresh P12State is still needed for inspection budgets, but zero-
+    # result knowledge must survive coder/selection retries.
+    keyword_memory_path = BASE_DIR / ".lakegen_keyword_memory.json"
+    keyword_memory_scope = "|".join((
+        runtime.solr_core,
+        runtime.retrieval.mode.value,
+        runtime.retrieval.representation_version,
+        ",".join(runtime.retrieval.lexical_query_fields or ()),
+        "q.op=AND",
+    ))
+    _persistent_keyword_history, failed_keyword_combinations = load_keyword_memory(
+        keyword_memory_path, keyword_memory_scope
+    )
+    retrieval_question_key = question_memory_key(question)
+    retrieval_memory_summary = format_question_retrieval_memory(
+        load_question_retrieval_memory(
+            keyword_memory_path, keyword_memory_scope, retrieval_question_key
+        )
+    )
+    # Historical searches are durable audit data, but do not consume the
+    # per-question retry budget. Only failed combinations affect future runs.
+    keyword_history: list[list[str]] = []
+    persisted_keyword_count = 0
     carried_tables: list[str] = []
     carried_metadata: dict[str, dict[str, Any]] = {}
     # Unified only: the cached inspect_columns text for each carried table,
@@ -529,6 +561,12 @@ def run_question(
                     # it is seeded with the cross-round memory accumulated so
                     # far (mirrors DIVIDED's excluded_tables/carried_tables).
                     selection_state = P12State()
+                    selection_state.keyword_history = [
+                        list(item) for item in keyword_history
+                    ]
+                    selection_state.failed_keyword_combinations = list(
+                        failed_keyword_combinations
+                    )
                     selection_state.rejected_selections = set(rejected_selection_keys)
                     selection_state.excluded_tables = set(excluded_tables)
                     selection_state.carried_tables = list(carried_tables)
@@ -550,12 +588,40 @@ def run_question(
                         solr_client=solr,
                         csv_dir=runtime.csv_dir,
                         hint=hint,
+                        retrieval_memory=retrieval_memory_summary,
                         portal_name=runtime.portal_name,
                         retrieval_config=runtime.retrieval,
                         state=selection_state,
                         retrieval_observer=agentic_retrieval_observer,
                         require_semantic_plan=experiment.require_semantic_plan,
                     )
+                    keyword_history = [
+                        list(item) for item in selection_state.keyword_history
+                    ]
+                    failed_keyword_combinations = list(
+                        selection_state.failed_keyword_combinations
+                    )
+                    new_history = keyword_history[persisted_keyword_count:]
+                    persist_keyword_memory(
+                        keyword_memory_path,
+                        keyword_memory_scope,
+                        new_history,
+                        failed_keyword_combinations,
+                    )
+                    persist_question_retrieval_memory(
+                        keyword_memory_path,
+                        keyword_memory_scope,
+                        retrieval_question_key,
+                        selection_state.retrieval_memory_events,
+                    )
+                    retrieval_memory_summary = format_question_retrieval_memory(
+                        load_question_retrieval_memory(
+                            keyword_memory_path,
+                            keyword_memory_scope,
+                            retrieval_question_key,
+                        )
+                    )
+                    persisted_keyword_count = len(keyword_history)
                     phase_invocation_counts["discovery"] += 1
                     context_telemetry["llm_invocations"] += 1
                     if reasoning.startswith("REJECT_KEYWORDS:"):
@@ -701,9 +767,22 @@ def run_question(
                         discovery_result = run_unified_orchestrated_discovery(
                             query=question, llm=llm, solr_client=solr,
                             all_files=all_files, retrieval_config=runtime.retrieval,
-                            table_dir=runtime.csv_dir,
-                            portal_name=runtime.portal_name,
-                            hint=hint,
+                        table_dir=runtime.csv_dir,
+                        portal_name=runtime.portal_name,
+                        hint=hint,
+                        retrieval_memory=(
+                            retrieval_memory_summary
+                            if experiment.orchestrated_memory_enabled else ""
+                        ),
+                        failed_keyword_combinations=(
+                            failed_keyword_combinations
+                            if experiment.orchestrated_memory_enabled else []
+                        ),
+                        max_zero_result_retries=(
+                            experiment.discovery.max_zero_result_retries
+                            if experiment.orchestrated_memory_enabled else 0
+                        ),
+                        memory_enabled=experiment.orchestrated_memory_enabled,
                         )
                     except RetrievalRequestProtocolError as exc:
                         context_telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
@@ -736,6 +815,33 @@ def run_question(
                     context_telemetry["llm_invocations"] += discovery_result.llm_invocations
                     prepared = discovery_result.prepared_context
                     keywords_rejected = discovery_result.retry_keywords
+                    if experiment.orchestrated_memory_enabled:
+                        returned_bans = [
+                            frozenset(item)
+                            for item in discovery_result.failed_keyword_combinations
+                            if item
+                        ]
+                        if returned_bans:
+                            failed_keyword_combinations = returned_bans
+                        persist_keyword_memory(
+                            keyword_memory_path,
+                            keyword_memory_scope,
+                            [],
+                            failed_keyword_combinations,
+                        )
+                        persist_question_retrieval_memory(
+                            keyword_memory_path,
+                            keyword_memory_scope,
+                            retrieval_question_key,
+                            discovery_result.retrieval_memory_events,
+                        )
+                        retrieval_memory_summary = format_question_retrieval_memory(
+                            load_question_retrieval_memory(
+                                keyword_memory_path,
+                                keyword_memory_scope,
+                                retrieval_question_key,
+                            )
+                        )
                 else:
                     keywords, raw_keywords, tokens_p1, reasoning_p1 = (
                         phase1_generate_keywords(

@@ -191,6 +191,9 @@ class ExperimentConfig(FrozenModel):
     model: str = DEFAULT_MODEL
     discovery_architecture: DiscoveryArchitecture = DiscoveryArchitecture.UNIFIED
     tool_access: ToolAccess = ToolAccess.AGENTIC
+    # Enables persisted retrieval feedback in the tool-free orchestrated path.
+    # Kept off by default so the orchestrated baseline stays reproducible.
+    orchestrated_memory_enabled: bool = False
     retrieval: RetrievalExperimentConfig = Field(default_factory=_default_retrieval)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)

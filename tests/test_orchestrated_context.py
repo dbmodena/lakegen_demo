@@ -501,6 +501,85 @@ def test_unified_empty_context_skips_second_turn(monkeypatch):
     assert result.selected_datasets == []
 
 
+def test_orchestrated_memory_rejects_banned_intent_without_retrieval(monkeypatch):
+    calls = []
+    responses = iter([
+        _intent(["old", "terms"]),
+        _intent(["new", "terms"]),
+        'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
+    ])
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **kwargs: (calls.append(kwargs) or (next(responses), "", 1)),
+    )
+    prepared = PreparedDiscoveryContext(
+        query="q", retrieval_mode="keyword",
+        candidates=[PreparedCandidate(
+            retrieval_rank=1, prepared_position=1, dataset="table.csv",
+            scores={}, missing_signals=[], metadata={},
+        )], retrieved_hit_count=1, prepared_candidate_count=1,
+    )
+    retrievals = []
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        lambda **kwargs: (retrievals.append(kwargs) or (prepared, {})),
+    )
+
+    result = run_unified_orchestrated_discovery(
+        query="q", llm=object(), solr_client=object(), all_files=["table.csv"],
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.KEYWORD),
+        retrieval_memory="- [old, terms] returned zero local candidates.",
+        failed_keyword_combinations=[frozenset({"old", "terms"})],
+        memory_enabled=True,
+    )
+
+    assert [item["keywords"] for item in retrievals] == [["new", "terms"]]
+    assert len(calls) == 3
+    assert calls[0]["agent_name"] == "unified_orchestrated_discovery"
+    assert "PERSISTED RETRIEVAL MEMORY" in calls[0]["user_prompt"]
+    assert result.selected_datasets == ["table.csv"]
+
+
+def test_orchestrated_memory_retries_zero_results_and_persists_ban(monkeypatch):
+    responses = iter([
+        _intent(["empty"]),
+        _intent(["usable"]),
+        'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
+    ])
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        lambda **_kwargs: (next(responses), "", 1),
+    )
+    empty = PreparedDiscoveryContext(
+        query="q", retrieval_mode="keyword", candidates=[],
+        retrieved_hit_count=0, prepared_candidate_count=0,
+    )
+    populated = PreparedDiscoveryContext(
+        query="q", retrieval_mode="keyword",
+        candidates=[PreparedCandidate(
+            retrieval_rank=1, prepared_position=1, dataset="table.csv",
+            scores={}, missing_signals=[], metadata={},
+        )], retrieved_hit_count=1, prepared_candidate_count=1,
+    )
+    contexts = iter([(empty, {}), (populated, {})])
+    monkeypatch.setattr(
+        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        lambda **_kwargs: next(contexts),
+    )
+
+    result = run_unified_orchestrated_discovery(
+        query="q", llm=object(), solr_client=object(), all_files=["table.csv"],
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.KEYWORD),
+        max_zero_result_retries=1, memory_enabled=True,
+    )
+
+    assert result.failed_keyword_combinations == [["empty"]]
+    assert result.retrieval_memory_events == [
+        {"outcome": "zero_results", "terms": ["empty"]}
+    ]
+    assert result.llm_invocations == 3
+
+
 @pytest.mark.parametrize(
     "selector_response",
     [

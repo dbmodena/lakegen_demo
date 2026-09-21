@@ -47,6 +47,29 @@ from lakegen.retrieval.embeddings import (
 )
 
 
+def test_solr_select_keeps_strict_and_for_words_in_multiword_concepts(monkeypatch):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"response": {"docs": []}}
+
+    def fake_get(_url, *, params, timeout):
+        captured.update(params)
+        return Response()
+
+    monkeypatch.setattr("src.client_solr.requests.get", fake_get)
+    LocalSolrClient("uk").select(
+        ["Transport for Greater Manchester", "invoices"], q_op="AND"
+    )
+
+    assert captured["q"] == "Transport for Greater Manchester invoices"
+    assert captured["q.op"] == "AND"
+
+
 class FakeSolr:
     def __init__(self, *, select_docs=(), knn_docs=()):
         self.select_docs = list(select_docs)

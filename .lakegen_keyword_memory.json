@@ -1,0 +1,356 @@
+{
+  "version": 1,
+  "scopes": {
+    "nyc|keyword|metadata-v1||q.op=AND": {
+      "keyword_history": [],
+      "failed_keyword_combinations": []
+    },
+    "nyc|semantic|metadata-v1||q.op=AND": {
+      "keyword_history": [],
+      "failed_keyword_combinations": []
+    },
+    "uk|keyword|metadata-v1||q.op=AND": {
+      "keyword_history": [
+        [
+          "Police force boundaries"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "Faughan",
+          "contribution"
+        ],
+        [
+          "Faughan",
+          "network"
+        ],
+        [
+          "Faughan"
+        ],
+        [
+          "contribution area",
+          "network"
+        ],
+        [
+          "organogram"
+        ],
+        [
+          "organogram",
+          "Office of Rail and Road"
+        ],
+        [
+          "organogram",
+          "Office of Rail and Road"
+        ],
+        [
+          "Salcombe Estuary",
+          "littoral survey"
+        ],
+        [
+          "Salcombe Estuary",
+          "littoral"
+        ],
+        [
+          "Strategic Clinical Network",
+          "local authority districts"
+        ],
+        [
+          "Bradford",
+          "street lighting"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "Stockport Council",
+          "transactions"
+        ],
+        [
+          "Intellectual Property Office",
+          "spending"
+        ],
+        [
+          "Intellectual Property Office",
+          "spending"
+        ],
+        [
+          "built-up area",
+          "December 2022"
+        ],
+        [
+          "Westminster parliamentary constituencies",
+          "December 2019 v2 boundary"
+        ],
+        [
+          "Westminster parliamentary constituencies",
+          "boundary"
+        ],
+        [
+          "Parliamentary constituencies",
+          "December 2019"
+        ],
+        [
+          "Westminster parliamentary constituencies",
+          "size classification"
+        ],
+        [
+          "Westminster constituency size classification",
+          "December 2019"
+        ],
+        [
+          "Westminster parliamentary constituencies",
+          "size classification"
+        ],
+        [
+          "ash‑free dry mass",
+          "coarse particulate organic matter"
+        ],
+        [
+          "Environment Agency",
+          "Berwick St James"
+        ],
+        [
+          "River Water Quality",
+          "Berwick St James"
+        ],
+        [
+          "Berwick St. James",
+          "ash‑free dry mass"
+        ],
+        [
+          "Environment Agency water quality"
+        ],
+        [
+          "environment agency",
+          "water quality"
+        ],
+        [
+          "salary cost",
+          "department"
+        ],
+        [
+          "salary cost",
+          "reports"
+        ],
+        [
+          "Organogram",
+          "2022"
+        ],
+        [
+          "Organogram",
+          "2022"
+        ],
+        [
+          "National Gallery",
+          "payments"
+        ],
+        [
+          "National Gallery",
+          "payments"
+        ],
+        [
+          "Northern Ireland",
+          "property sales"
+        ]
+      ],
+      "failed_keyword_combinations": [
+        [
+          "faughan"
+        ],
+        [
+          "agency",
+          "berwick",
+          "environment",
+          "james",
+          "st"
+        ],
+        [
+          "berwick",
+          "james",
+          "quality",
+          "river",
+          "st",
+          "water"
+        ],
+        [
+          "ash‑free",
+          "coarse",
+          "dry",
+          "mass",
+          "matter",
+          "organic",
+          "particulate"
+        ]
+      ],
+      "question_memories": {
+        "ea58071926c77805ae7725b43ff96721e1dc229e62206c1046c6ec24444de529": [
+          {
+            "outcome": "insufficient_coverage",
+            "terms": [
+              "Northern Ireland",
+              "property sales"
+            ],
+            "reason": "The question asks for the number of terraced house sales per year in Causeway Coast and Glens, split into low‑price (mean price < 100,000) and high‑price (mean price >= 100,000) categories, and the average median price for each category. Essential requirements are: (1) district = Causeway Coast and Glens, (2) yearly breakdown, (3) house type = terraced, (4) count of sales, (5) mean price to define price categories, (6) median price to compute average per category. The inspect",
+            "suggestion": "Search for datasets that include a property‑type breakdown (e.g., terraced, detached, semi‑detached) for Northern Ireland or specifically for Causeway Coast and Glens. Use concepts such as [\"Causeway Coast and Glens\", \"terraced house sales\"] or [\"Northern Ireland\", \"house type\", \"property sales\"].",
+            "tables": [
+              "f6415561-6d89-4f3e-81c3-4d755483245f___02594e8e-7b21-4616-9a4f-99e83ea279fb.parquet",
+              "f6415561-6d89-4f3e-81c3-4d755483245f___17e481c0-d911-43ed-87bc-c5b3ab5c9d0d.parquet",
+              "f6415561-6d89-4f3e-81c3-4d755483245f___d8d5ce2f-c98c-4ff8-8cb4-1cbe04b40f79.parquet"
+            ],
+            "evidence": {
+              "b34688c8-8bcf-48a9-85e1-9ffe340da4de___e2f37db1-7a3b-423f-a8d2-8f396c12a4b1.parquet": "Aggregated quarterly sales by NUTS3 region; lacks house‑type and district‑level detail needed.",
+              "f6415561-6d89-4f3e-81c3-4d755483245f___02594e8e-7b21-4616-9a4f-99e83ea279fb.parquet": "Only Belfast council data; district mismatch and no terraced‑house dimension."
+            }
+          }
+        ]
+      }
+    },
+    "uk|hybrid|metadata-v1||q.op=AND": {
+      "keyword_history": [
+        [
+          "Strategic Clinical Network",
+          "local authority districts"
+        ],
+        [
+          "Bradford",
+          "street lights"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "Stockport Council",
+          "transactions"
+        ],
+        [
+          "Intellectual Property Office",
+          "spending"
+        ],
+        [
+          "Intellectual Property Office",
+          "spending"
+        ],
+        [
+          "Built-up areas",
+          "December 2022"
+        ],
+        [
+          "Westminster parliamentary constituencies",
+          "boundary"
+        ],
+        [
+          "Westminster parliamentary constituencies",
+          "size category"
+        ],
+        [
+          "parliamentary constituencies",
+          "size category"
+        ],
+        [
+          "Berwick St. James",
+          "ash-free dry mass"
+        ],
+        [
+          "department",
+          "salary cost"
+        ],
+        [
+          "Department for Transport",
+          "salary"
+        ],
+        [
+          "National Gallery",
+          "payments"
+        ],
+        [
+          "National Gallery",
+          "payments"
+        ],
+        [
+          "property sales",
+          "Northern Ireland"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "LSOA",
+          "electoral ward"
+        ],
+        [
+          "Submarine Delivery Agency",
+          "organogram"
+        ],
+        [
+          "Food Standards Agency",
+          "compliance questionnaire"
+        ],
+        [
+          "Food Standards Agency",
+          "June 2019"
+        ],
+        [
+          "Food Standards Agency",
+          "compliance questionnaire"
+        ],
+        [
+          "Department for Transport",
+          "senior organogram"
+        ],
+        [
+          "Department for Transport senior organogram"
+        ],
+        [
+          "senior organogram",
+          "Department for Transport"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "civil servant pay",
+          "organogram"
+        ],
+        [
+          "senior civil servant",
+          "organogram"
+        ],
+        [
+          "civil service organogram",
+          "pay floor"
+        ],
+        [
+          "Belfast Lough",
+          "contribution score"
+        ],
+        [
+          "Scottish Parliamentary Constituencies",
+          "May 2016"
+        ]
+      ],
+      "failed_keyword_combinations": []
+    }
+  }
+}

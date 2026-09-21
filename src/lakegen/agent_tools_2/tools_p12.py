@@ -11,7 +11,7 @@ from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 
 from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.experiment_config import DiscoveryConfig
-from lakegen.agent_tools.tools_p2 import (
+from lakegen.agent_tools_2.tools_p2 import (
     MIN_BAN_JUSTIFICATION_CHARS,
     _check_join_union,
     _inspect_columns,
@@ -732,6 +732,23 @@ class Phase12ToolsManager:
                 "AND" if self.retrieval_config.mode == RetrievalMode.KEYWORD
                 else self.retrieval_config.mode.value
             )
+
+            # Keep the new-version fallback, but retain the current version's
+            # zero-result memory and retry limits below.  A strict AND miss can
+            # still expose useful candidates through a clearly labelled OR pass.
+            if (
+                not hits
+                and len(keywords) > 1
+                and self.retrieval_config.mode == RetrievalMode.KEYWORD
+            ):
+                hits = retriever.retrieve(
+                    question=self.question,
+                    keywords=keywords,
+                    top_k=fetch_k,
+                    lexical_fetch_k=fetch_k,
+                    q_op="OR",
+                )
+                search_mode = "OR fallback"
 
             searched = (
                 "the question only"
