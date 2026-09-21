@@ -771,6 +771,14 @@ def summarize_code_evaluations(
         for item in applicable
     )
     numeric_case_count = type_counts.get("number", 0)
+    judged = [item for item in applicable if item.get("semantic_judge_used")]
+    semantic_outcomes = Counter(
+        str(item.get("semantic_correctness") or "unknown") for item in judged
+    )
+    hardcoding_risks = Counter(
+        str(item.get("semantic_judge_hardcoding_risk") or "unknown")
+        for item in judged
+    )
     mean_squared_error = finite_mean("numeric_squared_error")
     mean_squared_relative_error = finite_mean("numeric_squared_relative_error")
     return {
@@ -847,5 +855,34 @@ def summarize_code_evaluations(
             )
             if any(item.get("semantic_judge_used") for item in applicable)
             else None
+        ),
+        "semantic_judge_outcomes": dict(sorted(semantic_outcomes.items())),
+        "semantic_judge_hardcoding_risks": dict(sorted(hardcoding_risks.items())),
+        "semantic_judge_downgrade_count": sum(
+            bool(item.get("semantic_judge_downgraded")) for item in judged
+        ),
+        "semantic_judge_downgrade_rate": (
+            round(sum(bool(item.get("semantic_judge_downgraded")) for item in judged)
+                  / len(judged), 6) if judged else None
+        ),
+        "semantic_judge_mean_evidence_coverage": (
+            round(sum(float(item.get("semantic_judge_evidence_coverage") or 0.0)
+                      for item in judged) / len(judged), 6) if judged else None
+        ),
+        "semantic_judge_verified_requirement_count": sum(
+            int(item.get("semantic_judge_verified_requirement_count") or 0)
+            for item in judged
+        ),
+        "semantic_judge_failed_requirement_count": sum(
+            int(item.get("semantic_judge_failed_requirement_count") or 0)
+            for item in judged
+        ),
+        "semantic_judge_unknown_requirement_count": sum(
+            int(item.get("semantic_judge_unknown_requirement_count") or 0)
+            for item in judged
+        ),
+        "semantic_judge_blocking_objection_count": sum(
+            int(item.get("semantic_judge_blocking_objection_count") or 0)
+            for item in judged
         ),
     }

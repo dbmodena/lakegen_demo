@@ -65,6 +65,8 @@ METRIC_DESCRIPTIONS = (
     ("Supported result", "Quota di risultati esatti o equivalenti e supportati dalle evidenze disponibili."),
     ("Pass@1", "Quota di casi risolti correttamente al primo tentativo di generazione."),
     ("Requirement pass rate", "Percentuale media dei requisiti della domanda soddisfatti dal risultato."),
+    ("Semantic evidence coverage", "Quota media dei requisiti del judge LLM accompagnati da evidenza verificata."),
+    ("Semantic downgrade rate", "Quota dei giudizi LLM positivi richiesti ma declassati dai gate di evidenza."),
     ("Numeric coverage", "Quota di risultati attesi numerici che hanno prodotto uno scalare confrontabile."),
     ("MSE / RMSE", "Errore quadratico medio e sua radice sui soli scalari numerici confrontabili; dipendono dall'unità e dalla scala."),
     ("MSRE / RMSRE", "Versioni quadratiche relative, utili per confrontare valori numerici su scale diverse."),
@@ -287,82 +289,13 @@ def selection_summary(table_metrics: dict[str, Any]) -> str:
     return metric_table("2. Tabelle finali selezionate dall'agente", metrics, keys)
 
 
-def augmented_retrieval_summary(table_metrics: dict[str, Any]) -> str:
-    augmented = table_metrics.get("augmented_retrieval", {})
-    eligible = int(augmented.get("eligible_case_count", 0))
-    if not eligible:
-        return (
-            "<section><h2>3. Retrieval aumentata — dataset alternativi</h2>"
-            "<p>Nessuna domanda del benchmark dichiara dataset alternativi "
-            "accettati. Le metriche strict restano invariate.</p></section>"
-        )
-    retrieval = augmented.get("mean_retrieval_metrics", {})
-    selection = augmented.get("mean_selection_metrics", {})
-    metric_rows = []
-    for name in (
-        "AlternativeHit@1", "AlternativeHit@5", "AlternativeHit@10",
-        "AlternativeRecall@10", "AlternativeFullCoverage@10", "AlternativeMRR",
-    ):
-        if name in retrieval:
-            metric_rows.append(
-                f"<tr><td>{html.escape(label(name))}</td><td>{pct(retrieval[name])}</td></tr>"
-            )
-    for name in (
-        "AlternativeSelectionHit", "AlternativeSelectionRecall",
-        "AlternativeSelectionPrecision", "AlternativeExactSelection",
-        "AlternativeOnlySelection", "StrictMissRescued",
-    ):
-        if name in selection:
-            metric_rows.append(
-                f"<tr><td>{html.escape(label(name))}</td><td>{pct(selection[name])}</td></tr>"
-            )
-    case_rows = []
-    for case in augmented.get("cases", []):
-        gold = set(case.get("gold_table_ids", []))
-        alternatives = sorted({
-            value
-            for group in case.get("accepted_table_groups", [])
-            for value in group
-            if value not in gold
-        })
-        selected = set(case.get("selected_table_ids", []))
-        selected_gold = bool(gold & selected)
-        selected_alternative = bool(set(alternatives) & selected)
-        outcome = (
-            "gold" if selected_gold
-            else "alternative" if selected_alternative
-            else "miss"
-        )
-        render_ids = lambda values: "<br>".join(
-            f"<code>{html.escape(str(value))}</code>" for value in values
-        ) or "—"
-        case_rows.append(
-            f"<tr><td>{html.escape(str(case.get('case_id', '')))}</td>"
-            f"<td>{html.escape(str(case.get('question', '')))}</td>"
-            f"<td>{render_ids(sorted(gold))}</td>"
-            f"<td>{render_ids(alternatives)}</td>"
-            f"<td>{render_ids(sorted(selected))}</td>"
-            f"<td>{html.escape(outcome)}</td></tr>"
-        )
-    return (
-        "<section><h2>3. Retrieval aumentata — dataset alternativi</h2>"
-        f"<p>Valutazione separata su {eligible} domande con almeno un'alternativa. "
-        "Le metriche strict delle sezioni precedenti non vengono modificate.</p>"
-        "<table><thead><tr><th>Metrica aumentata</th><th>Valore</th></tr></thead>"
-        f"<tbody>{''.join(metric_rows)}</tbody></table>"
-        "<h3>Dettaglio per domanda</h3><table><thead><tr><th>ID</th><th>Domanda</th>"
-        "<th>Gold</th><th>Alternative ammesse</th><th>Selezionate</th><th>Esito</th></tr></thead>"
-        f"<tbody>{''.join(case_rows)}</tbody></table></section>"
-    )
-
-
 def expansion_summary(table_metrics: dict[str, Any]) -> str:
     metrics = table_metrics.get("expansion_metrics", {})
     queries = int(metrics.get("query_count", 0))
     contributions = int(metrics.get("gold_selected_beyond_initial_count", 0))
     rate = float(metrics.get("gold_selected_beyond_initial_rate", 0))
     return (
-        "<section><h2>4. Contributo osservabile dell'espansione</h2>"
+        "<section><h2>3. Contributo osservabile dell'espansione</h2>"
         "<p>Conta i casi in cui l'agente ha usato l'espansione e ha poi selezionato "
         "una tabella gold che nel ranking originale era oltre le prime 10.</p>"
         f"<div class=\"cards\"><div class=\"card\"><span>Espansioni usate</span><strong>{queries}</strong></div>"
@@ -405,7 +338,7 @@ def table_count_analysis(table_metrics: dict[str, Any]) -> str:
     if not rows:
         return ""
     return (
-        "<section><h2>5. Comportamento all'aumentare delle tabelle richieste</h2>"
+        "<section><h2>4. Comportamento all'aumentare delle tabelle richieste</h2>"
         "<p>Le fasce sono definite dal numero di tabelle gold, non dal numero scelto dall'agente. "
         "Full Coverage@20 richiede che tutte le gold siano presenti nelle prime 20.</p>"
         "<table><thead><tr><th>Gold richieste</th><th>Query</th><th>Casi risultato applicabili</th><th>Retrieval Recall@20</th>"
@@ -535,6 +468,8 @@ def code_comparison(code: dict[str, Any]) -> str:
 def count_comparison(title: str, code: dict[str, Any], field: str) -> str:
     contexts = [name for name in CONTEXT_ORDER if name in code]
     categories = sorted({key for name in contexts for key in code[name].get(field, {})})
+    if not categories:
+        return ""
     maximum = max(
         (int(code[name].get(field, {}).get(category, 0)) for name in contexts for category in categories),
         default=1,
@@ -550,6 +485,37 @@ def count_comparison(title: str, code: dict[str, Any], field: str) -> str:
     return (
         f"<section><h2>{html.escape(title)}</h2><table><thead><tr><th>Categoria</th>"
         f"{header}</tr></thead><tbody>{''.join(rows)}</tbody></table></section>"
+    )
+
+
+def semantic_judge_summary(code: dict[str, Any]) -> str:
+    """Render evidence-pipeline quality and cost separately from coder accuracy."""
+    contexts = [name for name in CONTEXT_ORDER if name in code]
+    if not any(code[name].get("semantic_judge_case_count") for name in contexts):
+        return ""
+    rows = []
+    metrics = (
+        ("semantic_judge_case_count", "Casi giudicati", False),
+        ("semantic_judge_parse_success_rate", "Parsing riuscito", True),
+        ("semantic_judge_mean_evidence_coverage", "Copertura evidenze", True),
+        ("semantic_judge_downgrade_rate", "Tasso di downgrade", True),
+        ("semantic_judge_blocking_objection_count", "Obiezioni bloccanti", False),
+        ("semantic_judge_total_tokens", "Token judge", False),
+    )
+    for key, name, is_rate in metrics:
+        cells = []
+        for context in contexts:
+            value = code[context].get(key)
+            shown = "—" if value is None else pct(value) if is_rate else f"{int(value):,}"
+            cells.append(f'<td class="num">{shown}</td>')
+        rows.append(f"<tr><td>{html.escape(name)}</td>{''.join(cells)}</tr>")
+    header = "".join(f"<th>{html.escape(label(name))}</th>" for name in contexts)
+    return (
+        "<section><h2>Diagnostica semantic judge LLM</h2>"
+        "<p>Il downgrade indica che il modello aveva richiesto un esito corretto, ma "
+        "i gate su evidenze, critica, hardcoding o fonte alternativa non lo hanno confermato.</p>"
+        f"<table><thead><tr><th>Metrica</th>{header}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></section>"
     )
 
 
@@ -619,21 +585,6 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
     selection = table.get("mean_selection_metrics", {})
     lines.extend(["", "## Selezione finale dell'agente", "", "| Metrica | Valore |", "|---|---:|"])
     lines.extend(f"| {key} | {pct(selection[key])} |" for key in ("SelectionHit", "SelectionRecall", "SelectionPrecision", "ExactSelection") if key in selection)
-    augmented = table.get("augmented_retrieval", {})
-    eligible = int(augmented.get("eligible_case_count", 0))
-    lines.extend(["", "## Retrieval aumentata — dataset alternativi", ""])
-    if not eligible:
-        lines.append("Nessuna domanda dichiara dataset alternativi accettati; le metriche strict restano invariate.")
-    else:
-        lines.extend([
-            f"- Domande con alternative: **{eligible}**", "",
-            "| Metrica | Valore |", "|---|---:|",
-        ])
-        for group in ("mean_retrieval_metrics", "mean_selection_metrics"):
-            lines.extend(
-                f"| {name} | {pct(value)} |"
-                for name, value in augmented.get(group, {}).items()
-            )
     expansion = table.get("expansion_metrics", {})
     lines.extend([
         "", "## Contributo osservabile dell'espansione", "",
@@ -689,6 +640,34 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
                 f"{numeric_metric(values, 'mean_numeric_squared_relative_error')} | "
                 f"{numeric_metric(values, 'root_mean_numeric_squared_relative_error')} |"
             )
+    if any(
+        job["batch_metrics"].get("code", {}).get(context, {}).get(
+            "semantic_judge_case_count"
+        )
+        for context in CONTEXT_ORDER
+    ):
+        lines.extend([
+            "", "## Diagnostica semantic judge LLM", "",
+            "Il downgrade segnala un verdetto positivo richiesto dal modello ma non "
+            "confermato dai gate di evidenza.", "",
+            "| Contesto | Casi | Parse success | Evidence coverage | Downgrade | Obiezioni bloccanti | Token |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ])
+        for context in CONTEXT_ORDER:
+            values = job["batch_metrics"].get("code", {}).get(context)
+            if not values:
+                continue
+            parse_rate = values.get("semantic_judge_parse_success_rate")
+            coverage = values.get("semantic_judge_mean_evidence_coverage")
+            downgrade = values.get("semantic_judge_downgrade_rate")
+            lines.append(
+                f"| {context} | {int(values.get('semantic_judge_case_count', 0))} | "
+                f"{pct(parse_rate) if parse_rate is not None else '—'} | "
+                f"{pct(coverage) if coverage is not None else '—'} | "
+                f"{pct(downgrade) if downgrade is not None else '—'} | "
+                f"{int(values.get('semantic_judge_blocking_objection_count', 0))} | "
+                f"{int(values.get('semantic_judge_total_tokens', 0)):,} |"
+            )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -720,13 +699,15 @@ def generate(
         metric_descriptions(),
         retrieval_comparison(table),
         selection_summary(table),
-        augmented_retrieval_summary(table),
         expansion_summary(table),
         table_count_analysis(table),
         performance_summary(job, table),
         code_comparison(code),
+        semantic_judge_summary(code),
         count_comparison("Categorie di errore del codice", code, "error_categories"),
         count_comparison("Esiti della valutazione", code, "evaluation_dispositions"),
+        count_comparison("Esiti del semantic judge", code, "semantic_judge_outcomes"),
+        count_comparison("Rischio hardcoding rilevato", code, "semantic_judge_hardcoding_risks"),
     ))
     document = f"""<!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

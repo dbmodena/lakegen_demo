@@ -1505,7 +1505,8 @@ def test_unified_adaptive_inspection_limits_are_enforced(monkeypatch, tmp_path):
     assert "Guided expansion" in manager.expand_candidates("table")
     assert manager.inspect_columns("table-4.parquet").startswith("Schema")
     assert manager.inspect_columns("table-5.parquet").startswith("Schema")
-    assert manager.inspect_columns("table-6.parquet").startswith("Inspection blocked")
+    assert manager.inspect_columns("table-6.parquet").startswith("Schema")
+    assert manager.inspect_columns("table-7.parquet").startswith("Inspection blocked")
 
 
 def test_unified_inspect_columns_resolves_candidate_number(monkeypatch, tmp_path):

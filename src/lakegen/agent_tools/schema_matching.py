@@ -31,12 +31,17 @@ ColumnMatch = tuple[str, str, float]
 
 def match_columns(q: pd.DataFrame, r: pd.DataFrame) -> dict[tuple[str, str], float]:
     """Score column correspondences between ``q`` and ``r`` with schema-only COMA."""
-    # Valentine samples 1000 rows by default; None makes it use every row.
-    raw = valentine_match([q, r], Coma(use_instances=False), instance_sample_size=None)
-    return {
-        (str(pair.source_column), str(pair.target_column)): float(score)
-        for pair, score in raw.items()
-    }
+    # Instance matching is disabled, so row sampling is neither needed nor
+    # supported by current Valentine releases.
+    raw = valentine_match(q, r, Coma(use_instances=False))
+    matches: dict[tuple[str, str], float] = {}
+    for pair, score in raw.items():
+        if hasattr(pair, "source_column") and hasattr(pair, "target_column"):
+            source, target = pair.source_column, pair.target_column
+        else:
+            source, target = pair[0][-1], pair[1][-1]
+        matches[(str(source), str(target))] = float(score)
+    return matches
 
 
 def verify_pair_schema(q: pd.DataFrame, r: pd.DataFrame) -> dict[str, object]:

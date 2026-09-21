@@ -1,14 +1,33 @@
 #!/usr/bin/env bash
-log_path=/data/pneuma/nyc/bootstrap.log
-resource_log_path=/data/pneuma/nyc/bootstrap.resources.log
+set -u
+
+portal=${PNEUMA_PORTAL:-${1:-nyc}}
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+if [[ ! "$portal" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+  printf 'Invalid portal name: %s\n' "$portal" >&2
+  exit 2
+fi
+
+out_path=${PNEUMA_OUT_PATH:-/data/pneuma/$portal}
+index_name=${PNEUMA_INDEX_NAME:-lakegen}
+openai_base_url=${PNEUMA_OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}
+provider=${PNEUMA_PROVIDER:-openai}
+mkdir -p "$out_path"
+
+log_path="$out_path/bootstrap.log"
+resource_log_path="$out_path/bootstrap.resources.log"
 
 printf '\n[monitor] bootstrap started %s\n' "$(date --iso-8601=seconds)" | tee -a "$log_path"
 
-.venv-pneuma/bin/python scripts/bootstrap_pneuma.py \
-  --portal nyc \
-  --out-path /data/pneuma/nyc \
-  --index-name lakegen \
-  --openai-base-url http://127.0.0.1:11434/v1 \
+.venv-pneuma/bin/python scripts_pneuma/bootstrap_pneuma.py \
+  --portal "$portal" \
+  --out-path "$out_path" \
+  --index-name "$index_name" \
+  --provider "$provider" \
+  --openai-base-url "$openai_base_url" \
+  "$@" \
   > >(tee -a "$log_path") 2>&1 &
 
 bootstrap_pid=$!

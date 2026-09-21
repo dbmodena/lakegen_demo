@@ -1,0 +1,244 @@
+{
+  "sample_metadata": {
+    "source": "queries/generated_queries_uk.json",
+    "sampling_seed": 42,
+    "count": 5,
+    "status_filter": "success",
+    "selection": "balanced_by_difficulty_and_table_scope",
+    "difficulty_quotas": {
+      "easy": 2,
+      "medium": 2,
+      "hard": 1
+    },
+    "table_scope_requirements": {
+      "multi_table": 2,
+      "single_table": 3
+    },
+    "strata": {
+      "easy": {
+        "multi_table": 0,
+        "single_table": 2
+      },
+      "medium": {
+        "multi_table": 1,
+        "single_table": 1
+      },
+      "hard": {
+        "multi_table": 1,
+        "single_table": 0
+      }
+    },
+    "skipped_invalid_generated_records": 0
+  },
+  "cases": [
+    {
+      "id": "e0a0992a",
+      "question": "Which police force area has the longest perimeter according to the December 2021 boundaries?",
+      "keywords": [
+        "longest",
+        "perimeter",
+        "police",
+        "force",
+        "area",
+        "2021"
+      ],
+      "relevant_table_ids": [
+        "16970036-352d-478f-b968-e482ad591da4___2af8c23e-e5d0-4938-9949-adb73672e499"
+      ],
+      "table_aliases": {
+        "Table_0": "16970036-352d-478f-b968-e482ad591da4___2af8c23e-e5d0-4938-9949-adb73672e499"
+      },
+      "reference_code": "result = (\n    Table_0.assign(is_long_perimeter=Table_0['Shape__Length'] > 1000000)\n          .nlargest(1, 'Shape__Length')\n          ['PFA21NM']\n          .iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "Devon & Cornwall"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "Name of the police force area with the longest perimeter (in metres) among the 43 areas as of Dec 2021."
+    },
+    {
+      "id": "a2094364",
+      "question": "Which TfGM suppliers saw the biggest increase in average invoice payment amount from the second quarter of FY 2023/24 to the first quarter of FY 2024/25, and what are the top five increases?",
+      "keywords": [
+        "TfGM",
+        "supplier",
+        "average",
+        "increase",
+        "invoice",
+        "2023/24",
+        "2024/25"
+      ],
+      "relevant_table_ids": [
+        "04684038-f9a9-46be-a9fb-86f1455084ed___97120ca1-edb2-46eb-9b90-70c8eab4f617",
+        "04684038-f9a9-46be-a9fb-86f1455084ed___67b9ebee-5429-4699-8629-d73f5ce9cc98"
+      ],
+      "table_aliases": {
+        "Table_0": "04684038-f9a9-46be-a9fb-86f1455084ed___97120ca1-edb2-46eb-9b90-70c8eab4f617",
+        "Table_1": "04684038-f9a9-46be-a9fb-86f1455084ed___67b9ebee-5429-4699-8629-d73f5ce9cc98"
+      },
+      "reference_code": "import pandas as pd\nTable_0 = Table_0.copy()\nneg_mask_0 = Table_0['Net Amount'].astype(str).str.contains(r'\\(')\nTable_0['Net Amount'] = (\n    Table_0['Net Amount']\n    .astype(str)\n    .str.replace(r'[,(\\)]', '', regex=True)\n)\nTable_0['Net Amount'] = pd.to_numeric(Table_0['Net Amount'], errors='coerce')\nTable_0.loc[neg_mask_0, 'Net Amount'] *= -1\nTable_1 = Table_1.copy()\nneg_mask_1 = Table_1['Net Amount'].astype(str).str.contains(r'\\(')\nTable_1['Net Amount'] = (\n    Table_1['Net Amount']\n    .astype(str)\n    .str.replace(r'[,(\\)]', '', regex=True)\n)\nTable_1['Net Amount'] = pd.to_numeric(Table_1['Net Amount'], errors='coerce')\nTable_1.loc[neg_mask_1, 'Net Amount'] *= -1\navg_q1 = (\n    Table_0\n    .groupby('Supplier Name', as_index=False)['Net Amount']\n    .mean()\n    .rename(columns={'Net Amount': 'avg_spend_q1'})\n)\navg_q2 = (\n    Table_1\n    .groupby('Supplier Name', as_index=False)['Net Amount']\n    .mean()\n    .rename(columns={'Net Amount': 'avg_spend_q2'})\n)\nresult = (\n    avg_q1\n    .merge(avg_q2, on='Supplier Name', how='inner')\n    .assign(increase=lambda df: df['avg_spend_q1'] - df['avg_spend_q2'])\n    .sort_values('increase', ascending=False)\n    .head(5)\n)\nresult",
+      "reference_result": [
+        {
+          "Supplier Name": "DLA PIPER UK LLP",
+          "avg_spend_q1": 891337.6025,
+          "avg_spend_q2": 111412.1,
+          "increase": 779925.5025000001
+        },
+        {
+          "Supplier Name": "STAGECOACH SERVICES LTD",
+          "avg_spend_q1": 835907.3002631579,
+          "avg_spend_q2": 519277.1178571429,
+          "increase": 316630.1824060151
+        },
+        {
+          "Supplier Name": "GMATL",
+          "avg_spend_q1": 290500.0,
+          "avg_spend_q2": 3746.25,
+          "increase": 286753.75
+        },
+        {
+          "Supplier Name": "GO NORTH WEST LTD",
+          "avg_spend_q1": 508864.5427777778,
+          "avg_spend_q2": 241899.3611111111,
+          "increase": 266965.1816666666
+        },
+        {
+          "Supplier Name": "KEOLIS AMEY METROLINK LTD",
+          "avg_spend_q1": 590026.1005882353,
+          "avg_spend_q2": 328232.1633333333,
+          "increase": 261793.937254902
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with up to five rows, each showing a Supplier Name, the average invoice amount in Q2 2023/24, the average in Q1 2024/25, and the numeric increase (Q1 minus Q2), sorted by the largest increase."
+    },
+    {
+      "id": "d64286c7",
+      "question": "What is the total contribution area for each Faughan network contribution category?",
+      "keywords": [
+        "Faughan",
+        "network",
+        "contribution",
+        "area",
+        "category"
+      ],
+      "relevant_table_ids": [
+        "d14045bf-c7de-4d0e-99ec-0c5e6bf6f091___7c635e7e-7db6-407a-b777-2853564559c4"
+      ],
+      "table_aliases": {
+        "Table_0": "d14045bf-c7de-4d0e-99ec-0c5e6bf6f091___7c635e7e-7db6-407a-b777-2853564559c4"
+      },
+      "reference_code": "SELECT \"Table_0\".\"GRIDCODE\" AS \"GRIDCODE\",\n       SUM(\"Table_0\".\"Shape__Area\") AS \"total_area\"\nFROM \"Table_0\" AS \"Table_0\"\nGROUP BY \"Table_0\".\"GRIDCODE\";",
+      "reference_result": [
+        {
+          "GRIDCODE": 97,
+          "total_area": 315627.1227035522
+        },
+        {
+          "GRIDCODE": 81,
+          "total_area": 797288.2983322144
+        },
+        {
+          "GRIDCODE": 92,
+          "total_area": 405930.0494918823
+        },
+        {
+          "GRIDCODE": 64,
+          "total_area": 1892405.089416504
+        },
+        {
+          "GRIDCODE": 96,
+          "total_area": 320751.2086257935
+        },
+        {
+          "GRIDCODE": 62,
+          "total_area": 2307513.8986968994
+        },
+        {
+          "GRIDCODE": 85,
+          "total_area": 564240.5688247681
+        },
+        {
+          "GRIDCODE": 79,
+          "total_area": 881538.9168548584
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Each row shows a GRIDCODE category and the total contribution area (Shape__Area) of all polygons in that category, measured in square units."
+    },
+    {
+      "id": "db765093",
+      "question": "What are the top five professional groups with the highest total minimum salary for junior staff roles that have more than five full‑time equivalent posts, using the Office of Rail and Road organogram from 11 November 2021 and the HM Treasury organogram from September 2022?",
+      "keywords": [
+        "professional",
+        "groups",
+        "highest",
+        "total",
+        "minimum",
+        "salary",
+        "junior",
+        "posts",
+        "Office",
+        "Rail"
+      ],
+      "relevant_table_ids": [
+        "7c0a079f-1988-4326-ba52-71394d4f7f12___b175821f-0181-4c63-bd82-6c4d37df94cc",
+        "a5ffd07c-e31e-47c8-b343-1bcd9b5e3fe1___6d5926ad-b53e-4aa9-95af-cd7f14efd9f3"
+      ],
+      "table_aliases": {
+        "Table_0": "7c0a079f-1988-4326-ba52-71394d4f7f12___b175821f-0181-4c63-bd82-6c4d37df94cc",
+        "Table_1": "a5ffd07c-e31e-47c8-b343-1bcd9b5e3fe1___6d5926ad-b53e-4aa9-95af-cd7f14efd9f3"
+      },
+      "reference_code": "import pandas as pd\ndf = pd.concat([\n    Table_0[['Professional/Occupational Group', 'Payscale Minimum (£)', 'Number of Posts in FTE']],\n    Table_1[['Professional/Occupational Group', 'Payscale Minimum (£)', 'Number of Posts in FTE']]\n], ignore_index=True)\nresult = (\n    df\n    .replace({'Number of Posts in FTE': {'<5': 4}})\n    .assign(**{'Number of Posts in FTE': lambda d: pd.to_numeric(d['Number of Posts in FTE'], errors='coerce')})\n    .assign(high_posts=lambda d: d['Number of Posts in FTE'] > 5)\n    .loc[lambda d: d['high_posts']]\n    .assign(weighted_min=lambda d: d['Payscale Minimum (£)'] * d['Number of Posts in FTE'])\n    .groupby('Professional/Occupational Group', as_index=False)\n    .agg(total_min=('weighted_min', 'sum'))\n    .sort_values('total_min', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "Professional/Occupational Group": "Policy Profession",
+          "total_min": 18810975.0
+        },
+        {
+          "Professional/Occupational Group": "Operational Delivery",
+          "total_min": 3603822.39
+        },
+        {
+          "Professional/Occupational Group": "Science and Engineering",
+          "total_min": 634206.0
+        },
+        {
+          "Professional/Occupational Group": "Law",
+          "total_min": 462635.0
+        },
+        {
+          "Professional/Occupational Group": "Human Resources Profession",
+          "total_min": 419776.5
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Up to five rows, each showing a professional/occupational group and the combined total minimum salary (£) for junior roles that have more than five full‑time equivalent posts."
+    },
+    {
+      "id": "877da90f",
+      "question": "How many different species were recorded in the 1992 DWT Salcombe Estuary littoral survey?",
+      "keywords": [
+        "species",
+        "Salcombe",
+        "1992",
+        "DWT"
+      ],
+      "relevant_table_ids": [
+        "8e781902-1479-401b-8554-adc508d3c366___b614491d-8c98-4b2e-a51a-66077a78c292"
+      ],
+      "table_aliases": {
+        "Table_0": "8e781902-1479-401b-8554-adc508d3c366___b614491d-8c98-4b2e-a51a-66077a78c292"
+      },
+      "reference_code": "distinct_species = Table_0['Species'].nunique()",
+      "reference_result": [
+        {
+          "result": 65
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of unique species observed in the 1992 DWT Salcombe Estuary littoral survey."
+    }
+  ]
+}

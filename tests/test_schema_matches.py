@@ -165,18 +165,21 @@ def test_check_join_union_compares_all_rows_and_columns(monkeypatch, tmp_path):
     assert "'wide.parquet' 300 rows x 25 columns" in result
 
 
-def test_match_columns_disables_valentine_row_sampling(monkeypatch):
+def test_match_columns_uses_schema_only_valentine_api(monkeypatch):
     calls = []
 
-    def fake_valentine_match(dfs, matcher, **kwargs):
-        calls.append(kwargs)
+    def fake_valentine_match(q, r, matcher):
+        calls.append((q, r, matcher))
         return {}
 
     monkeypatch.setattr(schema_matching, "valentine_match", fake_valentine_match)
 
     schema_matching.match_columns(pd.DataFrame({"a": [1]}), pd.DataFrame({"b": [1]}))
 
-    assert calls == [{"instance_sample_size": None}]
+    assert len(calls) == 1
+    assert list(calls[0][0].columns) == ["a"]
+    assert list(calls[0][1].columns) == ["b"]
+    assert calls[0][2].__class__.__name__ == "Coma"
 
 
 def test_check_join_union_reports_unreadable_tables(tmp_path):

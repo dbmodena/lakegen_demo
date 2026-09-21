@@ -839,8 +839,9 @@ class Phase12ToolsManager:
                         "before inspecting another candidate."
                     )
                 return (
-                    "Inspection blocked: at most 5 distinct candidates may be "
-                    "inspected for this request."
+                    "Inspection blocked: at most "
+                    f"{self.discovery.max_inspected_candidates} distinct candidates "
+                    "may be inspected for this request."
                 )
         count = self.state.inspection_counts.get(key, 0) + 1
         self.state.inspection_counts[key] = count

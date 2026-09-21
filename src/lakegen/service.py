@@ -338,6 +338,7 @@ def run_question(
     persist_manifest(manifest, LOG_DIR / "manifests")
     llm, _token_counter = get_llm(runtime.model_name)
     semantic_judge_llm = None
+    semantic_judge_requirements: list[dict[str, Any]] | None = None
     solr = get_solr(runtime.solr_core)
     prompt_manager = get_prompt_manager()
     all_files = get_all_table_files(runtime.csv_dir)
@@ -390,7 +391,7 @@ def run_question(
     def adjudicate_code_evaluation(
         evaluation: dict[str, Any], generated
     ) -> dict[str, Any]:
-        nonlocal semantic_judge_llm
+        nonlocal semantic_judge_llm, semantic_judge_requirements
         if evaluation.get("evaluation_disposition") != "pending_semantic_review":
             return evaluation
         if not experiment.semantic_code_judge_enabled:
@@ -418,9 +419,37 @@ def run_question(
             deterministic_evaluation=evaluation,
             llm=semantic_judge_llm,
             prompt_manager=prompt_manager,
+            requirements_override=semantic_judge_requirements,
         )
+        returned_requirements = judgment.get("requirements")
+        if semantic_judge_requirements is None and isinstance(returned_requirements, list):
+            semantic_judge_requirements = [
+                dict(item) for item in returned_requirements if isinstance(item, Mapping)
+            ]
         disposition = judgment["disposition"]
         judge_error = str(judgment.get("judge_error") or "")
+        assessments = judgment.get("requirement_assessments", [])
+        if not isinstance(assessments, list):
+            assessments = []
+        assessment_counts = {
+            status: sum(
+                isinstance(item, Mapping) and item.get("status") == status
+                for item in assessments
+            )
+            for status in ("verified", "failed", "unknown")
+        }
+        objections = judgment.get("critique", {}).get("objections", [])
+        if not isinstance(objections, list):
+            objections = []
+        blocking_objection_count = sum(
+            isinstance(item, Mapping)
+            and str(item.get("severity") or "").casefold() in {"critical", "major"}
+            for item in objections
+        )
+        requested_disposition = str(
+            judgment.get("requested_disposition") or disposition
+        )
+        requirement_count = len(assessments)
         canonical_disposition = {
             "alternative_correct": "correct",
             "incorrect": "incorrect",
@@ -445,6 +474,21 @@ def run_question(
             "semantic_judge_tokens": judge_tokens,
             "semantic_judge_parse_success": not bool(judge_error),
             "semantic_judge_status": "parse_failed" if judge_error else "completed",
+            "semantic_judge_pipeline_version": "evidence_v2",
+            "semantic_judge_requested_disposition": requested_disposition,
+            "semantic_judge_downgraded": requested_disposition != disposition,
+            "semantic_judge_requirement_count": requirement_count,
+            "semantic_judge_verified_requirement_count": assessment_counts["verified"],
+            "semantic_judge_failed_requirement_count": assessment_counts["failed"],
+            "semantic_judge_unknown_requirement_count": assessment_counts["unknown"],
+            "semantic_judge_evidence_coverage": (
+                assessment_counts["verified"] / requirement_count
+                if requirement_count else 0.0
+            ),
+            "semantic_judge_blocking_objection_count": blocking_objection_count,
+            "semantic_judge_hardcoding_risk": str(
+                judgment.get("code_analysis", {}).get("hardcoding_risk") or "unknown"
+            ),
             "semantic_judgment": judgment,
         })
         return evaluation

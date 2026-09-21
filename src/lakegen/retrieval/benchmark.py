@@ -80,6 +80,14 @@ BENCHMARK_LOG_COLUMNS = [
     "SUPPORTED_RESULT_RATE",
     "AMBIGUOUS_RESULT_RATE",
     "EVALUATION_DISPOSITIONS_JSON",
+    "SEMANTIC_JUDGE_CASE_COUNT",
+    "SEMANTIC_JUDGE_TOTAL_TOKENS",
+    "SEMANTIC_JUDGE_PARSE_SUCCESS_RATE",
+    "SEMANTIC_JUDGE_EVIDENCE_COVERAGE",
+    "SEMANTIC_JUDGE_DOWNGRADE_RATE",
+    "SEMANTIC_JUDGE_BLOCKING_OBJECTIONS",
+    "SEMANTIC_JUDGE_OUTCOMES_JSON",
+    "SEMANTIC_JUDGE_HARDCODING_RISKS_JSON",
 ]
 _BENCHMARK_LOG_LOCK = threading.Lock()
 
@@ -508,6 +516,34 @@ def append_benchmark_metrics_log(
                     )
                     if code_metrics
                     else ""
+                ),
+                "SEMANTIC_JUDGE_CASE_COUNT": code_metrics.get(
+                    "semantic_judge_case_count", ""
+                ),
+                "SEMANTIC_JUDGE_TOTAL_TOKENS": code_metrics.get(
+                    "semantic_judge_total_tokens", ""
+                ),
+                "SEMANTIC_JUDGE_PARSE_SUCCESS_RATE": code_metrics.get(
+                    "semantic_judge_parse_success_rate", ""
+                ),
+                "SEMANTIC_JUDGE_EVIDENCE_COVERAGE": code_metrics.get(
+                    "semantic_judge_mean_evidence_coverage", ""
+                ),
+                "SEMANTIC_JUDGE_DOWNGRADE_RATE": code_metrics.get(
+                    "semantic_judge_downgrade_rate", ""
+                ),
+                "SEMANTIC_JUDGE_BLOCKING_OBJECTIONS": code_metrics.get(
+                    "semantic_judge_blocking_objection_count", ""
+                ),
+                "SEMANTIC_JUDGE_OUTCOMES_JSON": (
+                    json.dumps(code_metrics.get("semantic_judge_outcomes", {}),
+                               ensure_ascii=False, sort_keys=True)
+                    if code_metrics else ""
+                ),
+                "SEMANTIC_JUDGE_HARDCODING_RISKS_JSON": (
+                    json.dumps(code_metrics.get("semantic_judge_hardcoding_risks", {}),
+                               ensure_ascii=False, sort_keys=True)
+                    if code_metrics else ""
                 ),
             }
         )

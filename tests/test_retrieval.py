@@ -7,7 +7,7 @@ import pytest
 
 from index_retrieval import validate_source_coverage
 from src.client_solr import LocalSolrClient
-from scripts.pneuma_judge import (
+from scripts_pneuma.pneuma_judge import (
     JudgeError,
     RelevanceJudgment,
     StructuredRelevanceJudge,

@@ -1,52 +1,100 @@
-prompt: |
-  You are a strict, configuration-blind evaluator of a generated data-analysis result.
+requirements: |
+  Extract an atomic checklist of only the outcomes explicitly required by the
+  question and expected-result description. Split genuinely independent filters,
+  periods, scope, grouping, measures, aggregation, ordering, limits, units, and
+  completeness requirements. Do not invent implementation steps, source-authority
+  requirements, exact output labels, zero-valued categories, sorting before a top-1
+  result, or filters already guaranteed by the named input snapshot. A method is a
+  requirement only when the question explicitly requires that method. Mark optional
+  presentation details non-essential and report ambiguities instead of resolving them
+  by creating requirements.
+  Classify each requirement by evidence scope: source_identity when a named dataset,
+  edition, organisation, period, geography, or feature type identifies the selected
+  source; row_operation when rows from a broader source must be filtered;
+  computation for transformations and aggregation; output for returned content.
+  Before returning, remove semantic duplicates. Never turn a descriptive fact from
+  the expected-result description (for example "the 43 areas") into a separate
+  row-count assertion unless the question explicitly asks to count, validate, or
+  return that cardinality. A named layer or population such as "Faughan network
+  contribution categories" identifies the source; it does not imply an additional
+  row filter unless the selected source contains multiple named networks.
+  Selected tables and metadata are context for choosing evidence_scope only. Never
+  copy a selected filename, identifier, title, period, organisation, or layer name
+  into a requirement unless that fact is already required by the question or expected
+  description. State source requirements independently of the candidate actually
+  selected; a later stage will decide whether the candidate satisfies them.
+  Return JSON only:
+  {"requirements":[{"id":"R1","type":"filter|scope|grouping|measure|aggregation|ordering|limit|unit|completeness|other","evidence_scope":"source_identity|row_operation|computation|output","description":"...","essential":true}],"ambiguities":["..."]}
 
-  Classify the result using exactly one disposition:
-  - alternative_correct: fully answers the question and is supported by a valid alternative source/representation.
-  - partially_correct: some requested measures, groups, filters, periods, or rows are correct but coverage is incomplete.
-  - incorrect: the code/result contradicts the question, selected data, required scope, or reference evidence.
-  - indeterminate: the supplied evidence is insufficient to decide reliably.
+  QUESTION: {{ question }}
+  EXPECTED RESULT DESCRIPTION: {{ expected_description }}
+  SELECTED TABLES: {{ selected_tables }}
+  SELECTED TABLE METADATA: {{ selected_metadata }}
 
-  A plausible answer is not enough. Use alternative_correct only when the selected sources, code operations, full-result comparison, and preview provide positive evidence for every requirement. Differences in harmless aliases, formatting, row order, or equivalent units are acceptable. Different values are acceptable only when a valid alternative table/version clearly explains them. If source version, scope, or semantics cannot be verified, choose indeterminate.
+code_analysis: |
+  Analyze what the generated code actually computes without seeing the gold result.
+  For every requirement, report positive support, contradiction, or unknown. Absence
+  of an obvious bug is not evidence. Detect hardcoding, missing filters, wrong
+  aggregation or granularity, unsafe joins, and incomplete output. A supplied local
+  dataset path is not answer hardcoding; hardcoding means embedding answer values or
+  logic that bypasses the requested computation.
+  For source_identity requirements, matching selected-table metadata is positive
+  evidence and no redundant code filter or row-count assertion is required. For
+  example, a table identified as the December 2021 boundaries, the Faughan network
+  layer, or a dated organogram already establishes that source identity. Require a
+  code filter only for row_operation requirements over a broader source.
+  Return JSON only:
+  {"requirement_analysis":[{"requirement_id":"R1","status":"supported|contradicted|unknown","evidence":"concrete code operation or reason"}],"hardcoding_risk":"none|possible|high","observed_operations":["..."],"concerns":["..."]}
 
-  Judge semantic correctness independently from serialization shape. Scalar,
-  list, record, and table representations may all be correct when they express
-  the same requested facts. Do not infer or enforce an expected result type.
+  REQUIREMENTS: {{ requirements }}
+  SELECTED TABLES: {{ selected_tables }}
+  SELECTED TABLE METADATA: {{ selected_metadata }}
+  GENERATED CODE: {{ generated_code }}
 
-  Treat requirement_checks as a deterministic checklist. Never override a failed
-  deterministic check without concrete evidence that the reference is stale or
-  that the selected source is a valid alternative version. Mention each failed
-  check in requirements_missing. Do not interpret confidence as a probability of
-  correctness; it expresses confidence in this classification only.
+evidence_judgment: |
+  Judge every requirement separately after considering the gold-blind code analysis.
+  Plausibility is not evidence. Metadata saying a source is new or updated does not
+  prove differing values correct. An alternative value needs a concrete source,
+  version/scope difference, causal operation, and evidence for every requirement.
+  Otherwise mark it unknown and prefer indeterminate. A verified item needs non-empty
+  concrete evidence. Do not enforce serialization shape.
+  Metadata is sufficient evidence for source_identity requirements, but metadata
+  alone never proves that a differing computed value is correct.
+  Judge the observed execution. Mark a requirement failed only when the supplied
+  result exhibits the violation or the code necessarily contradicts the requirement
+  for this execution. Hypothetical ties, nulls, missing categories, or future inputs
+  are concerns, not failures. Accept semantically equivalent operations: max/idxmax
+  may replace descending sort plus top-1, and nlargest/head after sorting may implement
+  top-k. A failed assessment must declare failure_basis as observed_result or
+  necessary_code_contradiction; otherwise use unknown.
+  Return JSON only:
+  {"proposed_disposition":"alternative_correct|partially_correct|incorrect|indeterminate","requirement_assessments":[{"requirement_id":"R1","status":"verified|failed|unknown","failure_basis":"observed_result|necessary_code_contradiction|none","evidence_source":"generated_code|code_analysis|result_comparison|metadata|gold_comparison","evidence":"..."}],"alternative_source_proof":{"source":"","version_or_scope_difference":"","causal_explanation":""},"rationale":"..."}
 
-  Return JSON only with this exact shape:
-  {"disposition":"alternative_correct|partially_correct|incorrect|indeterminate","confidence":0.0,"all_requirements_verified":false,"rationale":"concise evidence-based explanation","requirements_met":["..."],"requirements_missing":["..."]}
+  REQUIREMENTS: {{ requirements }}
+  GOLD-BLIND CODE ANALYSIS: {{ code_analysis }}
+  GOLD RESULT PREVIEW: {{ reference_result_preview }}
+  GENERATED RESULT PREVIEW: {{ generated_result_preview }}
+  DETERMINISTIC FULL-RESULT COMPARISON: {{ deterministic_comparison }}
+  SELECTED TABLE METADATA: {{ selected_metadata }}
 
-  GENERATED RESULT PREVIEW is created by the evaluator and does not describe the
-  serialization shape returned by the generated code. If preview_is_truncated is
-  true, do not treat omitted preview rows as missing output. Use DETERMINISTIC
-  FULL-RESULT COMPARISON to judge content completeness across the full result.
+critic: |
+  Adversarially review the proposed judgment. Find unsupported verified requirements,
+  ignored deterministic failures, semantic code errors, hardcoding, invented source
+  claims, and the smallest counterexample that invalidates the proposal. An objection
+  is resolved only by evidence already supplied.
+  Do not object that code lacks a redundant filter, date check, geometry check, or
+  exact source row-count assertion when matching metadata already verifies a
+  source_identity requirement.
+  The critic may invalidate unsupported evidence, but it must not invent a new failed
+  requirement. A critical or major objection changes an unsupported verified or failed
+  assessment to unknown; the deterministic adjudicator assigns the final disposition.
+  Do not object to semantically equivalent implementations or use hypothetical edge
+  cases as observed failures. A possible tie is not a top-1 violation when the actual
+  result contains one row; max or idxmax does not require an explicit sort.
+  Return JSON only:
+  {"verdict_supported":true,"objections":[{"objection_id":"O1","requirement_id":"R1","severity":"critical|major|minor","reason":"..."}],"unsupported_claims":["..."]}
 
-  QUESTION:
-  {{ question }}
-
-  EXPECTED RESULT DESCRIPTION:
-  {{ expected_description }}
-
-  GOLD RESULT PREVIEW:
-  {{ reference_result_preview }}
-
-  SELECTED TABLES:
-  {{ selected_tables }}
-
-  SELECTED TABLE METADATA:
-  {{ selected_metadata }}
-
-  GENERATED CODE:
-  {{ generated_code }}
-
-  DETERMINISTIC FULL-RESULT COMPARISON:
-  {{ deterministic_comparison }}
-
-  GENERATED RESULT PREVIEW:
-  {{ generated_result_preview }}
+  REQUIREMENTS: {{ requirements }}
+  GOLD-BLIND CODE ANALYSIS: {{ code_analysis }}
+  PROPOSED JUDGMENT: {{ proposed_judgment }}
+  DETERMINISTIC FULL-RESULT COMPARISON: {{ deterministic_comparison }}

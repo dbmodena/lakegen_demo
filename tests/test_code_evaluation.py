@@ -405,3 +405,31 @@ def test_batch_summary_separates_blocked_and_not_evaluated():
     assert summary["evaluation_dispositions"] == {
         "blocked": 1, "not_evaluated": 1,
     }
+
+
+def test_batch_summary_reports_evidence_judge_diagnostics():
+    results = [{"result": {"code_evaluation": {
+        "applicable": True,
+        "semantic_judge_used": True,
+        "semantic_judge_tokens": 500,
+        "semantic_judge_parse_success": True,
+        "semantic_correctness": "indeterminate",
+        "semantic_judge_downgraded": True,
+        "semantic_judge_evidence_coverage": 0.5,
+        "semantic_judge_verified_requirement_count": 2,
+        "semantic_judge_failed_requirement_count": 1,
+        "semantic_judge_unknown_requirement_count": 1,
+        "semantic_judge_blocking_objection_count": 1,
+        "semantic_judge_hardcoding_risk": "possible",
+    }}}]
+
+    summary = summarize_code_evaluations(results)
+
+    assert summary["semantic_judge_outcomes"] == {"indeterminate": 1}
+    assert summary["semantic_judge_hardcoding_risks"] == {"possible": 1}
+    assert summary["semantic_judge_downgrade_rate"] == 1.0
+    assert summary["semantic_judge_mean_evidence_coverage"] == 0.5
+    assert summary["semantic_judge_verified_requirement_count"] == 2
+    assert summary["semantic_judge_failed_requirement_count"] == 1
+    assert summary["semantic_judge_unknown_requirement_count"] == 1
+    assert summary["semantic_judge_blocking_objection_count"] == 1

@@ -491,7 +491,7 @@ uv pip install --python .venv-pneuma/bin/python -r requirements-pneuma.txt
 Prepare an index for a portal:
 
 ```bash
-bash scripts/run_pneuma_bootstrap_monitored.sh nyc
+bash scripts_pneuma/run_pneuma_bootstrap_monitored.sh nyc
 ```
 
 By default Pneuma uses the configured OpenAI-compatible Ollama endpoint. To
@@ -499,7 +499,7 @@ offload both summarization and embedding generation to OCI Generative AI, use
 the same OCI profile and compartment configured for LakeGen:
 
 ```bash
-PNEUMA_PROVIDER=oci bash scripts/run_pneuma_bootstrap_monitored.sh uk \
+PNEUMA_PROVIDER=oci bash scripts_pneuma/run_pneuma_bootstrap_monitored.sh uk \
   --oci-llm-model openai.gpt-oss-20b \
   --oci-embedding-model cohere.embed-v4.0
 ```
@@ -513,7 +513,7 @@ that processes only the next `N` pending tables.
 Start the service using the generated index path:
 
 ```bash
-.venv-pneuma/bin/python scripts/pneuma_server.py \
+.venv-pneuma/bin/python scripts_pneuma/pneuma_server.py \
   --out-path /data/pneuma/nyc \
   --port 8765
 ```
@@ -521,7 +521,7 @@ Start the service using the generated index path:
 For an OCI-built index, use the identical embedding model at query time:
 
 ```bash
-.venv-pneuma/bin/python scripts/pneuma_server.py \
+.venv-pneuma/bin/python scripts_pneuma/pneuma_server.py \
   --provider oci \
   --oci-llm-model openai.gpt-oss-20b \
   --oci-embedding-model cohere.embed-v4.0 \
