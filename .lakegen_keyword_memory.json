@@ -154,6 +154,22 @@
         [
           "Northern Ireland",
           "property sales"
+        ],
+        [
+          "Causeway Coast and Glens",
+          "terraced house sales"
+        ],
+        [
+          "National Gallery",
+          "spend"
+        ],
+        [
+          "National Gallery",
+          "payments"
+        ],
+        [
+          "National Gallery",
+          "payments"
         ]
       ],
       "failed_keyword_combinations": [
@@ -186,23 +202,26 @@
         ]
       ],
       "question_memories": {
-        "ea58071926c77805ae7725b43ff96721e1dc229e62206c1046c6ec24444de529": [
+        "acbd894582d6b75bc76fdf5e90467347115404f1c27e4d83629a7185d85abc96": [
           {
             "outcome": "insufficient_coverage",
             "terms": [
-              "Northern Ireland",
-              "property sales"
+              "National Gallery",
+              "payments"
             ],
-            "reason": "The question asks for the number of terraced house sales per year in Causeway Coast and Glens, split into low‑price (mean price < 100,000) and high‑price (mean price >= 100,000) categories, and the average median price for each category. Essential requirements are: (1) district = Causeway Coast and Glens, (2) yearly breakdown, (3) house type = terraced, (4) count of sales, (5) mean price to define price categories, (6) median price to compute average per category. The inspect",
-            "suggestion": "Search for datasets that include a property‑type breakdown (e.g., terraced, detached, semi‑detached) for Northern Ireland or specifically for Causeway Coast and Glens. Use concepts such as [\"Causeway Coast and Glens\", \"terraced house sales\"] or [\"Northern Ireland\", \"house type\", \"property sales\"].",
+            "reason": "All inspected tables (candidates 1, 4, 6, 11) describe National Gallery payments over £25,000 for specific months, including August 2022, but the 'Amount' column is stored as a string, not a numeric type. Computing average payment amounts requires a numeric column, which is missing. Therefore none of the inspected tables can satisfy the required measure (numeric payment amount).",
+            "suggestion": "Search for datasets using concepts like ['National Gallery', 'financial transactions'] or ['National Gallery', 'expenditure data'] that include a numeric 'Amount' or 'Payment amount' column.",
             "tables": [
-              "f6415561-6d89-4f3e-81c3-4d755483245f___02594e8e-7b21-4616-9a4f-99e83ea279fb.parquet",
-              "f6415561-6d89-4f3e-81c3-4d755483245f___17e481c0-d911-43ed-87bc-c5b3ab5c9d0d.parquet",
-              "f6415561-6d89-4f3e-81c3-4d755483245f___d8d5ce2f-c98c-4ff8-8cb4-1cbe04b40f79.parquet"
+              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___1107323d-29e4-4cd1-8cbe-e46c2ed446e6.parquet",
+              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___14c1b2e9-3276-48a3-8704-9e1c80aa98ee.parquet",
+              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___242cc8f2-5c60-4cca-b6df-82bedd396c1f.parquet",
+              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___2e04b292-5f19-4f98-9c6b-ed0fde248458.parquet"
             ],
             "evidence": {
-              "b34688c8-8bcf-48a9-85e1-9ffe340da4de___e2f37db1-7a3b-423f-a8d2-8f396c12a4b1.parquet": "Aggregated quarterly sales by NUTS3 region; lacks house‑type and district‑level detail needed.",
-              "f6415561-6d89-4f3e-81c3-4d755483245f___02594e8e-7b21-4616-9a4f-99e83ea279fb.parquet": "Only Belfast council data; district mismatch and no terraced‑house dimension."
+              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___242cc8f2-5c60-4cca-b6df-82bedd396c1f.parquet": "Amount column is string, not numeric.",
+              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___1107323d-29e4-4cd1-8cbe-e46c2ed446e6.parquet": "Amount column is string, not numeric.",
+              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___14c1b2e9-3276-48a3-8704-9e1c80aa98ee.parquet": "Amount column is string, not numeric.",
+              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___2e04b292-5f19-4f98-9c6b-ed0fde248458.parquet": "Amount column is string, not numeric."
             }
           }
         ]
