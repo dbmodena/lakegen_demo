@@ -21,6 +21,8 @@ _WORD = re.compile(r"[^\W_]{2,}", re.UNICODE)
 _STOPWORDS = {
     "the", "and", "for", "with", "from", "that", "this", "what", "which",
     "where", "when", "who", "how", "are", "was", "were", "has", "have",
+    "is", "do", "does", "did", "of", "to", "at", "by", "as", "or",
+    "than", "each", "according", "into", "across", "all", "other",
     "dei", "del", "della", "delle", "degli", "con", "per", "che", "come",
     "quale", "quali", "dove", "sono", "nel", "nella", "nelle", "una", "uno", "in"
 }
@@ -29,7 +31,15 @@ _TERM_ALIASES = {
     "organization": ("organisation", "partner", "operator", "agency"),
     "community": ("neighborhood", "neighbourhood"),
     "identifier": (" id", "_id", "code"),
+    # Common UK department abbreviations appear in questions while portal
+    # metadata normally spells out the publisher name.
+    "dft": ("department for transport",),
+    "orr": ("office of rail and road",),
 }
+# A physical table in a multi-dataset question normally covers one subject,
+# not every subject named by the question. Requiring all 6-8 agent terms from
+# every table suppresses exactly the complementary tables a join/union needs.
+_PRIMARY_TERMS_PER_TABLE = 3
 
 
 def _normalize_term(term: str) -> str:
@@ -58,8 +68,8 @@ def _query_terms(question: str, keywords: Sequence[str]) -> tuple[list[str], lis
         primary = _extract_terms([question], limit=8)
         return primary, []
     secondary = [
-        term for term in _extract_terms([question], limit=12) if term not in primary
-    ][:4]
+        term for term in _extract_terms([question], limit=20) if term not in primary
+    ][:8]
     return primary, secondary
 
 
@@ -278,7 +288,10 @@ class DuckDBAgenticRetriever:
                 preliminary_score = (
                     sum(scores.values())
                     + 8.0 * len(filename_terms)
-                    + 5.0 * len(schema_terms)
+                    # Exact physical fields are stronger evidence than broad
+                    # catalog prose, especially for versioned boundary files
+                    # (PCON21 vs PCON24) and junior/senior organograms.
+                    + 12.0 * len(schema_terms)
                 )
                 entries.append(_CatalogEntry(
                     path,
@@ -336,6 +349,35 @@ class DuckDBAgenticRetriever:
         except duckdb.Error:
             return False
 
+    @staticmethod
+    def _probe_candidates(
+        catalog: Sequence[_CatalogEntry], start: int, count: int
+    ) -> list[_CatalogEntry]:
+        """Choose a bounded mix of near-ranked and lake-wide probe candidates.
+
+        The former implementation inspected only the contiguous ``count`` files
+        immediately after the metadata shortlist. When metadata is weak, the
+        remaining order is mostly a filename tie-break, so value-only tables
+        later in the lake had no chance of discovery. Keep half of the probes
+        near the cutoff and spread the rest deterministically across the tail.
+        """
+        tail = list(catalog[start:])
+        if count <= 0 or not tail:
+            return []
+        if len(tail) <= count:
+            return tail
+        near_count = max(1, (count + 1) // 2)
+        chosen = list(tail[:near_count])
+        remaining = tail[near_count:]
+        spread_count = count - len(chosen)
+        if spread_count:
+            indexes = [
+                min(len(remaining) - 1, ((index + 1) * len(remaining)) // spread_count - 1)
+                for index in range(spread_count)
+            ]
+            chosen.extend(remaining[index] for index in indexes)
+        return list(dict.fromkeys(chosen))
+
     def retrieve(
         self, question: str, keywords: Sequence[str], *, top_k: int
     ) -> list[RetrievalHit]:
@@ -348,10 +390,11 @@ class DuckDBAgenticRetriever:
         evidence_rows: list[_SearchEvidence] = []
         try:
             primary_candidates = catalog[: self.config.duckdb_max_files]
-            probe_candidates = catalog[
-                self.config.duckdb_max_files:
-                self.config.duckdb_max_files + self.config.duckdb_probe_files
-            ]
+            probe_candidates = self._probe_candidates(
+                catalog,
+                self.config.duckdb_max_files,
+                self.config.duckdb_probe_files,
+            )
             probed_matches = [
                 entry for entry in probe_candidates
                 if self._probe_has_value_match(con, entry, terms)
@@ -490,9 +533,13 @@ class DuckDBAgenticRetriever:
                         density = count / max(1, row.entry.rows)
                         field_score += 1.0 + 2.0 * math.sqrt(density)
                     score += weight * idf * field_score
-                coverage = primary_covered / max(1, len(primary_terms))
+                required_primary = min(
+                    len(primary_terms), _PRIMARY_TERMS_PER_TABLE
+                )
+                effective_covered = min(primary_covered, required_primary)
+                coverage = effective_covered / max(1, required_primary)
                 score += 30.0 * coverage**3
-                score -= 6.0 * (len(primary_terms) - primary_covered)
+                score -= 6.0 * (required_primary - effective_covered)
                 if row.joint_count:
                     score += 12.0 + 3.0 * math.sqrt(
                         row.joint_count / max(1, row.entry.rows)

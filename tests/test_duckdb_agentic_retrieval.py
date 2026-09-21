@@ -9,6 +9,18 @@ from lakegen.retrieval import (
     RetrievalMode,
     TableRetrievalService,
 )
+from lakegen.retrieval.duckdb_agentic import _query_terms
+
+
+def test_query_terms_remove_short_function_words_before_recall_terms():
+    primary, secondary = _query_terms(
+        "What is the total salary cost of reports for DfT staff in April 2022?",
+        ["organogram", "DfT", "salary"],
+    )
+
+    assert primary == ["organogram", "dft", "salary"]
+    assert not {"is", "of", "for", "in"} & set(secondary)
+    assert {"staff", "april", "2022"} <= set(secondary)
 
 
 def test_duckdb_agentic_retrieval_catalogs_counts_and_samples(tmp_path):
@@ -254,6 +266,51 @@ def test_bounded_probe_promotes_term_found_only_in_values(tmp_path):
 
     assert hits[0].document["resource_id"] == "b.parquet"
     assert hits[0].document["duckdb_evidence"]["term_counts"]["narwhal"] == 1
+
+
+def test_bounded_probe_samples_the_lake_tail_not_only_the_next_files(tmp_path):
+    pd.DataFrame({"opaque": ["none"]}).to_parquet(tmp_path / "a.parquet")
+    for name in ("b.parquet", "c.parquet", "d.parquet", "e.parquet"):
+        pd.DataFrame({"opaque": ["none"]}).to_parquet(tmp_path / name)
+    pd.DataFrame({"opaque": ["hidden narwhal"]}).to_parquet(tmp_path / "z.parquet")
+
+    hits = DuckDBAgenticRetriever(
+        RetrievalConfig(
+            mode="duckdb_agentic",
+            duckdb_max_files=1,
+            duckdb_probe_files=2,
+            duckdb_probe_rows_per_file=1,
+        ),
+        tmp_path,
+    ).retrieve("Find narwhal records", ["narwhal"], top_k=1)
+
+    assert hits[0].document["resource_id"] == "z.parquet"
+
+
+def test_multi_dataset_terms_do_not_require_every_term_in_each_table(tmp_path):
+    pd.DataFrame({
+        "organisation": ["Office of Rail and Road"],
+        "record_type": ["junior organogram"],
+    }).to_parquet(tmp_path / "orr.parquet")
+    pd.DataFrame({
+        "organisation": ["HM Treasury"],
+        "record_type": ["junior organogram"],
+    }).to_parquet(tmp_path / "treasury.parquet")
+    pd.DataFrame({"organisation": ["Office"]}).to_parquet(
+        tmp_path / "generic.parquet"
+    )
+
+    hits = DuckDBAgenticRetriever(
+        RetrievalConfig(mode="duckdb_agentic"), tmp_path
+    ).retrieve(
+        "Compare Office of Rail and Road with HM Treasury organograms",
+        ["Office", "Rail", "Road", "organogram", "HM", "Treasury"],
+        top_k=3,
+    )
+
+    assert {hit.document["resource_id"] for hit in hits[:2]} == {
+        "orr.parquet", "treasury.parquet"
+    }
 
 
 def test_max_files_is_applied_after_preliminary_ranking(tmp_path):

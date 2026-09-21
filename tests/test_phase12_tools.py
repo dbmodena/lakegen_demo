@@ -700,6 +700,72 @@ def test_search_tool_allows_one_initial_call_for_every_backend(
     assert calls[0]["keywords"] == expected_concepts
 
 
+def test_keyword_zero_results_are_banned_and_force_a_new_and_query(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            calls.append(kwargs)
+            if kwargs["keywords"] in (["alpha", "beta"], ["alpha"]):
+                return []
+            return [_hit("table", 1, ["gamma"])]
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
+    )
+    state = P12State()
+    manager = Phase12ToolsManager(
+        state, object(), ["table.parquet"], tmp_path,
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.KEYWORD),
+    )
+
+    first = manager.search_tables("alpha beta")
+    narrower = manager.search_tables("alpha")
+    blocked = manager.search_tables("alpha gamma")
+    recovered = manager.search_tables("gamma")
+
+    assert "added to the zero-result banlist" in first
+    assert "added to the zero-result banlist" in narrower
+    assert "known zero-result keyword subset {alpha}" in blocked
+    assert "table.parquet" in recovered
+    assert [call["q_op"] for call in calls] == ["AND", "AND", "AND"]
+    assert [sorted(item) for item in state.failed_keyword_combinations] == [["alpha"]]
+    assert state.keyword_history == [["alpha", "beta"], ["alpha"], ["gamma"]]
+
+
+def test_keyword_failed_subset_rejection_does_not_spend_retry_budget(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            calls.append(kwargs["keywords"])
+            return []
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
+    )
+    manager = Phase12ToolsManager(
+        P12State(), object(), [], tmp_path,
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.KEYWORD),
+    )
+
+    manager.search_tables("alpha")
+    for suffix in ("beta", "gamma", "delta"):
+        assert manager.search_tables(f"alpha {suffix}").startswith(
+            "Search rejected before retrieval"
+        )
+    manager.search_tables("epsilon")
+    manager.search_tables("zeta")
+    limited = manager.search_tables("eta")
+
+    assert calls == [["alpha"], ["epsilon"], ["zeta"]]
+    assert limited.startswith("Search limit reached")
+
+
 def test_inspect_columns_allows_two_attempts_but_reads_file_once(
     monkeypatch, tmp_path
 ):

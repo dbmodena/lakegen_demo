@@ -119,6 +119,9 @@ class DiscoveryConfig(FrozenModel):
     expansion_size: int = Field(default=5, ge=0)
     max_expansions: int = Field(default=1, ge=0)
     max_search_attempts: int = Field(default=1, gt=0)
+    # Extra lexical attempts available only after a strict-AND zero result.
+    # Rejected banned supersets never consume this budget.
+    max_zero_result_retries: int = Field(default=2, ge=0)
     # Distinct candidates the agent may inspect, before and after expanding.
     initial_shortlist_size: int = Field(default=3, gt=0)
     max_inspected_candidates: int = Field(default=6, gt=0)

@@ -378,6 +378,10 @@ class P12State:
         self.solr_meta: SolrMetadata = {}
         self.used_keywords: list[str] = []
         self.keyword_history: list[list[str]] = []
+        # Minimal antichain of AND keyword combinations that returned no local
+        # candidates.  If {a} fails, keeping the older {a, b} adds no
+        # information: every future AND query containing a is already doomed.
+        self.failed_keyword_combinations: list[frozenset[str]] = []
         self.best_ranks: dict[str, int] = {}
         self.candidate_scores: dict[str, float] = {}
         self.search_cache: dict[tuple[str, ...], str] = {}
@@ -477,6 +481,31 @@ class Phase12ToolsManager:
         return tuple(dict.fromkeys(
             keyword.casefold() for keyword in keywords if keyword.strip()
         ))
+
+    def _failed_keyword_subset(self, keywords: list[str]) -> frozenset[str] | None:
+        """Return the smallest known failed subset contained in ``keywords``."""
+        proposed = frozenset(
+            keyword.casefold() for keyword in keywords if keyword.strip()
+        )
+        matches = [failed for failed in self.state.failed_keyword_combinations
+                   if failed <= proposed]
+        return min(matches, key=lambda item: (len(item), sorted(item)), default=None)
+
+    def _remember_failed_keywords(self, keywords: list[str]) -> None:
+        """Add one failed AND query and prune its now-redundant supersets."""
+        failed = frozenset(
+            keyword.casefold() for keyword in keywords if keyword.strip()
+        )
+        if not failed or any(known <= failed for known in self.state.failed_keyword_combinations):
+            return
+        self.state.failed_keyword_combinations = [
+            known for known in self.state.failed_keyword_combinations
+            if not failed < known
+        ]
+        self.state.failed_keyword_combinations.append(failed)
+        self.state.failed_keyword_combinations.sort(
+            key=lambda item: (len(item), sorted(item))
+        )
 
     def _search_tool_description(self) -> str:
         if self.retrieval_config.mode.value_keywords:
@@ -580,6 +609,15 @@ class Phase12ToolsManager:
             # modes drop the concepts before retrieval, and keying on that empty
             # list told the agent that a different search repeated the first.
             key = self._search_cache_key([*supplied_concepts, *(entities or [])])
+            if self.retrieval_config.mode == RetrievalMode.KEYWORD:
+                failed_subset = self._failed_keyword_subset(keywords)
+                if failed_subset is not None:
+                    blocked = ", ".join(sorted(failed_subset))
+                    return (
+                        "Search rejected before retrieval: this AND query contains "
+                        f"the known zero-result keyword subset {{{blocked}}}. "
+                        "Formulate a different query that does not contain that subset."
+                    )
             if key in self.state.search_cache:
                 return (
                     "Search skipped: identical concepts were already used. Do not "
@@ -598,7 +636,25 @@ class Phase12ToolsManager:
                     "Search refinement blocked: a candidate has already been "
                     "inspected. Use the existing evidence or one guided expansion."
                 )
-            if len(self.state.search_attempts) >= self.discovery.max_search_attempts:
+            nonempty_attempts = sum(
+                bool(attempt.get("current_candidates"))
+                for attempt in self.state.search_attempts
+            )
+            lexical_retry_limit = (
+                self.discovery.max_search_attempts
+                + self.discovery.max_zero_result_retries
+            )
+            search_limit_reached = (
+                nonempty_attempts >= self.discovery.max_search_attempts
+                or len(self.state.search_attempts) >= lexical_retry_limit
+            )
+            if (
+                len(self.state.search_attempts) >= self.discovery.max_search_attempts
+                and self.retrieval_config.mode != RetrievalMode.KEYWORD
+            ) or (
+                self.retrieval_config.mode == RetrievalMode.KEYWORD
+                and search_limit_reached
+            ):
                 return (
                     f"Search limit reached ({self.discovery.max_search_attempts} "
                     "attempt(s)). Do not call search_tables again; inspect, expand "
@@ -645,20 +701,6 @@ class Phase12ToolsManager:
                 "AND" if self.retrieval_config.mode == RetrievalMode.KEYWORD
                 else self.retrieval_config.mode.value
             )
-
-            if (
-                not hits
-                and len(keywords) > 1
-                and self.retrieval_config.mode == RetrievalMode.KEYWORD
-            ):
-                hits = retriever.retrieve(
-                    question=self.question,
-                    keywords=keywords,
-                    top_k=fetch_k,
-                    lexical_fetch_k=fetch_k,
-                    q_op="OR",
-                )
-                search_mode = "OR fallback"
 
             searched = (
                 "the question only"
@@ -741,10 +783,16 @@ class Phase12ToolsManager:
                 }
             )
 
-            if not current_candidates and not candidates:
+            if not current_candidates:
+                if self.retrieval_config.mode == RetrievalMode.KEYWORD:
+                    self._remember_failed_keywords(keywords)
+                    failed = [sorted(item) for item in self.state.failed_keyword_combinations]
                 response = (
                     f"Attempt: {attempt}\nSearched: {searched}\n"
-                    "No tables found. Evaluate the empty candidate set."
+                    "No tables found. This AND keyword combination was added to "
+                    "the zero-result banlist. Search again with a genuinely "
+                    "different query.\n"
+                    + (f"Zero-result banlist: {failed}" if self.retrieval_config.mode == RetrievalMode.KEYWORD else "")
                 )
                 self.state.search_cache[key] = response
                 return response
