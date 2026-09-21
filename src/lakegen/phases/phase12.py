@@ -247,6 +247,7 @@ def phase12_agent(
         discovery_config=discovery_config,
         # Terminal, frontend, and the saved activity log -- but never the prompt.
         notice_callback=emit_stream,
+        llm=llm,
     )
     agent_tools = tools_manager.get_tools()
 
@@ -257,6 +258,11 @@ def phase12_agent(
         hint=hint,
         value_search=(retrieval_config or RetrievalConfig()).mode.value_keywords,
         verbatim_entities=(retrieval_config or RetrievalConfig()).mode.verbatim_entities,
+        keyword_memory_enabled=(discovery_config or DiscoveryConfig()).keyword_memory_enabled,
+        parallel_inspection_enabled=(
+            (discovery_config or DiscoveryConfig()).parallel_inspection_enabled
+            and llm is not None
+        ),
     )
 
     token_counter = next(

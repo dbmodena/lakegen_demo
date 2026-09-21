@@ -164,6 +164,39 @@ def _generated_column_names(tree: ast.AST) -> set[str]:
     makes it generated and therefore cannot bypass source-schema validation.
     """
     names: set[str] = set()
+    # A common final-result form is built incrementally:
+    #
+    #   rows.append({"Quarter": label, "Total_Spend": total})
+    #   result = pd.DataFrame(rows)
+    #   result[["Quarter", "Total_Spend"]]
+    #
+    # The last line reads columns made by the program, not its source tables.
+    # Track this narrow, unambiguous construction pattern so source-schema
+    # preflight does not reject a valid final projection.
+    record_columns: dict[str, set[str]] = {}
+
+    def dict_keys(node: ast.AST) -> set[str]:
+        if not isinstance(node, ast.Dict):
+            return set()
+        return {
+            key.value for key in node.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+
+    # First collect record-list keys, independent of AST walk order.
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "append"
+            and isinstance(node.func.value, ast.Name)
+            and node.args
+        ):
+            continue
+        keys = dict_keys(node.args[0])
+        if keys:
+            record_columns.setdefault(node.func.value.id, set()).update(keys)
+
     for node in ast.walk(tree):
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
@@ -187,6 +220,12 @@ def _generated_column_names(tree: ast.AST) -> set[str]:
                 for key in node.args[0].keys
                 if isinstance(key, ast.Constant) and isinstance(key.value, str)
             )
+        if method == "DataFrame" and node.args:
+            direct = dict_keys(node.args[0])
+            if direct:
+                names.update(direct)
+            elif isinstance(node.args[0], ast.Name):
+                names.update(record_columns.get(node.args[0].id, set()))
         if method in {"assign", "agg", "aggregate"}:
             names.update(
                 keyword.arg

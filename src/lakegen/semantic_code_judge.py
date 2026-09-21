@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Mapping, Sequence
 
 from llama_index.core.llms import ChatMessage, LLM
@@ -13,6 +12,7 @@ from lakegen.core.token_usage import (
     get_llm_token_usage,
     reset_llm_token_usage,
 )
+from lakegen.judge_json import extract_json as _extract_json
 from prompts.prompt_manager import PromptManager
 
 
@@ -69,33 +69,6 @@ def _comparison_facts(evaluation: Mapping[str, Any]) -> dict[str, Any]:
             key: value for key, value in checks.items() if key != "result_type"
         }
     return facts
-
-
-def _extract_json(text: str) -> Mapping[str, Any]:
-    stripped = text.strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", stripped, re.DOTALL)
-    if fenced:
-        stripped = fenced.group(1)
-    try:
-        loaded = json.loads(stripped)
-    except json.JSONDecodeError:
-        decoder = json.JSONDecoder()
-        loaded = None
-        for index, character in enumerate(stripped):
-            if character != "{":
-                continue
-            try:
-                candidate, _ = decoder.raw_decode(stripped[index:])
-            except json.JSONDecodeError:
-                continue
-            if isinstance(candidate, Mapping):
-                loaded = candidate
-                break
-        if loaded is None:
-            raise
-    if not isinstance(loaded, Mapping):
-        raise ValueError("semantic judge response must be a JSON object")
-    return loaded
 
 
 def judge_semantic_code_result(

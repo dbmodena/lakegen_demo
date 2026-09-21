@@ -891,7 +891,6 @@ def main() -> None:
         model_name=experiment.model,
         solr_core=experiment.core,
         csv_dir=resolve_portal_tables_dir(experiment.core),
-        db_path=BASE_DIR / f"data/blend_{experiment.core}.db",
         use_unified_agent=experiment.use_unified_agent,
         retrieval=experiment.retrieval.to_runtime(),
         experiment=experiment,

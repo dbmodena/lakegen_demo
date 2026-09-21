@@ -18,6 +18,20 @@ def is_computational_requirement(value: object) -> bool:
     return bool(_COMPUTATIONAL_CUES.search(text))
 
 
+def _has_valid_table_and_columns(evidence: object) -> bool:
+    """True for a well-formed {"table": "...", "columns": ["..."]} evidence
+    dict -- mirrors requirement_ledger_blockers' own validity check, reused
+    here to decide whether a ledger item's evidence needs repairing from a
+    more reliable structured source."""
+    if not isinstance(evidence, dict):
+        return False
+    table = str(evidence.get("table") or "").strip()
+    columns = evidence.get("columns")
+    return bool(table) and isinstance(columns, list) and any(
+        str(column or "").strip() for column in columns
+    )
+
+
 def build_minimal_selection_fallback(
     selected: list[str], reasoning: str
 ) -> tuple[dict[str, object], list[str]]:
@@ -198,9 +212,49 @@ def build_requirement_ledger(
         *re.findall(r"\b(?:19|20)\d{2}\s*[-–‑/]\s*(?:\d{2}|(?:19|20)\d{2})\b", question),
         *re.findall(r"\b(?:19|20)\d{2}\b", question),
     ]))
+    # requirements.filters carries an explicit table/column/value binding for
+    # exactly this kind of literal filter -- more reliable than the coverage
+    # substring check below, which only matches when the architect happens to
+    # repeat the literal year inside its free-text requirement_coverage key.
+    # Confirmed missing on a live run: the architect correctly bound
+    # "Financial Year" -> a fiscal-year filter in requirements.filters
+    # (value=2016), yet selection was blocked anyway because only the
+    # coverage keys were ever consulted for period binding.
+    filter_entries = requirements.get("filters", [])
+    if not isinstance(filter_entries, list):
+        filter_entries = []
+
+    def _filter_value_evidences_period(period: str, value: object) -> bool:
+        """True if `value` (a requirements.filters entry's `value`) evidences
+        `period` -- either a scalar equals-style match (value == "2016"), or
+        a [start, end] range-style temporal filter (e.g.
+        ["1990-01-01", "1990-12-31"] for the year 1990), or an isin-style
+        list of candidates. A range's bounds are date strings that CONTAIN
+        the bare year, not equal it, so this checks substring containment,
+        not just exact equality -- confirmed missing on a second live run:
+        the architect correctly bound StartDate to a
+        {"operator": "range", "value": ["1990-01-01", "1990-12-31"]} filter
+        for "the year 1990", but the original scalar-only equality check
+        (`str(value) == period`) never matched a list value at all, so
+        selection kept blocking across 8 repeated confirm attempts until the
+        architect gave up and returned unparsed text instead of a tool call."""
+        candidates = value if isinstance(value, (list, tuple)) else [value]
+        return any(period in str(candidate).strip() for candidate in candidates)
+
     for period in periods:
         matching = next((evidence for request, evidence in coverage.items()
                          if period.casefold() in str(request).casefold()), None)
+        if matching is None:
+            matched_filter = next(
+                (item for item in filter_entries
+                 if isinstance(item, dict) and _filter_value_evidences_period(period, item.get("value"))),
+                None,
+            )
+            if matched_filter is not None:
+                table = matched_filter.get("table")
+                column = matched_filter.get("column")
+                if table and column:
+                    matching = {"table": table, "columns": [column]}
         add("temporal_scope", period, "bound" if matching else "unresolved",
             matching if matching else [])
     boroughs = [name for name in ("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island")
@@ -217,6 +271,36 @@ def build_requirement_ledger(
                           (r"\bratio\b", "ratio")):
         if re.search(marker, question, re.IGNORECASE):
             add("derived_operation", label, "computational")
+
+    # A `requirement_coverage` measure entry ("observation count" -> {...})
+    # can carry malformed evidence (columns as a bare string, an empty
+    # list, or None; table missing) while `requirements.measures` has the
+    # SAME measure correctly bound with a real table and columns --
+    # confirmed live: the architect wrote a well-formed
+    # {"table": ..., "columns": ["RecordKey"], "operation": "count_rows"}
+    # measures entry, yet selection still blocked on "observation count"
+    # because only the free-text coverage evidence was ever validated. Same
+    # "prefer the structured requirements sub-block over unreliable
+    # free-text coverage" principle as the period-binding fallback above,
+    # applied to measures specifically since that's the shape observed.
+    measure_entries = requirements.get("measures", [])
+    if isinstance(measure_entries, list):
+        for item in ledger:
+            if item["kind"] != "measure" or item["status"] != "bound":
+                continue
+            if _has_valid_table_and_columns(item.get("evidence")):
+                continue
+            for m in measure_entries:
+                if not isinstance(m, dict):
+                    continue
+                table = str(m.get("table") or "").strip()
+                columns = m.get("columns")
+                if not isinstance(columns, list):
+                    columns = [m.get("column")] if m.get("column") else []
+                columns = [str(c).strip() for c in columns if str(c or "").strip()]
+                if table and columns:
+                    item["evidence"] = {"table": table, "columns": columns}
+                    break
 
     lowered = question.casefold()
     declared = str(requirements.get("result_type") or "auto").casefold()

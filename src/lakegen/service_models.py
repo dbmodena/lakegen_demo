@@ -75,6 +75,18 @@ class QueryResult:
     selection_brief_status: str = "missing"
     effective_coder_brief_status: str = "missing"
     effective_coder_brief_source: str = ""
+    # Populated only when experiment.reviewers.plan/.code enable the
+    # reviewed coder pipeline (lakegen.reviewed_coder); left at these
+    # defaults for a plain (non-reviewed) run. See
+    # service._record_review_telemetry. Recorded up front (Phase 4) so the
+    # real production decline rate and per-stage retry cost can be observed
+    # on live traffic before any default is changed -- not yet used to
+    # enforce anything.
+    review_pipeline_used: bool = False
+    review_outcome: str = ""  # "validated" | "declined" | ""
+    review_stage_attempts: dict[str, int] = field(default_factory=dict)
+    review_generation_calls: int = 0
+    review_trace: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

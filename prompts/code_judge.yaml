@@ -1,0 +1,56 @@
+prompt: |
+  You are reviewing EXECUTED code and its result against a question, after the fact.
+  Cast two votes.
+
+  plan_compliance_approval: does the code correctly and completely implement what the
+  question asks? Include VALUE GROUNDING sanity: if the code filters on a coded literal
+  (e.g. a status code, a fiscal-year code, a category id), is that literal's SEMANTIC
+  meaning actually right for the question -- not just present in the data.
+  present_result_approval: does the executed result actually, non-trivially answer the
+  question (not empty/zero without justification, not obviously the wrong shape)?
+
+  Question:
+  {{ question }}
+
+  REAL column schema for the involved table(s) -- ONLY claim a column is missing or
+  unavailable if it is genuinely absent from this exact list, never guess:
+  {{ real_columns }}
+
+  Generated code:
+  {{ generated_code }}
+
+  Executed result:
+  {{ generated_result }}
+  {{ grounding_note }}
+
+  Respond with ONLY a JSON object:
+  {"plan_compliance_approval": true|false, "present_result_approval": true|false, "violated_criteria": ["partial_implementation"|"over_engineering"|"silent_filter_bias"|"disjointed_query"|"unclear_result"|"trivial", ...], "feedback": "...", "suggestions": ["[FIX QUERY] ..."]}
+
+plan_prompt: |
+  You review CODE against the PLAN it was written from. The plan was already approved as faithful
+  to the question. You do not judge the plan, the question, or whether the result looks right:
+  ONLY whether this code implements this plan.
+
+  Plan (approved):
+  {{ plan }}
+
+  REAL column schema for the involved table(s) -- ONLY claim a column is missing or unavailable
+  if it is genuinely absent from this exact list, never guess:
+  {{ real_columns }}
+
+  Generated code:
+  {{ generated_code }}
+  {{ alignment_notes }}
+
+  Check:
+  1. Every plan filter is applied to the plan's tables, on the plan's column, with the plan's
+     operator and value.
+  2. Every plan preparation is performed before its column is used.
+  3. Every plan measure is computed with the plan's operation over the plan's columns; every
+     dimension groups or labels as planned; tables are combined as the plan says.
+  4. Ordering, limit and output columns match the plan.
+  5. Nothing extra: no filter, limit, deduplication or step that the plan does not contain.
+  A literal that the plan states is correct by definition, even if you would have chosen another.
+
+  Respond with ONLY a JSON object:
+  {"plan_compliance_approval": true|false, "violated_criteria": ["missing_plan_element"|"wrong_operation"|"unjustified_operation"|"output_mismatch"|"missing_preparation", ...], "feedback": "quote the plan element and the code that departs from it", "suggestions": ["[FIX QUERY] ..."]}

@@ -30,6 +30,8 @@ from lakegen.ui.streaming import (
     CumulativeMarkdownEmitter,
     StepStreamBridge,
 )
+from lakegen.ui.live_steps import ThreadSafeStepEmitter, retrieval_observer_for
+from lakegen.ui.reviewed_coder_steps import emit_review_step
 from lakegen.phases import (
     phase1_generate_keywords,
     phase2_select_tables,
@@ -607,20 +609,29 @@ async def _run_unified_gate(
                     unified_state.carried_tables = list(session.carried_tables)
                     unified_state.carried_metadata = dict(session.carried_metadata)
                     unified_state.inspection_cache = dict(session.carried_inspection)
-                    selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
-                        query=session.query,
-                        llm=llm,
-                        pm=pm,
-                        all_files=all_files,
-                        solr_client=solr,
-                        csv_dir=session.runtime.csv_dir,
-                        hint=hint,
-                        portal_name=session.runtime.portal_name,
-                        stream_callback=bridge.emit,
-                        cancel_check=session.check_cancelled,
-                        retrieval_config=session.runtime.retrieval,
-                        state=unified_state,
-                    )
+                    # One step per Solr query, showing exactly what was sent
+                    # (keywords, q_op, entities, configured vs. actual fetch
+                    # width) -- not just _emit_notice's one-line summary.
+                    step_emitter = ThreadSafeStepEmitter(parent_step=step)
+                    try:
+                        selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
+                            query=session.query,
+                            llm=llm,
+                            pm=pm,
+                            all_files=all_files,
+                            solr_client=solr,
+                            csv_dir=session.runtime.csv_dir,
+                            hint=hint,
+                            portal_name=session.runtime.portal_name,
+                            stream_callback=bridge.emit,
+                            cancel_check=session.check_cancelled,
+                            retrieval_config=session.runtime.retrieval,
+                            retrieval_observer=retrieval_observer_for(step_emitter),
+                            discovery_config=session.runtime.discovery,
+                            state=unified_state,
+                        )
+                    finally:
+                        await step_emitter.aclose()
                     unified_calls = 1
                     if reasoning.startswith("REJECT_KEYWORDS:"):
                         for table in unified_state.rejection_skip_tables:
@@ -725,8 +736,19 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
     code_attempts: list[dict[str, Any]] = []
     attempt_blocks: list[str] = []
 
+    reviewers = session.runtime.experiment.reviewers
+    # Same reasoning as service.py's outer loop: the reviewed pipeline
+    # (lakegen.reviewed_coder) embeds its own bounded plan/validator/code-
+    # judge retry loops internally, so this outer attempt loop runs exactly
+    # once when either reviewer is enabled -- unless the user already chose
+    # "Force execution" on a prior review decline, in which case this run
+    # falls back to the plain, unreviewed path (matching what force_execution
+    # already means for a plain table rejection).
+    use_reviewed_pipeline = (reviewers.plan or reviewers.code) and not session.force_execution
+    effective_max_retries = 1 if use_reviewed_pipeline else MAX_RETRIES
+
     async with cl.Step(name=session.text("phase3.step"), type="run", default_open=True) as step:
-        while retries < MAX_RETRIES:
+        while retries < effective_max_retries:
             session.check_cancelled()
             attempt_no = retries + 1
             async with StepStreamBridge(step) as bridge:
@@ -740,29 +762,72 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                     session.text("phase3.model_reasoning"),
                 )
                 phase_started = time.monotonic()
-                phase3_result = await cl.make_async(phase3_generate_and_execute)(
-                    session.query,
-                    session.tables,
-                    session.candidates,
-                    session.solr_metadata_map,
-                    session.architect_reasoning,
-                    llm,
-                    pm,
-                    session.runtime.csv_dir,
-                    retries=retries,
-                    error_msg=error_msg,
-                    previous_code=final_code,
-                    force_execution=session.force_execution,
-                    stream_placeholder=code_box,
-                    reasoning_placeholder=reasoning_box,
-                    cancel_check=session.check_cancelled,
-                    run_dir=session.run_dir,
-                    seed=session.runtime.experiment.seed,
-                    seed_instruction_recorder=lambda: setattr(
-                        session, "generated_code_seed_instruction_provided", True
-                    ),
-                    coder_context_level=session.runtime.experiment.coder_context_level,
-                )
+                if use_reviewed_pipeline:
+                    from lakegen.reviewed_coder import phase3_generate_and_execute_reviewed
+
+                    # Renders each plan/validator/code-judge stage attempt
+                    # as its own live step nested under this run, styled
+                    # after OrQa's pipeline_logger (see
+                    # lakegen.ui.reviewed_coder_steps). on_stage_event fires
+                    # synchronously from the make_async worker thread, so it
+                    # needs the thread-safe emitter, not a bare cl.Step call.
+                    review_step_emitter = ThreadSafeStepEmitter(parent_step=step)
+                    review_step_counter = {"n": 0}
+
+                    def _on_stage_event(event, _emitter=review_step_emitter, _counter=review_step_counter):
+                        emit_review_step(_emitter, event, _counter)
+
+                    phase3_result = await cl.make_async(phase3_generate_and_execute_reviewed)(
+                        session.query,
+                        session.tables,
+                        session.candidates,
+                        session.solr_metadata_map,
+                        session.architect_reasoning,
+                        llm,
+                        pm,
+                        session.runtime.csv_dir,
+                        stage_max_retries=reviewers.stage_max_retries,
+                        enable_plan_review=reviewers.plan,
+                        enable_code_review=reviewers.code,
+                        on_stage_event=_on_stage_event,
+                        stream_placeholder=code_box,
+                        reasoning_placeholder=reasoning_box,
+                        cancel_check=session.check_cancelled,
+                        run_dir=session.run_dir,
+                        seed=session.runtime.experiment.seed,
+                        seed_instruction_recorder=lambda: setattr(
+                            session, "generated_code_seed_instruction_provided", True
+                        ),
+                        coder_context_level=session.runtime.experiment.coder_context_level,
+                    )
+                    # Wait for every review step's own cl.Step() to finish
+                    # rendering before moving on (e.g. to phase 4 synthesis),
+                    # so they appear in order rather than racing with it.
+                    await review_step_emitter.aclose()
+                else:
+                    phase3_result = await cl.make_async(phase3_generate_and_execute)(
+                        session.query,
+                        session.tables,
+                        session.candidates,
+                        session.solr_metadata_map,
+                        session.architect_reasoning,
+                        llm,
+                        pm,
+                        session.runtime.csv_dir,
+                        retries=retries,
+                        error_msg=error_msg,
+                        previous_code=final_code,
+                        force_execution=session.force_execution,
+                        stream_placeholder=code_box,
+                        reasoning_placeholder=reasoning_box,
+                        cancel_check=session.check_cancelled,
+                        run_dir=session.run_dir,
+                        seed=session.runtime.experiment.seed,
+                        seed_instruction_recorder=lambda: setattr(
+                            session, "generated_code_seed_instruction_provided", True
+                        ),
+                        coder_context_level=session.runtime.experiment.coder_context_level,
+                    )
                 session.phase_seconds["code"] += time.monotonic() - phase_started
                 session.llm_call_counts["code"] += 1
 
@@ -779,6 +844,27 @@ async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
                 "tokens": phase3_result.tokens,
                 "status": "success" if phase3_result.error is None else "error",
             }
+
+            if getattr(phase3_result, "finalization_mode", "") == "review_declined":
+                # A review-stage decline (code executed fine but never
+                # passed plan/validator/code review) is NOT a table/data
+                # insufficiency verdict -- unlike the block below, it must
+                # not be treated as a table rejection (no table banning, no
+                # "the tables were wrong" framing). See
+                # lakegen.reviewed_coder's module docstring.
+                reason = phase3_result.rejected_reason
+                session.fallback_reason = reason
+                generation_attempt["status"] = "declined by review"
+                code_attempts.append(generation_attempt)
+                attempt_blocks.append(
+                    _format_phase3_attempt_block(
+                        session, generation_attempt, phase3_result.code_raw,
+                    )
+                )
+                step.output = "\n\n".join(attempt_blocks)
+                await step.update()
+                await cl.Message(content=build_phase3_summary(session, code_attempts)).send()
+                return ExecutionOutcome(status="review_declined", reason=reason)
 
             if phase3_result.rejected_reason:
                 reason = phase3_result.rejected_reason
@@ -1088,11 +1174,20 @@ async def _run_locked_workflow(question: str) -> str:
             if outcome.status == "done":
                 return "completed"
 
-            action = await _ask_choice(
-                session.text(
+            if outcome.status == "review_declined":
+                prompt_text = session.text(
+                    "workflow.review_declined",
+                    feedback=outcome.reason,
+                    stage_max_retries=session.runtime.experiment.reviewers.stage_max_retries,
+                )
+            else:
+                prompt_text = session.text(
                     "workflow.tables_rejected",
                     feedback=outcome.reason,
-                ),
+                )
+
+            action = await _ask_choice(
+                prompt_text,
                 [
                     (
                         "reevaluate_tables",

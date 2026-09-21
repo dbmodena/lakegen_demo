@@ -219,6 +219,30 @@ def _record_semantic_plan_telemetry(result: QueryResult, audit: Mapping[str, Any
         result.coder_blocked_before_start_count += 1
 
 
+def _record_review_telemetry(result: QueryResult, generated: object) -> None:
+    """Persist the reviewed coder pipeline's per-stage trace (Phase 4:
+    telemetry, not enforcement) so the real production decline rate and
+    per-stage retry cost can be measured on live traffic before any
+    `reviewers.plan`/`.code` default is changed. A no-op for a plain
+    (non-reviewed) run, whose `Phase3Result.review_trace` is always empty."""
+    trace = list(getattr(generated, "review_trace", None) or [])
+    if not trace:
+        return
+    result.review_pipeline_used = True
+    result.review_trace = trace
+    stage_attempts: dict[str, int] = {}
+    for event in trace:
+        stage = event.get("stage")
+        attempt = event.get("attempt")
+        if stage in ("plan", "validator", "code_judge") and attempt is not None:
+            stage_attempts[stage] = max(stage_attempts.get(stage, 0), int(attempt))
+    result.review_stage_attempts = stage_attempts
+    summary = next((event for event in reversed(trace) if event.get("stage") == "summary"), None)
+    if summary is not None:
+        result.review_outcome = str(summary.get("outcome") or "")
+        result.review_generation_calls = int(summary.get("generation_calls") or 0)
+
+
 def make_runtime_settings(
     *,
     core: str,
@@ -270,7 +294,6 @@ def make_runtime_settings(
         model_name=model,
         solr_core=core,
         csv_dir=resolve_portal_tables_dir(core),
-        db_path=BASE_DIR / f"data/blend_{core}.db",
         use_unified_agent=use_unified_agent,
         retrieval=retrieval,
         experiment=resolved_config,
@@ -1041,35 +1064,89 @@ def run_question(
 
                 previous_code = ""
                 total_code_runs = 0
-                for code_attempt in range(MAX_CODE_ATTEMPTS):
+                # The reviewed pipeline (lakegen.reviewed_coder) embeds its own
+                # bounded plan/validator/code-judge retry loops internally
+                # (measured avg 2.17, max 5 real generation calls across the
+                # 100-question validation run) -- stacking this outer
+                # MAX_CODE_ATTEMPTS loop on top of that would risk up to
+                # MAX_CODE_ATTEMPTS times that many generation calls per
+                # question, so the outer loop runs exactly once when either
+                # reviewer is enabled and the reviewed pipeline owns retrying.
+                reviewed_pipeline_enabled = experiment.reviewers.plan or experiment.reviewers.code
+                outer_code_attempts = 1 if reviewed_pipeline_enabled else MAX_CODE_ATTEMPTS
+                for code_attempt in range(outer_code_attempts):
                     code_started = time.monotonic()
-                    generated = phase3_generate_and_execute(
-                        question,
-                        selected,
-                        selected,
-                        solr_meta,
-                        reasoning,
-                        llm,
-                        prompt_manager,
-                        runtime.csv_dir,
-                        retries=code_attempt,
-                        error_msg=error,
-                        previous_code=previous_code,
-                        run_dir=run_dir,
-                        seed=reproducibility.effective_seed,
-                        seed_instruction_recorder=record_seed_instruction,
-                        coder_context_level=experiment.coder_context_level,
-                        evaluation_result_type=None,
-                        max_run_calls=max(1, MAX_CODE_ATTEMPTS - total_code_runs),
-                        selection_plan=dict(selection_state.selection_plan),
-                        source_field_names=list((log_context or {}).keys()),
-                        require_semantic_plan=experiment.require_semantic_plan,
-                    )
+                    if reviewed_pipeline_enabled:
+                        from lakegen.reviewed_coder import phase3_generate_and_execute_reviewed
+
+                        generated = phase3_generate_and_execute_reviewed(
+                            question,
+                            selected,
+                            selected,
+                            solr_meta,
+                            reasoning,
+                            llm,
+                            prompt_manager,
+                            runtime.csv_dir,
+                            stage_max_retries=experiment.reviewers.stage_max_retries,
+                            enable_plan_review=experiment.reviewers.plan,
+                            enable_code_review=experiment.reviewers.code,
+                            run_dir=run_dir,
+                            seed=reproducibility.effective_seed,
+                            seed_instruction_recorder=record_seed_instruction,
+                            coder_context_level=experiment.coder_context_level,
+                            evaluation_result_type=None,
+                            max_run_calls=MAX_CODE_ATTEMPTS,
+                            selection_plan=dict(selection_state.selection_plan),
+                            source_field_names=list((log_context or {}).keys()),
+                            require_semantic_plan=experiment.require_semantic_plan,
+                        )
+                    else:
+                        generated = phase3_generate_and_execute(
+                            question,
+                            selected,
+                            selected,
+                            solr_meta,
+                            reasoning,
+                            llm,
+                            prompt_manager,
+                            runtime.csv_dir,
+                            retries=code_attempt,
+                            error_msg=error,
+                            previous_code=previous_code,
+                            run_dir=run_dir,
+                            seed=reproducibility.effective_seed,
+                            seed_instruction_recorder=record_seed_instruction,
+                            coder_context_level=experiment.coder_context_level,
+                            evaluation_result_type=None,
+                            max_run_calls=max(1, MAX_CODE_ATTEMPTS - total_code_runs),
+                            selection_plan=dict(selection_state.selection_plan),
+                            source_field_names=list((log_context or {}).keys()),
+                            require_semantic_plan=experiment.require_semantic_plan,
+                        )
                     phase_invocation_counts["code"] += 1
                     _record_semantic_plan_telemetry(
                         result, getattr(generated, "coder_context_audit", None)
                     )
+                    _record_review_telemetry(result, generated)
                     result.tokens["p3"] += generated.tokens
+
+                    # A review-stage decline (code executed fine but never
+                    # passed plan/validator/code review) is NOT a table/data
+                    # insufficiency verdict -- handle it distinctly from the
+                    # `generated.rejected_reason` branch below, which assumes
+                    # the rejection is about the selected tables and would
+                    # otherwise incorrectly ban them / trigger rediscovery.
+                    # See lakegen.reviewed_coder's module docstring.
+                    if (
+                        generated.rejected_reason
+                        and getattr(generated, "finalization_mode", "") == "review_declined"
+                    ):
+                        result.pipeline_stages["code_execution"] = "declined_by_review"
+                        result.code = generated.clean_code or generated.code_raw
+                        result.status = "rejected"
+                        result.error = generated.rejected_reason
+                        return result
                     code_metric = result.phase_metrics.setdefault(
                         "code", {"latency_seconds": 0.0, "retries": 0}
                     )

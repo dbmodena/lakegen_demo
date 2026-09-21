@@ -44,7 +44,6 @@ class RuntimeSettings:
     model_name: str = MODEL_OPTIONS[0]
     solr_core: str = SOLR_CORE_OPTIONS[0]
     csv_dir: Path = field(default_factory=lambda: resolve_portal_tables_dir("nyc"))
-    db_path: Path = BASE_DIR / "data/blend_nyc.db"
     use_unified_agent: bool = True
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig.from_env)
     experiment: ExperimentConfig | None = None
@@ -61,6 +60,21 @@ class RuntimeSettings:
                     else DiscoveryArchitecture.DIVIDED.value
                 ),
                 "interaction_mode": InteractionMode.HUMAN_GATED.value,
+                # Enabled live after a confirmed production case (a coder
+                # that silently dropped a confirmed requirement_coverage
+                # filter -- see reviewed_coder_rollout.md) returned a wrong,
+                # unreviewed answer with false confidence.
+                "reviewers.plan": True,
+                # Enabled together with .plan after a second confirmed case
+                # (the same question, once the coder DID apply the confirmed
+                # filter, still undercounted via a case-sensitive
+                # .str.contains() against inconsistently-capitalized data --
+                # a signal only the code judge's grounding_note weighs).
+                "reviewers.code": True,
+                # Every visible table is inspected automatically by parallel
+                # single-shot inspectors that report facts to the agent,
+                # replacing the serial inspect_columns tool.
+                "discovery.parallel_inspection_enabled": True,
                 **{
                     f"retrieval.{key}": value
                     for key, value in self.retrieval.__dict__.items()
@@ -117,13 +131,19 @@ class RuntimeSettings:
                 "unified" if bool(use_unified_agent) else "divided"
             ),
             "interaction_mode": "human_gated",
+            # Kept in sync with __post_init__'s default above -- otherwise
+            # changing any setting in the Chainlit settings panel would
+            # silently rebuild `experiment` with reviewers.plan/.code and
+            # discovery.parallel_inspection_enabled back off.
+            "reviewers.plan": True,
+            "reviewers.code": True,
+            "discovery.parallel_inspection_enabled": True,
             **{f"retrieval.{key}": value for key, value in retrieval.__dict__.items()},
         })
         return cls(
             model_name=model_name,
             solr_core=selected_solr_core,
             csv_dir=resolve_portal_tables_dir(selected_solr_core),
-            db_path=BASE_DIR / f"data/blend_{selected_solr_core}.db",
             use_unified_agent=bool(use_unified_agent),
             retrieval=retrieval,
             experiment=experiment,

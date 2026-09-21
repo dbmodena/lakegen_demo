@@ -27,7 +27,10 @@ def test_default_config_matches_existing_interactive_workflow(monkeypatch):
     assert config.retrieval.mode == "keyword"
     assert config.retrieval.top_k == 20
     assert "planner_enabled" not in config.model_dump()
-    assert not any(config.reviewers.model_dump().values())
+    assert not any(
+        v for k, v in config.reviewers.model_dump().items() if isinstance(v, bool)
+    )
+    assert config.reviewers.stage_max_retries == 3
     assert config.max_revision_rounds == 3
     assert config.coder_context_level == "full"
     assert config.automatic_test_coder is False
@@ -101,13 +104,32 @@ def test_yaml_json_and_cli_overrides_resolve_identically(tmp_path):
     "update",
     [
         {"reviewers": {"dataset": True}},
+        {"reviewers": {"result": True}},
         {"max_revision_rounds": 4},
+        {"gates": {"plan": True}},
         {"gates": {"result": True}},
     ],
 )
 def test_unimplemented_combinations_are_rejected(update):
     with pytest.raises(ValidationError):
         ExperimentConfig.model_validate(update)
+
+
+@pytest.mark.parametrize("field", ["plan", "code"])
+def test_plan_and_code_reviewers_are_implemented(field):
+    """Unlike dataset/result, these two are real (reviewed_coder.py) --
+    confirm the config layer no longer blocks enabling them."""
+    config = ExperimentConfig.model_validate({"reviewers": {field: True}})
+    assert getattr(config.reviewers, field) is True
+
+
+def test_stage_max_retries_round_trips_and_is_bounded():
+    config = load_experiment_config(overrides={"reviewers.stage_max_retries": 5})
+    assert config.reviewers.stage_max_retries == 5
+    with pytest.raises(ValidationError):
+        ExperimentConfig.model_validate({"reviewers": {"stage_max_retries": 0}})
+    with pytest.raises(ValidationError):
+        ExperimentConfig.model_validate({"reviewers": {"stage_max_retries": 6}})
 
 
 def test_semantic_planner_is_not_a_configurable_switch():
@@ -207,6 +229,17 @@ def test_api_and_ui_translate_settings_to_canonical_config():
     assert api_config.retrieval.mode == ui_runtime.experiment.retrieval.mode == "hybrid"
     assert api_config.interaction_mode == "autonomous"
     assert ui_runtime.experiment.interaction_mode == "human_gated"
+
+
+def test_ui_enables_parallel_inspection_in_both_construction_paths():
+    default_runtime = RuntimeSettings.default()
+    panel_runtime = RuntimeSettings.from_chainlit_settings(
+        {"model_name": "openai.gpt-oss-120b", "retrieval_mode": "keyword"},
+        solr_core="nyc",
+    )
+
+    assert default_runtime.discovery.parallel_inspection_enabled is True
+    assert panel_runtime.discovery.parallel_inspection_enabled is True
 
 
 def test_api_inline_values_are_only_replaced_by_explicit_overrides():

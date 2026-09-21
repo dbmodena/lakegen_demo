@@ -165,13 +165,22 @@ benchmark:
   # cases. The interactive and batch workflows ignore it. null = no default.
   path: /home/n185972/gits/orqa/data/orqa/socrata/nyc/candidates_discovery/generated_queries_semantic.json
 
-# Automatic reviewers for the different phases. Every field is boolean, but
-# only false is currently supported; validation rejects any enabled reviewer.
+# Automatic reviewers for the different phases. `dataset` and `result` are
+# not implemented; validation rejects enabling either. `plan` and `code` ARE
+# implemented (src/lakegen/reviewed_coder.py) -- validated over four rounds
+# of live 100-question testing: at stage_max_retries=3, ~60% of questions
+# reach a fully-approved answer (77% of those matching the unreviewed
+# baseline exactly) and the rest are correctly declined with a stated reason
+# instead of a guess. Default false pending broader production telemetry.
 reviewers:
-  dataset: false # Reviews the selected tables.
-  plan: false    # Reviews the execution plan.
-  code: false    # Reviews the generated code.
-  result: false  # Reviews the final result.
+  dataset: false # Reviews the selected tables. NOT IMPLEMENTED.
+  plan: false    # Plan-fidelity judge: does the code, read as a plan, answer the question.
+  code: false    # Post-execution code judge: plan compliance + non-trivial result, gold-free.
+  result: false  # Reviews the final result. NOT IMPLEMENTED.
+  # Each of the plan/validator/code-judge stages gets its own up-to-N-tries
+  # budget when `plan`/`code` above is enabled (not one shared budget). 3 is
+  # the validated value.
+  stage_max_retries: 3
 
 # Maximum number of revision cycles. Must be an integer >= 0; the current
 # workflow supports only 3 and rejects any other value.

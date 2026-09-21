@@ -459,6 +459,8 @@ class TableRetrievalService:
                 status="failed",
                 error=f"{type(exc).__name__}: {exc}",
                 duration_seconds=time.monotonic() - started,
+                q_op=q_op,
+                entities=list(entities) if entities is not None else None,
             )
             if self.observer is not None:
                 self.observer(run)
@@ -470,6 +472,8 @@ class TableRetrievalService:
             requested_k=requested_k,
             hits=hits,
             duration_seconds=time.monotonic() - started,
+            q_op=q_op,
+            entities=list(entities) if entities is not None else None,
         )
         if self.observer is not None:
             self.observer(run)
@@ -485,12 +489,17 @@ class TableRetrievalService:
         status: str = "succeeded",
         error: str = "",
         duration_seconds: float,
+        q_op: str | None = None,
+        entities: list[str] | None = None,
     ) -> RetrievalRun:
         return RetrievalRun(
             mode=self.config.mode,
             question=question,
             keywords=list(keywords),
             top_k=requested_k,
+            configured_top_k=self.config.top_k,
+            q_op=q_op,
+            entities=entities,
             representation_version=self.config.representation_version,
             embedding_model=self.config.embedding_model,
             status=status,

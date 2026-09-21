@@ -13,6 +13,7 @@ from typing import Any, Sequence
 import duckdb
 import pyarrow.parquet as pq
 
+from lakegen.core.catalogue import catalogue_title
 from lakegen.retrieval.config import RetrievalConfig
 from lakegen.retrieval.models import RetrievalHit
 
@@ -156,7 +157,7 @@ def _load_normalized_metadata(path_text: str) -> dict[str, dict[str, Any]]:
             resource_title = str(child.get("name") or "").strip()
             resource_description = str(child.get("description") or "").strip()
             catalog[key] = {
-                "title": resource_title or package_title,
+                "title": catalogue_title(package_title, resource_title),
                 "description": " ".join(
                     part for part in (package_description, resource_description) if part
                 ),

@@ -129,6 +129,40 @@ class DiscoveryConfig(FrozenModel):
     # cannot act on what it just learned.
     search_after_inspection: bool = False
 
+    # --- Augmentations validated in scratchpad experimentation (see the UK
+    # OrQa keyword/miniagent research). Each defaults to False -- a fully
+    # backward-compatible no-op until deliberately enabled on an experiment.
+
+    # Ban only proven zero-hit keyword combinations (and supersets of one,
+    # pruned to a minimal antichain); allow relaxed retry of combinations that
+    # had hits but weren't judged sufficient; surface a local coverage report
+    # (against the already-retrieved pool) on a truncated/at-cap search and a
+    # global rarity report on a zero-hit search. Only meaningful for KEYWORD
+    # and HYBRID retrieval modes -- SEMANTIC mode's retriever takes no
+    # keywords at all, so this is inert there regardless of the flag. This
+    # only has room to matter alongside a `max_search_attempts` > 1: a forced
+    # reformulation after a zero-hit search still needs a further attempt
+    # left in the budget to act on, and the default `max_search_attempts=1`
+    # leaves none.
+    keyword_memory_enabled: bool = False
+    # Inspect every visible candidate with parallel, single-shot per-candidate
+    # LLM inspectors and print each compact inspection report beneath its
+    # candidate, instead of the agent inspecting tables one at a time with
+    # inspect_columns. The inspectors report facts (row count, date coverage,
+    # what the data shows about each constraint the question names) and pass
+    # no verdict: judging stays with the agent. Candidates revealed by
+    # expand_candidates are inspected as they appear. The agent then has no
+    # inspection tool, reject_unified_selection takes a keep_tables list, and
+    # initial_shortlist_size, max_inspected_candidates and
+    # max_inspections_per_file no longer apply; initial_candidates,
+    # expansion_size and max_expansions still do. Needs an llm; without one
+    # the serial tools are used.
+    parallel_inspection_enabled: bool = False
+    # Before confirm_unified_selection's existing validation chain runs,
+    # replace the agent-supplied `tables` with the pick from a separate,
+    # clean-context delegated selection call fed only compact verdicts.
+    delegated_final_selection_enabled: bool = False
+
     @property
     def fetch_floor(self) -> int:
         """Fewest ranked hits worth requesting from the retriever.
@@ -149,9 +183,21 @@ class DiscoveryConfig(FrozenModel):
 
 class ReviewerConfig(FrozenModel):
     dataset: bool = False
+    # Plan-fidelity judge (question-fidelity-only, single vote) and the
+    # gold-free post-execution code judge -- both implemented; see
+    # src/lakegen/reviewed_coder.py. Validated over four rounds of live
+    # 100-question scratchpad testing before being wired in here.
     plan: bool = False
     code: bool = False
     result: bool = False
+    # Per-stage retry budget for the plan/validator/code-judge loops when
+    # `plan` or `code` above is enabled -- each of the three stages gets its
+    # own up-to-`stage_max_retries` attempts (not a single shared budget),
+    # matching the validated design. 3 is the value the whole design was
+    # tested and measured at (avg 2.17, max 5 real generation calls/question
+    # across 100 questions); only change this if re-validating at a
+    # different budget.
+    stage_max_retries: int = Field(default=3, ge=1, le=5)
 
 
 class GateConfig(FrozenModel):
@@ -212,12 +258,12 @@ class ExperimentConfig(FrozenModel):
                 f"unsupported semantic_code_judge_model "
                 f"{self.semantic_code_judge_model!r}"
             )
-        enabled_reviewers = [
-            name for name, enabled in self.reviewers.model_dump().items() if enabled
+        unimplemented_reviewers = [
+            name for name in ("dataset", "result") if getattr(self.reviewers, name)
         ]
-        if enabled_reviewers:
+        if unimplemented_reviewers:
             raise ValueError(
-                "reviewers are not implemented: " + ", ".join(enabled_reviewers)
+                "reviewers are not implemented: " + ", ".join(unimplemented_reviewers)
             )
         if self.max_revision_rounds != 3:
             raise ValueError("only max_revision_rounds=3 currently preserves the workflow")

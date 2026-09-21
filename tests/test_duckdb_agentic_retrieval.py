@@ -3,6 +3,11 @@ import json
 import pandas as pd
 import pytest
 
+from lakegen.core.catalogue import (
+    catalogue_title,
+    is_uninformative,
+    strip_format_noise,
+)
 from lakegen.retrieval import (
     DuckDBAgenticRetriever,
     RetrievalConfig,
@@ -168,7 +173,10 @@ def test_uk_ckan_catalog_maps_package_and_resource_ids(tmp_path):
     ).retrieve("supplier invoices paid promptly", ["supplier", "payment"], top_k=1)
 
     assert hits[0].document["resource_id"] == filename
-    assert hits[0].document["title"] == "Prompt payments 2025 quarterly results"
+    # Package title first, then the resource's own name (lakegen.core.catalogue).
+    assert hits[0].document["title"] == (
+        "Government prompt payment data Prompt payments 2025 quarterly results"
+    )
     assert "Percentage of supplier invoices" in hits[0].document["description"]
     assert "HM Revenue and Customs" in hits[0].document["tags"]
 
@@ -198,7 +206,9 @@ def test_uk_cleaned_catalog_is_preferred_over_legacy_metadata(tmp_path):
         RetrievalConfig(mode="duckdb_agentic"), table_dir
     ).retrieve("retained filtered table", ["retained"], top_k=1)[0]
 
-    assert hit.document["title"] == "Clean retained resource"
+    # Both halves come from the cleaned file, neither from the legacy one.
+    assert hit.document["title"] == "Clean title Clean retained resource"
+    assert "Legacy" not in hit.document["title"]
 
 
 def test_global_footer_ranking_finds_schema_match_after_first_250(tmp_path):
@@ -295,3 +305,116 @@ def test_preliminary_catalog_order_is_deterministic(tmp_path):
     first = [entry.path.name for entry in retriever._catalog(["missing"])]
     second = [entry.path.name for entry in retriever._catalog(["missing"])]
     assert first == second == ["a.parquet", "b.parquet", "c.parquet"]
+
+
+# --- catalogue titles ---------------------------------------------------------
+# data.gov.uk names an ArcGIS-harvested resource after its format ("CSV"), so
+# taking the resource name first left ~30% of the UK lake titled "CSV" with the
+# real name unused in the package title. See lakegen.core.catalogue.
+
+def test_catalogue_title_ignores_a_resource_named_after_its_format():
+    assert catalogue_title("Regions (December 2024) Boundaries EN BFC", "CSV") == (
+        "Regions (December 2024) Boundaries EN BFC"
+    )
+    assert catalogue_title("Farm Census District Electoral Area 2019", "geojson") == (
+        "Farm Census District Electoral Area 2019"
+    )
+
+
+def test_catalogue_title_keeps_a_resource_name_that_tells_siblings_apart():
+    """1,426 UK tables share this package title; the resource name is the only
+    thing separating them, so both have to survive."""
+    assert catalogue_title(
+        "Organogram of Staff Roles & Salaries", "2021-12-31 Organogram (Junior)"
+    ) == "Organogram of Staff Roles & Salaries 2021-12-31 Organogram (Junior)"
+
+
+def test_catalogue_title_does_not_repeat_a_resource_name_equal_to_the_package():
+    assert catalogue_title("Air Quality 2016", "Air Quality 2016") == "Air Quality 2016"
+
+
+def test_catalogue_title_falls_back_only_when_nothing_usable_remains():
+    assert catalogue_title("", "CSV", fallback="air-quality-2016") == "air-quality-2016"
+    assert catalogue_title(None, None) == ""
+
+
+def test_catalogue_title_strips_a_trailing_file_extension():
+    """924 UK resources are named after their file: the stem is the real name."""
+    assert catalogue_title(
+        "NI Water Consented Wastewater", "2022 NI Water Results.csv"
+    ) == "NI Water Consented Wastewater 2022 NI Water Results"
+
+
+def test_catalogue_title_removes_a_format_token_inside_a_real_name():
+    """237 UK resources carry the format mid-name; the rest of the name stays."""
+    assert catalogue_title(
+        "Organogram of Staff Roles & Salaries", "Organogram - Senior CSV data"
+    ) == "Organogram of Staff Roles & Salaries Organogram - Senior data"
+    assert catalogue_title("Spend", "December 2020 >£25k Spend CSV") == (
+        "Spend December 2020 >£25k Spend"
+    )
+
+
+def test_catalogue_title_drops_a_name_that_is_only_format_and_filler():
+    assert catalogue_title("Spend over £25k", "CSV Download") == "Spend over £25k"
+    assert catalogue_title("Spend over £25k", "Download the data file") == "Spend over £25k"
+
+
+def test_is_uninformative_keeps_any_name_with_a_word_of_its_own():
+    assert is_uninformative("CSV")
+    assert is_uninformative("CSV Download")
+    assert not is_uninformative("Organogram - Senior CSV data")
+    assert not is_uninformative("2022 Results.csv")
+
+
+def test_strip_format_noise_leaves_filler_inside_a_real_name():
+    """"Data" decides worthlessness but is not removed from a name that has one."""
+    assert strip_format_noise("Land Registry Price Paid Data") == (
+        "Land Registry Price Paid Data"
+    )
+    assert strip_format_noise("Trees (CSV)") == "Trees"
+
+
+def test_strip_format_noise_leaves_a_format_glued_to_another_word():
+    """Splitting inside a token would mangle real words, so "2018CSV" and
+    "csvformat" survive. Two UK resources out of 15,759, both of which still
+    carry their package title."""
+    assert strip_format_noise("December 2018CSV") == "December 2018CSV"
+    assert strip_format_noise("sports-pitches-csvformat") == "sports-pitches-csvformat"
+
+
+def test_catalogue_title_handles_missing_and_untrimmed_values():
+    assert catalogue_title("  Spaced Title  ", None) == "Spaced Title"
+    assert catalogue_title(None, "  2021 Return ") == "2021 Return"
+
+
+def test_uk_ckan_catalog_titles_use_the_package_name_not_the_format(tmp_path):
+    """An ArcGIS-harvested resource is named "CSV"; the package title is the
+    only real name it has, and it has to reach the index."""
+    table_dir = tmp_path / "uk" / "datasets" / "parquet"
+    metadata_dir = tmp_path / "uk" / "metadata"
+    table_dir.mkdir(parents=True)
+    metadata_dir.mkdir()
+    package_id = "33333333-3333-3333-3333-333333333333"
+    resource_id = "44444444-4444-4444-4444-444444444444"
+    pd.DataFrame({"lad23cd": ["E06"], "shape_area": [1.5]}).to_parquet(
+        table_dir / f"{package_id}___{resource_id}.parquet"
+    )
+    (metadata_dir / "metadata_retrieved_only.json").write_text(json.dumps([
+        {
+            "id": package_id,
+            "name": "lad-dec-2023-boundaries",
+            "title": "Local Authority Districts (December 2023) Boundaries UK BSC",
+            "notes": "Digital vector boundaries for local authority districts.",
+            "organization": {"title": "Office for National Statistics"},
+            "resources": [{"id": resource_id, "name": "CSV", "description": ""}],
+        }
+    ]), encoding="utf-8")
+
+    hits = DuckDBAgenticRetriever(
+        RetrievalConfig(mode="duckdb_agentic"), table_dir
+    ).retrieve("local authority district boundaries", ["boundaries"], top_k=1)
+
+    assert hits[0].document["title"] == (
+        "Local Authority Districts (December 2023) Boundaries UK BSC"
+    )

@@ -20,6 +20,7 @@ import pandas as pd
 from lakegen.column_resolution import generated_column_names
 from lakegen.revision_policy import classify_revision, technical_repair_eligible
 from lakegen.data_quality import profile_table_quality
+from lakegen.distribution_check import profile_column_distribution
 from lakegen.agent_tools.tools_p2 import MIN_BAN_JUSTIFICATION_CHARS
 
 from lakegen.core.table_io import read_table, table_load_command
@@ -1665,6 +1666,25 @@ class Phase3ToolsManager:
                 if not parsed.empty:
                     detail["temporal_min"] = str(parsed.min())
                     detail["temporal_max"] = str(parsed.max())
+            try:
+                distribution = profile_column_distribution(series, name)
+            except Exception:
+                distribution = None
+            if distribution is not None and distribution.encoded_span:
+                span = distribution.encoded_span
+                detail["encoded_value_warning"] = (
+                    f"Values look like consecutive fiscal/school-year span codes "
+                    f"(e.g. {span['example']!r}, years {span['start_year_min']}-"
+                    f"{span['start_year_max']} encoded as YYYY+next-YY). A bare 4-digit "
+                    "year filter (e.g. == 2016) will match ZERO rows -- the correct "
+                    "literal for year Y is the 6-digit code '{Y}{(Y+1)%100:02d}', "
+                    "e.g. 2016 -> '201617'."
+                )
+            if distribution is not None and distribution.pinned_extreme:
+                detail["pinned_extreme_warning"] = (
+                    f"{distribution.pinned_extreme} -- likely a sentinel/cap, not a "
+                    "real observation."
+                )
             details[requested_column] = detail
         temporal_candidates = [
             str(column) for column in frame.columns

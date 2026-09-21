@@ -1,8 +1,9 @@
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, Literal, Mapping
+from typing import Any, Callable, Literal, Mapping
 from pydantic import BaseModel, Field, model_validator
 
 from llama_index.core.tools import FunctionTool
@@ -25,6 +26,9 @@ from lakegen.agent_tools.requirement_ledger import (
 )
 from src.client_solr import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
+from lakegen.agent_tools import keyword_memory as _keyword_memory
+from lakegen.agent_tools import candidate_inspection as _candidate_inspection
+from lakegen.agent_tools import delegated_selection as _delegated_selection
 from lakegen.core.resources import get_table_retrieval_service
 from lakegen.core.table_io import read_table
 from lakegen.retrieval import (
@@ -160,9 +164,31 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
     semantic_plan: dict[str, object] | None = Field(
         default=None,
         description=(
-            "Non-oracle executable semantics derived only from the question and "
-            "inspected table evidence. Bind every filter, dimension, and measure "
-            "to exact selected-table columns; never use benchmark expectations."
+            "Optional. Non-oracle executable semantics derived only from the "
+            "question and inspected table evidence; never use benchmark "
+            "expectations. Every item needs its own `evidence` string citing "
+            "the specific inspected value/title/column that justifies it. "
+            "Exact shape: "
+            "`measures`: list of {output, operation, table, columns, evidence} "
+            "-- `output` is the name YOU invent for this computed column (e.g. "
+            "'total_amount'), `operation` is one of count_rows, count_distinct, "
+            "sum, mean, min, max, ratio, difference, custom, `table` and "
+            "`columns` (a list, even for one column) are the exact selected "
+            "table and source column name(s) being aggregated. "
+            "`dimensions`: list of {output, table, column, evidence} -- "
+            "grouping/label columns, not aggregated. "
+            "`filters`/`temporal_filters`: list of {requirement, table, column, "
+            "operator, value, evidence} -- operator is one of equals, contains, "
+            "in, range, not_null, other. "
+            "`joins`: list of {tables: [a, b], keys: {a: col_a, b: col_b}, how, "
+            "evidence}, only when combining multiple tables. "
+            "`ordering`: list of {output, direction} where direction is "
+            "ascending or descending. `output_columns`: list of the `output` "
+            "names (from measures/dimensions) that belong in the final result, "
+            "in order. `table_roles`: map every selected table filename to its "
+            "role. `limit`: a positive integer, or omit/null for none. Every "
+            "`measures` entry is REQUIRED to have both `output` and `columns` "
+            "-- a plan missing either is rejected."
         )
     )
 
@@ -184,6 +210,34 @@ class RejectUnifiedSelectionSchema(BaseModel):
             "attempt, even if it does not yet cover every requirement -- "
             "only actively-proven-irrelevant tables belong here. A table "
             "without a concrete justification is not banned."
+        ),
+    )
+
+
+class RejectAutoInspectedSelectionSchema(RejectUnifiedSelectionSchema):
+    """Rejection when every visible table was inspected automatically.
+
+    Nothing marks which inspected tables the agent found useful, so it says.
+    """
+
+    ban_tables: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Inspected candidates you judge highly irrelevant -- they satisfy "
+            "none of the essential requirements -- mapped to the concrete "
+            "evidence proving that (e.g. 'Parent Department is only Crown "
+            "Prosecution Service, never the requested department'), so they "
+            "are excluded from later retrieval for this question. A table "
+            "without a concrete justification is not banned."
+        ),
+    )
+    keep_tables: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exact file names of the inspected candidates that already cover "
+            "part of the question and must carry over to the next attempt, so "
+            "the next search only has to find what is still missing. Tables "
+            "you list in neither field are simply not carried over."
         ),
     )
 
@@ -230,8 +284,27 @@ def _normalize_semantic_plan(
                     item.get("operation") or item.get("aggregation") or item.get("type") or ""
                 ).casefold()
                 item["operation"] = operation_aliases.get(operation, operation)
-                if "columns" not in item and item.get("column"):
-                    item["columns"] = [item.pop("column")]
+                if "columns" not in item:
+                    for alt in ("column", "field", "fields", "column_name"):
+                        if item.get(alt):
+                            raw_columns = item.pop(alt)
+                            item["columns"] = (
+                                raw_columns if isinstance(raw_columns, list) else [raw_columns]
+                            )
+                            break
+                # `output` is only a label the agent invents for this
+                # computed column, never semantic evidence -- safe to
+                # synthesize deterministically from operation+column when
+                # the agent forgets it, unlike `table`/`columns`/`operation`
+                # themselves, which are left alone if wrong or missing.
+                if not item.get("output"):
+                    columns_list = item.get("columns") or []
+                    col_part = str(columns_list[0]) if columns_list else "value"
+                    op_part = str(item.get("operation") or "value")
+                    synthesized = re.sub(r"[^0-9a-zA-Z]+", "_", f"{op_part}_{col_part}").strip("_")
+                    item["output"] = synthesized.casefold() or "computed_value"
+            elif key == "dimensions" and not item.get("output") and item.get("column"):
+                item["output"] = re.sub(r"[^0-9a-zA-Z]+", "_", str(item["column"])).strip("_").casefold()
             items.append(item)
         normalized[key] = items
     joins: list[object] = []
@@ -412,6 +485,26 @@ class P12State:
         self.excluded_tables: set[str] = set()
         self.carried_tables: list[str] = []
         self.carried_metadata: SolrMetadata = {}
+        # keyword_memory_enabled only (DiscoveryConfig): proven zero-hit
+        # keyword-token combinations, pruned to a minimal antichain (see
+        # keyword_memory.add_no_result_ban) -- distinct from search_cache,
+        # which bans any exact repeat regardless of hit count.
+        self.zero_hit_bans: list[tuple[frozenset, list]] = []
+        # keyword_memory_enabled only: cache for keyword_memory.
+        # solr_term_doc_frequency, so repeated words across rounds don't
+        # re-issue the same corpus-wide Solr query.
+        self.term_frequency_cache: dict[str, int] = {}
+        # delegated_final_selection_enabled only: compact per-candidate
+        # verdicts from candidate_inspection.miniagent_inspect, keyed like
+        # inspection_cache (casefolded file name).
+        self.verdict_cache: dict[str, dict] = {}
+        # delegated_final_selection_enabled only: one entry per
+        # confirm_unified_selection call where the override fired, recording
+        # what the agent itself proposed vs. the delegated pick that actually
+        # proceeded -- a dedicated field so this observability data survives
+        # the rest of confirm_unified_selection's own bookkeeping, which
+        # unconditionally overwrites selection_advisories/selection_plan_source.
+        self.delegated_selection_log: list[dict] = []
 
     def inspected_candidates(self) -> list[str]:
         """Return successfully inspected candidates in retrieval order."""
@@ -449,6 +542,7 @@ class Phase12ToolsManager:
         retrieval_observer: Callable[[RetrievalRun], None] | None = None,
         discovery_config: DiscoveryConfig | None = None,
         notice_callback: StreamCallback | None = None,
+        llm: Any | None = None,
     ):
         self.state = state
         self.solr_client = solr_client
@@ -459,6 +553,101 @@ class Phase12ToolsManager:
         self.retrieval_observer = retrieval_observer
         self.discovery = discovery_config or DiscoveryConfig()
         self.notice_callback = notice_callback
+        # Only set when the caller opts a candidate into the new delegated
+        # sub-call machinery (automatic candidate inspection, delegated final
+        # selection) -- every existing tool method works exactly as before
+        # when this is None. Token usage from any self.llm.chat(...) call is
+        # picked up automatically by the caller's existing token accounting,
+        # since both llama_index's TokenCountingHandler and
+        # get_llm_token_usage() track cumulatively on the llm object itself,
+        # not on any particular agent loop.
+        self.llm = llm
+
+    @property
+    def auto_inspection(self) -> bool:
+        """True when visible candidates are inspected by fact-reporting mini-agents.
+
+        The inspectors run inside ``search_tables`` and ``expand_candidates``
+        and their reports are printed with the candidates, so the agent has
+        no inspection tool: every table it can see is already inspected.
+        """
+        return self.discovery.parallel_inspection_enabled and self.llm is not None
+
+    def _profile_header(self, name: str) -> str:
+        """Row count and whole-file date coverage of a table, as serial
+        inspection prints them. This is the deterministic head of an
+        inspector's report; the temporal validation at selection reads the
+        coverage lines from it."""
+        text = _inspect_columns(self.csv_dir, name)
+        if text.startswith("Error:"):
+            return ""
+        head: list[str] = []
+        for line in text.splitlines()[1:]:  # skip the "Schema for ..." title
+            if line.startswith("Columns ("):
+                break
+            head.append(line)
+        return "\n".join(head)
+
+    def _inspect_visible_candidates(self) -> None:
+        """Inspect every visible candidate not yet inspected, in parallel.
+
+        Hidden candidates wait: expand_candidates reveals them and calls this
+        again, so a table is only inspected once the agent can see it. The
+        inspectors report facts and no verdict: judging is the agent's job.
+        Reports land in ``inspection_cache`` but not in ``inspection_counts``:
+        this is the substitute for serial inspection, so it spends none of the
+        per-request inspection budget and does not close the door on a later
+        search.
+        """
+        pending = [
+            (number, name)
+            for number, name in enumerate(
+                self.state.all_candidates[: self.state.visible_candidate_count],
+                start=1,
+            )
+            if name.casefold() not in self.state.inspection_cache
+        ]
+        if not pending:
+            return
+
+        def _inspect_one(item: tuple[int, str]) -> tuple[str, dict]:
+            number, name = item
+            self._emit_notice(
+                f"\n> \U0001f52c **Inspecting candidate {number}:** `{name}`\n"
+            )
+            meta = self.state.solr_meta.get(name, {})
+            header = self._profile_header(name)
+            result: dict = {}
+            for attempt in range(3):
+                result = _candidate_inspection.inspect_candidate(
+                    self.llm, self.question, self.csv_dir, number, name, meta,
+                    profile_header=header,
+                )
+                if result["ok"] or result["report"].startswith("Error:"):
+                    break
+                time.sleep(2 * (attempt + 1))
+            self._emit_notice(
+                f"\n> \u2705 **Candidate {number} inspected:** `{name}`\n"
+            )
+            return name, result
+
+        self._emit_notice(
+            f"\n> \U0001f52c **Inspecting every visible table:** dispatching "
+            f"{len(pending)} inspector(s) in parallel\n"
+        )
+        with ThreadPoolExecutor(max_workers=min(6, len(pending))) as pool:
+            results = list(pool.map(_inspect_one, pending))
+        for name, result in results:
+            self.state.inspection_cache[name.casefold()] = result["report"]
+
+    def _inspector_notes(self, candidates: list[str]) -> dict[str, str]:
+        """The inspection report to print beneath each candidate."""
+        notes: dict[str, str] = {}
+        for name in candidates:
+            text = self.state.inspection_cache.get(name.casefold(), "")
+            if text:
+                notes[name] = text
+        return notes
 
     def _emit_notice(self, text: str) -> None:
         """Report to the operator, never to the agent.
@@ -492,8 +681,13 @@ class Phase12ToolsManager:
                 "Only these values are searched: not the question, and not titles "
                 "or column names. Exactly one initial search is allowed. Use the "
                 "bounded metadata and schema previews to shortlist the strongest "
-                "candidates, then verify them with inspect_columns before "
-                "selecting tables."
+                "candidates, then "
+                + (
+                    "check the inspection report printed with each one"
+                    if self.auto_inspection
+                    else "verify them with inspect_columns"
+                )
+                + " before selecting tables."
             )
         if self.retrieval_config.mode.verbatim_entities:
             # Entities are matched against table content as written, so the agent
@@ -580,7 +774,38 @@ class Phase12ToolsManager:
             # modes drop the concepts before retrieval, and keying on that empty
             # list told the agent that a different search repeated the first.
             key = self._search_cache_key([*supplied_concepts, *(entities or [])])
-            if key in self.state.search_cache:
+            # keyword_memory_enabled: only meaningful where the retriever
+            # actually takes an AND-matched keyword list (SEMANTIC mode's
+            # retriever has no `keywords` argument at all, so this is left
+            # inert there regardless of the flag).
+            keyword_memory_active = (
+                self.discovery.keyword_memory_enabled
+                and self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID)
+            )
+            if keyword_memory_active:
+                ban_reason = _keyword_memory.check_ban(
+                    _keyword_memory.toks([*supplied_concepts, *(entities or [])]),
+                    self.state.zero_hit_bans,
+                )
+                if ban_reason:
+                    return (
+                        f"Search blocked: {ban_reason}. Under strict AND matching, "
+                        "adding words can only shrink a result set -- drop or swap "
+                        "at least one word from this combination before searching "
+                        "again."
+                    )
+                if key in self.state.search_cache:
+                    # Relaxed retry: this exact combination had hits before but
+                    # wasn't confirmed sufficient -- not banned, only zero-hit
+                    # combinations are. You may reconsider it as-is or try
+                    # something else.
+                    return (
+                        "Note: this exact combination was already searched and "
+                        "was not confirmed, but it did return results, so it is "
+                        "not blocked. What it returned:\n"
+                        + self.state.search_cache[key]
+                    )
+            elif key in self.state.search_cache:
                 return (
                     "Search skipped: identical concepts were already used. Do not "
                     "repeat this search.\n"
@@ -659,6 +884,13 @@ class Phase12ToolsManager:
                     q_op="OR",
                 )
                 search_mode = "OR fallback"
+
+            # keyword_memory_enabled: whether the retrieval that actually
+            # produced `hits` (AND, or the OR fallback above) hit the
+            # requested fetch width -- the local signal that more candidates
+            # likely exist beyond what came back, i.e. this search is
+            # too-broad/truncated rather than genuinely narrow.
+            search_truncated = keyword_memory_active and len(hits) >= fetch_k
 
             searched = (
                 "the question only"
@@ -746,13 +978,39 @@ class Phase12ToolsManager:
                     f"Attempt: {attempt}\nSearched: {searched}\n"
                     "No tables found. Evaluate the empty candidate set."
                 )
+                if keyword_memory_active:
+                    _keyword_memory.add_no_result_ban(
+                        self.state.zero_hit_bans,
+                        _keyword_memory.toks([*supplied_concepts, *(entities or [])]),
+                        [*supplied_concepts, *(entities or [])],
+                    )
+                    response += (
+                        "\n\nThis combination is now blocked (zero results under "
+                        "strict AND matching) -- a different combination is "
+                        "required.\n"
+                        + _keyword_memory.global_rarity_report(
+                            self.solr_client,
+                            [*supplied_concepts, *(entities or [])],
+                            self.state.term_frequency_cache,
+                        )
+                    )
                 self.state.search_cache[key] = response
                 return response
 
+            if self.auto_inspection:
+                self._inspect_visible_candidates()
             response = (
                 f"Attempt: {attempt}\nSearched: {searched}\n\n"
                 "Candidates in retrieval order after local-file mapping:\n"
-                + format_candidate_context(visible_candidates, self.state.solr_meta)
+                + format_candidate_context(
+                    visible_candidates,
+                    self.state.solr_meta,
+                    annotations=(
+                        self._inspector_notes(visible_candidates)
+                        if self.auto_inspection
+                        else None
+                    ),
+                )
                 + (
                     f"\n{len(candidates) - len(visible_candidates)} additional "
                     "ranked candidates are available through expand_candidates."
@@ -760,6 +1018,15 @@ class Phase12ToolsManager:
                     else ""
                 )
             )
+            if search_truncated and current_candidates:
+                candidate_metas = [
+                    self.state.solr_meta[c]
+                    for c in current_candidates
+                    if c in self.state.solr_meta
+                ]
+                response += "\n\n" + _keyword_memory.local_coverage_report(
+                    candidate_metas, self.question, [*supplied_concepts, *(entities or [])]
+                )
             self.state.search_cache[key] = response
             return response
         except EmbeddingGenerationError as exc:
@@ -907,6 +1174,8 @@ class Phase12ToolsManager:
         self.state.visible_candidate_count = start + len(newly_visible)
         self.state.expansion_count += 1
         self.state.expansion_requirements = requirements
+        if self.auto_inspection:
+            self._inspect_visible_candidates()
         remaining = len(self.state.all_candidates) - self.state.visible_candidate_count
         next_step = (
             f"{remaining} ranked candidates remain hidden, but the single guided "
@@ -923,18 +1192,47 @@ class Phase12ToolsManager:
             + f"\nRevealed {len(newly_visible)} best-matching hidden candidates "
             "(original retrieval ranks are preserved in metadata):\n"
             + format_candidate_context(
-                newly_visible, self.state.solr_meta, start_rank=start + 1
+                newly_visible,
+                self.state.solr_meta,
+                start_rank=start + 1,
+                annotations=(
+                    self._inspector_notes(newly_visible)
+                    if self.auto_inspection
+                    else None
+                ),
             )
             + f"\n\n{next_step}"
         )
 
     def check_join_union(self, file_name_1: str, file_name_2: str) -> str:
         """
-        Check whether two tables join or union with each other. Reports the join
-        key columns when they join, the aligned columns when they union, or that
-        they neither join nor union.
+        Check whether two tables join or union by measuring their values. Reports
+        ranked join-key candidates with shared-value counts, cardinality and join size
+        (or that no name-similar key shares values), and a union verdict (UNION,
+        SUBSET UNION, PARTIAL UNION or NO UNION) with the column mapping and any type
+        clashes.
         """
         return _check_join_union(self.csv_dir, file_name_1, file_name_2)
+
+    def _collect_verdicts_for_delegated_selection(self) -> list[dict]:
+        """One compact verdict per already-inspected candidate, for the
+        delegated_final_selection_enabled override. Inspection reports carry no
+        verdict, so each inspected candidate is judged here through the
+        miniagent_inspect prompt and cached in verdict_cache -- verdicts exist
+        only when this override asks for them."""
+        verdicts = []
+        for name in self.state.inspected_candidates():
+            key = name.casefold()
+            cached = self.state.verdict_cache.get(key)
+            if cached is None:
+                meta = self.state.solr_meta.get(name, {})
+                rank = self.state.best_ranks.get(name, len(verdicts) + 1)
+                cached = _candidate_inspection.miniagent_inspect(
+                    self.llm, self.question, self.csv_dir, rank, name, meta
+                )
+                self.state.verdict_cache[key] = cached
+            verdicts.append(cached)
+        return verdicts
 
     def confirm_unified_selection(
         self,
@@ -952,6 +1250,26 @@ class Phase12ToolsManager:
         CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
         Calling this tool terminates execution and confirms the selection.
         """
+        if self.discovery.delegated_final_selection_enabled and self.llm is not None:
+            verdicts = self._collect_verdicts_for_delegated_selection()
+            if verdicts:
+                self._emit_notice(
+                    f"\n> \U0001f9ed **Delegated final selection:** judging "
+                    f"{len(verdicts)} inspected candidate(s) in a clean context\n"
+                )
+                delegated = _delegated_selection.final_selection(self.llm, self.question, verdicts)
+                # The agent's own proposal is logged, never silently dropped,
+                # even though the delegated pick is what actually proceeds.
+                self.state.delegated_selection_log.append({
+                    "agent_proposed": list(dict.fromkeys(str(t).strip() for t in tables)),
+                    "delegated_selected": delegated["selected"],
+                    "delegated_reasoning": delegated["reasoning"],
+                })
+                self._emit_notice(
+                    f"\n> ✅ **Delegated pick:** {delegated['selected']!r}\n"
+                )
+                tables = delegated["selected"]
+                reasoning = delegated["reasoning"] or reasoning
         normalized_tables = list(dict.fromkeys(str(table).strip() for table in tables))
         if not normalized_tables:
             raise ValueError("Selection blocked: at least one inspected table is required.")
@@ -971,9 +1289,15 @@ class Phase12ToolsManager:
         ]
         if uninspected:
             raise ValueError(
-                "Selection blocked: inspect_columns is mandatory for every selected "
-                f"table. Inspect {uninspected}, verify requirement and temporal "
-                "coverage, then confirm again."
+                (
+                    "Selection blocked: these selected tables have no inspection "
+                    f"report (the table could not be read): {uninspected}. "
+                    "Select tables that were inspected."
+                    if self.auto_inspection
+                    else "Selection blocked: inspect_columns is mandatory for every selected "
+                    f"table. Inspect {uninspected}, verify requirement and temporal "
+                    "coverage, then confirm again."
+                )
             )
 
         selection_key = tuple(sorted(table.casefold() for table in normalized_tables))
@@ -1252,7 +1576,11 @@ class Phase12ToolsManager:
         return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
 
     def reject_unified_selection(
-        self, reasoning: str, suggestion: str, ban_tables: dict[str, str] | None = None
+        self,
+        reasoning: str,
+        suggestion: str,
+        ban_tables: dict[str, str] | None = None,
+        keep_tables: list[str] | None = None,
     ) -> str:
         """
         Use this tool when the candidates cannot yet fully cover the question's
@@ -1284,9 +1612,20 @@ class Phase12ToolsManager:
             if table.casefold() in by_fold
         ]
         self.state.rejection_skip_tables = banned
-        self.state.rejection_keep_tables = [
-            table for table in inspected if table not in banned
-        ]
+        if self.auto_inspection:
+            # Automatic inspection reaches every visible table, so "inspected"
+            # no longer says which ones the agent found useful, and carrying
+            # them all would fill the next attempt's pool with this search's
+            # results. Only what the agent lists is carried.
+            wanted = {str(table).strip().casefold() for table in (keep_tables or [])}
+            self.state.rejection_keep_tables = [
+                table for table in inspected
+                if table not in banned and table.casefold() in wanted
+            ]
+        else:
+            self.state.rejection_keep_tables = [
+                table for table in inspected if table not in banned
+            ]
         return f"REJECT_KEYWORDS: {reasoning}\nSuggestion: {suggestion}"
 
     def _build_coder_brief(
@@ -1559,15 +1898,40 @@ class Phase12ToolsManager:
             description=self._search_tool_description(),
         )
 
+    def _reject_tool(self) -> FunctionTool:
+        if not self.auto_inspection:
+            return FunctionTool.from_defaults(
+                fn=self.reject_unified_selection,
+                fn_schema=RejectUnifiedSelectionSchema,
+                return_direct=True,
+            )
+        return FunctionTool.from_defaults(
+            fn=self.reject_unified_selection,
+            fn_schema=RejectAutoInspectedSelectionSchema,
+            return_direct=True,
+            description=(
+                "Use this tool when the candidates cannot yet fully cover the "
+                "question's essential requirements. Put every inspected "
+                "candidate you judge highly irrelevant in ban_tables with the "
+                "evidence, and list in keep_tables the candidates that already "
+                "cover part of the question so they carry over to the next "
+                "attempt. Calling this tool means you have finished this attempt."
+            ),
+        )
+
     def get_tools(self) -> list[FunctionTool]:
-        return [
-            self._search_tool(),
-            FunctionTool.from_defaults(fn=self.inspect_columns),
+        tools = [self._search_tool()]
+        if not self.auto_inspection:
+            # With automatic inspection every visible table is already
+            # inspected, so there is nothing for the agent to inspect itself.
+            tools.append(FunctionTool.from_defaults(fn=self.inspect_columns))
+        tools.extend([
             FunctionTool.from_defaults(fn=self.expand_candidates),
             FunctionTool.from_defaults(fn=self.check_join_union),
             FunctionTool.from_defaults(fn=self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),
-            FunctionTool.from_defaults(fn=self.reject_unified_selection, fn_schema=RejectUnifiedSelectionSchema, return_direct=True),
-        ]
+            self._reject_tool(),
+        ])
+        return tools
 
 
 def make_p12_tools(
@@ -1580,6 +1944,7 @@ def make_p12_tools(
     retrieval_observer: Callable[[RetrievalRun], None] | None = None,
     discovery_config: DiscoveryConfig | None = None,
     notice_callback: StreamCallback | None = None,
+    llm: Any | None = None,
 ):
     """
     Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
@@ -1595,5 +1960,6 @@ def make_p12_tools(
         retrieval_observer=retrieval_observer,
         discovery_config=discovery_config,
         notice_callback=notice_callback,
+        llm=llm,
     )
     return manager.get_tools()

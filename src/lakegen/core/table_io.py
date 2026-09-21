@@ -78,6 +78,44 @@ def table_row_count(path: str | Path) -> int | None:
     return None
 
 
+def read_table_sample(
+    path: str | Path,
+    max_rows: int,
+    *,
+    columns: Sequence[str] | None = None,
+) -> tuple[pd.DataFrame, int | None]:
+    """Return ``(frame, total_rows)`` with at most ``max_rows`` rows, without loading a huge table.
+
+    The whole table when it fits. Otherwise a parquet file with several row groups is sampled from
+    row groups spaced evenly through the file (sorted data is not read from the top only, and only
+    those groups are decoded); a single-row-group parquet file or a CSV can only be read from the
+    top, so its first ``max_rows`` rows come back. ``total_rows`` is None when the format does not
+    report it cheaply (CSV).
+    """
+    table_path = Path(path)
+    max_rows = max(1, int(max_rows))
+    total = table_row_count(table_path)
+    if total is not None and total <= max_rows:
+        return read_table(table_path, columns=columns), total
+    if table_path.suffix.casefold() in PARQUET_SUFFIXES:
+        parquet_file = pq.ParquetFile(table_path)
+        groups = parquet_file.num_row_groups
+        if groups > 1:
+            rows_per_group = max(1, (total or max_rows) // groups)
+            wanted = min(groups, max(1, -(-max_rows // rows_per_group)))
+            if wanted == 1:
+                picked = [groups // 2]
+            else:  # spaced so that both the first and the last row group are included
+                picked = sorted({round(i * (groups - 1) / (wanted - 1)) for i in range(wanted)})
+            frame = parquet_file.read_row_groups(
+                picked, columns=list(columns) if columns is not None else None
+            ).to_pandas()
+            if len(frame) > max_rows:
+                frame = frame.sample(max_rows, random_state=0).reset_index(drop=True)
+            return frame, total
+    return read_table(table_path, nrows=max_rows, columns=columns), total
+
+
 def iter_table_chunks(
     path: str | Path,
     *,

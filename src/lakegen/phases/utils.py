@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from lakegen.phases.logging import format_phase2_solr_results
@@ -142,7 +143,11 @@ def _candidate_columns(meta: dict[str, object]) -> list[dict[str, str]]:
 
 
 def format_candidate_context(
-    candidates: list[str], solr_meta: SolrMetadata, *, start_rank: int = 1
+    candidates: list[str],
+    solr_meta: SolrMetadata,
+    *,
+    start_rank: int = 1,
+    annotations: Mapping[str, str] | None = None,
 ) -> str:
     """Render bounded metadata used to shortlist real table inspections.
 
@@ -152,6 +157,9 @@ def format_candidate_context(
     that numbering is also how ``inspect_columns(candidate_number=...)``
     resolves a candidate deterministically, without the agent retyping a
     long generated filename.
+
+    ``annotations`` maps a file name to text (an inspector's verdict) shown
+    beneath that candidate's own metadata.
     """
 
     blocks: list[str] = []
@@ -204,6 +212,10 @@ def format_candidate_context(
             lines.append(f"    ... {omitted} additional columns omitted")
         if not columns:
             lines.append("    - No indexed column metadata available")
+        note = (annotations or {}).get(filename)
+        if note:
+            lines.append("  Independent inspection:")
+            lines.extend(f"    {line}" for line in note.strip().splitlines())
         blocks.append("\n".join(lines))
 
     return "\n\n".join(blocks) + ("\n" if blocks else "")

@@ -27,7 +27,6 @@ TABLES_DIR = BASE_DIR / paths.get(
 # Backward-compatible alias for older imports.
 CSV_DIR = TABLES_DIR
 JSON_DIR = BASE_DIR / paths.get("json_metadata_dir", "Data/bologna_update/metadata")
-DB_PATH = BASE_DIR / paths.get("blend_db_path", "Data/blend_index.db")
 INDEXES_DIR = BASE_DIR / paths.get("indexes_dir", "Data/indexes")
 LOG_DIR = BASE_DIR / paths.get("logs_dir", "logs")
 

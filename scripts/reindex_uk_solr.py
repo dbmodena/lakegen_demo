@@ -12,11 +12,19 @@ from datetime import datetime, timezone
 import gzip
 import json
 from pathlib import Path
+import sys
 import time
 from typing import Any, Iterable
 
 import pyarrow.parquet as pq
 import requests
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+for module_path in (ROOT_DIR, ROOT_DIR / "src"):
+    if str(module_path) not in sys.path:
+        sys.path.insert(0, str(module_path))
+
+from lakegen.core.catalogue import catalogue_title  # noqa: E402
 
 
 def utc_solr_timestamp() -> str:
@@ -147,9 +155,11 @@ def build_documents(metadata_path: Path, parquet_dir: Path, generation: str):
             "dataset_id": package_id,
             "resource_id": resource_id,
             "source": "UK Open Data",
-            "title": str(
-                resource.get("name") or package.get("title") or package.get("name") or ""
-            ).strip(),
+            "title": catalogue_title(
+                package.get("title"),
+                resource.get("name"),
+                fallback=package.get("name"),
+            ),
             "description": " ".join(
                 value
                 for value in (

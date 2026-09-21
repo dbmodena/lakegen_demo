@@ -3,7 +3,6 @@
     "data_dir": "data",
     "tables_dir": "data/nyc/datasets/parquets",
     "json_metadata_dir": "data/nyc/metadata",
-    "blend_db_path": "data/blend_index.db",
     "indexes_dir": "data/indexes",
     "logs_dir": "logs"
   }

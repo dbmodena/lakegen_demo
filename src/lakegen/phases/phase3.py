@@ -54,6 +54,18 @@ class Phase3Result:
     rejection_keep_tables: list[str] = field(default_factory=list)
     rejection_skip_tables: list[str] = field(default_factory=list)
     coder_attempt_trace: list[dict[str, object]] = field(default_factory=list)
+    # Purely additive: populated only by lakegen.reviewed_coder's
+    # phase3_generate_and_execute_reviewed (one entry per plan/validator/
+    # code-judge stage attempt), empty for every plain
+    # phase3_generate_and_execute call. Not the same thing as
+    # coder_attempt_trace above, which phase3_generate_and_execute already
+    # populates per-call with a different, execution-internal shape.
+    review_trace: list[dict[str, object]] = field(default_factory=list)
+    # The analysis plan the reviewed coder wrote and checked before coding
+    # (lakegen.analysis_plan), whether or not it was approved, so a caller
+    # that overrides a decline can reuse it instead of coding without one.
+    analysis_plan: dict[str, object] | None = None
+    plan_approved: bool = False
 
 
 _ERROR_PATTERNS = [
@@ -531,13 +543,13 @@ def phase3_generate_code(
     system_prompt = pm.render("code_generator", "system_prompt")
     if retries == 0:
         user_prompt = pm.render("code_generator", "initial_prompt",
-                                question=query, arch_reasoning="",
+                                question=query, arch_reasoning=reasoning,
                                 tables_info=tables_info)
     else:
         user_prompt = pm.render("code_generator", "correction_prompt",
                                 question=query, error_message=error_msg,
                                 previous_code=previous_code,
-                                arch_reasoning="",
+                                arch_reasoning=reasoning,
                                 tables_info=tables_info)
 
     user_prompt += (
@@ -784,6 +796,7 @@ def phase3_generate_and_execute(
     selection_plan: dict[str, object] | None = None,
     source_field_names: list[str] | None = None,
     require_semantic_plan: bool = True,
+    approved_plan_text: str = "",
 ) -> Phase3Result:
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
@@ -847,13 +860,13 @@ def phase3_generate_and_execute(
     if retries == 0:
         user_prompt = pm.render(
             "code_generator", "agentic_initial_prompt", question=query,
-            arch_reasoning="", tables_info=tables_info,
+            arch_reasoning=reasoning, tables_info=tables_info,
         )
     else:
         user_prompt = pm.render(
             "code_generator", "agentic_correction_prompt", question=query,
             error_message=error_msg, previous_code=previous_code,
-            arch_reasoning="", tables_info=tables_info,
+            arch_reasoning=reasoning, tables_info=tables_info,
         )
     user_prompt += (
         "\n\nQUESTION-DERIVED OUTPUT SHAPE (non-gold):\n"
@@ -954,6 +967,18 @@ def phase3_generate_and_execute(
             default=str,
         )
     )
+    if approved_plan_text:
+        user_prompt += (
+            "\n\nAPPROVED ANALYSIS PLAN (checked against the question before any code "
+            "was written):\n"
+            + approved_plan_text
+            + "\nImplement exactly this plan: apply every filter with the stated column, "
+            "operator and value, perform every listed preparation before using its column, "
+            "compute every measure with the stated operation, combine the tables as stated, "
+            "and return the listed output columns. Do not add a filter, limit, deduplication "
+            "or step that the plan does not contain. Where the plan and the coder brief "
+            "differ, the plan wins: it was checked against the whole question and the data."
+        )
     if retries > 0:
         # Correction turns bury the question under previous code, the error,
         # and table/plan JSON. Restating it last (closest to where the model

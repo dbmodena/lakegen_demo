@@ -2,11 +2,11 @@ from types import SimpleNamespace
 
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.experiment_config import (
-    DiscoveryArchitecture, ExperimentConfig, InteractionMode, ToolAccess,
+    DiscoveryArchitecture, ExperimentConfig, InteractionMode, ReviewerConfig, ToolAccess,
 )
 from lakegen.retrieval import RetrievalConfig
 from lakegen.service import (
-    _record_semantic_plan_telemetry, _rejected_selection_signature,
+    _record_review_telemetry, _record_semantic_plan_telemetry, _rejected_selection_signature,
     _selection_plan_signature, _selection_retry_feedback,
     extract_questions, run_question,
 )
@@ -107,6 +107,48 @@ def test_coder_brief_telemetry_separates_selection_and_effective_status():
     assert payload["coder_brief_status"] == "executable_with_obligations"
 
 
+def test_review_telemetry_is_a_noop_for_a_plain_non_reviewed_run():
+    result = QueryResult(question="q", status="completed")
+    generated = SimpleNamespace(review_trace=[])
+    _record_review_telemetry(result, generated)
+    assert result.review_pipeline_used is False
+    assert result.review_trace == []
+
+
+def test_review_telemetry_records_stage_attempts_and_summary():
+    result = QueryResult(question="q", status="completed")
+    trace = [
+        {"stage": "plan", "attempt": 1, "approved": False, "max_attempts": 3},
+        {"stage": "plan", "attempt": 2, "approved": True, "max_attempts": 3},
+        {"stage": "validator", "attempt": 1, "approved": True, "max_attempts": 3},
+        {"stage": "code_judge", "attempt": 1, "approved": False, "max_attempts": 3},
+        {"stage": "code_judge", "attempt": 2, "approved": True, "max_attempts": 3},
+        {"stage": "summary", "outcome": "validated", "reason": "", "generation_calls": 4, "wall_time": 12.3},
+    ]
+    generated = SimpleNamespace(review_trace=trace)
+    _record_review_telemetry(result, generated)
+    assert result.review_pipeline_used is True
+    assert result.review_outcome == "validated"
+    assert result.review_generation_calls == 4
+    assert result.review_stage_attempts == {"plan": 2, "validator": 1, "code_judge": 2}
+    assert result.review_trace == trace
+
+
+def test_review_telemetry_records_a_decline():
+    result = QueryResult(question="q", status="rejected")
+    trace = [
+        {"stage": "plan", "attempt": 1, "approved": False, "max_attempts": 3},
+        {"stage": "plan", "attempt": 2, "approved": False, "max_attempts": 3},
+        {"stage": "plan", "attempt": 3, "approved": False, "max_attempts": 3},
+        {"stage": "summary", "outcome": "declined", "reason": "never approved",
+         "generation_calls": 3, "wall_time": 9.1},
+    ]
+    generated = SimpleNamespace(review_trace=trace)
+    _record_review_telemetry(result, generated)
+    assert result.review_outcome == "declined"
+    assert result.review_stage_attempts == {"plan": 3}
+
+
 def test_extracts_queries_old_shape_and_preserves_metadata():
     payload = {
         "model": {
@@ -197,6 +239,115 @@ def test_run_question_does_not_mark_synthesized_refusal_completed(monkeypatch, t
     assert result.status == "rejected"
     assert result.answer_disposition == "rejected"
     assert result.pipeline_stages["final_answer"] == "rejected"
+
+
+def test_reviewed_pipeline_is_used_once_instead_of_the_outer_retry_loop(monkeypatch, tmp_path):
+    """reviewers.plan=True must route through
+    phase3_generate_and_execute_reviewed exactly once -- never the plain
+    phase3_generate_and_execute, and never MAX_CODE_ATTEMPTS times -- since
+    the reviewed pipeline owns its own internal stage-scoped retrying."""
+    experiment = ExperimentConfig().model_copy(update={
+        "core": "nyc", "model": "fake",
+        "interaction_mode": InteractionMode.AUTONOMOUS,
+        "reviewers": ReviewerConfig(plan=True),
+    })
+    runtime = SimpleNamespace(
+        model_name="fake", solr_core="nyc", csv_dir=tmp_path,
+        portal_name="NYC", retrieval=RetrievalConfig(), experiment=experiment,
+    )
+    (tmp_path / "gold.csv").write_text("value\n42\n", encoding="utf-8")
+    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.service.get_all_table_files", lambda _path: ["gold.csv"])
+    monkeypatch.setattr(
+        "lakegen.service.phase12_agent",
+        lambda **_kwargs: (["gold.csv"], ["gold"], {}, "correct table", "trace", 0),
+    )
+
+    def unexpected_plain_call(*_args, **_kwargs):
+        raise AssertionError("plain phase3_generate_and_execute must not be called when reviewers.plan is on")
+
+    reviewed_calls = []
+
+    fake_review_trace = [
+        {"stage": "plan", "attempt": 1, "approved": True, "max_attempts": 3},
+        {"stage": "validator", "attempt": 1, "approved": True, "max_attempts": 3},
+        {"stage": "summary", "outcome": "validated", "reason": "", "generation_calls": 1, "wall_time": 1.0},
+    ]
+
+    def fake_reviewed(*_args, **_kwargs):
+        reviewed_calls.append(_kwargs)
+        return SimpleNamespace(
+            tokens=0, clean_code="print(42)", code_raw="print(42)",
+            rejected_reason="", finalization_mode="", error=None,
+            raw_result="42 schools", structured_result=None,
+            execution_error=None, coder_runs=1, coder_context_audit=None,
+            review_trace=fake_review_trace,
+        )
+
+    monkeypatch.setattr("lakegen.service.phase3_generate_and_execute", unexpected_plain_call)
+    monkeypatch.setattr("lakegen.reviewed_coder.phase3_generate_and_execute_reviewed", fake_reviewed)
+    monkeypatch.setattr(
+        "lakegen.service.phase4_synthesize", lambda *_args: ("42 schools", 0)
+    )
+    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+
+    result = run_question("How many schools?", runtime)
+
+    assert len(reviewed_calls) == 1
+    assert reviewed_calls[0]["stage_max_retries"] == 3
+    assert reviewed_calls[0]["enable_plan_review"] is True
+    assert reviewed_calls[0]["enable_code_review"] is False
+    assert result.status == "completed"
+    assert result.review_pipeline_used is True
+    assert result.review_outcome == "validated"
+    assert result.review_stage_attempts == {"plan": 1, "validator": 1}
+
+
+def test_review_declined_result_is_rejected_without_table_banning(monkeypatch, tmp_path):
+    """A review-stage decline (finalization_mode == "review_declined") must
+    set result.status == "rejected" with the review's own reason, and must
+    NOT be routed through the table-banning/rediscovery machinery that a
+    genuine coder-side reject_tables verdict uses."""
+    experiment = ExperimentConfig().model_copy(update={
+        "core": "nyc", "model": "fake",
+        "interaction_mode": InteractionMode.AUTONOMOUS,
+        "reviewers": ReviewerConfig(plan=True, code=True),
+    })
+    runtime = SimpleNamespace(
+        model_name="fake", solr_core="nyc", csv_dir=tmp_path,
+        portal_name="NYC", retrieval=RetrievalConfig(), experiment=experiment,
+    )
+    (tmp_path / "gold.csv").write_text("value\n42\n", encoding="utf-8")
+    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.service.get_all_table_files", lambda _path: ["gold.csv"])
+    monkeypatch.setattr(
+        "lakegen.service.phase12_agent",
+        lambda **_kwargs: (["gold.csv"], ["gold"], {}, "correct table", "trace", 0),
+    )
+
+    def fake_reviewed(*_args, **_kwargs):
+        return SimpleNamespace(
+            tokens=0, clean_code="print(1)", code_raw="print(1)",
+            rejected_reason="Code judge never approved after 3 tries: unclear result.",
+            finalization_mode="review_declined", error=None,
+            raw_result=None, structured_result=None,
+            execution_error=None, coder_runs=1, coder_context_audit=None,
+        )
+
+    monkeypatch.setattr("lakegen.reviewed_coder.phase3_generate_and_execute_reviewed", fake_reviewed)
+    monkeypatch.setattr("lakegen.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+
+    result = run_question("How many schools?", runtime)
+
+    assert result.status == "rejected"
+    assert result.error == "Code judge never approved after 3 tries: unclear result."
+    assert result.pipeline_stages["code_execution"] == "declined_by_review"
 
 
 def test_last_attempt_fallback_excludes_just_rejected_tables(monkeypatch, tmp_path):

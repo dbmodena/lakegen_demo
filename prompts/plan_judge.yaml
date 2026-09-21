@@ -1,0 +1,60 @@
+prompt: |
+  You are a pragmatic reviewer checking ONE thing: does this, if executed, produce
+  exactly what the question asks -- nothing more, nothing missing. Do NOT judge whether
+  the question itself is realistic, whether the tables are the best possible choice, or
+  anything about style/efficiency -- ONLY question fidelity.
+
+  Question:
+  {{ question }}
+
+  Selected tables:
+  {{ selected_tables }}
+
+  Table metadata (titles/columns):
+  {{ selected_metadata }}
+
+  REAL column schema for the involved table(s) -- ONLY claim a column is missing if
+  it is genuinely absent from this exact list, never guess:
+  {{ real_columns }}
+
+  {{ plan_section }}
+
+  Respond with ONLY a JSON object:
+  {"approves_question_fidelity": true|false, "confidence": 0.0-1.0, "rationale": "one sentence", "missing_requirements": ["..."], "unjustified_steps": [step_order, ...]}
+
+plan_prompt: |
+  You review an analysis PLAN against a QUESTION. Nothing has been coded yet. You do not judge
+  code, style, efficiency, or whether the data is able to answer the question: ONLY whether this
+  plan, carried out exactly, produces what the question asks -- nothing more, nothing missing.
+
+  Question:
+  {{ question }}
+
+  Data facts, computed from the selected tables. A table description is what the publisher says,
+  not evidence about the data:
+  {{ data_facts }}
+
+  REAL column schema for the involved table(s) -- ONLY claim a column is missing if it is
+  genuinely absent from this exact list, never guess:
+  {{ real_columns }}
+
+  Plan:
+  {{ plan }}
+  {{ mechanical_notes }}
+
+  Check, in this order:
+  1. Coverage. Take every constraint the question states (entity, period, amount or count
+     threshold, category, measure, grouping, output shape). Each must be implemented by a plan
+     element. When the plan's question_coverage calls a constraint unnecessary, accept that only if
+     a data fact above proves the data already satisfies it; a description is not proof. A
+     constraint the plan drops or waters down is missing.
+  2. Nothing extra. Every filter, limit, deduplication or step must come from the question;
+     anything else is unjustified.
+  3. Meaning. Each measure and grouping means what the question means (a sum is not a mean, a
+     distinct count is not a row count, a fiscal quarter is not a calendar quarter).
+  4. Grounding. Filter columns and values are the ones the data facts show. A name the question
+     spells out may be stored abbreviated; that is right when the data facts show the abbreviation.
+  5. Output. The output columns answer what was asked, one row per thing asked about.
+
+  Respond with ONLY a JSON object:
+  {"approves_question_fidelity": true|false, "confidence": 0.0-1.0, "rationale": "one sentence", "missing_requirements": ["..."], "unjustified_steps": ["plan element and why"], "suggestions": ["one concrete change to the plan"]}

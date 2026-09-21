@@ -14,6 +14,13 @@ import re
 import sys
 from typing import Any
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+for _module_path in (ROOT_DIR, ROOT_DIR / "src"):
+    if str(_module_path) not in sys.path:
+        sys.path.insert(0, str(_module_path))
+
+from lakegen.core.catalogue import is_uninformative, strip_format_noise  # noqa: E402
+
 import duckdb
 from pneuma import Pneuma
 
@@ -381,10 +388,16 @@ def uk_metadata_text(dataset: dict[str, Any], resource: dict[str, Any]) -> str:
         if isinstance(dataset.get("organization"), dict)
         else {}
     )
+    # data.gov.uk names an ArcGIS-harvested resource after its format, so 3,574
+    # of 15,759 UK resources would otherwise contribute a bare "Resource: CSV"
+    # line. The dataset title above still names the table; this line only earns
+    # its place when the resource has a name of its own.
+    raw_name = str(resource.get("name") or "").strip()
+    resource_name = "" if is_uninformative(raw_name) else strip_format_noise(raw_name)
     parts = [
         str(dataset.get("title") or dataset.get("name") or "").strip(),
         str(dataset.get("notes") or "").strip(),
-        "Resource: " + str(resource.get("name") or "").strip(),
+        f"Resource: {resource_name}" if resource_name else "",
         str(resource.get("description") or "").strip(),
         "Publisher: "
         + str(organization.get("title") or organization.get("name") or "").strip(),

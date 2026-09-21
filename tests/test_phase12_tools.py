@@ -858,6 +858,58 @@ def test_semantic_plan_normalizes_reasonable_aliases_and_join_shape():
     }
 
 
+def test_semantic_plan_synthesizes_missing_measure_output_but_not_columns():
+    # Reproduces the live bug report: the agent supplied `aggregation` (an
+    # alias, already handled) and duplicated it under `operation`, but
+    # omitted `output` AND `columns`/`column` entirely. `output` is a pure
+    # label with no semantic content, so it's safe to synthesize
+    # deterministically; `columns` names real evidence (which column is
+    # being aggregated), so it is deliberately left missing rather than
+    # guessed -- SemanticAnalysisPlan should still reject a genuinely
+    # column-less measure.
+    normalized = _normalize_semantic_plan({
+        "measures": [{"aggregation": "sum", "operation": "sum", "table": "x.parquet"}],
+    }, ["x.parquet"])
+    measure = normalized["measures"][0]
+    assert measure["operation"] == "sum"
+    assert measure["output"] == "sum_value"  # synthesized, no columns to name it after
+    assert "columns" not in measure  # never invented
+
+
+def test_semantic_plan_synthesizes_measure_output_from_operation_and_column():
+    normalized = _normalize_semantic_plan({
+        "measures": [{"operation": "sum", "column": "Amount", "table": "x.parquet"}],
+    }, ["x.parquet"])
+    measure = normalized["measures"][0]
+    assert measure["columns"] == ["Amount"]
+    assert measure["output"] == "sum_amount"
+
+
+def test_semantic_plan_accepts_field_and_fields_as_column_aliases():
+    normalized = _normalize_semantic_plan({
+        "measures": [
+            {"operation": "sum", "field": "Amount", "table": "x.parquet"},
+            {"operation": "count_rows", "fields": ["RecordKey"], "table": "x.parquet"},
+        ],
+    }, ["x.parquet"])
+    assert normalized["measures"][0]["columns"] == ["Amount"]
+    assert normalized["measures"][1]["columns"] == ["RecordKey"]
+
+
+def test_semantic_plan_does_not_override_an_explicit_output():
+    normalized = _normalize_semantic_plan({
+        "measures": [{"operation": "sum", "column": "Amount", "output": "total_credit", "table": "x.parquet"}],
+    }, ["x.parquet"])
+    assert normalized["measures"][0]["output"] == "total_credit"
+
+
+def test_semantic_plan_synthesizes_dimension_output_from_column():
+    normalized = _normalize_semantic_plan({
+        "dimensions": [{"column": "Financial Year", "table": "x.parquet"}],
+    }, ["x.parquet"])
+    assert normalized["dimensions"][0]["output"] == "financial_year"
+
+
 def test_draft_compiler_adds_only_runtime_verifiable_fields():
     compiled = compile_semantic_plan_draft(
         {
@@ -1505,7 +1557,8 @@ def test_unified_adaptive_inspection_limits_are_enforced(monkeypatch, tmp_path):
     assert "Guided expansion" in manager.expand_candidates("table")
     assert manager.inspect_columns("table-4.parquet").startswith("Schema")
     assert manager.inspect_columns("table-5.parquet").startswith("Schema")
-    assert manager.inspect_columns("table-6.parquet").startswith("Inspection blocked")
+    assert manager.inspect_columns("table-6.parquet").startswith("Schema")
+    assert manager.inspect_columns("table-7.parquet").startswith("Inspection blocked")
 
 
 def test_unified_inspect_columns_resolves_candidate_number(monkeypatch, tmp_path):

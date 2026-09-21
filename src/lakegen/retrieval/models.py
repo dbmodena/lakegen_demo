@@ -95,6 +95,18 @@ class RetrievalRun:
     experiment_id: str | None = None
     retrieval_attempt: int | None = None
     hits: list[RetrievalHit] = field(default_factory=list)
+    # The literal q_op ("AND" or "OR") and entities passed to retrieve() --
+    # previously dropped before reaching RetrievalRun, so an observer could
+    # not distinguish an AND search from its OR-fallback retry, or see
+    # entity-mode input at all.
+    q_op: str | None = None
+    entities: list[str] | None = None
+    # top_k above holds whatever requested_k the caller actually passed
+    # (e.g. Phase12ToolsManager._search's widened fetch_k, not the
+    # experiment's configured value) -- configured_top_k is the retriever's
+    # own RetrievalConfig.top_k, kept separately so a UI can show both the
+    # real configured width and the literal fetch width used for this call.
+    configured_top_k: int | None = None
 
     def to_log_dict(self) -> dict[str, Any]:
         payload = asdict(self)

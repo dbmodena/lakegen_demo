@@ -1923,6 +1923,34 @@ def test_inspect_table_profiles_new_columns_from_same_cached_sample(tmp_path):
     assert state.table_profiled_columns["table.csv"] == {"Borough", "Year"}
 
 
+def test_inspect_table_surfaces_encoded_fiscal_year_span_warning(tmp_path):
+    # 20 consecutive fiscal-year-span codes ("200001".."201920") -- the exact
+    # encoding shape that caused a live bug (a bare `== 2016` filter matching
+    # zero rows). inspect_table should surface this proactively, before code
+    # is written, not only reactively via query_validator after execution.
+    codes = [f"{2000 + y}{(y + 1) % 100:02d}" for y in range(20)]
+    rows = "\n".join(f"{code},{10 + y}" for y, code in enumerate(codes))
+    (tmp_path / "table.csv").write_text(f"Financial Year,Amount\n{rows}\n", encoding="utf-8")
+    _state, manager = _agentic_tools(tmp_path)
+
+    response = json.loads(manager.inspect_table("table.csv", "Financial Year"))
+
+    profile = response["requested_column_profiles"]["Financial Year"]
+    assert "encoded_value_warning" in profile
+    assert "201617" in profile["encoded_value_warning"] or "fiscal" in profile["encoded_value_warning"]
+
+
+def test_inspect_table_omits_encoded_span_warning_for_plain_years(tmp_path):
+    rows = "\n".join(f"{2015 + (y % 4)},{10 + y}" for y in range(20))
+    (tmp_path / "table.csv").write_text(f"Year,Amount\n{rows}\n", encoding="utf-8")
+    _state, manager = _agentic_tools(tmp_path)
+
+    response = json.loads(manager.inspect_table("table.csv", "Year"))
+
+    profile = response["requested_column_profiles"]["Year"]
+    assert "encoded_value_warning" not in profile
+
+
 def test_reject_tables_requires_evidence_and_returns_structured_marker(tmp_path):
     (tmp_path / "table.csv").write_text("Year\n2020\n", encoding="utf-8")
     state, manager = _agentic_tools(tmp_path)

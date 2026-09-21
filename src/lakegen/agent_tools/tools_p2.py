@@ -7,20 +7,21 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from llama_index.core.tools import FunctionTool
 
-from lakegen.core.table_io import iter_table_chunks, read_table, table_row_count
+from lakegen.core.table_io import (
+    iter_table_chunks,
+    read_table,
+    read_table_sample,
+    table_row_count,
+)
 from lakegen.core.types import SolrMetadata
 from lakegen.phases.utils import format_candidate_context
 from lakegen.agent_tools.requirement_ledger import (
     build_requirement_ledger,
     requirement_ledger_blockers,
 )
-from lakegen.agent_tools.schema_matching import (
-    SM_MACRO_AVG_THRESHOLD,
-    SM_MICRO_AVG_THRESHOLD,
-    join_evidence,
-    union_evidence,
-    verify_pair_schema,
-)
+from lakegen.agent_tools.join_keys import find_join_keys, format_join_section
+from lakegen.agent_tools.schema_matching import verify_pair_schema
+from lakegen.agent_tools.union_mapping import format_union_section, union_by_names
 
 # ==========================================
 # TOOLS
@@ -36,10 +37,19 @@ MAX_TEMPORAL_PROFILE_ROWS = 500_000
 MAX_INSPECTIONS_PER_FILE = 2
 MIN_BAN_JUSTIFICATION_CHARS = 10
 
+# A separator is anything but a letter or digit: "invoice_date", "Invoice
+# Payment Date" and "Payment-Date" all name a date, "candidate" and "update"
+# do not.
 _TEMPORAL_COLUMN_PATTERN = re.compile(
-    r"(^|_)(date|datetime|timestamp|time|year)($|_)",
+    r"(^|[^a-z0-9])(date|datetime|timestamp|time|year)($|[^a-z0-9])",
     re.IGNORECASE,
 )
+_YEAR_COLUMN_PATTERN = re.compile(
+    r"(^|[^a-z0-9])year($|[^a-z0-9])",
+    re.IGNORECASE,
+)
+# The first two fields of a numeric date such as 02/01/2025 or 2.1.25.
+_NUMERIC_DATE_FIELDS = re.compile(r"^\s*(\d{1,2})[/.\-](\d{1,2})[/.\-]\d{2,4}")
 _QUESTION_YEAR_PATTERN = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
 _COVERAGE_RANGE_PATTERN = re.compile(
     r"^-[^:]+:\s*((?:19|20)\d{2})(?:-\d{2}-\d{2})?\s+to\s+"
@@ -48,15 +58,47 @@ _COVERAGE_RANGE_PATTERN = re.compile(
 )
 
 
+# A fiscal year as it is written in titles and questions: 2020/21, 2020/2021,
+# 2020-21.
+_FISCAL_YEAR_PATTERN = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*[/\-]\s*(\d{4}|\d{2})(?!\d)")
+
+
+def _requested_periods(question: str) -> list[tuple[int, ...]]:
+    """The periods a question names, each as the calendar years it may fall in.
+
+    A fiscal year such as 2020/21 spans two calendar years, and a table holding
+    its last quarter has only dates in the second, so it is met by coverage of
+    either one. A bare year is a period of its own.
+    """
+
+    def fiscal_year(match: re.Match[str]) -> str:
+        start = int(match.group(1))
+        tail = match.group(2)
+        end = int(tail) if len(tail) == 4 else start - start % 100 + int(tail)
+        if end < start:  # 1999/00
+            end += 100
+        if end != start + 1:  # a range such as 2015-2020, or a date such as 2020-01
+            return match.group(0)
+        periods.append((start, end))
+        return " "
+
+    periods: list[tuple[int, ...]] = []
+    remainder = _FISCAL_YEAR_PATTERN.sub(fiscal_year, question)
+    periods.extend((int(value),) for value in _QUESTION_YEAR_PATTERN.findall(remainder))
+    return sorted(dict.fromkeys(periods))
+
+
+def _period_label(period: tuple[int, ...]) -> str:
+    return str(period[0]) if len(period) == 1 else f"{period[0]}/{str(period[1])[2:]}"
+
+
 def _temporal_coverage_issue(
     question: str,
     tables: list[str],
     inspection_cache: dict[str, str],
 ) -> str | None:
     """Return an issue only when measured coverage proves insufficiency."""
-    requested = sorted(
-        {int(value) for value in _QUESTION_YEAR_PATTERN.findall(question)}
-    )
+    requested = _requested_periods(question)
     if not requested:
         return None
 
@@ -73,16 +115,18 @@ def _temporal_coverage_issue(
         return None
 
     missing = [
-        year
-        for year in requested
-        if not any(start <= year <= end for start, end in ranges)
+        period
+        for period in requested
+        if not any(
+            start <= year <= end for year in period for start, end in ranges
+        )
     ]
     if not missing:
         return None
     measured = ", ".join(f"{start}-{end}" for start, end in ranges)
     return (
-        f"requested year(s) {missing} are outside the inspected temporal "
-        f"coverage ({measured})"
+        f"requested period(s) {[_period_label(period) for period in missing]} "
+        f"are outside the inspected temporal coverage ({measured})"
     )
 
 
@@ -162,6 +206,32 @@ def _table_path(table_dir: Path, file_name: str) -> Path:
     return Path(table_dir) / file_name.strip()
 
 
+def _parse_datetimes(series: pd.Series) -> pd.Series:
+    """Parse a date column, taking the day/month order from the data itself.
+
+    A numeric date such as 02/01/2025 is ambiguous, and pandas reads it
+    month-first: a January to March table in the UK's day-first format then
+    appears to run from January to December. A value whose first field exceeds
+    12 can only be day-first, and one whose second field exceeds 12 only
+    month-first, so the column's own values settle it.
+    """
+    if pd.api.types.is_numeric_dtype(series.dtype):
+        # A duration such as "Response Time" is not a date, and a number read
+        # as a timestamp lands in 1970.
+        return pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns, UTC]")
+    dayfirst = False
+    if not pd.api.types.is_datetime64_any_dtype(series.dtype):
+        fields = (
+            series.dropna().astype(str).str.extract(_NUMERIC_DATE_FIELDS)
+            .apply(pd.to_numeric, errors="coerce")
+        )
+        if not fields.empty:
+            dayfirst = bool((fields[0] > 12).any() and not (fields[1] > 12).any())
+    return pd.to_datetime(
+        series, errors="coerce", utc=True, format="mixed", dayfirst=dayfirst
+    )
+
+
 def _temporal_profile(path: Path, columns: list[str]) -> tuple[str, list[str]]:
     """Return row count and bounded coverage for likely temporal columns."""
     temporal_columns = [
@@ -193,16 +263,11 @@ def _temporal_profile(path: Path, columns: list[str]) -> tuple[str, list[str]]:
             series = chunk[col]
             col_stats = stats[col]
 
-            if re.search(r"(^|_)year($|_)", str(col), re.IGNORECASE):
+            if _YEAR_COLUMN_PATTERN.search(str(col)):
                 parsed = pd.to_numeric(series, errors="coerce")
                 parsed = parsed[(parsed >= 1000) & (parsed <= 3000)]
             else:
-                parsed = pd.to_datetime(
-                    series,
-                    errors="coerce",
-                    utc=True,
-                    format="mixed",
-                )
+                parsed = _parse_datetimes(series)
 
             parsed = parsed.dropna()
             if parsed.empty:
@@ -337,93 +402,71 @@ def _preview_data(table_dir: Path, file_name: str, n_rows: int = 3) -> str:
         return f"Error: {str(e)}"
 
 
+# Rows measured per table by check_join_union. Shared-value counts and column mappings only need a
+# bounded sample; COMA is given a much smaller one (schema_matching.COMA_SAMPLE_ROWS).
+PAIR_SAMPLE_ROWS = 200_000
+
+
+def _sampling_note(name: str, frame: pd.DataFrame, total: int | None) -> str:
+    if total is not None and total > len(frame):
+        return f"'{name}' was sampled ({len(frame):,} of {total:,} rows)"
+    if total is None and len(frame) >= PAIR_SAMPLE_ROWS:
+        return f"'{name}' was cut to its first {len(frame):,} rows"
+    return ""
+
+
 def _format_join_union(
     file_name_1: str,
     file_name_2: str,
-    q_columns: list[str],
-    evidence: dict[str, object],
-    table_shapes: tuple[tuple[int, int], tuple[int, int]],
+    q: pd.DataFrame,
+    r: pd.DataFrame,
+    totals: tuple[int | None, int | None],
+    matches: list[tuple[str, str, float]],
 ) -> str:
-    """State whether two tables join or union with each other, never mere schema overlap."""
-    left, right = f"'{file_name_1}'", f"'{file_name_2}'"
-    average, best = evidence["sm_macro_avg"], evidence["sm_micro_avg"]
+    """Report whether two tables join and whether they union, from measured values and coverage."""
     sizes = "; ".join(
-        f"{name} {rows:,} rows x {columns} columns"
-        for name, (rows, columns) in zip((left, right), table_shapes)
+        f"'{name}' {len(frame):,} rows x {frame.shape[1]} columns"
+        for name, frame in ((file_name_1, q), (file_name_2, r))
     )
     lines = [
-        f"Join/union check between {left} and {right} "
-        f"(Valentine over all rows and columns: {sizes})."
+        f"Join/union check between '{file_name_1}' and '{file_name_2}' "
+        f"(Valentine column matching; values measured on {sizes})."
     ]
-
-    # The average never exceeds the best score, so OrQa's pair gate passes
-    # exactly when the best column pair supports a join.
-    join = join_evidence(evidence)
-    if not join["supported"]:
-        lines.append(
-            f"NO RELATIONSHIP: {left} neither joins nor unions with {right} "
-            f"(best match score {best:.3f} < {SM_MICRO_AVG_THRESHOLD})."
+    sampled = [
+        note
+        for note in (
+            _sampling_note(file_name_1, q, totals[0]),
+            _sampling_note(file_name_2, r, totals[1]),
         )
-        return "\n".join(lines)
-
-    def key_pair(q_col: str, r_col: str) -> str:
-        return f"{q_col} ({file_name_1}) = {r_col} ({file_name_2})"
-
-    q_key, r_key = join["key"]
+        if note
+    ]
+    if sampled:
+        lines.append(
+            "Note: " + "; ".join(sampled) + " -- shared-value counts are lower bounds and "
+            "uniqueness is an upper bound."
+        )
     lines.append(
-        f"JOIN: {left} joins {right} on {key_pair(q_key, r_key)} "
-        f"(match score {join['score']:.3f} >= {SM_MICRO_AVG_THRESHOLD})."
+        format_join_section(file_name_1, file_name_2, find_join_keys(q, r, matches), q, r)
     )
-    if join["alternatives"]:
-        lines.append(
-            "  Alternative join keys: "
-            + "; ".join(
-                f"{key_pair(q_col, r_col)} ({score:.3f})"
-                for q_col, r_col, score in join["alternatives"]
-            )
-        )
-
-    union = union_evidence(evidence, q_columns)
-    if union["supported"]:
-        aligned = ", ".join(
-            f"{q_col} -> {r_col} ({score:.3f})"
-            for q_col, r_col, score in zip(
-                union["q_columns"], union["r_columns"], union["column_scores"]
-            )
-        )
-        lines.append(
-            f"UNION: {left} unions with {right}, aligning {left} -> {right} columns: "
-            f"{aligned}; {len(set(union['q_columns']))} of {len(q_columns)} columns of "
-            f"{left} aligned (average match score {average:.3f} >= {SM_MACRO_AVG_THRESHOLD})."
-        )
-    else:
-        lines.append(
-            f"UNION: {left} does not union with {right} "
-            f"(average match score {average:.3f} < {SM_MACRO_AVG_THRESHOLD})."
-        )
+    lines.append(format_union_section(file_name_1, file_name_2, union_by_names(q, r, matches)))
     return "\n".join(lines)
 
 
 def _check_join_union(table_dir: Path, file_name_1: str, file_name_2: str) -> str:
-    """Decide with OrQa's Valentine criteria whether two tables join or union."""
+    """Measure whether two tables join (shared key values) or union (mappable columns)."""
     try:
-        frames = [
-            read_table(_table_path(table_dir, file_name))
+        (q, q_total), (r, r_total) = (
+            read_table_sample(_table_path(table_dir, file_name), PAIR_SAMPLE_ROWS)
             for file_name in (file_name_1, file_name_2)
-        ]
-        evidence = verify_pair_schema(*frames)
+        )
+        matches = verify_pair_schema(q, r)["matches"]
+        report = _format_join_union(
+            file_name_1, file_name_2, q, r, (q_total, r_total), matches
+        )
     except Exception as e:
         return f"Error checking join/union between '{file_name_1}' and '{file_name_2}': {e}. Try different tables."
 
-    return _compact_tool_output(
-        _format_join_union(
-            file_name_1,
-            file_name_2,
-            list(frames[0].columns),
-            evidence,
-            (frames[0].shape, frames[1].shape),
-        )
-    )
+    return _compact_tool_output(report)
 
 
 _EXPANSION_STOPWORDS = {
@@ -649,9 +692,11 @@ class Phase2JudgeToolsManager:
 
     def check_join_union(self, file_name_1: str, file_name_2: str) -> str:
         """
-        Check whether two tables join or union with each other. Reports the join
-        key columns when they join, the aligned columns when they union, or that
-        they neither join nor union.
+        Check whether two tables join or union by measuring their values. Reports
+        ranked join-key candidates with shared-value counts, cardinality and join size
+        (or that no name-similar key shares values), and a union verdict (UNION,
+        SUBSET UNION, PARTIAL UNION or NO UNION) with the column mapping and any type
+        clashes.
         """
         return _check_join_union(self.csv_dir, file_name_1, file_name_2)
 

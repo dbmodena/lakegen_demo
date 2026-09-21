@@ -47,6 +47,12 @@ _MESSAGES: dict[str, str] = {
         "The Code Generator rejected the selected tables.\n\n"
         "Feedback: {feedback}"
     ),
+    "workflow.review_declined": (
+        "The generated code executed, but automated review (plan/validator/code judge) "
+        "never approved it after {stage_max_retries} tries per stage -- the answer is being "
+        "withheld rather than shown with false confidence.\n\n"
+        "Feedback: {feedback}"
+    ),
     "workflow.reevaluate_tables": "Re-evaluate tables",
     "workflow.force_execution": "Force execution",
     "summary.none": "_none_",
