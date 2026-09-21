@@ -295,17 +295,6 @@ wheels = [
 ]
 
 [[package]]
-name = "blend"
-version = "0.3.2"
-source = { git = "https://github.com/nanni00/Blend#539423273610ffc764055e42c4778210ff08ed73" }
-dependencies = [
-    { name = "duckdb" },
-    { name = "polars" },
-    { name = "pyarrow" },
-    { name = "tqdm" },
-]
-
-[[package]]
 name = "certifi"
 version = "2026.4.22"
 source = { registry = "https://pypi.org/simple" }
@@ -1138,7 +1127,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "bitarray" },
-    { name = "blend" },
     { name = "chainlit" },
     { name = "dotenv" },
     { name = "duckdb" },
@@ -1168,7 +1156,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "bitarray", specifier = ">=3.8.0" },
-    { name = "blend", git = "https://github.com/nanni00/Blend" },
     { name = "chainlit", specifier = ">=2.11,<3" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "duckdb", specifier = ">=1.5.1" },

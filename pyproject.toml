@@ -22,7 +22,6 @@ dependencies = [
     "chainlit>=2.11,<3",
     "valentine>=1.0.0",
     "nest-asyncio>=1.6.0",
-    "blend",
     "llama-index-embeddings-ollama>=0.9.0",
     # Temporarily disabled: it pulls in the GPU-enabled PyTorch/CUDA stack.
     # Re-enable together with LAKEGEN_ENABLE_TABPFN=1 when TabPFN is needed.
@@ -35,9 +34,6 @@ dependencies = [
     "oci>=2.184.0",
     "llama-index-llms-oci-genai>=0.7.0",
 ]
-
-[tool.uv.sources]
-blend = { git = "https://github.com/nanni00/Blend" }
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
