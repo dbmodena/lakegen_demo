@@ -35,7 +35,9 @@ queries
 # Benchmark question sets are versioned for reproducible evaluations.
 
 # Local generic scripts are intentionally kept outside version control.
-scripts/
+scripts/*
+# This is a supported operational client, rather than a machine-local helper.
+!scripts/submit_parallel_batches.py
 
 # Pneuma local runtime, virtual environment, and generated indexes.
 .pneuma/

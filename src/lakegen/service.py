@@ -985,7 +985,12 @@ def run_question(
                 plan_signature = _selection_plan_signature(
                     selected, selection_state.selection_plan
                 )
-                if plan_signature in rejected_plan_feedback:
+                # An empty selection has no plan identity. It can occur when
+                # discovery itself failed (for example while its executor was
+                # shutting down); treating ``{"tables": [], "plan": {}}`` as
+                # a repeated rejected plan hides that operational failure and
+                # turns every retry into a misleading selection-gate block.
+                if selected and plan_signature in rejected_plan_feedback:
                     feedback = rejected_plan_feedback[plan_signature]
                     selection_record["outcome"] = "unchanged_rejected_plan"
                     selection_record["rejection_feedback"] = feedback

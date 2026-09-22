@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import statistics
 import sys
 import threading
@@ -106,10 +107,30 @@ class BatchAccepted(StrictModel):
     status_url: str
 
 
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lakegen-batch")
+def _positive_int_from_env(name: str, default: int) -> int:
+    """Read a positive worker limit without making API startup fragile."""
+
+    raw = os.environ.get(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r; using %s", name, raw, default)
+        return default
+    if value < 1:
+        logger.warning("Ignoring non-positive %s=%r; using %s", name, raw, default)
+        return default
+    return value
+
+
+# A workflow may already parallelise table scans internally. Keep the safe
+# historical default, while allowing a bounded number of questions/batches in flight.
+WORKFLOW_WORKERS = _positive_int_from_env("LAKEGEN_WORKFLOW_WORKERS", 1)
+_executor = ThreadPoolExecutor(
+    max_workers=WORKFLOW_WORKERS, thread_name_prefix="lakegen-batch"
+)
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
-_workflow_lock = threading.Lock()
+_workflow_lock = threading.BoundedSemaphore(WORKFLOW_WORKERS)
 
 
 def _resolve_api_config(

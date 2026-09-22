@@ -153,27 +153,30 @@ def _select(cases: list[dict[str, Any]], *, count: int, seed: int) -> tuple[list
     for case in cases:
         pool[(case["difficulty"], case["table_scope"])].append(case)
 
-    # Keep a fixed one-third multi-table quota. This gives each benchmark a
-    # consistent amount of join reasoning without depending on its full pool.
-    multi_target = (count + 2) // 3
+    # Prefer a one-third multi-table quota, then reduce it when the source pool
+    # cannot support that target while preserving the difficulty quotas.
+    preferred_multi_target = (count + 2) // 3
     allocations: list[tuple[int, int, int]] = []
-    for easy_multi in range(quotas["easy"] + 1):
-        for medium_multi in range(quotas["medium"] + 1):
-            hard_multi = multi_target - easy_multi - medium_multi
-            proposed = {"easy": easy_multi, "medium": medium_multi, "hard": hard_multi}
-            if all(
-                0 <= proposed[difficulty] <= len(pool[(difficulty, "multi_table")])
-                and quotas[difficulty] - proposed[difficulty] <= len(pool[(difficulty, "single_table")])
-                for difficulty in DIFFICULTIES
-            ):
-                allocations.append((easy_multi, medium_multi, hard_multi))
+    multi_target = preferred_multi_target
+    while multi_target >= 0 and not allocations:
+        for easy_multi in range(quotas["easy"] + 1):
+            for medium_multi in range(quotas["medium"] + 1):
+                hard_multi = multi_target - easy_multi - medium_multi
+                proposed = {"easy": easy_multi, "medium": medium_multi, "hard": hard_multi}
+                if all(
+                    0 <= proposed[difficulty] <= len(pool[(difficulty, "multi_table")])
+                    and quotas[difficulty] - proposed[difficulty] <= len(pool[(difficulty, "single_table")])
+                    for difficulty in DIFFICULTIES
+                ):
+                    allocations.append((easy_multi, medium_multi, hard_multi))
+        multi_target -= 1
     if not allocations:
         availability = {
             difficulty: {scope: len(pool[(difficulty, scope)]) for scope in scopes}
             for difficulty in DIFFICULTIES
         }
         raise ValueError(
-            "Cannot satisfy the requested difficulty and one-third "
+            "Cannot satisfy the requested difficulty "
             f"multi-table quotas; available={availability}, quotas={quotas}"
         )
 
@@ -242,8 +245,8 @@ def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: s
             "selection": "balanced_by_difficulty_and_table_scope",
             "difficulty_quotas": _difficulty_quotas(count),
             "table_scope_requirements": {
-                "multi_table": (count + 2) // 3,
-                "single_table": count - ((count + 2) // 3),
+                "multi_table": sum(row["multi_table"] for row in matrix.values()),
+                "single_table": sum(row["single_table"] for row in matrix.values()),
             },
             "strata": matrix,
             "skipped_invalid_generated_records": len(rejected),

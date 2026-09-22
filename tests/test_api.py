@@ -28,6 +28,15 @@ def test_batch_source_key_uses_path_when_source_id_is_missing():
     assert api._batch_source_key(first) != api._batch_source_key(second)
 
 
+def test_positive_int_from_env_uses_default_for_invalid_values(monkeypatch):
+    monkeypatch.setenv("TEST_LAKEGEN_WORKERS", "0")
+    assert api._positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 2
+    monkeypatch.setenv("TEST_LAKEGEN_WORKERS", "invalid")
+    assert api._positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 2
+    monkeypatch.setenv("TEST_LAKEGEN_WORKERS", "3")
+    assert api._positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 3
+
+
 def test_benchmark_catalog_queues_its_complete_case_metadata(tmp_path, monkeypatch):
     benchmark = tmp_path / "sample.json"
     benchmark.write_text(

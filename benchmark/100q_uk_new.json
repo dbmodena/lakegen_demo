@@ -1,0 +1,3229 @@
+{
+  "sample_metadata": {
+    "source": "queries/generated_queries_uk_new.json",
+    "sampling_seed": 42,
+    "count": 100,
+    "status_filter": "success",
+    "selection": "balanced_by_difficulty_and_table_scope",
+    "difficulty_quotas": {
+      "easy": 34,
+      "medium": 33,
+      "hard": 33
+    },
+    "table_scope_requirements": {
+      "multi_table": 2,
+      "single_table": 98
+    },
+    "strata": {
+      "easy": {
+        "multi_table": 1,
+        "single_table": 33
+      },
+      "medium": {
+        "multi_table": 1,
+        "single_table": 32
+      },
+      "hard": {
+        "multi_table": 0,
+        "single_table": 33
+      }
+    },
+    "skipped_invalid_generated_records": 33
+  },
+  "cases": [
+    {
+      "id": "3180ce60",
+      "question": "What departments are organizing events in Plymouth in 2024, and how many events does each department host?",
+      "keywords": [
+        "2024",
+        "what"
+      ],
+      "relevant_table_ids": [
+        "efecd0e1-540a-47e0-b57e-abc89502f8f6___d0fb831a-b169-4822-935d-6e8ecdfc1121"
+      ],
+      "table_aliases": {
+        "Table_0": "efecd0e1-540a-47e0-b57e-abc89502f8f6___d0fb831a-b169-4822-935d-6e8ecdfc1121"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(event_year=Table_0['Date'].str.extract(r'(\\d{4})').astype(int))\n    .loc[lambda df: df['event_year'] == 2024]\n    .groupby('Department', as_index=False)\n    .agg(event_count=('Event', 'count'))\n    .sort_values(by='event_count', ascending=False)\n    [['Department', 'event_count']]\n)",
+      "reference_result": [
+        {
+          "Department": "CCC",
+          "event_count": 4
+        },
+        {
+          "Department": "PCC",
+          "event_count": 3
+        },
+        {
+          "Department": "PWP",
+          "event_count": 3
+        },
+        {
+          "Department": "PCC in partnership with the Military",
+          "event_count": 2
+        },
+        {
+          "Department": "Lord Mayors Parlour",
+          "event_count": 1
+        },
+        {
+          "Department": "PCC/Live Nation",
+          "event_count": 1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per department showing the number of events each department organizes in Plymouth during 2024."
+    },
+    {
+      "id": "1771dc95",
+      "question": "How many assets are in the TfGM property type that has the most assets?",
+      "keywords": [
+        "property",
+        "tfgm"
+      ],
+      "relevant_table_ids": [
+        "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
+      ],
+      "table_aliases": {
+        "Table_0": "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
+      },
+      "reference_code": "result = (Table_0.groupby('Internal Category').size().reset_index(name='category_count').sort_values('category_count', ascending=False).head(1)['category_count'].iloc[0])",
+      "reference_result": [
+        {
+          "0": 140
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The number of assets belonging to the property type that appears most frequently in the TfGM asset list."
+    },
+    {
+      "id": "70aaee4e",
+      "question": "What is the average bush contribution score across Northern Ireland?",
+      "keywords": [
+        "bush"
+      ],
+      "relevant_table_ids": [
+        "1dcd7e8c-baf5-49fe-9c99-002cbf571a06___9bfdb6d9-871f-45a2-921b-a8a0e8ea887f"
+      ],
+      "table_aliases": {
+        "Table_0": "1dcd7e8c-baf5-49fe-9c99-002cbf571a06___9bfdb6d9-871f-45a2-921b-a8a0e8ea887f"
+      },
+      "reference_code": "avg_gridcode = Table_0['GRIDCODE'].mean()",
+      "reference_result": [
+        {
+          "result": 75.0648851433
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average bush contribution score (GRIDCODE) across all grid cells in Northern Ireland."
+    },
+    {
+      "id": "5df0375d",
+      "question": "Which combined authority in England has the largest area in the official 2022 boundaries?",
+      "keywords": [
+        "2022",
+        "combined"
+      ],
+      "relevant_table_ids": [
+        "54704669-ddb0-424c-bf45-6fa120671e0d___79d293e1-2ffb-451c-a67d-0e7d3b27a71d"
+      ],
+      "table_aliases": {
+        "Table_0": "54704669-ddb0-424c-bf45-6fa120671e0d___79d293e1-2ffb-451c-a67d-0e7d3b27a71d"
+      },
+      "reference_code": "Table_0.sort_values(by='Shape__Area', ascending=False, key=lambda col: pd.to_numeric(col, errors='coerce')).head(1)['CAUTH22NM'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "North of Tyne"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the combined authority with the greatest Shape__Area in the 2022 official boundaries."
+    },
+    {
+      "id": "a8718a24",
+      "question": "Which three culture‑species combinations have the greatest total aquaculture area in Northern Ireland, and what is the total and average area for each of those combinations?",
+      "keywords": [
+        "aquaculture"
+      ],
+      "relevant_table_ids": [
+        "9522938c-3397-4857-a46d-17391e604181___0c00e059-51f5-4882-a1ea-544f2d04c215"
+      ],
+      "table_aliases": {
+        "Table_0": "9522938c-3397-4857-a46d-17391e604181___0c00e059-51f5-4882-a1ea-544f2d04c215"
+      },
+      "reference_code": "result = (\n    Table_0.groupby(['Culture', 'Main Species'])\n    .agg(total_area=('Area (hectares)', 'sum'), avg_area=('Area (hectares)', 'mean'))\n    .reset_index()\n    .sort_values(by='total_area', ascending=False)\n    .head(3)\n    [['Culture', 'Main Species', 'total_area', 'avg_area']]\n)",
+      "reference_result": [
+        {
+          "Culture": "Bottom Culture",
+          "Main Species": "Mussels",
+          "total_area": 1599.425,
+          "avg_area": 49.98203125
+        },
+        {
+          "Culture": "Trestle",
+          "Main Species": "Pacific Oyster",
+          "total_area": 212.672,
+          "avg_area": 21.2672
+        },
+        {
+          "Culture": "Cage",
+          "Main Species": "Atlantic Salmon",
+          "total_area": 115.931,
+          "avg_area": 57.9655
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each representing a culture‑species combination with the highest total aquaculture area in Northern Ireland, showing the combination, its total area (hectares) and its average site area (hectares)."
+    },
+    {
+      "id": "a8e35ba7",
+      "question": "What is the area of the Belfast Travel to Work Area as defined on 31 December 2001 according to the BFC travel TTWA data?",
+      "keywords": [
+        "bfc",
+        "travel",
+        "ttwa"
+      ],
+      "relevant_table_ids": [
+        "767e3909-035c-401e-bf58-7d82902a456b___e4bd4b6c-9f84-40b7-b2f6-19d85db4ecc8"
+      ],
+      "table_aliases": {
+        "Table_0": "767e3909-035c-401e-bf58-7d82902a456b___e4bd4b6c-9f84-40b7-b2f6-19d85db4ecc8"
+      },
+      "reference_code": "belfast_area = Table_0[Table_0['ttwa01nm'] == 'Belfast']['Shape__Area'].sum()",
+      "reference_result": [
+        {
+          "result": 2690533263.42851
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total area of the Belfast Travel to Work Area in square metres as defined on 31 December 2001."
+    },
+    {
+      "id": "3935c393",
+      "question": "Which three areas in Leeds had the biggest jump in total business‑rate credits over £50 written off as refunds between any two consecutive financial years, according to the 14 July 2016 data, and what were the percentage increases?",
+      "keywords": [
+        "14"
+      ],
+      "relevant_table_ids": [
+        "46df84a7-eac4-4beb-ae7c-6e2460bd1e1a___4419a45f-1b04-4c2a-b810-c96bb1d8b83f"
+      ],
+      "table_aliases": {
+        "Table_0": "46df84a7-eac4-4beb-ae7c-6e2460bd1e1a___4419a45f-1b04-4c2a-b810-c96bb1d8b83f"
+      },
+      "reference_code": "table = Table_0\nTable_0['Amount written-off'] = pd.to_numeric(Table_0['Amount written-off'], errors='coerce')\nyearly = (\n    Table_0\n    .groupby(['Postcode', 'Financial Year'], as_index=False)['Amount written-off']\n    .sum()\n    .rename(columns={'Amount written-off': 'year_total'})\n)\nmax_increase = (\n    yearly\n    .sort_values(['Postcode', 'Financial Year'])\n    .groupby('Postcode')\n    .apply(lambda g: pd.Series({\n        'max_pct_increase': (g['year_total'].pct_change() * 100).max()\n    }))\n    .reset_index()\n)\nresult = max_increase.sort_values('max_pct_increase', ascending=False).head(3)",
+      "reference_result": [
+        {
+          "Postcode": "LS1 5JW",
+          "max_pct_increase": null
+        },
+        {
+          "Postcode": "LS1 5HG",
+          "max_pct_increase": null
+        },
+        {
+          "Postcode": "LS1 5QS",
+          "max_pct_increase": null
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each showing a postcode area and the largest percentage increase between any two consecutive financial years in total refunds, sorted from highest to lowest increase."
+    },
+    {
+      "id": "3b05cf28",
+      "question": "What is the FRA code for the fire and rescue authority named Avon in the 2016 names list?",
+      "keywords": [
+        "2016",
+        "fra",
+        "names"
+      ],
+      "relevant_table_ids": [
+        "ee148c3c-d076-4b95-b22c-835d22b0476f___cf7d20b8-3b5a-4ecd-9de0-aa4c2f2c9786"
+      ],
+      "table_aliases": {
+        "Table_0": "ee148c3c-d076-4b95-b22c-835d22b0476f___cf7d20b8-3b5a-4ecd-9de0-aa4c2f2c9786"
+      },
+      "reference_code": "Table_0.loc[Table_0['FRA16NM'].str.lower() == 'avon'.lower(), 'FRA16CD'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "E31000001"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The FRA16CD code (e.g., 'E31000001') for the fire and rescue authority whose name is Avon in the 2016 list."
+    },
+    {
+      "id": "6cc20859",
+      "question": "For each bedrock type, which two line types have the highest average length of linear bedrock units along the Northern Ireland coastline, and what is the total length of those line types?",
+      "keywords": [
+        "linear"
+      ],
+      "relevant_table_ids": [
+        "fff315f7-05e2-4c7e-901e-af7b3a57680e___755d2944-92a0-47ba-98c1-75fc3923ea49"
+      ],
+      "table_aliases": {
+        "Table_0": "fff315f7-05e2-4c7e-901e-af7b3a57680e___755d2944-92a0-47ba-98c1-75fc3923ea49"
+      },
+      "reference_code": "avg_len = Table_0.groupby(['TYPE', 'LINE_TYPE'], as_index=False)['Shape__Length'].mean().rename(columns={'Shape__Length': 'avg_length'})\navg_len = avg_len.assign(rank=avg_len.groupby('TYPE')['avg_length'].rank(method='first', ascending=False))\ntop2 = avg_len[avg_len['rank'] <= 2]\njoined = Table_0.merge(top2[['TYPE', 'LINE_TYPE']], on=['TYPE', 'LINE_TYPE'], how='inner')\ntotal_len = joined.groupby('TYPE', as_index=False)['Shape__Length'].sum().rename(columns={'Shape__Length': 'top2_total_length'})\nfinal = top2.merge(total_len, on='TYPE', how='inner')\nresult = final[['TYPE', 'LINE_TYPE', 'top2_total_length']]",
+      "reference_result": [
+        {
+          "TYPE": "COAL",
+          "LINE_TYPE": "Coal_Inf",
+          "top2_total_length": 7076.2172525732
+        },
+        {
+          "TYPE": "COAL",
+          "LINE_TYPE": "Coal_Obs",
+          "top2_total_length": 7076.2172525732
+        },
+        {
+          "TYPE": "MARINE",
+          "LINE_TYPE": "Marine_band",
+          "top2_total_length": 2023.7208805013
+        },
+        {
+          "TYPE": "UNDIFF",
+          "LINE_TYPE": "Ironstone_Inf",
+          "top2_total_length": 679.7892515377
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Rows for each bedrock TYPE, each of its two LINE_TYPEs with the highest average length, and the combined total length (in metres) of those two line types."
+    },
+    {
+      "id": "edf43309",
+      "question": "Which month between October 2012 and October 2013 had the highest average benthic ash‑free dry mass for coarse particulate organic matter at the Till river site, and what was that average value?",
+      "keywords": [
+        "benthic"
+      ],
+      "relevant_table_ids": [
+        "58da1643-837f-44e2-a82d-3b6cc3dcb8d6___31fdbf68-bb5a-4943-896d-0606e5695f16"
+      ],
+      "table_aliases": {
+        "Table_0": "58da1643-837f-44e2-a82d-3b6cc3dcb8d6___31fdbf68-bb5a-4943-896d-0606e5695f16"
+      },
+      "reference_code": "(Table_0\n    .assign(_date=pd.to_datetime(Table_0['SAMPLE_DATE'], dayfirst=True))\n    .loc[lambda df: (df['RIVER_NAME'] == 'Till') &\n                     (df['POM_Fraction'] == 'Coarse particulate organic matter') &\n                     (df['_date'] >= pd.Timestamp('2012-10-01')) &\n                     (df['_date'] <= pd.Timestamp('2013-10-31'))]\n    .assign(month_year=lambda df: df['_date'].dt.strftime('%b-%y'))\n    .groupby('month_year', as_index=False)['Mean_AFDM_mgperm2']\n    .mean()\n    .rename(columns={'Mean_AFDM_mgperm2': 'avg_AFDM'})\n    .sort_values('avg_AFDM', ascending=False)\n    .head(1))",
+      "reference_result": [
+        {
+          "month_year": "Aug-13",
+          "avg_AFDM": 46348.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the month (e.g., 'Nov-12') that achieved the highest average ash‑free dry mass for the coarse particulate fraction at Till, together with that average value (mg per m²)."
+    },
+    {
+      "id": "a60c8f22",
+      "question": "How many UK districts are listed in the 2022 BFE boundaries dataset?",
+      "keywords": [
+        "2022",
+        "bfe",
+        "districts"
+      ],
+      "relevant_table_ids": [
+        "d2724ae1-848d-4b97-baf0-63d769bcf28e___393d7c3a-8bb3-4a25-88b0-5ba94f4a9d5b"
+      ],
+      "table_aliases": {
+        "Table_0": "d2724ae1-848d-4b97-baf0-63d769bcf28e___393d7c3a-8bb3-4a25-88b0-5ba94f4a9d5b"
+      },
+      "reference_code": "district_count = Table_0['LAD22CD'].nunique()",
+      "reference_result": [
+        {
+          "result": 374
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of UK districts present in the December 2022 BFE boundaries dataset."
+    },
+    {
+      "id": "d01df567",
+      "question": "What is the total length of linear bedrock units along the Northern Ireland coastline?",
+      "keywords": [
+        "linear"
+      ],
+      "relevant_table_ids": [
+        "fff315f7-05e2-4c7e-901e-af7b3a57680e___755d2944-92a0-47ba-98c1-75fc3923ea49"
+      ],
+      "table_aliases": {
+        "Table_0": "fff315f7-05e2-4c7e-901e-af7b3a57680e___755d2944-92a0-47ba-98c1-75fc3923ea49"
+      },
+      "reference_code": "Table_0['Shape__Length'].sum()",
+      "reference_result": [
+        {
+          "result": 9779.7273846121
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total linear length of all bedrock units along the Northern Ireland coastline, measured in metres."
+    },
+    {
+      "id": "0f4aa640",
+      "question": "What total refund amount was written off on 14 July 2016 for Leeds business rates?",
+      "keywords": [
+        "14",
+        "refund"
+      ],
+      "relevant_table_ids": [
+        "46df84a7-eac4-4beb-ae7c-6e2460bd1e1a___4419a45f-1b04-4c2a-b810-c96bb1d8b83f"
+      ],
+      "table_aliases": {
+        "Table_0": "46df84a7-eac4-4beb-ae7c-6e2460bd1e1a___4419a45f-1b04-4c2a-b810-c96bb1d8b83f"
+      },
+      "reference_code": "Table_0['Amount written-off'] = pd.to_numeric(Table_0['Amount written-off'], errors='coerce')\ntotal_refund = Table_0['Amount written-off'].sum()",
+      "reference_result": [
+        {
+          "result": 137817.35
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total amount (in pounds) of business‑rate refunds written off on 14 July 2016."
+    },
+    {
+      "id": "c7170f55",
+      "question": "How many water abstraction licences were in place in Northern Ireland as of 16 May 2023?",
+      "keywords": [
+        "abstraction"
+      ],
+      "relevant_table_ids": [
+        "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      ],
+      "table_aliases": {
+        "Table_0": "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      },
+      "reference_code": "Table_0[Table_0['Dataset_Da'] == '2023/05/16 00:00:00+00'].shape[0]",
+      "reference_result": [
+        {
+          "result": 853
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of water abstraction licences recorded in Northern Ireland on 16 May 2023."
+    },
+    {
+      "id": "411b8b54",
+      "question": "Which location had the highest number of habitat records in the 1994 DWT Plymouth littoral survey?",
+      "keywords": [
+        "habitat",
+        "plymouth"
+      ],
+      "relevant_table_ids": [
+        "8ce6a0c1-39da-485c-b59d-bcd6de76741e___19999d3a-51ff-4dff-88bf-40d8db536e54"
+      ],
+      "table_aliases": {
+        "Table_0": "8ce6a0c1-39da-485c-b59d-bcd6de76741e___19999d3a-51ff-4dff-88bf-40d8db536e54"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['EndDate'].str.startswith('1994')]\n    .groupby('LocationName', as_index=False)\n    .agg(location_record_count=('RecordKey', 'count'))\n    .sort_values('location_record_count', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "LocationName": "Wembury Outer Church Reef (Gara Point to Renney Rocks.)",
+          "location_record_count": 19
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table containing the LocationName of the location that recorded the most habitat points in the 1994 portion of the survey (and its record count)."
+    },
+    {
+      "id": "69a2fa6b",
+      "question": "What is the total daily water abstraction volume for licences held by the industrial sector in Northern Ireland as of 16 May 2023?",
+      "keywords": [
+        "abstraction"
+      ],
+      "relevant_table_ids": [
+        "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      ],
+      "table_aliases": {
+        "Table_0": "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      },
+      "reference_code": "total_industrial_volume = (\n    Table_0\n    .loc[(Table_0['Dataset_Da'] == '2023/05/16 00:00:00+00') & (Table_0['sectorid'] == 'Industrial'), 'vol_perday']\n    .sum()\n)",
+      "reference_result": [
+        {
+          "0": 6083896
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total daily water abstraction volume (in cubic metres per day) for all industrial licences on 16 May 2023."
+    },
+    {
+      "id": "89ba3aa9",
+      "question": "In the 2021 bgc rescue boundaries, which fire and rescue authority has the largest area and what share of the total boundary length does it represent?",
+      "keywords": [
+        "2021",
+        "bgc",
+        "rescue"
+      ],
+      "relevant_table_ids": [
+        "6d131149-72a5-451a-b36a-906281408212___f9866208-0ee8-4bd3-83b1-86ca4d393d7c"
+      ],
+      "table_aliases": {
+        "Table_0": "6d131149-72a5-451a-b36a-906281408212___f9866208-0ee8-4bd3-83b1-86ca4d393d7c"
+      },
+      "reference_code": "total_length = Table_0['Shape__Length'].sum()\nresult = (\n    Table_0.sort_values(by='Shape__Area', ascending=False)\n    .head(1)\n    .loc[:, ['FRA21NM', 'Shape__Length']]\n    .assign(share_of_total=lambda df: df['Shape__Length'] / total_length)\n    .loc[:, ['FRA21NM', 'share_of_total']]\n)",
+      "reference_result": [
+        {
+          "FRA21NM": "Mid and West Wales",
+          "share_of_total": 0.0631938007
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the fire and rescue authority with the largest boundary area in 2021 and the proportion of the total boundary length that its boundary represents (as a fraction between 0 and 1)."
+    },
+    {
+      "id": "81fd3235",
+      "question": "What are the average latitude and average longitude of Output Areas in England and Wales based on the 2021 BGC boundaries, and which average is higher?",
+      "keywords": [
+        "bgc"
+      ],
+      "relevant_table_ids": [
+        "4d4e021d-fe98-4a0e-88e2-3ead84538537___d3a4e8e8-a94b-4570-8876-f9e9d74d50cc"
+      ],
+      "table_aliases": {
+        "Table_0": "4d4e021d-fe98-4a0e-88e2-3ead84538537___d3a4e8e8-a94b-4570-8876-f9e9d74d50cc"
+      },
+      "reference_code": "import numpy as np\navg_lat = Table_0['LAT'].mean()\navg_long = Table_0['LONG'].mean()\nresult = pd.DataFrame({'avg_lat': [avg_lat], 'avg_long': [avg_long]})\nresult['higher_metric'] = np.where(result['avg_lat'] > result['avg_long'], 'latitude', 'longitude')\nresult",
+      "reference_result": [
+        {
+          "avg_lat": 52.3523162298,
+          "avg_long": -1.3269725055,
+          "higher_metric": "latitude"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A one‑row table with columns avg_lat (average latitude), avg_long (average longitude), and higher_metric indicating which average is higher ('latitude' or 'longitude')."
+    },
+    {
+      "id": "4d837d77",
+      "question": "Which Scottish constituency has the smallest area in the 2021 boundaries?",
+      "keywords": [
+        "scottish"
+      ],
+      "relevant_table_ids": [
+        "66702346-ef02-4816-b56f-7807ab30787b___3ac4650b-0276-449a-987c-5519894630b8"
+      ],
+      "table_aliases": {
+        "Table_0": "66702346-ef02-4816-b56f-7807ab30787b___3ac4650b-0276-449a-987c-5519894630b8"
+      },
+      "reference_code": "Table_0.sort_values(by='Shape__Area', ascending=True).head(1)['SPC21NM'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "Glasgow Kelvin"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the Scottish Parliamentary constituency with the smallest Shape__Area in the May 2021 boundaries."
+    },
+    {
+      "id": "c7fbb9b9",
+      "question": "What was the average accommodation expense per Leeds City Council councillor in the 2019-2020 financial year?",
+      "keywords": [
+        "2019",
+        "accommodation"
+      ],
+      "relevant_table_ids": [
+        "9666e74f-016d-4ecf-990a-b215637479b5___ba0d75de-7dfd-4e0d-b303-85abb08413ad"
+      ],
+      "table_aliases": {
+        "Table_0": "9666e74f-016d-4ecf-990a-b215637479b5___ba0d75de-7dfd-4e0d-b303-85abb08413ad"
+      },
+      "reference_code": "avg_accommodation_per_councillor = (\n    Table_0[Table_0['Travel Type'] == 'Hotel']\n    .groupby('Traveller Name')['Total �']\n    .sum()\n    .mean()\n)",
+      "reference_result": [
+        {
+          "result": 196.879
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Average (mean) accommodation spend in pounds per councillor for the 2019‑2020 financial year."
+    },
+    {
+      "id": "91a44cf8",
+      "question": "What is the land area of the Greater Manchester combined authority boundary as of December 2025?",
+      "keywords": [
+        "combined"
+      ],
+      "relevant_table_ids": [
+        "f8f2bdad-67d1-4b2e-98f1-be88f381ecc5___1c989598-3d7e-47af-adbd-40f82b175d13"
+      ],
+      "table_aliases": {
+        "Table_0": "f8f2bdad-67d1-4b2e-98f1-be88f381ecc5___1c989598-3d7e-47af-adbd-40f82b175d13"
+      },
+      "reference_code": "total_area = Table_0[Table_0['CAUTH25NM'] == 'Greater Manchester']['Shape__Area'].sum()",
+      "reference_result": [
+        {
+          "result": 1273633508.15593
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total land area of the Greater Manchester combined authority boundary in square metres as of December 2025."
+    },
+    {
+      "id": "5b5c9af4",
+      "question": "What are the counts of local authority districts for each 2021 rural‑urban classification category, listed from highest to lowest?",
+      "keywords": [
+        "authority"
+      ],
+      "relevant_table_ids": [
+        "8daa9988-f4e6-40e3-82df-58bb0ae947a3___1e1245e8-b205-40bb-b63e-d6f7bff22590"
+      ],
+      "table_aliases": {
+        "Table_0": "8daa9988-f4e6-40e3-82df-58bb0ae947a3___1e1245e8-b205-40bb-b63e-d6f7bff22590"
+      },
+      "reference_code": "result = Table_0.groupby('RUC21NM').agg(district_count=('ObjectId', 'count')).reset_index().sort_values(by='district_count', ascending=False)",
+      "reference_result": [
+        {
+          "RUC21NM": "Urban: Majority nearer to a major town or city",
+          "district_count": 175
+        },
+        {
+          "RUC21NM": "Intermediate urban: Majority nearer to a major town or city",
+          "district_count": 40
+        },
+        {
+          "RUC21NM": "Intermediate rural: Majority nearer to a major town or city",
+          "district_count": 28
+        },
+        {
+          "RUC21NM": "Majority rural: Majority nearer to a major town or city",
+          "district_count": 26
+        },
+        {
+          "RUC21NM": "Majority rural: Majority further from a major town or city",
+          "district_count": 22
+        },
+        {
+          "RUC21NM": "Intermediate rural: Majority further from a major town or city",
+          "district_count": 11
+        },
+        {
+          "RUC21NM": "Intermediate urban: Majority further from a major town or city",
+          "district_count": 10
+        },
+        {
+          "RUC21NM": "Urban: Majority further from a major town or city",
+          "district_count": 6
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per RUC21 category name, showing the number of local authority districts in that category, sorted descending by count."
+    },
+    {
+      "id": "7543bd28",
+      "question": "Which three habitats showed the biggest increase in recorded points between 21 July 1996 and 27 August 1996, and what were the point counts on those dates, in the 1996 MNCR west Anglesey sublittoral survey?",
+      "keywords": [
+        "1996",
+        "anglesey"
+      ],
+      "relevant_table_ids": [
+        "c4dc32df-e79c-424d-b3d8-a2fc6c9714b1___321b62ba-01cd-4d58-a6fd-40979c3a0e78"
+      ],
+      "table_aliases": {
+        "Table_0": "c4dc32df-e79c-424d-b3d8-a2fc6c9714b1___321b62ba-01cd-4d58-a6fd-40979c3a0e78"
+      },
+      "reference_code": "df = Table_0.copy()\ndf['StartDate'] = pd.to_datetime(df['StartDate'])\nfiltered = df[(df['StartDate'] >= pd.Timestamp('1996-07-21')) & (df['StartDate'] <= pd.Timestamp('1996-08-27'))]\nearliest_date = filtered['StartDate'].min()\nlatest_date = filtered['StartDate'].max()\nearly_counts = (\n    filtered[filtered['StartDate'] == earliest_date]\n    .groupby('HabitatDescription')\n    .agg(early_count=('RecordKey', 'count'))\n    .reset_index()\n)\nlate_counts = (\n    filtered[filtered['StartDate'] == latest_date]\n    .groupby('HabitatDescription')\n    .agg(late_count=('RecordKey', 'count'))\n    .reset_index()\n)\nmerged = (\n    early_counts\n    .merge(late_counts, on='HabitatDescription', how='outer')\n    .fillna(0)\n)\nmerged['increase'] = merged['late_count'] - merged['early_count']\nresult = (\n    merged\n    .sort_values('increase', ascending=False)\n    .head(3)\n    [['HabitatDescription', 'early_count', 'late_count', 'increase']]\n)",
+      "reference_result": [
+        {
+          "HabitatDescription": "Musculus discors beds on moderately exposed circalittoral rock",
+          "early_count": 0.0,
+          "late_count": 4.0,
+          "increase": 4.0
+        },
+        {
+          "HabitatDescription": "Alaria esculenta and Laminaria digitata on exposed sublittoral fringe bedrock",
+          "early_count": 0.0,
+          "late_count": 2.0,
+          "increase": 2.0
+        },
+        {
+          "HabitatDescription": "Laminaria hyperborea forest with dense foliose red seaweeds on exposed upper infralittoral rock",
+          "early_count": 0.0,
+          "late_count": 2.0,
+          "increase": 2.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each showing a habitat description, the point count on 21 July 1996, the point count on 27 August 1996, and the increase between those dates, ordered by greatest increase."
+    },
+    {
+      "id": "7fbe10f5",
+      "question": "Which three kinds of public right‑of‑way infrastructure in Wigan have the most features, and what share of the total does each represent?",
+      "keywords": [
+        "infrastructure"
+      ],
+      "relevant_table_ids": [
+        "9231c9a8-a891-4579-9cac-0cb0d487e614___e24b498a-d43c-4201-9cb5-adb72cc01a97"
+      ],
+      "table_aliases": {
+        "Table_0": "9231c9a8-a891-4579-9cac-0cb0d487e614___e24b498a-d43c-4201-9cb5-adb72cc01a97"
+      },
+      "reference_code": "total_count = Table_0['ESRI_OID'].count()\nresult = (\n    Table_0.groupby('InfraType')\n    .size()\n    .reset_index(name='type_count')\n    .assign(share=lambda df: df['type_count'] / total_count)\n    .sort_values('type_count', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "InfraType": "3.10c",
+          "type_count": 543,
+          "share": 0.3111747851
+        },
+        {
+          "InfraType": "3.20d",
+          "type_count": 311,
+          "share": 0.1782234957
+        },
+        {
+          "InfraType": "3.30d",
+          "type_count": 114,
+          "share": 0.0653295129
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Top three infrastructure types by feature count, with each type's share of the total infrastructure count (share expressed as a proportion). Columns: InfraType, type_count, share."
+    },
+    {
+      "id": "f04f85be",
+      "question": "According to the December 2017 lookups, which phec has the most local authority districts and how many districts does it cover?",
+      "keywords": [
+        "lookups",
+        "phec"
+      ],
+      "relevant_table_ids": [
+        "0c0bbaf4-76a4-4641-82c7-84f45550691c___755c67b4-7b24-4132-8953-f0bd05cee83d"
+      ],
+      "table_aliases": {
+        "Table_0": "0c0bbaf4-76a4-4641-82c7-84f45550691c___755c67b4-7b24-4132-8953-f0bd05cee83d"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby(['PHEC17NM'], as_index=False)\n    .agg(district_count=('LAD17CD', 'count'))\n    .sort_values('district_count', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "PHEC17NM": "South East",
+          "district_count": 66
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row table with two columns: the PHEC name that covers the greatest number of local authority districts and the count of districts it covers."
+    },
+    {
+      "id": "14616f98",
+      "question": "What are the five smallest counties and unitary authorities by land area in the UK according to the April 2019 boundaries, what percentage of the total UK land area does each cover, and how does their combined percentage compare to that of the five largest authorities?",
+      "keywords": [
+        "april",
+        "uk"
+      ],
+      "relevant_table_ids": [
+        "21442d1e-55b7-44ce-83ff-839bcc049876___28bfee35-880c-4703-82bc-140860913b09"
+      ],
+      "table_aliases": {
+        "Table_0": "21442d1e-55b7-44ce-83ff-839bcc049876___28bfee35-880c-4703-82bc-140860913b09"
+      },
+      "reference_code": "import pandas as pd\ntotal_area = Table_0['Shape__Area'].sum()\nsmallest = Table_0.nsmallest(5, 'Shape__Area').copy()\nlargest = Table_0.nlargest(5, 'Shape__Area').copy()\nsmallest = smallest.assign(size_group='smallest')\nlargest = largest.assign(size_group='largest')\nresult = (\n    pd.concat([smallest, largest])\n    .assign(percent_of_total=lambda df: (df['Shape__Area'] / total_area) * 100)\n    .assign(combined_percent=lambda df: df.groupby('size_group')['percent_of_total'].transform('sum'))\n    [['ctyua19nm', 'Shape__Area', 'percent_of_total', 'size_group', 'combined_percent']]\n)",
+      "reference_result": [
+        {
+          "ctyua19nm": "City of London",
+          "Shape__Area": 3149382.73007202,
+          "percent_of_total": 0.0012662108,
+          "size_group": "smallest",
+          "combined_percent": 0.0267737172
+        },
+        {
+          "ctyua19nm": "Kensington and Chelsea",
+          "Shape__Area": 12383792.8789139,
+          "percent_of_total": 0.0049789097,
+          "size_group": "smallest",
+          "combined_percent": 0.0267737172
+        },
+        {
+          "ctyua19nm": "Islington",
+          "Shape__Area": 14856651.4165421,
+          "percent_of_total": 0.0059731236,
+          "size_group": "smallest",
+          "combined_percent": 0.0267737172
+        },
+        {
+          "ctyua19nm": "Hammersmith and Fulham",
+          "Shape__Area": 17154069.5273361,
+          "percent_of_total": 0.0068968016,
+          "size_group": "smallest",
+          "combined_percent": 0.0267737172
+        },
+        {
+          "ctyua19nm": "Hackney",
+          "Shape__Area": 19049030.3526917,
+          "percent_of_total": 0.0076586715,
+          "size_group": "smallest",
+          "combined_percent": 0.0267737172
+        },
+        {
+          "ctyua19nm": "Highland",
+          "Shape__Area": 26472923110.6266,
+          "percent_of_total": 10.6434510537,
+          "size_group": "largest",
+          "combined_percent": 22.333170114
+        },
+        {
+          "ctyua19nm": "North Yorkshire",
+          "Shape__Area": 8052940988.97639,
+          "percent_of_total": 3.2376886714,
+          "size_group": "largest",
+          "combined_percent": 22.333170114
+        },
+        {
+          "ctyua19nm": "Cumbria",
+          "Shape__Area": 7182472589.15013,
+          "percent_of_total": 2.8877164462,
+          "size_group": "largest",
+          "combined_percent": 22.333170114
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with ten rows (the five smallest and five largest authorities) showing each authority's name, land area, its percentage of total UK land area, ascending and descending ranks, a size_group label, and the combined percentage of total area for its group (the same combined_percent value repeated for rows in each group)."
+    },
+    {
+      "id": "cc2129a2",
+      "question": "Which species was recorded most often in the 9‑16 August 1990 Morecambe Bay to whitehaven sublittoral survey, and how many records does it have?",
+      "keywords": [
+        "whitehaven"
+      ],
+      "relevant_table_ids": [
+        "f393dfa6-1d29-4932-b7bb-cf90ba774949___2dafede1-b503-4779-a078-03261f5ea599"
+      ],
+      "table_aliases": {
+        "Table_0": "f393dfa6-1d29-4932-b7bb-cf90ba774949___2dafede1-b503-4779-a078-03261f5ea599"
+      },
+      "reference_code": "result = Table_0[(Table_0['StartDate'] >= '1990-08-09') & (Table_0['StartDate'] <= '1990-08-16')].groupby('Species', as_index=False).agg(record_count=('RecordKey', 'count')).sort_values('record_count', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "Species": "Asterias rubens",
+          "record_count": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the species name that appears most frequently in the survey records between 9‑16 August 1990, and the number of records for that species."
+    },
+    {
+      "id": "8e0643fb",
+      "question": "What is the total area of the dwpa catchment named Kerlins Burn?",
+      "keywords": [
+        "dwpa"
+      ],
+      "relevant_table_ids": [
+        "03a37711-bc60-4adc-ae02-a3800c646b24___3b9484f3-63c8-4e7f-8759-2274c4ae571e"
+      ],
+      "table_aliases": {
+        "Table_0": "03a37711-bc60-4adc-ae02-a3800c646b24___3b9484f3-63c8-4e7f-8759-2274c4ae571e"
+      },
+      "reference_code": "total_area = Table_0[Table_0['Name'] == 'Kerlins Burn']['Area_Sq_Km'].sum()",
+      "reference_result": [
+        {
+          "result": 10.7329998
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total surface area in square kilometres of the DWPA catchment whose Name is \"Kerlins Burn\"."
+    },
+    {
+      "id": "f0854f2e",
+      "question": "What is the area of Buckinghamshire county in the December 2018 county boundaries dataset?",
+      "keywords": [
+        "2018"
+      ],
+      "relevant_table_ids": [
+        "d10fa98f-85c2-446b-ab92-c02b4b31a014___d42cd056-ccdc-4b28-bd5f-abdfd4de2626"
+      ],
+      "table_aliases": {
+        "Table_0": "d10fa98f-85c2-446b-ab92-c02b4b31a014___d42cd056-ccdc-4b28-bd5f-abdfd4de2626"
+      },
+      "reference_code": "Table_0.loc[Table_0['cty18nm'] == 'Buckinghamshire', 'Shape__Area'].iloc[0]",
+      "reference_result": [
+        {
+          "result": 1564968339.8982
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total land area of Buckinghamshire county in square metres as recorded in the December 2018 boundaries dataset."
+    },
+    {
+      "id": "5d46df41",
+      "question": "What are the three most common block suffix letters on unlicensed offshore petroleum blocks, and for each suffix what is the average block number and how many different quadrants does it appear in?",
+      "keywords": [
+        "unlicensed"
+      ],
+      "relevant_table_ids": [
+        "eb8c5290-b7bc-4374-841a-b4bb8c20362b___cb188e00-2c91-4ebc-a3be-f1e271371826"
+      ],
+      "table_aliases": {
+        "Table_0": "eb8c5290-b7bc-4374-841a-b4bb8c20362b___cb188e00-2c91-4ebc-a3be-f1e271371826"
+      },
+      "reference_code": "result = (\n    Table_0.loc[\n        (Table_0['Location'] == 'OFFSHORE') & Table_0['Block suffix'].notna()\n    ]\n    .groupby('Block suffix')\n    .agg(\n        suffix_count=('Block suffix', 'count'),\n        avg_block_no=('Block no.', 'mean'),\n        quadrant_count=('Quadrant no.', pd.Series.nunique)\n    )\n    .sort_values(by='suffix_count', ascending=False)\n    .head(3)\n    .reset_index()\n)",
+      "reference_result": [
+        {
+          "Block suffix": "b",
+          "suffix_count": 159,
+          "avg_block_no": 13.7169811321,
+          "quadrant_count": 45
+        },
+        {
+          "Block suffix": "c",
+          "suffix_count": 87,
+          "avg_block_no": 16.6781609195,
+          "quadrant_count": 30
+        },
+        {
+          "Block suffix": "d",
+          "suffix_count": 47,
+          "avg_block_no": 16.2340425532,
+          "quadrant_count": 20
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each for one of the most common block suffix letters, showing the suffix, the number of blocks with that suffix, the average block number, and the number of distinct quadrants it appears in."
+    },
+    {
+      "id": "1c468347",
+      "question": "Which suffix letter attached to block identifiers appears on the most unlicensed offshore petroleum blocks, and how many blocks have that suffix?",
+      "keywords": [
+        "unlicensed"
+      ],
+      "relevant_table_ids": [
+        "eb8c5290-b7bc-4374-841a-b4bb8c20362b___cb188e00-2c91-4ebc-a3be-f1e271371826"
+      ],
+      "table_aliases": {
+        "Table_0": "eb8c5290-b7bc-4374-841a-b4bb8c20362b___cb188e00-2c91-4ebc-a3be-f1e271371826"
+      },
+      "reference_code": "result = (\n    Table_0.loc[(Table_0['Location'] == 'OFFSHORE') & Table_0['Block suffix'].notna()]\n    .groupby('Block suffix')\n    .size()\n    .reset_index(name='suffix_count')\n    .sort_values('suffix_count', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Block suffix": "b",
+          "suffix_count": 159
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with the suffix letter that appears on the most unlicensed offshore petroleum blocks and the number of blocks with that suffix."
+    },
+    {
+      "id": "c8b4219d",
+      "question": "How many Grade II and Grade II* listed buildings are there in Rossendale, and which grade has the higher count?",
+      "keywords": [
+        "rossendale"
+      ],
+      "relevant_table_ids": [
+        "f34a317e-9f1e-4eb7-85a7-3b2232cede4d___b0d04f53-d965-4863-be08-7dde50f06ed2"
+      ],
+      "table_aliases": {
+        "Table_0": "f34a317e-9f1e-4eb7-85a7-3b2232cede4d___b0d04f53-d965-4863-be08-7dde50f06ed2"
+      },
+      "reference_code": "result = (\n    Table_0.groupby(['notes'])['listed_building']\n    .count()\n    .reset_index(name='grade_count')\n    .sort_values('grade_count', ascending=False)\n)",
+      "reference_result": [
+        {
+          "notes": "II",
+          "grade_count": 264
+        },
+        {
+          "notes": "II*",
+          "grade_count": 13
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one per grade (II and II*), with the count of listed buildings for each grade, sorted descending so the grade with the higher count appears first."
+    },
+    {
+      "id": "aebb0e1f",
+      "question": "What are the average contribution score and total area of the bush network cells that have a contribution score above 70, and how does that average compare to the overall average contribution score?",
+      "keywords": [
+        "bush"
+      ],
+      "relevant_table_ids": [
+        "0c705864-c657-44c1-8310-2e38fcf24f5f___10bdc4b4-c7d0-4012-912f-9eaf03eba734"
+      ],
+      "table_aliases": {
+        "Table_0": "0c705864-c657-44c1-8310-2e38fcf24f5f___10bdc4b4-c7d0-4012-912f-9eaf03eba734"
+      },
+      "reference_code": "high = Table_0[Table_0['GRIDCODE'] > 70]\navg_score_high = high['GRIDCODE'].mean()\ntotal_area_high = high['Shape__Area'].sum()\navg_score_all = Table_0['GRIDCODE'].mean()\navg_diff = avg_score_high - avg_score_all\nresult = pd.DataFrame({\n    'avg_score_high': [avg_score_high],\n    'total_area_high': [total_area_high],\n    'avg_score_all': [avg_score_all],\n    'avg_diff': [avg_diff]\n})\nresult",
+      "reference_result": [
+        {
+          "avg_score_high": 86.3290933808,
+          "total_area_high": 33304509.389808655,
+          "avg_score_all": 75.0648851433,
+          "avg_diff": 11.2642082375
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the average contribution score and total area of cells with GRIDCODE > 70, the overall average contribution score, and the difference between the high-score average and overall average."
+    },
+    {
+      "id": "90cf07bf",
+      "question": "For each travel purpose in the 2019-2020 financial year, how much did Leeds City Council councillors spend on accommodation and on total travel, and which purpose had the highest accommodation spend?",
+      "keywords": [
+        "2019",
+        "accommodation"
+      ],
+      "relevant_table_ids": [
+        "9666e74f-016d-4ecf-990a-b215637479b5___ba0d75de-7dfd-4e0d-b303-85abb08413ad"
+      ],
+      "table_aliases": {
+        "Table_0": "9666e74f-016d-4ecf-990a-b215637479b5___ba0d75de-7dfd-4e0d-b303-85abb08413ad"
+      },
+      "reference_code": "accommodation = Table_0[Table_0['Travel Type'] == 'Hotel']\naccommodation_agg = (\n    accommodation\n    .groupby('Reason for Travel', as_index=False)['Total �']\n    .sum()\n    .rename(columns={'Total �': 'accommodation_spend'})\n)\ntotal_travel_agg = (\n    Table_0\n    .groupby('Reason for Travel', as_index=False)['Total �']\n    .sum()\n    .rename(columns={'Total �': 'total_travel'})\n)\nmerged = pd.merge(accommodation_agg, total_travel_agg, on='Reason for Travel', how='outer').fillna(0)\nmerged['accommodation_rank'] = merged['accommodation_spend'].rank(method='dense', ascending=False)\nmerged['is_highest'] = merged['accommodation_rank'] == 1\nfinal = merged[['Reason for Travel', 'accommodation_spend', 'total_travel', 'is_highest']]",
+      "reference_result": [
+        {
+          "Reason for Travel": "Conference - as an attendee",
+          "accommodation_spend": 943.69,
+          "total_travel": 2034.98,
+          "is_highest": true
+        },
+        {
+          "Reason for Travel": "LCC hosted event - LCC funded",
+          "accommodation_spend": 0.0,
+          "total_travel": 75.5,
+          "is_highest": false
+        },
+        {
+          "Reason for Travel": "Meeting with other external bodies",
+          "accommodation_spend": 104.0,
+          "total_travel": 579.5,
+          "is_highest": false
+        },
+        {
+          "Reason for Travel": "Meeting with other public sector organisations",
+          "accommodation_spend": 199.0,
+          "total_travel": 387.3,
+          "is_highest": false
+        },
+        {
+          "Reason for Travel": "Member portfolio/Council business (Elected Members only)",
+          "accommodation_spend": 722.1,
+          "total_travel": 5978.9,
+          "is_highest": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per travel purpose (Reason for Travel) with columns for total accommodation spend, total travel spend, and a boolean flag indicating the purpose with the highest accommodation spend."
+    },
+    {
+      "id": "7dc05cfd",
+      "question": "What was the highest network contribution score in the Belfast catchment in NI in 2007?",
+      "keywords": [
+        "belfast",
+        "ni"
+      ],
+      "relevant_table_ids": [
+        "4ba4eacd-4e81-4a8d-978d-fda12e73eb85___b38d5230-754b-4339-90c8-3c37e1d63448"
+      ],
+      "table_aliases": {
+        "Table_0": "4ba4eacd-4e81-4a8d-978d-fda12e73eb85___b38d5230-754b-4339-90c8-3c37e1d63448"
+      },
+      "reference_code": "Table_0['year'] = 2007\nTable_0['catchment'] = 'Belfast'\nmax_score = Table_0.query(\"year == 2007 and catchment == 'Belfast'\")['GRIDCODE'].max()\nmax_score",
+      "reference_result": [
+        {
+          "0": 100
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The highest network contribution score (GRIDCODE) among all grid cells in the Belfast catchment for 2007."
+    },
+    {
+      "id": "6b356aa1",
+      "question": "Which three locations in Morecambe Bay had the most different habitat types recorded in the 1991 MNCR Morecambe Bay littoral survey, and what is the total number of habitat records for each of those locations?",
+      "keywords": [
+        "habitat",
+        "morecambe"
+      ],
+      "relevant_table_ids": [
+        "cf9e157f-e5f4-4b98-8987-febdf1f0e5be___f284dd81-4ac2-4874-b7cc-b0da8758f872"
+      ],
+      "table_aliases": {
+        "Table_0": "cf9e157f-e5f4-4b98-8987-febdf1f0e5be___f284dd81-4ac2-4874-b7cc-b0da8758f872"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['SurveyName'] == '1991 MNCR Morecambe Bay littoral survey']\n    .groupby('LocationName')\n    .agg(\n        distinct_habitats=('HabitatCode', lambda x: x.nunique()),\n        total_records=('RecordKey', 'size')\n    )\n    .reset_index()\n    .sort_values(by=['distinct_habitats', 'total_records'], ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "LocationName": "Humphrey Head (Morecambe Bay)",
+          "distinct_habitats": 14,
+          "total_records": 15
+        },
+        {
+          "LocationName": "Chapel Island (Morecambe Bay)",
+          "distinct_habitats": 14,
+          "total_records": 14
+        },
+        {
+          "LocationName": "Morecambe breakwater (Morecambe Bay)",
+          "distinct_habitats": 11,
+          "total_records": 13
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing a LocationName, the number of distinct habitat types recorded there, and the total number of habitat point records for that location, ordered by distinct habitat count descending."
+    },
+    {
+      "id": "2b988464",
+      "question": "What is the average minimum salary for junior staff in each grade of the Department for Culture, Media and Sport in 2025?",
+      "keywords": [
+        "2025",
+        "culture",
+        "junior"
+      ],
+      "relevant_table_ids": [
+        "14218517-ef18-40ea-9ad1-aa637174c372___40c94962-3067-4649-953c-e0df72ca40a3"
+      ],
+      "table_aliases": {
+        "Table_0": "14218517-ef18-40ea-9ad1-aa637174c372___40c94962-3067-4649-953c-e0df72ca40a3"
+      },
+      "reference_code": "(Table_0.loc[(Table_0['Parent Department'] == 'Department for Culture, Media and Sport') & (Table_0['Grade'].isin(['AO', 'EO']))]\n          .groupby('Grade', as_index=False)\n          .agg(avg_min_salary=('Payscale Minimum (£)', 'mean')))",
+      "reference_result": [
+        {
+          "Grade": "AO",
+          "avg_min_salary": 25165.0
+        },
+        {
+          "Grade": "EO",
+          "avg_min_salary": 26514.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per junior grade (AO, EO) showing the average of the Payscale Minimum (£) for that grade within the Department for Culture, Media and Sport in 2025."
+    },
+    {
+      "id": "60d94e2a",
+      "question": "In the BGG dataset for December 2022, which region of built‑up areas has the highest average land size, what is that average, and how does it compare to the overall average land size of all built‑up areas?",
+      "keywords": [
+        "bgg"
+      ],
+      "relevant_table_ids": [
+        "46fff29c-7836-4082-9495-99e87476d402___a5f02c30-d9aa-4302-85b1-5a16d82009b2"
+      ],
+      "table_aliases": {
+        "Table_0": "46fff29c-7836-4082-9495-99e87476d402___a5f02c30-d9aa-4302-85b1-5a16d82009b2"
+      },
+      "reference_code": "region_map = {'E': 'England', 'S': 'Scotland', 'W': 'Wales', 'K': 'Northern Ireland'}\ndf = Table_0.assign(region=Table_0['BUA22CD'].str[0].map(region_map))\nregion_avg = (\n    df.groupby('region', as_index=False)['Shape__Area']\n      .mean()\n      .rename(columns={'Shape__Area': 'region_avg'})\n)\noverall_avg = df['Shape__Area'].mean()\nresult = (\n    region_avg.assign(overall_avg=overall_avg)\n              .assign(avg_diff=lambda x: x['region_avg'] - x['overall_avg'])\n              .sort_values(by='region_avg', ascending=False)\n              .head(1)\n              .loc[:, ['region', 'region_avg', 'overall_avg', 'avg_diff']]\n)",
+      "reference_result": [
+        {
+          "region": "Northern Ireland",
+          "region_avg": 3004375.0,
+          "overall_avg": 2010537.5219426565,
+          "avg_diff": 993837.4780573435
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the region with the highest average land size, its average land size, the overall average land size across all built‑up areas, and the difference between the region average and the overall average."
+    },
+    {
+      "id": "9ae440f9",
+      "question": "How many habitat points were recorded in the 1984 NCC Loch Sween survey?",
+      "keywords": [
+        "1984",
+        "habitat",
+        "ncc",
+        "sween"
+      ],
+      "relevant_table_ids": [
+        "648fb958-f935-4a66-9dc2-1cb7712c865a___3b4e3d7c-9db6-4215-a64b-c909e8ce03d4"
+      ],
+      "table_aliases": {
+        "Table_0": "648fb958-f935-4a66-9dc2-1cb7712c865a___3b4e3d7c-9db6-4215-a64b-c909e8ce03d4"
+      },
+      "reference_code": "Table_0[Table_0['SurveyKey'] == 'JNCCMNCR10000046']['RecordKey'].count()",
+      "reference_result": [
+        {
+          "0": 102
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total count of point observations recorded during the 1984 NCC Loch Sween sublittoral survey."
+    },
+    {
+      "id": "9675d02d",
+      "question": "What are the top three counties by number of local authority districts, how many districts does each have, and what share of all districts does each represent as of December 2022?",
+      "keywords": [
+        "local"
+      ],
+      "relevant_table_ids": [
+        "324e4da5-fd84-490b-9f64-8c311e80be68___6dc254a9-6837-4c84-9de2-d5d0583b83f4"
+      ],
+      "table_aliases": {
+        "Table_0": "324e4da5-fd84-490b-9f64-8c311e80be68___6dc254a9-6837-4c84-9de2-d5d0583b83f4"
+      },
+      "reference_code": "total_districts = Table_0['LAD22CD'].count()\ntop_counties = (\n    Table_0.groupby('CTY22NM')\n    .agg(district_count=('LAD22CD', 'count'))\n    .reset_index()\n    .assign(share=lambda df: df['district_count'] / total_districts)\n    .sort_values('district_count', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "CTY22NM": "Outer London",
+          "district_count": 19,
+          "share": 0.076
+        },
+        {
+          "CTY22NM": "Inner London",
+          "district_count": 14,
+          "share": 0.056
+        },
+        {
+          "CTY22NM": "Kent",
+          "district_count": 12,
+          "share": 0.048
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each representing a county, with columns: county name (CTY22NM), number of districts in that county, and the share of all districts that this count represents (as a proportion of total districts), sorted by district count descending."
+    },
+    {
+      "id": "0c6c9b06",
+      "question": "For each street lighting status in Bradford, what proportion of lights are defective, and which status shows the highest defect proportion?",
+      "keywords": [
+        "street"
+      ],
+      "relevant_table_ids": [
+        "31822b25-9d7c-4daa-8013-76af040903a8___6eb04181-727b-4ef1-b0ac-aa7d6cdd255a"
+      ],
+      "table_aliases": {
+        "Table_0": "31822b25-9d7c-4daa-8013-76af040903a8___6eb04181-727b-4ef1-b0ac-aa7d6cdd255a"
+      },
+      "reference_code": "total = Table_0.groupby('ITEM_STATUS').size().reset_index(name='total_per_status')\ndefective = Table_0[Table_0['DEFECT'].str.lower() == 'opendefect'.lower()]\ndefective_counts = defective.groupby('ITEM_STATUS').size().reset_index(name='defective_per_status')\nmerged = total.merge(defective_counts, on='ITEM_STATUS', how='outer')\nmerged['defective_per_status'] = merged['defective_per_status'].fillna(0).astype(int)\nmerged['defect_proportion'] = merged['defective_per_status'] / merged['total_per_status']\nmerged['rank'] = merged['defect_proportion'].rank(method='average', ascending=False)\nmerged",
+      "reference_result": [
+        {
+          "ITEM_STATUS": 1,
+          "total_per_status": 59225,
+          "defective_per_status": 2902,
+          "defect_proportion": 0.0489995779,
+          "rank": 6.0
+        },
+        {
+          "ITEM_STATUS": 3,
+          "total_per_status": 329,
+          "defective_per_status": 175,
+          "defect_proportion": 0.5319148936,
+          "rank": 2.0
+        },
+        {
+          "ITEM_STATUS": 4,
+          "total_per_status": 48,
+          "defective_per_status": 5,
+          "defect_proportion": 0.1041666667,
+          "rank": 5.0
+        },
+        {
+          "ITEM_STATUS": 5,
+          "total_per_status": 1,
+          "defective_per_status": 0,
+          "defect_proportion": 0.0,
+          "rank": 8.0
+        },
+        {
+          "ITEM_STATUS": 6,
+          "total_per_status": 128,
+          "defective_per_status": 5,
+          "defect_proportion": 0.0390625,
+          "rank": 7.0
+        },
+        {
+          "ITEM_STATUS": 7,
+          "total_per_status": 6,
+          "defective_per_status": 1,
+          "defect_proportion": 0.1666666667,
+          "rank": 3.0
+        },
+        {
+          "ITEM_STATUS": 8,
+          "total_per_status": 286,
+          "defective_per_status": 188,
+          "defect_proportion": 0.6573426573,
+          "rank": 1.0
+        },
+        {
+          "ITEM_STATUS": 9,
+          "total_per_status": 7,
+          "defective_per_status": 1,
+          "defect_proportion": 0.1428571429,
+          "rank": 4.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per ITEM_STATUS showing the defect proportion (defective lights / total lights) and a rank column where rank 1 indicates the highest proportion."
+    },
+    {
+      "id": "55abd154",
+      "question": "What was the average flow measured by the Ilkley Moor monitor for each month in 2020?",
+      "keywords": [
+        "monitor"
+      ],
+      "relevant_table_ids": [
+        "7a161d7f-b13c-4b32-8280-f8a3a393e6aa___b8d7ff3c-a299-4ee7-bd45-526ac531d704"
+      ],
+      "table_aliases": {
+        "Table_0": "7a161d7f-b13c-4b32-8280-f8a3a393e6aa___b8d7ff3c-a299-4ee7-bd45-526ac531d704"
+      },
+      "reference_code": "result = (\n    Table_0.loc[Table_0['DATE_'].str.startswith('2020/')]\n        .assign(month=lambda d: pd.to_datetime(d['DATE_'], errors='coerce').dt.month)\n        .groupby('month', as_index=False)['FLOW']\n        .mean()\n        .rename(columns={'FLOW': 'avg_flow'})\n        .sort_values('month', ascending=True)\n)",
+      "reference_result": [
+        {
+          "month": 1,
+          "avg_flow": 1.2427316165
+        },
+        {
+          "month": 2,
+          "avg_flow": 3.8485488179
+        },
+        {
+          "month": 3,
+          "avg_flow": 0.6668371907
+        },
+        {
+          "month": 4,
+          "avg_flow": 2.023e-06
+        },
+        {
+          "month": 5,
+          "avg_flow": 6.946e-07
+        },
+        {
+          "month": 6,
+          "avg_flow": 8.78665e-05
+        },
+        {
+          "month": 7,
+          "avg_flow": 0.0038807595
+        },
+        {
+          "month": 8,
+          "avg_flow": 0.0016269276
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per month of 2020, showing the average flow (in cubic meters per second) recorded by the Ilkley Moor monitor."
+    },
+    {
+      "id": "e169da16",
+      "question": "How many habitat points were recorded in the Loch Sween survey by the NCC in 1985?",
+      "keywords": [
+        "habitat",
+        "ncc",
+        "sween"
+      ],
+      "relevant_table_ids": [
+        "3957962d-24ac-483b-a499-4fa021b96ace___cad71b20-df7c-41be-bcf2-b2806b1e39b2"
+      ],
+      "table_aliases": {
+        "Table_0": "3957962d-24ac-483b-a499-4fa021b96ace___cad71b20-df7c-41be-bcf2-b2806b1e39b2"
+      },
+      "reference_code": "point_count = Table_0[Table_0['SurveyName'] == '1985 NCC Loch Sween sublittoral survey']['RecordKey'].count()",
+      "reference_result": [
+        {
+          "0": 488
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of habitat point records recorded in the 1985 NCC Loch Sween survey."
+    },
+    {
+      "id": "672c0816",
+      "question": "How many observations were recorded at each location during the 1991 Calf of Man survey for species classified as Rare?",
+      "keywords": [
+        "calf"
+      ],
+      "relevant_table_ids": [
+        "1966c02e-b235-4665-8d0e-03ab1cc800b6___c39a13b4-3ddc-441a-bb50-f15cda093e53"
+      ],
+      "table_aliases": {
+        "Table_0": "1966c02e-b235-4665-8d0e-03ab1cc800b6___c39a13b4-3ddc-441a-bb50-f15cda093e53"
+      },
+      "reference_code": "result = Table_0[Table_0['Abundance_SACFORN'] == 'R'].groupby('LocationName').size().reset_index(name='rare_count')",
+      "reference_result": [
+        {
+          "LocationName": "Amulty Point (Calf of Man)",
+          "rare_count": 10
+        },
+        {
+          "LocationName": "Bay NE of the Stack (Calf of Man)",
+          "rare_count": 17
+        },
+        {
+          "LocationName": "Bay yn Ow (Calf of Man)",
+          "rare_count": 50
+        },
+        {
+          "LocationName": "Betwwen the Stack and Craegh Veanagh (Calf of Man)",
+          "rare_count": 34
+        },
+        {
+          "LocationName": "E. of Burroo, Calf (Calf of Man)",
+          "rare_count": 1
+        },
+        {
+          "LocationName": "East Cow Harbour (Calf of Man)",
+          "rare_count": 19
+        },
+        {
+          "LocationName": "East of the Stack (Calf of Man)",
+          "rare_count": 13
+        },
+        {
+          "LocationName": "Gibdale Bay E. Side (Calf of Man)",
+          "rare_count": 9
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per location with the count of observations whose abundance category is Rare (R) during the 1991 Calf of Man survey."
+    },
+    {
+      "id": "b6479293",
+      "question": "Looking at the tourismlocations in the Mid Ulster district, which two towns have the highest number of locations, what are their counts, and how do those counts compare to the median number of locations per town?",
+      "keywords": [
+        "tourismlocations"
+      ],
+      "relevant_table_ids": [
+        "c9e1c7bd-f8c4-4d21-950b-2c773603de8d___8559bf61-b7a0-4b74-b628-e49195ad1645"
+      ],
+      "table_aliases": {
+        "Table_0": "c9e1c7bd-f8c4-4d21-950b-2c773603de8d___8559bf61-b7a0-4b74-b628-e49195ad1645"
+      },
+      "reference_code": "agg = Table_0.groupby('Town', dropna=False)['Id'].count().reset_index(name='location_count')\nmedian_count = agg['location_count'].median()\nresult = (\n    agg.assign(median_count=median_count)\n       .sort_values('location_count', ascending=False)\n       .head(2)\n       .assign(diff_to_median=lambda df: df['location_count'] - df['median_count'])\n       .loc[:, ['Town', 'location_count', 'median_count', 'diff_to_median']]\n)",
+      "reference_result": [
+        {
+          "Town": "Dungannon",
+          "location_count": 15,
+          "median_count": 3.0,
+          "diff_to_median": 12.0
+        },
+        {
+          "Town": "Magherafelt",
+          "location_count": 9,
+          "median_count": 3.0,
+          "diff_to_median": 6.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with two rows, each showing a town, its location count, the median location count across all towns, and the difference (count minus median)."
+    },
+    {
+      "id": "c9570b7d",
+      "question": "For each day of the 1991 Morecambe Bay survey, which habitat type was recorded most often and how did its count change compared to the previous day?",
+      "keywords": [
+        "habitat",
+        "morecambe"
+      ],
+      "relevant_table_ids": [
+        "cf9e157f-e5f4-4b98-8987-febdf1f0e5be___f284dd81-4ac2-4874-b7cc-b0da8758f872"
+      ],
+      "table_aliases": {
+        "Table_0": "cf9e157f-e5f4-4b98-8987-febdf1f0e5be___f284dd81-4ac2-4874-b7cc-b0da8758f872"
+      },
+      "reference_code": "result = (\n    Table_0\n    .query(\"SurveyName == '1991 MNCR Morecambe Bay littoral survey'\")\n    .groupby(['StartDate', 'HabitatCode'], as_index=False)\n    .agg(habitat_count=('RecordKey', 'count'))\n    .assign(rank_pos=lambda df: df.groupby('StartDate')['habitat_count'].rank(method='first', ascending=False))\n    .query(\"rank_pos == 1\")\n    .loc[:, ['StartDate', 'HabitatCode', 'habitat_count']]\n    .sort_values('StartDate', ascending=True)\n    .assign(count_change=lambda df: df['habitat_count'].diff())\n)",
+      "reference_result": [
+        {
+          "StartDate": "1991-09-07",
+          "HabitatCode": "LMS.BatCor",
+          "habitat_count": 2,
+          "count_change": null
+        },
+        {
+          "StartDate": "1991-09-08",
+          "HabitatCode": "LMS.MacAre",
+          "habitat_count": 5,
+          "count_change": 3.0
+        },
+        {
+          "StartDate": "1991-09-09",
+          "HabitatCode": "LMS.BatCor",
+          "habitat_count": 6,
+          "count_change": 1.0
+        },
+        {
+          "StartDate": "1991-09-10",
+          "HabitatCode": "LMS.BatCor",
+          "habitat_count": 5,
+          "count_change": -1.0
+        },
+        {
+          "StartDate": "1991-09-11",
+          "HabitatCode": "LMS.BatCor",
+          "habitat_count": 2,
+          "count_change": -3.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per survey day containing the date, the HabitatCode that appeared most frequently that day, the count of that habitat, and the difference in that count compared to the previous day."
+    },
+    {
+      "id": "1261a9a5",
+      "question": "Which merchant category had the highest total spend in Stockport Metropolitan Borough Council transactions over £500 in July 2022?",
+      "keywords": [
+        "2022",
+        "500",
+        "july",
+        "spend"
+      ],
+      "relevant_table_ids": [
+        "0c5487f4-c863-4f99-b882-459d3acf4b54___820c41dd-da52-45a7-8413-0200dc789a33"
+      ],
+      "table_aliases": {
+        "Table_0": "0c5487f4-c863-4f99-b882-459d3acf4b54___820c41dd-da52-45a7-8413-0200dc789a33"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['net_amount'] > 500]\n    .groupby('Merchant Category', as_index=False)\n    .agg(category_spend=('net_amount', 'sum'))\n    .sort_values('category_spend', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Merchant Category": "Central Government Department",
+          "category_spend": 13765978.56
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the merchant category with the highest total spend and the corresponding amount in pounds."
+    },
+    {
+      "id": "ee32aa17",
+      "question": "Using the December 2018 county boundaries for England, among counties whose land area is larger than the national average, which three have the highest perimeter-to-area ratio, and how does each county’s ratio compare to the national average ratio?",
+      "keywords": [
+        "2018"
+      ],
+      "relevant_table_ids": [
+        "8f2b9f48-cb97-4a5a-9aad-f25a10abe710___45bc7e18-c548-472c-99e7-7c821a2b8205"
+      ],
+      "table_aliases": {
+        "Table_0": "8f2b9f48-cb97-4a5a-9aad-f25a10abe710___45bc7e18-c548-472c-99e7-7c821a2b8205"
+      },
+      "reference_code": "avg_area = Table_0['Shape__Area'].mean()\navg_ratio = (Table_0['Shape__Length'] / Table_0['Shape__Area']).mean()\nresult = (\n    Table_0.assign(perim_area_ratio=Table_0['Shape__Length'] / Table_0['Shape__Area'])\n    .loc[lambda df: df['Shape__Area'] > avg_area]\n    .assign(ratio_diff=lambda df: df['perim_area_ratio'] - avg_ratio)\n    .sort_values(by='perim_area_ratio', ascending=False)\n    .head(3)\n    [['cty18nm', 'perim_area_ratio', 'ratio_diff']]\n)",
+      "reference_result": [
+        {
+          "cty18nm": "Essex",
+          "perim_area_ratio": 0.0001505947,
+          "ratio_diff": 2.423e-07
+        },
+        {
+          "cty18nm": "Hampshire",
+          "perim_area_ratio": 0.0001348306,
+          "ratio_diff": -1.55218e-05
+        },
+        {
+          "cty18nm": "Somerset",
+          "perim_area_ratio": 0.0001309565,
+          "ratio_diff": -1.93959e-05
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing the county name, its perimeter-to-area ratio, and the difference between that ratio and the national average ratio, sorted by ratio descending."
+    },
+    {
+      "id": "c467ddad",
+      "question": "For each location in Cumbria during the 1989 MNCR Cumbria littoral survey, what is the number of distinct species recorded and which abundance category appears most frequently there?",
+      "keywords": [
+        "cumbria"
+      ],
+      "relevant_table_ids": [
+        "ca6bdf80-f80a-4ab8-a4dd-74ef9552a674___154d1292-a1d1-4168-b38d-208e7e72051f"
+      ],
+      "table_aliases": {
+        "Table_0": "ca6bdf80-f80a-4ab8-a4dd-74ef9552a674___154d1292-a1d1-4168-b38d-208e7e72051f"
+      },
+      "reference_code": "df_filtered = Table_0[Table_0['SurveyName'] == '1989 MNCR Cumbria littoral survey']\nspecies_counts = (\n    df_filtered\n    .groupby('LocationName')\n    ['Species']\n    .nunique()\n    .reset_index(name='species_count')\n)\ncat_counts = (\n    df_filtered\n    .groupby(['LocationName', 'Abundance_SACFORN'])\n    .size()\n    .reset_index(name='cat_count')\n)\ncat_counts['rank_pos'] = (\n    cat_counts\n    .groupby('LocationName')\n    ['cat_count']\n    .rank(method='first', ascending=False)\n)\ntop_abundance = cat_counts[cat_counts['rank_pos'] == 1].drop(columns=['rank_pos'])\nresult = species_counts.merge(top_abundance, on='LocationName', how='inner')\nresult = result.rename(columns={'Abundance_SACFORN': 'most_frequent_abundance'})\nfinal = result[['LocationName', 'species_count', 'most_frequent_abundance']]",
+      "reference_result": [
+        {
+          "LocationName": "Barn Scar",
+          "species_count": 47,
+          "most_frequent_abundance": "R"
+        },
+        {
+          "LocationName": "Bullstone Bed",
+          "species_count": 1,
+          "most_frequent_abundance": "P"
+        },
+        {
+          "LocationName": "Carl Cross",
+          "species_count": 10,
+          "most_frequent_abundance": "C"
+        },
+        {
+          "LocationName": "E of Salthouse, Millam",
+          "species_count": 4,
+          "most_frequent_abundance": "A"
+        },
+        {
+          "LocationName": "Foulney Island",
+          "species_count": 18,
+          "most_frequent_abundance": "O"
+        },
+        {
+          "LocationName": "Gutterby Spa",
+          "species_count": 33,
+          "most_frequent_abundance": "O"
+        },
+        {
+          "LocationName": "Hodbarrow Point, Duddon Estuary",
+          "species_count": 38,
+          "most_frequent_abundance": "R"
+        },
+        {
+          "LocationName": "N side of Askam Pier",
+          "species_count": 18,
+          "most_frequent_abundance": "R"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per location containing the count of distinct species observed and the most frequent abundance category (SACFORN code) for that location during the 1989 survey."
+    },
+    {
+      "id": "7654fb15",
+      "question": "Which water works has the highest average area of DWPA catchments?",
+      "keywords": [
+        "dwpa"
+      ],
+      "relevant_table_ids": [
+        "03a37711-bc60-4adc-ae02-a3800c646b24___3b9484f3-63c8-4e7f-8759-2274c4ae571e"
+      ],
+      "table_aliases": {
+        "Table_0": "03a37711-bc60-4adc-ae02-a3800c646b24___3b9484f3-63c8-4e7f-8759-2274c4ae571e"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby('Works', as_index=False)\n    .agg(avg_area=('Area_Sq_Km', 'mean'))\n    .sort_values('avg_area', ascending=False)\n    .head(1)\n    ['Works']\n    .iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "Dunore/Castor Bay/Moyola"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the water works (Works) that has the highest average catchment area."
+    },
+    {
+      "id": "34acd857",
+      "question": "What is the total area of the 2023 bsc safety Community Safety Partnerships and how does it compare to the total area of the 2020 community safety Partnerships?",
+      "keywords": [
+        "2023",
+        "bsc",
+        "safety",
+        "2020",
+        "community"
+      ],
+      "relevant_table_ids": [
+        "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "c9d4f6b0-feff-4511-8609-dde4c66bacd0___e690a291-97e8-4290-8337-5e3fdf215883"
+      ],
+      "table_aliases": {
+        "Table_0": "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "Table_1": "c9d4f6b0-feff-4511-8609-dde4c66bacd0___e690a291-97e8-4290-8337-5e3fdf215883"
+      },
+      "reference_code": "total_area_2023 = Table_0['Shape__Area'].sum()\ntotal_area_2020 = Table_1['Shape__Area'].sum()\nresult = pd.DataFrame({\n    'total_area_2023': [total_area_2023],\n    'total_area_2020': [total_area_2020],\n    'area_diff': [total_area_2023 - total_area_2020]\n})\nresult",
+      "reference_result": [
+        {
+          "total_area_2023": 151298532735.29108,
+          "total_area_2020": 151245394858.16608,
+          "area_diff": 53137877.125
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table showing the total area for 2023, the total area for 2020, and the absolute difference (2023 minus 2020) in square metres."
+    },
+    {
+      "id": "06f036ab",
+      "question": "Which locations in Cumbria had the most species records during the 1989 MNCR Cumbria littoral survey, and how many records were there at each location?",
+      "keywords": [
+        "cumbria"
+      ],
+      "relevant_table_ids": [
+        "ca6bdf80-f80a-4ab8-a4dd-74ef9552a674___154d1292-a1d1-4168-b38d-208e7e72051f"
+      ],
+      "table_aliases": {
+        "Table_0": "ca6bdf80-f80a-4ab8-a4dd-74ef9552a674___154d1292-a1d1-4168-b38d-208e7e72051f"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['SurveyName'] == '1989 MNCR Cumbria littoral survey']\n    .groupby('LocationName', as_index=False)\n    .agg(record_count=('RecordKey', 'count'))\n    .sort_values('record_count', ascending=False)\n)",
+      "reference_result": [
+        {
+          "LocationName": "S Fleswick Bay",
+          "record_count": 127
+        },
+        {
+          "LocationName": "SE South Head",
+          "record_count": 92
+        },
+        {
+          "LocationName": "St Bees Head",
+          "record_count": 77
+        },
+        {
+          "LocationName": "Roa Island",
+          "record_count": 76
+        },
+        {
+          "LocationName": "Barn Scar",
+          "record_count": 72
+        },
+        {
+          "LocationName": "Gutterby Spa",
+          "record_count": 72
+        },
+        {
+          "LocationName": "Selker coastguard lookout",
+          "record_count": 58
+        },
+        {
+          "LocationName": "Seascale (Whitriggs Scar)",
+          "record_count": 50
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per location with the total number of species records recorded there during the 1989 survey, sorted descending by record count."
+    },
+    {
+      "id": "43e92922",
+      "question": "How many National Assembly for Wales constituency names are listed in the December 2016 dataset?",
+      "keywords": [
+        "2016",
+        "names"
+      ],
+      "relevant_table_ids": [
+        "f25d7c10-40d7-4437-8b12-a6cc7ccc7d98___b2a98bad-fd4f-4574-84a5-4ed2fdc8dc57"
+      ],
+      "table_aliases": {
+        "Table_0": "f25d7c10-40d7-4437-8b12-a6cc7ccc7d98___b2a98bad-fd4f-4574-84a5-4ed2fdc8dc57"
+      },
+      "reference_code": "name_count = Table_0['NAWC16NM'].nunique()",
+      "reference_result": [
+        {
+          "result": 40
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of constituency names in the December 2016 dataset."
+    },
+    {
+      "id": "ee65189d",
+      "question": "Which five grid cells have the highest contribution scores in the moyola catchment, and what are their average area, total length, and count of cells?",
+      "keywords": [
+        "moyola"
+      ],
+      "relevant_table_ids": [
+        "981d7afb-bb29-495b-ba8b-d2527c45fe68___0f8f2ca0-6662-40cc-9a1d-8e60207ee2bd"
+      ],
+      "table_aliases": {
+        "Table_0": "981d7afb-bb29-495b-ba8b-d2527c45fe68___0f8f2ca0-6662-40cc-9a1d-8e60207ee2bd"
+      },
+      "reference_code": "result = (\n    Table_0\n    .sort_values(by=['GRIDCODE'], ascending=False)\n    .head(5)\n    .loc[:, ['OBJECTID', 'GRIDCODE', 'Shape__Area', 'Shape__Length']]\n)\navg_area = result['Shape__Area'].mean()\ntotal_length = result['Shape__Length'].sum()\ncell_count = result['OBJECTID'].count()\nresult = result.assign(\n    avg_area=avg_area,\n    total_length=total_length,\n    cell_count=cell_count\n)[['OBJECTID', 'avg_area', 'total_length', 'cell_count']]",
+      "reference_result": [
+        {
+          "OBJECTID": 667810,
+          "avg_area": 60.0,
+          "total_length": 170.0,
+          "cell_count": 5
+        },
+        {
+          "OBJECTID": 667813,
+          "avg_area": 60.0,
+          "total_length": 170.0,
+          "cell_count": 5
+        },
+        {
+          "OBJECTID": 667743,
+          "avg_area": 60.0,
+          "total_length": 170.0,
+          "cell_count": 5
+        },
+        {
+          "OBJECTID": 667744,
+          "avg_area": 60.0,
+          "total_length": 170.0,
+          "cell_count": 5
+        },
+        {
+          "OBJECTID": 667757,
+          "avg_area": 60.0,
+          "total_length": 170.0,
+          "cell_count": 5
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with five rows, each row representing one of the top five grid cells (identified by OBJECTID) and including the average area, total perimeter length, and count of cells (the same aggregate values repeated for each row)."
+    },
+    {
+      "id": "7a6919c1",
+      "question": "In the Drinking Water Safeguard Zones (surface water) data for the period 1 April 2012 to 31 March 2022, which three categories have the biggest gap between the longest attribute description and the average description length for that category, and what are those gaps in characters?",
+      "keywords": [
+        "water"
+      ],
+      "relevant_table_ids": [
+        "6ac22521-2e77-4dc8-ba90-6bb55d2ea3b8___45968054-e5d0-4925-a6d4-ba77fc145d28"
+      ],
+      "table_aliases": {
+        "Table_0": "6ac22521-2e77-4dc8-ba90-6bb55d2ea3b8___45968054-e5d0-4925-a6d4-ba77fc145d28"
+      },
+      "reference_code": "result = (\n    Table_0.assign(desc_len=Table_0['Brief Description'].str.len())\n    .groupby('Category', as_index=False)\n    .agg(max_len=('desc_len', 'max'), avg_len=('desc_len', 'mean'))\n    .assign(gap=lambda df: df['max_len'] - df['avg_len'])\n    .sort_values('gap', ascending=False)\n    .head(3)\n    .loc[:, ['Category', 'gap']]\n)",
+      "reference_result": [
+        {
+          "Category": "Substances affecting DrWPAs: algae and nutrient factors",
+          "gap": 294.1
+        },
+        {
+          "Category": "Substances affecting DrWPAs: Pesticides",
+          "gap": 266.4324324324
+        },
+        {
+          "Category": "Substances affecting DrWPAs: Sediment and colour factors",
+          "gap": 256.75
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A three‑row table listing each of the three categories with the largest character gap between their longest attribute description and the average description length, together with the gap value in characters."
+    },
+    {
+      "id": "16f3f93b",
+      "question": "In the May 2025 bfc v2 ward boundaries, which three wards in Sefton have the smallest areas and which three have the largest areas, and for each of these six wards, how does its area compare to the average ward area in Sefton?",
+      "keywords": [
+        "bfc",
+        "v2"
+      ],
+      "relevant_table_ids": [
+        "612b175b-987c-4acf-8ca4-1f93c6947928___9eeedd04-ca9f-4ac4-96a6-bedd8078e67f"
+      ],
+      "table_aliases": {
+        "Table_0": "612b175b-987c-4acf-8ca4-1f93c6947928___9eeedd04-ca9f-4ac4-96a6-bedd8078e67f"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[lambda df: df['LAD25NM'] == 'Sefton']\n    .assign(sefton_avg_area=lambda df: df['Shape__Area'].mean())\n    .assign(rank_small=lambda df: df['Shape__Area'].rank(method='average', ascending=True))\n    .assign(rank_large=lambda df: df['Shape__Area'].rank(method='average', ascending=False))\n    .loc[lambda df: (df['rank_small'] <= 3) | (df['rank_large'] <= 3)]\n    .assign(area_diff=lambda df: df['Shape__Area'] - df['sefton_avg_area'])\n    .loc[:, ['WD25NM', 'Shape__Area', 'area_diff']]\n)",
+      "reference_result": [
+        {
+          "WD25NM": "Derby",
+          "Shape__Area": 2196192.22958374,
+          "area_diff": -4921591.091440026
+        },
+        {
+          "WD25NM": "Harington",
+          "Shape__Area": 16295748.0614471,
+          "area_diff": 9177964.740423337
+        },
+        {
+          "WD25NM": "Litherland",
+          "Shape__Area": 1960076.8686676,
+          "area_diff": -5157706.452356165
+        },
+        {
+          "WD25NM": "Park",
+          "Shape__Area": 13967159.3009872,
+          "area_diff": 6849375.979963436
+        },
+        {
+          "WD25NM": "Ravenmeols",
+          "Shape__Area": 18047709.0657425,
+          "area_diff": 10929925.744718734
+        },
+        {
+          "WD25NM": "Victoria",
+          "Shape__Area": 2218595.69155884,
+          "area_diff": -4899187.629464924
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Six rows: the three smallest and three largest Sefton wards, each with its name (WD25NM), area (Shape__Area) and the difference between its area and the Sefton average ward area (area_diff)."
+    },
+    {
+      "id": "8845d8db",
+      "question": "In the 1985 NCC Loch Sween survey, which five habitat types accounted for the largest share of recorded points, and what percentage of the total points does each represent?",
+      "keywords": [
+        "habitat",
+        "ncc",
+        "sween"
+      ],
+      "relevant_table_ids": [
+        "3957962d-24ac-483b-a499-4fa021b96ace___cad71b20-df7c-41be-bcf2-b2806b1e39b2"
+      ],
+      "table_aliases": {
+        "Table_0": "3957962d-24ac-483b-a499-4fa021b96ace___cad71b20-df7c-41be-bcf2-b2806b1e39b2"
+      },
+      "reference_code": "df = Table_0[Table_0['SurveyName'] == '1985 NCC Loch Sween sublittoral survey']\ntotal_points = df['RecordKey'].count()\nhabitat_counts = (\n    df.groupby('HabitatCode')['RecordKey']\n    .count()\n    .reset_index(name='habitat_count')\n)\nhabitat_counts['percentage'] = habitat_counts['habitat_count'] / total_points * 100\nresult = habitat_counts.sort_values(by='habitat_count', ascending=False).head(5)",
+      "reference_result": [
+        {
+          "HabitatCode": "CMU.SpMeg",
+          "habitat_count": 34,
+          "percentage": 6.9672131148
+        },
+        {
+          "HabitatCode": "SS.SMu.CFiMu.SpnMeg",
+          "habitat_count": 29,
+          "percentage": 5.9426229508
+        },
+        {
+          "HabitatCode": "IMX.LsacX",
+          "habitat_count": 23,
+          "percentage": 4.7131147541
+        },
+        {
+          "HabitatCode": "IR.LIR.K.Lsac.Ft",
+          "habitat_count": 23,
+          "percentage": 4.7131147541
+        },
+        {
+          "HabitatCode": "SIR.Lsac.Ft",
+          "habitat_count": 23,
+          "percentage": 4.7131147541
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Table with five rows, each showing a habitat code, the number of points recorded for that habitat, and its share of the total points, sorted by descending share."
+    },
+    {
+      "id": "0125aa8e",
+      "question": "How many different species were recorded in the 1990 Morecambe Bay to Whitehaven sublittoral survey?",
+      "keywords": [
+        "whitehaven"
+      ],
+      "relevant_table_ids": [
+        "f393dfa6-1d29-4932-b7bb-cf90ba774949___2dafede1-b503-4779-a078-03261f5ea599"
+      ],
+      "table_aliases": {
+        "Table_0": "f393dfa6-1d29-4932-b7bb-cf90ba774949___2dafede1-b503-4779-a078-03261f5ea599"
+      },
+      "reference_code": "species_count = (\n    Table_0[Table_0['SurveyName'] == '1990 MNCR Morecambe Bay to Whitehaven sublittoral survey']\n    ['Species']\n    .nunique()\n)",
+      "reference_result": [
+        {
+          "result": 28
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of distinct marine species recorded in the 1990 Morecambe Bay to Whitehaven sublittoral survey."
+    },
+    {
+      "id": "e247c40d",
+      "question": "For each survey date in the 1984 Loch Sween survey, what proportion of the recorded points were of the habitat 'Serpula vermicularis reefs on very sheltered circalittoral muddy sand', and which date had the highest proportion?",
+      "keywords": [
+        "1984",
+        "habitat",
+        "sween"
+      ],
+      "relevant_table_ids": [
+        "648fb958-f935-4a66-9dc2-1cb7712c865a___3b4e3d7c-9db6-4215-a64b-c909e8ce03d4"
+      ],
+      "table_aliases": {
+        "Table_0": "648fb958-f935-4a66-9dc2-1cb7712c865a___3b4e3d7c-9db6-4215-a64b-c909e8ce03d4"
+      },
+      "reference_code": "df = Table_0[Table_0['SurveyKey'] == 'JNCCMNCR10000046']\ntarget_habitat = 'Serpula vermicularis reefs on very sheltered circalittoral muddy sand'\ndf = df.assign(is_target = df['HabitatDescription'] == target_habitat)\nagg = (\n    df.groupby('StartDate')\n      .agg(total_points = ('RecordKey', 'count'),\n           target_points = ('is_target', 'sum'))\n      .reset_index()\n)\nagg = agg.assign(proportion = agg['target_points'] / agg['total_points'])\nagg = agg.assign(rank_position = agg['proportion'].rank(method='dense', ascending=False))\nagg = agg.assign(is_highest = agg['rank_position'] == 1)\nresult = agg[['StartDate', 'proportion', 'is_highest']]",
+      "reference_result": [
+        {
+          "StartDate": "1984-08-28",
+          "proportion": 0.0,
+          "is_highest": false
+        },
+        {
+          "StartDate": "1984-09-02",
+          "proportion": 0.0,
+          "is_highest": false
+        },
+        {
+          "StartDate": "1984-09-03",
+          "proportion": 0.0,
+          "is_highest": false
+        },
+        {
+          "StartDate": "1984-09-04",
+          "proportion": 0.2068965517,
+          "is_highest": true
+        },
+        {
+          "StartDate": "1984-09-05",
+          "proportion": 0.0,
+          "is_highest": false
+        },
+        {
+          "StartDate": "1984-09-08",
+          "proportion": 0.0,
+          "is_highest": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per survey date showing the proportion of points that are 'Serpula vermicularis reefs on very sheltered circalittoral muddy sand' and a boolean flag indicating which date has the highest proportion."
+    },
+    {
+      "id": "854fad60",
+      "question": "What are the five police force areas (pfa) with the largest boundary areas in 2021, and how does each area compare to the average boundary area of all PFAs that year?",
+      "keywords": [
+        "2021",
+        "pfa"
+      ],
+      "relevant_table_ids": [
+        "16970036-352d-478f-b968-e482ad591da4___2af8c23e-e5d0-4938-9949-adb73672e499"
+      ],
+      "table_aliases": {
+        "Table_0": "16970036-352d-478f-b968-e482ad591da4___2af8c23e-e5d0-4938-9949-adb73672e499"
+      },
+      "reference_code": "avg_area = Table_0['Shape__Area'].mean()\nresult = (\n    Table_0\n    .sort_values(by='Shape__Area', ascending=False)\n    .head(5)\n    .assign(AreaDiff=lambda df: df['Shape__Area'] - avg_area)\n    [['PFA21NM', 'Shape__Area', 'AreaDiff']]\n)",
+      "reference_result": [
+        {
+          "PFA21NM": "Dyfed-Powys",
+          "Shape__Area": 10973138899.5007,
+          "AreaDiff": 7455814699.119765
+        },
+        {
+          "PFA21NM": "Devon & Cornwall",
+          "Shape__Area": 10274729680.0648,
+          "AreaDiff": 6757405479.683866
+        },
+        {
+          "PFA21NM": "North Yorkshire",
+          "Shape__Area": 8311900556.37102,
+          "AreaDiff": 4794576355.990086
+        },
+        {
+          "PFA21NM": "West Mercia",
+          "Shape__Area": 7407812560.36096,
+          "AreaDiff": 3890488359.9800253
+        },
+        {
+          "PFA21NM": "Cumbria",
+          "Shape__Area": 6823532586.99287,
+          "AreaDiff": 3306208386.6119356
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with five rows, each row containing the PFA name, its boundary area, and the difference between that area and the overall average area for 2021."
+    },
+    {
+      "id": "03a3a151",
+      "question": "What share of the total dwpa catchment area does each hydrometric code represent, and which code represents the largest share?",
+      "keywords": [
+        "dwpa"
+      ],
+      "relevant_table_ids": [
+        "03a37711-bc60-4adc-ae02-a3800c646b24___3b9484f3-63c8-4e7f-8759-2274c4ae571e"
+      ],
+      "table_aliases": {
+        "Table_0": "03a37711-bc60-4adc-ae02-a3800c646b24___3b9484f3-63c8-4e7f-8759-2274c4ae571e"
+      },
+      "reference_code": "total_area = Table_0['Area_Sq_Km'].sum()\nresult = (\n    Table_0\n    .groupby('Hydrometri', as_index=False)['Area_Sq_Km']\n    .sum()\n    .rename(columns={'Area_Sq_Km': 'code_area'})\n    .assign(share=lambda df: df['code_area'] / total_area)\n    .sort_values('share', ascending=False)\n    .loc[:, ['Hydrometri', 'share']]\n)",
+      "reference_result": [
+        {
+          "Hydrometri": 0,
+          "share": 0.5511943977
+        },
+        {
+          "Hydrometri": 203,
+          "share": 0.2983489809
+        },
+        {
+          "Hydrometri": 236,
+          "share": 0.0728163975
+        },
+        {
+          "Hydrometri": 201,
+          "share": 0.0387441248
+        },
+        {
+          "Hydrometri": 202,
+          "share": 0.0201841288
+        },
+        {
+          "Hydrometri": 206,
+          "share": 0.0145822212
+        },
+        {
+          "Hydrometri": 205,
+          "share": 0.00303778
+        },
+        {
+          "Hydrometri": 204,
+          "share": 0.0010919689
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per Hydrometri code showing its share (as a proportion of 1) of the total DWPA catchment area, sorted descending so the first row is the code with the largest share."
+    },
+    {
+      "id": "fd95d638",
+      "question": "Which built‑up area in England and Wales had the most sub‑division areas in 2011, and how many sub‑divisions did it have?",
+      "keywords": [
+        "area",
+        "up"
+      ],
+      "relevant_table_ids": [
+        "968b616b-5da6-40d6-9381-6667b781bc8a___53467421-a2b0-4972-a36a-8eab84efeadd"
+      ],
+      "table_aliases": {
+        "Table_0": "968b616b-5da6-40d6-9381-6667b781bc8a___53467421-a2b0-4972-a36a-8eab84efeadd"
+      },
+      "reference_code": "result = (\n    Table_0\n    .dropna(subset=['BUASD11CD'])\n    .groupby(['BUA11CD', 'BUA11NM'], as_index=False)\n    .agg(subdivision_count=('BUASD11CD', 'count'))\n    .sort_values('subdivision_count', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "BUA11CD": "E34004707",
+          "BUA11NM": "Greater London BUA",
+          "subdivision_count": 98
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the name of the built‑up area with the highest number of sub‑divisions and the corresponding count of sub‑divisions."
+    },
+    {
+      "id": "2551f6bb",
+      "question": "What share of the total area of historic private water supplies in Northern Ireland as of 31 December 2022 is accounted for by the three sites with the largest area?",
+      "keywords": [
+        "supplies"
+      ],
+      "relevant_table_ids": [
+        "c5830326-30ce-4caa-8d72-571a1258bccf___d6bfbe9c-d4d9-46f7-94dc-bde6cfdd346e"
+      ],
+      "table_aliases": {
+        "Table_0": "c5830326-30ce-4caa-8d72-571a1258bccf___d6bfbe9c-d4d9-46f7-94dc-bde6cfdd346e"
+      },
+      "reference_code": "area_share = (\n    Table_0.loc[Table_0['Status'] == 'Historic']\n    .sort_values(by='Shape__Area', ascending=False)\n    .head(3)['Shape__Area']\n    .sum()\n) / Table_0.loc[Table_0['Status'] == 'Historic', 'Shape__Area'].sum()\narea_share",
+      "reference_result": [
+        {
+          "result": 0.0215827339
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The proportion (as a decimal) of historic private water supply area that is covered by the three largest historic sites."
+    },
+    {
+      "id": "6e95b53c",
+      "question": "In 2026, according to the bfc loc data, what is the area of the NHS Greater Manchester Integrated Care Board?",
+      "keywords": [
+        "2026",
+        "bfc",
+        "loc"
+      ],
+      "relevant_table_ids": [
+        "701aaaf6-d40e-435e-9ab9-ac757b6e0858___37b36de7-f3b0-44d3-957c-aea99236bf74"
+      ],
+      "table_aliases": {
+        "Table_0": "701aaaf6-d40e-435e-9ab9-ac757b6e0858___37b36de7-f3b0-44d3-957c-aea99236bf74"
+      },
+      "reference_code": "total_area = Table_0.loc[Table_0['ICB26NM'] == 'NHS Greater Manchester Integrated Care Board', 'Shape__Area'].sum()",
+      "reference_result": [
+        {
+          "result": 1276030798.0813897
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total land area (square metres) of the NHS Greater Manchester Integrated Care Board as of April 2026, computed by summing the Shape__Area of its sub‑ICB polygons."
+    },
+    {
+      "id": "b2b7683b",
+      "question": "What species were recorded at the Saltstone (Salcombe estuary) during the DWT survey on 17 January 1992?",
+      "keywords": [
+        "salcombe"
+      ],
+      "relevant_table_ids": [
+        "8e781902-1479-401b-8554-adc508d3c366___b614491d-8c98-4b2e-a51a-66077a78c292"
+      ],
+      "table_aliases": {
+        "Table_0": "8e781902-1479-401b-8554-adc508d3c366___b614491d-8c98-4b2e-a51a-66077a78c292"
+      },
+      "reference_code": "result = Table_0.loc[(Table_0['LocationName'] == 'Saltstone (Salcombe estuary)') & (Table_0['StartDate'] == '1992-01-17'), 'Species'].drop_duplicates().sort_values().tolist()",
+      "reference_result": [
+        {
+          "0": "Actinia equina"
+        },
+        {
+          "0": "Anemonia viridis"
+        },
+        {
+          "0": "Anomia ephippium"
+        },
+        {
+          "0": "Anurida maritima"
+        },
+        {
+          "0": "Aplidium"
+        },
+        {
+          "0": "Arenicola marina"
+        },
+        {
+          "0": "Ascidiella aspersa"
+        },
+        {
+          "0": "Ascophyllum nodosum"
+        }
+      ],
+      "expected_result_type": "list",
+      "expected_result_description": "A list of the distinct species names recorded at Saltstone (Salcombe estuary) on 17 January 1992 during the DWT survey, sorted alphabetically."
+    },
+    {
+      "id": "f6f3f5e6",
+      "question": "How many Belfast City Council car parks in Belfast offer free parking?",
+      "keywords": [
+        "belfast",
+        "car"
+      ],
+      "relevant_table_ids": [
+        "89ff140d-e73c-41d8-aeca-f30320d27f9f___98548f1c-a871-4384-b803-f4cd6c896bce"
+      ],
+      "table_aliases": {
+        "Table_0": "89ff140d-e73c-41d8-aeca-f30320d27f9f___98548f1c-a871-4384-b803-f4cd6c896bce"
+      },
+      "reference_code": "free_park_count = Table_0[Table_0['TARIFF'] == 'Free'].shape[0]",
+      "reference_result": [
+        {
+          "result": 13
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of Belfast City Council car parks that have a tariff listed as 'Free', i.e., offering free parking."
+    },
+    {
+      "id": "f7ab31d9",
+      "question": "How many species records were collected on 20 June 1991 at the calf of man survey?",
+      "keywords": [
+        "calf"
+      ],
+      "relevant_table_ids": [
+        "1966c02e-b235-4665-8d0e-03ab1cc800b6___c39a13b4-3ddc-441a-bb50-f15cda093e53"
+      ],
+      "table_aliases": {
+        "Table_0": "1966c02e-b235-4665-8d0e-03ab1cc800b6___c39a13b4-3ddc-441a-bb50-f15cda093e53"
+      },
+      "reference_code": "record_count = Table_0[Table_0['StartDate'] == '1991-06-20'].shape[0]",
+      "reference_result": [
+        {
+          "result": 552
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of species records collected on 20 June 1991 during the Calf of Man survey."
+    },
+    {
+      "id": "fee9dafb",
+      "question": "What is the area of the LEP called Black Country in England as of December 2014?",
+      "keywords": [
+        "lep"
+      ],
+      "relevant_table_ids": [
+        "fd714875-0766-4734-829e-3baa3b520839___695a7214-ce7c-45a4-8a74-9e8d3fec6aec"
+      ],
+      "table_aliases": {
+        "Table_0": "fd714875-0766-4734-829e-3baa3b520839___695a7214-ce7c-45a4-8a74-9e8d3fec6aec"
+      },
+      "reference_code": "Table_0.loc[Table_0['lep14nm'] == 'Black Country', 'Shape__Area'].squeeze()",
+      "reference_result": [
+        {
+          "result": 356974452.384933
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The land area of the Black Country LEP in square metres as of December 2014."
+    },
+    {
+      "id": "5d3602c1",
+      "question": "What is the average area of the five districts with the longest perimeters in the 2011 GB BFE boundaries, and how does this average compare to the average area of all other districts?",
+      "keywords": [
+        "2011",
+        "bfe",
+        "districts",
+        "gb"
+      ],
+      "relevant_table_ids": [
+        "6e045526-4295-43fc-9387-fe1b980ac355___f09f05ea-1f51-4d0f-b4fc-8d336bf35f6c"
+      ],
+      "table_aliases": {
+        "Table_0": "6e045526-4295-43fc-9387-fe1b980ac355___f09f05ea-1f51-4d0f-b4fc-8d336bf35f6c"
+      },
+      "reference_code": "Table_0['perimeter_rank'] = Table_0['Shape__Length'].rank(method='average', ascending=False)\navg_area_top5 = Table_0.loc[Table_0['perimeter_rank'] <= 5, 'Shape__Area'].mean()\navg_area_others = Table_0.loc[Table_0['perimeter_rank'] > 5, 'Shape__Area'].mean()\narea_diff = avg_area_top5 - avg_area_others\nresult = pd.DataFrame({\n    'avg_area_top5': [avg_area_top5],\n    'avg_area_others': [avg_area_others],\n    'area_diff': [area_diff]\n})",
+      "reference_result": [
+        {
+          "avg_area_top5": 7931897619.786356,
+          "avg_area_others": 519305124.8173658,
+          "area_diff": 7412592494.96899
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table with three columns: average area of the five districts with the longest perimeters, average area of the remaining districts, and the difference between these two averages (top‑5 minus others), all expressed in square metres."
+    },
+    {
+      "id": "e89f50f4",
+      "question": "Which three locations had the highest number of different habitats recorded by the CEGB in the 1987 Mersey estuary survey?",
+      "keywords": [
+        "cegb"
+      ],
+      "relevant_table_ids": [
+        "e47b0c1f-7b68-4f11-9818-d9f2aed3091c___5ce11c68-f6ce-40ea-a995-8e1b5c9983b2"
+      ],
+      "table_aliases": {
+        "Table_0": "e47b0c1f-7b68-4f11-9818-d9f2aed3091c___5ce11c68-f6ce-40ea-a995-8e1b5c9983b2"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby('LocationName')\n    .agg(habitat_count=('HabitatCode', 'nunique'))\n    .reset_index()\n    .sort_values('habitat_count', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "LocationName": "Between Mount Manisty and Eastham (inner Mersey estuary)",
+          "habitat_count": 2
+        },
+        {
+          "LocationName": "Between Mount Manisty and Eastham offshore (inner Mersey estuary)",
+          "habitat_count": 2
+        },
+        {
+          "LocationName": "Between North Bank and Spencer's Spit (outer Mersey estuary)",
+          "habitat_count": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing a LocationName and the count of distinct habitats recorded there, sorted from highest to lowest count."
+    },
+    {
+      "id": "a186a26b",
+      "question": "According to the 2021 RUC21 rural‑urban classification, among the local authority districts that are classified as urban, which three RUC21 categories contain the most districts and what share of all urban districts does each represent?",
+      "keywords": [
+        "authority",
+        "ruc21"
+      ],
+      "relevant_table_ids": [
+        "8daa9988-f4e6-40e3-82df-58bb0ae947a3___1e1245e8-b205-40bb-b63e-d6f7bff22590"
+      ],
+      "table_aliases": {
+        "Table_0": "8daa9988-f4e6-40e3-82df-58bb0ae947a3___1e1245e8-b205-40bb-b63e-d6f7bff22590"
+      },
+      "reference_code": "urban_df = Table_0[Table_0['Urban_rural_flag'] == 'Urban']\ncat_counts = (\n    urban_df.groupby('RUC21NM')['ObjectId']\n    .count()\n    .reset_index(name='category_count')\n)\ncat_counts['join_key'] = 1\ntotal_urban = pd.DataFrame({\n    'total_urban': [urban_df['ObjectId'].count()],\n    'join_key': [1]\n})\nmerged = cat_counts.merge(total_urban, on='join_key')\nmerged['share_pct'] = merged['category_count'] / merged['total_urban'] * 100\nresult = (\n    merged.sort_values('category_count', ascending=False)\n    .head(3)\n    [['RUC21NM', 'category_count', 'share_pct']]\n)",
+      "reference_result": [
+        {
+          "RUC21NM": "Urban: Majority nearer to a major town or city",
+          "category_count": 175,
+          "share_pct": 75.7575757576
+        },
+        {
+          "RUC21NM": "Intermediate urban: Majority nearer to a major town or city",
+          "category_count": 40,
+          "share_pct": 17.316017316
+        },
+        {
+          "RUC21NM": "Intermediate urban: Majority further from a major town or city",
+          "category_count": 10,
+          "share_pct": 4.329004329
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing an urban RUC21 category name, the count of districts in that category, and the percentage share of all urban districts that this count represents, ordered by descending count."
+    },
+    {
+      "id": "fbfdfdb7",
+      "question": "How many habitat points were recorded in the 1991 MNCR Morecambe Bay littoral survey?",
+      "keywords": [
+        "habitat",
+        "morecambe"
+      ],
+      "relevant_table_ids": [
+        "cf9e157f-e5f4-4b98-8987-febdf1f0e5be___f284dd81-4ac2-4874-b7cc-b0da8758f872"
+      ],
+      "table_aliases": {
+        "Table_0": "cf9e157f-e5f4-4b98-8987-febdf1f0e5be___f284dd81-4ac2-4874-b7cc-b0da8758f872"
+      },
+      "reference_code": "point_count = Table_0[Table_0['SurveyName'] == '1991 MNCR Morecambe Bay littoral survey'].shape[0]",
+      "reference_result": [
+        {
+          "result": 159
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of habitat point records recorded in the 1991 MNCR Morecambe Bay littoral survey."
+    },
+    {
+      "id": "09e63c13",
+      "question": "In 2022, which FRA BUCs have the three largest land areas and which BUC has the smallest land area, and what share of the total England fire and rescue authority land area does each represent?",
+      "keywords": [
+        "2022",
+        "buc",
+        "fra"
+      ],
+      "relevant_table_ids": [
+        "e6cb8668-2962-4e88-a87d-5f7039a80e11___a27efd1a-d6ca-4b4d-9df7-9f736d2252ac"
+      ],
+      "table_aliases": {
+        "Table_0": "e6cb8668-2962-4e88-a87d-5f7039a80e11___a27efd1a-d6ca-4b4d-9df7-9f736d2252ac"
+      },
+      "reference_code": "total_area = Table_0['Shape__Area'].sum()\nTable_0['share'] = Table_0['Shape__Area'] / total_area\nTable_0['area_rank'] = Table_0['Shape__Area'].rank(method='dense', ascending=False)\ntotal_rows = Table_0['FRA22NM'].count()\ntop_three = Table_0[Table_0['area_rank'] <= 3]\nsmallest = Table_0[Table_0['area_rank'] == total_rows]\nresult = pd.concat([top_three, smallest], ignore_index=True)\nfinal_output = result[['FRA22NM', 'Shape__Area', 'share', 'area_rank']]",
+      "reference_result": [
+        {
+          "FRA22NM": "Cumbria",
+          "Shape__Area": 6828585058.47925,
+          "share": 0.0522830085,
+          "area_rank": 3.0
+        },
+        {
+          "FRA22NM": "Devon & Somerset",
+          "Shape__Area": 10188604418.7832,
+          "share": 0.0780089707,
+          "area_rank": 1.0
+        },
+        {
+          "FRA22NM": "North Yorkshire",
+          "Shape__Area": 8328028364.30534,
+          "share": 0.0637634846,
+          "area_rank": 2.0
+        },
+        {
+          "FRA22NM": "Isles of Scilly",
+          "Shape__Area": 13574584.3039238,
+          "share": 0.0001039337,
+          "area_rank": 44.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with four rows: the three FRA BUCs with the largest land areas and the BUC with the smallest land area in 2022, each row showing the BUC name, its land area (square metres), its share of the total England FRA land area, and its rank (1 = largest)."
+    },
+    {
+      "id": "0c9d637f",
+      "question": "For each office region, what is the total salary cost of senior civil servant posts at IfATE in March 2025 divided by the total full‑time staff count, and which region has the lowest cost per staff member?",
+      "keywords": [
+        "ifate",
+        "march"
+      ],
+      "relevant_table_ids": [
+        "bd3c498b-0984-42b4-85ed-773ee980c574___92ae2cd6-5c7d-4787-80d9-bcba17790847"
+      ],
+      "table_aliases": {
+        "Table_0": "bd3c498b-0984-42b4-85ed-773ee980c574___92ae2cd6-5c7d-4787-80d9-bcba17790847"
+      },
+      "reference_code": "result = (Table_0\n    .loc[(Table_0['Organisation'] == 'IfATE') & (Table_0['Grade (or equivalent)'] == 'SCS1')]\n    .groupby('Office Region', as_index=False)\n    .agg(total_cost=('Salary Cost of Reports (£)', 'sum'),\n         total_fte=('FTE', 'sum'))\n    .assign(cost_per_staff=lambda df: df['total_cost'] / df['total_fte'])\n    .loc[:, ['Office Region', 'cost_per_staff']]\n    .sort_values(by='cost_per_staff', ascending=True)\n    .head(1000))",
+      "reference_result": [
+        {
+          "Office Region": "West Midlands",
+          "cost_per_staff": 76353.0
+        },
+        {
+          "Office Region": "London",
+          "cost_per_staff": 1396582.9545454544
+        },
+        {
+          "Office Region": "North West",
+          "cost_per_staff": 1659451.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Each row contains an Office Region and its cost per staff member (total salary cost divided by total FTE). Rows are sorted ascending so the first row is the region with the lowest cost per staff."
+    },
+    {
+      "id": "d98262c7",
+      "question": "What was the average number of repossessions completed each year from 2015 to 2020 for each health trust?",
+      "keywords": [
+        "health",
+        "repossessions"
+      ],
+      "relevant_table_ids": [
+        "43fa5a4a-dc9d-4161-8612-2fe54bd32061___8a962b0c-b4a8-4542-b805-5318ce42f3c0"
+      ],
+      "table_aliases": {
+        "Table_0": "43fa5a4a-dc9d-4161-8612-2fe54bd32061___8a962b0c-b4a8-4542-b805-5318ce42f3c0"
+      },
+      "reference_code": "Table_0[(Table_0['Year'] >= 2015) & (Table_0['Year'] <= 2020)].groupby('Health and Social Care Trust')['VALUE'].mean().reset_index(name='avg_repossessions')",
+      "reference_result": [
+        {
+          "Health and Social Care Trust": "Belfast",
+          "avg_repossessions": 78.5
+        },
+        {
+          "Health and Social Care Trust": "NI",
+          "avg_repossessions": 377.0
+        },
+        {
+          "Health and Social Care Trust": "Northern",
+          "avg_repossessions": 80.6666666667
+        },
+        {
+          "Health and Social Care Trust": "South Eastern",
+          "avg_repossessions": 77.5
+        },
+        {
+          "Health and Social Care Trust": "Southern",
+          "avg_repossessions": 72.0
+        },
+        {
+          "Health and Social Care Trust": "Western",
+          "avg_repossessions": 59.3333333333
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per health trust showing the average number of repossessions completed per year between 2015 and 2020."
+    },
+    {
+      "id": "b67a9e2c",
+      "question": "In Bolton, what are the three most common types of TfGM property, how many of each are there, and what share of Bolton’s total TfGM properties does each represent?",
+      "keywords": [
+        "property",
+        "tfgm"
+      ],
+      "relevant_table_ids": [
+        "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
+      ],
+      "table_aliases": {
+        "Table_0": "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
+      },
+      "reference_code": "bolton_total = Table_0[Table_0['Town'] == 'Bolton'].shape[0]\nresult = (\n    Table_0[Table_0['Town'] == 'Bolton']\n    .groupby('Internal Category')\n    .size()\n    .reset_index(name='category_count')\n    .assign(share=lambda df: df['category_count'] / bolton_total)\n    .sort_values('category_count', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "Internal Category": "Turnarounds/Laybys",
+          "category_count": 14,
+          "share": 0.6363636364
+        },
+        {
+          "Internal Category": "Heavy Rail Car Parks",
+          "category_count": 6,
+          "share": 0.2727272727
+        },
+        {
+          "Internal Category": "Bus Stations",
+          "category_count": 2,
+          "share": 0.0909090909
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing a property type in Bolton, the count of assets of that type, and the percentage share of Bolton’s total TfGM properties that the type represents."
+    },
+    {
+      "id": "b1ee0bab",
+      "question": "Using the 2022 combined authorities boundaries (bfc), which authorities have an area‑to‑perimeter ratio above the average and what share of the total area does each of those authorities represent, ranked from highest to lowest ratio?",
+      "keywords": [
+        "2022",
+        "bfc",
+        "combined"
+      ],
+      "relevant_table_ids": [
+        "54704669-ddb0-424c-bf45-6fa120671e0d___79d293e1-2ffb-451c-a67d-0e7d3b27a71d"
+      ],
+      "table_aliases": {
+        "Table_0": "54704669-ddb0-424c-bf45-6fa120671e0d___79d293e1-2ffb-451c-a67d-0e7d3b27a71d"
+      },
+      "reference_code": "avg_ratio = Table_0['Shape__Area'] / Table_0['Shape__Length']\navg_ratio = avg_ratio.mean()\ntotal_area = Table_0['Shape__Area'].sum()\nresult = (\n    Table_0\n    .assign(area_perimeter=Table_0['Shape__Area'] / Table_0['Shape__Length'])\n    .assign(share=lambda x: x['Shape__Area'] / total_area)\n    .loc[lambda x: x['area_perimeter'] > avg_ratio]\n    .sort_values(by='area_perimeter', ascending=False)\n    [['CAUTH22NM', 'area_perimeter', 'share']]\n)",
+      "reference_result": [
+        {
+          "CAUTH22NM": "North of Tyne",
+          "area_perimeter": 8455.1726111392,
+          "share": 0.268902814
+        },
+        {
+          "CAUTH22NM": "West Yorkshire",
+          "area_perimeter": 7173.4434491247,
+          "share": 0.1043738586
+        },
+        {
+          "CAUTH22NM": "North East",
+          "area_perimeter": 6801.3374637079,
+          "share": 0.1324760988
+        },
+        {
+          "CAUTH22NM": "Cambridgeshire and Peterborough",
+          "area_perimeter": 6412.8747325958,
+          "share": 0.1746659971
+        },
+        {
+          "CAUTH22NM": "South Yorkshire",
+          "area_perimeter": 5389.412526977,
+          "share": 0.0798030857
+        },
+        {
+          "CAUTH22NM": "Greater Manchester",
+          "area_perimeter": 5130.8161009471,
+          "share": 0.0656294277
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Each row is a combined authority with its area‑to‑perimeter ratio and the proportion of the total combined‑authority area it occupies, sorted from highest to lowest ratio."
+    },
+    {
+      "id": "9402e0a6",
+      "question": "Which five suppliers received the highest total spend for services to people in the Stockport Metropolitan Borough Council transactions over £500 in July 2022, and what was the average spend per transaction for each of those suppliers?",
+      "keywords": [
+        "2022",
+        "500",
+        "july",
+        "spend"
+      ],
+      "relevant_table_ids": [
+        "0c5487f4-c863-4f99-b882-459d3acf4b54___820c41dd-da52-45a7-8413-0200dc789a33"
+      ],
+      "table_aliases": {
+        "Table_0": "0c5487f4-c863-4f99-b882-459d3acf4b54___820c41dd-da52-45a7-8413-0200dc789a33"
+      },
+      "reference_code": "top_suppliers = (\n    Table_0\n    .loc[Table_0['net_amount'] > 500]\n    .loc[Table_0['Service'] == 'Services to People']\n    .groupby('Supplier', as_index=False)\n    .agg(total_spend=('net_amount', 'sum'),\n         avg_spend=('net_amount', 'mean'))\n    .sort_values(by='total_spend', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "Supplier": "Post Office Limited - Payout",
+          "total_spend": 1462164.0,
+          "avg_spend": 731082.0
+        },
+        {
+          "Supplier": "STOCKPORT NHS TRUST",
+          "total_spend": 920133.0,
+          "avg_spend": 230033.25
+        },
+        {
+          "Supplier": "*Redact - Personal Information",
+          "total_spend": 917818.58,
+          "avg_spend": 1659.7081012658
+        },
+        {
+          "Supplier": "Life in Colour",
+          "total_spend": 813016.37,
+          "avg_spend": 1775.1449126638
+        },
+        {
+          "Supplier": "Kier Construction Limited",
+          "total_spend": 755291.47,
+          "avg_spend": 377645.735
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Up to five rows, each with a supplier name, its total spend (pounds) and the average spend per transaction (pounds) for services to people over £500 in July 2022, ordered by descending total spend."
+    },
+    {
+      "id": "a6024d1a",
+      "question": "Which day of the 1985 NCC Loch Sween survey contributed the highest proportion of the survey’s total distinct habitat types?",
+      "keywords": [
+        "habitat",
+        "ncc",
+        "sween"
+      ],
+      "relevant_table_ids": [
+        "3957962d-24ac-483b-a499-4fa021b96ace___cad71b20-df7c-41be-bcf2-b2806b1e39b2"
+      ],
+      "table_aliases": {
+        "Table_0": "3957962d-24ac-483b-a499-4fa021b96ace___cad71b20-df7c-41be-bcf2-b2806b1e39b2"
+      },
+      "reference_code": "filtered = Table_0[Table_0['SurveyName'] == '1985 NCC Loch Sween sublittoral survey']\ntotal_distinct = filtered['HabitatCode'].nunique()\nresult = (\n    filtered\n    .groupby('StartDate')['HabitatCode']\n    .nunique()\n    .reset_index(name='day_distinct')\n    .assign(proportion=lambda x: x['day_distinct'] / total_distinct)\n    .sort_values(by='proportion', ascending=False)\n    .head(1)[['StartDate', 'proportion']]\n)",
+      "reference_result": [
+        {
+          "StartDate": "1985-09-02",
+          "proportion": 0.3364485981
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the date (StartDate) that contributed the highest proportion of distinct habitat types and the proportion value."
+    },
+    {
+      "id": "19b2ac0c",
+      "question": "How many unlicensed offshore petroleum blocks are listed in the UKCS catalogue?",
+      "keywords": [
+        "unlicensed"
+      ],
+      "relevant_table_ids": [
+        "eb8c5290-b7bc-4374-841a-b4bb8c20362b___cb188e00-2c91-4ebc-a3be-f1e271371826"
+      ],
+      "table_aliases": {
+        "Table_0": "eb8c5290-b7bc-4374-841a-b4bb8c20362b___cb188e00-2c91-4ebc-a3be-f1e271371826"
+      },
+      "reference_code": "block_count = Table_0[Table_0['Location'] == 'OFFSHORE']['OBJECTID'].count()",
+      "reference_result": [
+        {
+          "0": 4127
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of unlicensed offshore petroleum blocks in the UKCS catalogue."
+    },
+    {
+      "id": "50cf88be",
+      "question": "How many junior staff posts were recorded for the Department for Culture, Media and Sport in 2025?",
+      "keywords": [
+        "2025",
+        "culture",
+        "junior"
+      ],
+      "relevant_table_ids": [
+        "14218517-ef18-40ea-9ad1-aa637174c372___40c94962-3067-4649-953c-e0df72ca40a3"
+      ],
+      "table_aliases": {
+        "Table_0": "14218517-ef18-40ea-9ad1-aa637174c372___40c94962-3067-4649-953c-e0df72ca40a3"
+      },
+      "reference_code": "total_junior_posts = (\n    Table_0[\n        (Table_0['Parent Department'] == 'Department for Culture, Media and Sport') &\n        (Table_0['Grade'].isin(['AO', 'EO']))\n    ]['Number of Posts in FTE']\n    .pipe(lambda s: pd.to_numeric(s, errors='coerce'))\n    .sum()\n)",
+      "reference_result": [
+        {
+          "result": 28.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of junior staff posts (sum of the Number of Posts in FTE) for the Department for Culture, Media and Sport in the 2025 snapshot."
+    },
+    {
+      "id": "ff67247c",
+      "question": "How many listed buildings are recorded by Rossendale Borough Council?",
+      "keywords": [
+        "rossendale"
+      ],
+      "relevant_table_ids": [
+        "f34a317e-9f1e-4eb7-85a7-3b2232cede4d___b0d04f53-d965-4863-be08-7dde50f06ed2"
+      ],
+      "table_aliases": {
+        "Table_0": "f34a317e-9f1e-4eb7-85a7-3b2232cede4d___b0d04f53-d965-4863-be08-7dde50f06ed2"
+      },
+      "reference_code": "total_buildings = Table_0[Table_0['listed_building'] > 0]['listed_building'].count()",
+      "reference_result": [
+        {
+          "0": 277
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of listed building entries recorded by Rossendale Borough Council."
+    },
+    {
+      "id": "46be3099",
+      "question": "What is the total licensed aquaculture area in Northern Ireland?",
+      "keywords": [
+        "aquaculture"
+      ],
+      "relevant_table_ids": [
+        "cc728b8f-c05b-4067-bfaf-cd4bb09378f6___31ba563b-6d07-4070-b7a5-349ccb4798e2"
+      ],
+      "table_aliases": {
+        "Table_0": "cc728b8f-c05b-4067-bfaf-cd4bb09378f6___31ba563b-6d07-4070-b7a5-349ccb4798e2"
+      },
+      "reference_code": "total_area = Table_0['Area (hectares)'].sum()",
+      "reference_result": [
+        {
+          "result": 2042.07
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total licensed aquaculture area across all licences in Northern Ireland, expressed in hectares."
+    },
+    {
+      "id": "21e2a7dd",
+      "question": "What is the average area of licensed marine aquaculture sites in Northern Ireland (DAERA licences) for each main species, and which species has the largest average area?",
+      "keywords": [
+        "aquaculture"
+      ],
+      "relevant_table_ids": [
+        "9522938c-3397-4857-a46d-17391e604181___0c00e059-51f5-4882-a1ea-544f2d04c215"
+      ],
+      "table_aliases": {
+        "Table_0": "9522938c-3397-4857-a46d-17391e604181___0c00e059-51f5-4882-a1ea-544f2d04c215"
+      },
+      "reference_code": "result = (\n    Table_0.groupby('Main Species', as_index=False)['Area (hectares)']\n    .mean()\n    .rename(columns={'Area (hectares)': 'avg_area'})\n    .sort_values(by='avg_area', ascending=False)\n    [['Main Species', 'avg_area']]\n)",
+      "reference_result": [
+        {
+          "Main Species": "Atlantic Salmon",
+          "avg_area": 57.9655
+        },
+        {
+          "Main Species": "Mussels",
+          "avg_area": 41.9408461538
+        },
+        {
+          "Main Species": "Native Oyster",
+          "avg_area": 25.26
+        },
+        {
+          "Main Species": "Pacific Oyster",
+          "avg_area": 22.3039090909
+        },
+        {
+          "Main Species": "Native + Pacific Oyster",
+          "avg_area": 19.721
+        },
+        {
+          "Main Species": "Periwinkle",
+          "avg_area": 0.122
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per main species with its average licensed aquaculture site area (hectares), sorted descending so the first row is the species with the largest average area."
+    },
+    {
+      "id": "ea6812b4",
+      "question": "In 2015, which local authority district contains the greatest number of lsoa11 areas that fall within electoral wards named \"Village\", and what share of that district’s total lsoa11 areas does this represent?",
+      "keywords": [
+        "electoral",
+        "lsoa11"
+      ],
+      "relevant_table_ids": [
+        "50c16cae-9b1d-40e6-9e09-72df7630c243___e5b0056b-cf54-4b30-bf97-1c174aed6b98"
+      ],
+      "table_aliases": {
+        "Table_0": "50c16cae-9b1d-40e6-9e09-72df7630c243___e5b0056b-cf54-4b30-bf97-1c174aed6b98"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(is_village=Table_0['WD15NM'] == 'Village')\n    .groupby('LAD15NM', as_index=False)\n    .agg(\n        total_lsoa_count=('LSOA11CD', 'count'),\n        village_lsoa_count=('is_village', 'sum')\n    )\n    .assign(share=lambda df: df['village_lsoa_count'] / df['total_lsoa_count'])\n    .sort_values(by='village_lsoa_count', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "LAD15NM": "Trafford",
+          "total_lsoa_count": 138,
+          "village_lsoa_count": 8,
+          "share": 0.0579710145
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the local authority district name, the count of LSOA11 areas whose ward name is \"Village\", the total count of LSOA11 areas in that district, and the share of Village LSOAs expressed as a proportion of the district total."
+    },
+    {
+      "id": "91e9fd5a",
+      "question": "What are the total length and the average length of base lava flow features along the Northern Ireland coast?",
+      "keywords": [
+        "base"
+      ],
+      "relevant_table_ids": [
+        "6ba38791-959a-4629-880d-1d18b01ef7d5___871802df-e45a-4389-990e-d9351d61d73f"
+      ],
+      "table_aliases": {
+        "Table_0": "6ba38791-959a-4629-880d-1d18b01ef7d5___871802df-e45a-4389-990e-d9351d61d73f"
+      },
+      "reference_code": "result = (\n    Table_0.loc[Table_0['TYPE'].str.lower() == 'base_of_lava_flow'.lower()]\n    .agg(total_length=('SHAPE_Length', 'sum'), avg_length=('SHAPE_Length', 'mean'))\n    .reset_index(drop=True)\n)\nresult",
+      "reference_result": [
+        {
+          "SHAPE_Length": 55403.7985450081
+        },
+        {
+          "SHAPE_Length": 346.2737409063
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with columns total_length (meters) and avg_length (meters) representing the sum and average length of base lava flow features along the Northern Ireland coast."
+    },
+    {
+      "id": "9ab9315f",
+      "question": "Which town in the Causeway Coast and Glens Borough Council area has the most community centres, and how many are there?",
+      "keywords": [
+        "coast",
+        "community"
+      ],
+      "relevant_table_ids": [
+        "b8ee9aeb-2e1b-4960-997b-5db0165dae23___58f71e1c-f19a-4e9e-b7df-b7cdf572ceeb"
+      ],
+      "table_aliases": {
+        "Table_0": "b8ee9aeb-2e1b-4960-997b-5db0165dae23___58f71e1c-f19a-4e9e-b7df-b7cdf572ceeb"
+      },
+      "reference_code": "centres_per_town = (\n    Table_0.groupby('Town')['OBJECTID_1']\n    .count()\n    .reset_index(name='centres_per_town')\n    .sort_values('centres_per_town', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Town": "Coleraine",
+          "centres_per_town": 5
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the town name that has the highest number of community centres and the corresponding centre count."
+    },
+    {
+      "id": "0b315aa5",
+      "question": "Which three service types have the largest gap between the number of URLs that are on GOV.UK and the number that are not, considering only service types with at least 100 URLs in the Local Authority Services dataset up to 6 March 2024, and what is that gap for each?",
+      "keywords": [
+        "urls"
+      ],
+      "relevant_table_ids": [
+        "a0abdb2c-f210-4f07-bb36-9ff553bf4a23___fe256f37-d5d3-4ea7-977c-d757466f070a"
+      ],
+      "table_aliases": {
+        "Table_0": "a0abdb2c-f210-4f07-bb36-9ff553bf4a23___fe256f37-d5d3-4ea7-977c-d757466f070a"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['URL'].notna()]\n    .assign(**{'Supported by GOV.UK': lambda df: df['Supported by GOV.UK'].astype(int)})\n    .groupby('Description', as_index=False)\n    .agg(\n        govuk_count=('Supported by GOV.UK', 'sum'),\n        total_count=('URL', 'size')\n    )\n    .assign(non_govuk_count=lambda df: df['total_count'] - df['govuk_count'])\n    .assign(gap=lambda df: (df['govuk_count'] - df['non_govuk_count']).abs())\n    .query(\"total_count >= 100\")\n    .sort_values('gap', ascending=False)\n    .head(3)\n    [['Description', 'gap']]\n)",
+      "reference_result": [
+        {
+          "Description": "Councillors directory: Providing information",
+          "gap": 380
+        },
+        {
+          "Description": "Complaints procedure: Providing information",
+          "gap": 380
+        },
+        {
+          "Description": "Street parking enforcement: Paying for goods and services",
+          "gap": 366
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each showing a service type (Description) and the absolute difference (gap) between GOV.UK‑listed and non‑GOV.UK URLs, ordered from largest to smallest gap."
+    },
+    {
+      "id": "16c58923",
+      "question": "For each aquaculture culture type, what share of the total licensed area does each species represent, and which culture‑species combination accounts for the largest share?",
+      "keywords": [
+        "aquaculture"
+      ],
+      "relevant_table_ids": [
+        "cc728b8f-c05b-4067-bfaf-cd4bb09378f6___31ba563b-6d07-4070-b7a5-349ccb4798e2"
+      ],
+      "table_aliases": {
+        "Table_0": "cc728b8f-c05b-4067-bfaf-cd4bb09378f6___31ba563b-6d07-4070-b7a5-349ccb4798e2"
+      },
+      "reference_code": "total_area = Table_0['Area (hectares)'].sum()\nresult = (\n    Table_0\n    .groupby(['Culture', 'Main Species'], as_index=False)\n    .agg(culture_species_area=('Area (hectares)', 'sum'))\n    .assign(share=lambda df: df['culture_species_area'] / total_area)\n    .assign(rank=lambda df: df['share'].rank(method='average', ascending=False))\n    .assign(is_max=lambda df: df['rank'] == 1)\n    .loc[:, ['Culture', 'Main Species', 'share', 'is_max']]\n)",
+      "reference_result": [
+        {
+          "Culture": "Bottom Culture",
+          "Main Species": "Mussels",
+          "share": 0.7832371074,
+          "is_max": true
+        },
+        {
+          "Culture": "Bottom Culture",
+          "Main Species": "Native Oyster",
+          "share": 0.0123698012,
+          "is_max": false
+        },
+        {
+          "Culture": "Bottom Culture",
+          "Main Species": "Pacific Oyster",
+          "share": 0.0159989618,
+          "is_max": false
+        },
+        {
+          "Culture": "Cage",
+          "Main Species": "Atlantic Salmon",
+          "share": 0.0567713154,
+          "is_max": false
+        },
+        {
+          "Culture": "Ranching",
+          "Main Species": "Periwinkle",
+          "share": 5.97433e-05,
+          "is_max": false
+        },
+        {
+          "Culture": "Suspended Culture",
+          "Main Species": "Mussels",
+          "share": 0.0177604098,
+          "is_max": false
+        },
+        {
+          "Culture": "Trestle",
+          "Main Species": "Native + Pacific Oyster",
+          "share": 0.0096573575,
+          "is_max": false
+        },
+        {
+          "Culture": "Trestle",
+          "Main Species": "Pacific Oyster",
+          "share": 0.1041453035,
+          "is_max": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Table with one row per culture type and species, showing the proportion of total licensed area that each species accounts for within its culture, and a boolean column indicating the combination with the largest share."
+    },
+    {
+      "id": "a2902201",
+      "question": "Which financial year between 2008/09 and 2017/18 saw the greatest increase in the absolute margin by which Plymouth’s average Band D council tax amounts exceeded the England maximum amount compared with the previous year, and what were the absolute and percentage margins in that year?",
+      "keywords": [
+        "amounts"
+      ],
+      "relevant_table_ids": [
+        "5b134bbc-1574-4f41-a8aa-5c4271c3527f___573e890e-260c-4e15-8f88-78238fc3bd67"
+      ],
+      "table_aliases": {
+        "Table_0": "5b134bbc-1574-4f41-a8aa-5c4271c3527f___573e890e-260c-4e15-8f88-78238fc3bd67"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['Financial Year'].between('2008/09', '2017/18')]\n    .assign(\n        margin=lambda df: df['Average band d charge Plymouth'] - df['Maximum for all english unitary authorities'],\n        percentage_margin=lambda df: df['margin'] / df['Maximum for all english unitary authorities'] * 100\n    )\n    .sort_values('Financial Year', ascending=True)\n    .assign(increase=lambda df: df['margin'].diff())\n    .sort_values('increase', ascending=False)\n    .head(1)\n    .loc[:, ['Financial Year', 'margin', 'percentage_margin']]\n)",
+      "reference_result": [
+        {
+          "Financial Year": "2014/15",
+          "margin": -167,
+          "percentage_margin": -9.7947214076
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table containing the financial year with the largest year‑over‑year increase in the margin (Plymouth average minus England maximum), the absolute margin for that year, and the percentage margin (absolute margin divided by the England maximum, expressed as a percent)."
+    },
+    {
+      "id": "46d19804",
+      "question": "In 2007, what is the area of the bush network cell with the highest contribution score, and how does that score compare to both the average and median contribution scores?",
+      "keywords": [
+        "bush"
+      ],
+      "relevant_table_ids": [
+        "0c705864-c657-44c1-8310-2e38fcf24f5f___10bdc4b4-c7d0-4012-912f-9eaf03eba734"
+      ],
+      "table_aliases": {
+        "Table_0": "0c705864-c657-44c1-8310-2e38fcf24f5f___10bdc4b4-c7d0-4012-912f-9eaf03eba734"
+      },
+      "reference_code": "avg_score_all = Table_0['GRIDCODE'].mean()\nmedian_score = Table_0['GRIDCODE'].median()\nresult = (\n    Table_0\n    .sort_values(by='GRIDCODE', ascending=False)\n    .head(1)\n    .rename(columns={'GRIDCODE': 'top_score', 'Shape__Area': 'top_area'})\n    .assign(\n        diff_avg=lambda x: x['top_score'] - avg_score_all,\n        diff_median=lambda x: x['top_score'] - median_score,\n    )\n    [['top_area', 'top_score', 'diff_avg', 'diff_median']]\n)",
+      "reference_result": [
+        {
+          "top_area": 333.9905014038,
+          "top_score": 100,
+          "diff_avg": 24.9351148567,
+          "diff_median": 29.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with the area and contribution score of the highest‑scoring Bush network cell in 2007, and the differences between that score and the overall average and median contribution scores."
+    },
+    {
+      "id": "8d0fd506",
+      "question": "What is the total length of intrusive bedrock units along the Northern Ireland coastline?",
+      "keywords": [
+        "intrusive"
+      ],
+      "relevant_table_ids": [
+        "0a1d1b1d-4176-4f53-971a-84621cb41ac6___01c3e263-9121-4da3-87d8-df6d4e27004d"
+      ],
+      "table_aliases": {
+        "Table_0": "0a1d1b1d-4176-4f53-971a-84621cb41ac6___01c3e263-9121-4da3-87d8-df6d4e27004d"
+      },
+      "reference_code": "total_length = Table_0['Shape_Length'].sum()",
+      "reference_result": [
+        {
+          "result": 62580.8613746907
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total length in metres of all intrusive bedrock linear features along the Northern Ireland coastline."
+    },
+    {
+      "id": "1259d0e6",
+      "question": "Which strategic clinical network did the local authority district of Hartlepool belong to as of 31 December 2018?",
+      "keywords": [
+        "strategic"
+      ],
+      "relevant_table_ids": [
+        "aeff1259-a828-49ac-979d-26dff506cf97___5cf3d455-9703-49fa-bb64-0fd23a305f5b"
+      ],
+      "table_aliases": {
+        "Table_0": "aeff1259-a828-49ac-979d-26dff506cf97___5cf3d455-9703-49fa-bb64-0fd23a305f5b"
+      },
+      "reference_code": "Table_0.loc[Table_0['LAD18NM'] == 'Hartlepool', 'SCN18NM'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "Northern England"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the strategic clinical network that covered the local authority district of Hartlepool on 31 December 2018."
+    },
+    {
+      "id": "a0ac9761",
+      "question": "Which Community Safety Partnerships (bsc) saw the biggest increase in boundary area between December 2020 and December 2023, and what was the average increase across all partnerships?",
+      "keywords": [
+        "2023",
+        "bsc",
+        "safety",
+        "2020",
+        "community"
+      ],
+      "relevant_table_ids": [
+        "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "c9d4f6b0-feff-4511-8609-dde4c66bacd0___e690a291-97e8-4290-8337-5e3fdf215883"
+      ],
+      "table_aliases": {
+        "Table_0": "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "Table_1": "c9d4f6b0-feff-4511-8609-dde4c66bacd0___e690a291-97e8-4290-8337-5e3fdf215883"
+      },
+      "reference_code": "merged = Table_0.merge(\n    Table_1,\n    left_on='CSP23CD',\n    right_on='CSP20CD',\n    how='inner',\n    suffixes=('_2023', '_2020')\n)\nmerged['area_diff'] = merged['Shape__Area_2023'] - merged['Shape__Area_2020']\nmerged['avg_increase'] = merged['area_diff'].mean()\nresult = (\n    merged.sort_values(by='area_diff', ascending=False)\n    .head(1)\n    .loc[:, ['CSP23NM', 'area_diff', 'avg_increase']]\n    .reset_index(drop=True)\n)",
+      "reference_result": [
+        {
+          "CSP23NM": "Lancaster",
+          "area_diff": 8361520.354187012,
+          "avg_increase": 169228.908041464
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table containing the name of the partnership with the largest boundary‑area increase (CSP23NM), the magnitude of that increase in square metres (area_diff), and the average increase across all partnerships (avg_increase)."
+    },
+    {
+      "id": "15172f0f",
+      "question": "Which towns have the most LTTC meat establishments, and how many are in each town?",
+      "keywords": [
+        "LTTC",
+        "town",
+        "meat establishments",
+        "count"
+      ],
+      "relevant_table_ids": [
+        "a4117fbf-e36c-49f5-abae-316607eda267___0112fbf1-52a8-4218-a64e-1b54fa1b8cec"
+      ],
+      "table_aliases": {
+        "Table_0": "a4117fbf-e36c-49f5-abae-316607eda267___0112fbf1-52a8-4218-a64e-1b54fa1b8cec"
+      },
+      "reference_code": "result = (\n    Table_0.assign(\n        is_ltcc=Table_0['Part_A__Section_V__Minced_meat__meat_preparations_and_mechanically_separated_meat']\n        .str.contains(r'\\(LTTC\\)', case=False, na=False)\n    )\n    .loc[lambda df: df['is_ltcc']]\n    .groupby('Town', as_index=False)\n    .agg(estab_count=('AppNo', 'count'))\n    .sort_values('estab_count', ascending=False)\n)",
+      "reference_result": [
+        {
+          "Town": "London",
+          "estab_count": 2
+        },
+        {
+          "Town": "Coventry",
+          "estab_count": 1
+        },
+        {
+          "Town": "Derby",
+          "estab_count": 1
+        },
+        {
+          "Town": "Hereford",
+          "estab_count": 1
+        },
+        {
+          "Town": "Eastleigh",
+          "estab_count": 1
+        },
+        {
+          "Town": "Holmewood",
+          "estab_count": 1
+        },
+        {
+          "Town": "Ilford",
+          "estab_count": 1
+        },
+        {
+          "Town": "Moira",
+          "estab_count": 1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per town with the count of approved less‑than‑thoroughly‑cooked meat establishments in April 2024, sorted by count descending."
+    },
+    {
+      "id": "29086412",
+      "question": "How many dog and litter bin incidents were reported in each category (Broken/damaged, Fallen over, Overflowing) during 2023?",
+      "keywords": [
+        "dog",
+        "litter",
+        "category",
+        "2023",
+        "incidents"
+      ],
+      "relevant_table_ids": [
+        "b66bf528-7248-47e5-a332-7ccabae0ea67___8d159ccb-e08b-48b2-a5e6-c6dfbc1b4730"
+      ],
+      "table_aliases": {
+        "Table_0": "b66bf528-7248-47e5-a332-7ccabae0ea67___8d159ccb-e08b-48b2-a5e6-c6dfbc1b4730"
+      },
+      "reference_code": "categories = ['Broken/damaged', 'Fallen over', 'Overflowing']\nresult = (\n    Table_0\n    .assign(year=Table_0['Date_Created'].str[:4])\n    .loc[lambda df: df['year'] == '2023']\n    .groupby('CategoryId')\n    .size()\n    .reindex(categories, fill_value=0)\n    .reset_index()\n    .rename(columns={'index': 'CategoryId', 0: 'incident_count'})\n)",
+      "reference_result": [
+        {
+          "CategoryId": "Broken/damaged",
+          "incident_count": 9
+        },
+        {
+          "CategoryId": "Fallen over",
+          "incident_count": 3
+        },
+        {
+          "CategoryId": "Overflowing",
+          "incident_count": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per incident category (Broken/damaged, Fallen over, Overflowing) showing the count of unresolved incidents in 2023."
+    },
+    {
+      "id": "c3487169",
+      "question": "Which 2015 electoral ward contains the lsoa11 area identified by code E01000104?",
+      "keywords": [
+        "electoral",
+        "lsoa11"
+      ],
+      "relevant_table_ids": [
+        "50c16cae-9b1d-40e6-9e09-72df7630c243___e5b0056b-cf54-4b30-bf97-1c174aed6b98"
+      ],
+      "table_aliases": {
+        "Table_0": "50c16cae-9b1d-40e6-9e09-72df7630c243___e5b0056b-cf54-4b30-bf97-1c174aed6b98"
+      },
+      "reference_code": "Table_0.loc[Table_0['LSOA11CD'] == 'E01000104', 'WD15NM'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "Village"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the 2015 electoral ward that contains the LSOA with code E01000104."
+    },
+    {
+      "id": "f0ae51d9",
+      "question": "In 2017, which parishes in the Bolton district were the three largest by area, and what were their areas and perimeter lengths, plus the average area of all Bolton parishes?",
+      "keywords": [
+        "2017",
+        "parishes"
+      ],
+      "relevant_table_ids": [
+        "3a0e3e40-0ee6-4613-b1bd-6ed239b5a03f___7be3509b-18a1-4c9e-a5a6-720bf4fe0b4b"
+      ],
+      "table_aliases": {
+        "Table_0": "3a0e3e40-0ee6-4613-b1bd-6ed239b5a03f___7be3509b-18a1-4c9e-a5a6-720bf4fe0b4b"
+      },
+      "reference_code": "bolton = Table_0[Table_0['lad17nm'] == 'Bolton'].copy()\navg_area = bolton['Shape__Area'].mean()\nresult = (\n    bolton\n    .assign(avg_area=avg_area)\n    .nlargest(3, 'Shape__Area')\n    [['par17nm', 'Shape__Area', 'Shape__Length', 'avg_area']]\n    .rename(columns={\n        'par17nm': 'Parish Name',\n        'Shape__Area': 'Area (square metres)',\n        'Shape__Length': 'Perimeter Length (metres)',\n        'avg_area': 'Average Area of all Bolton parishes'\n    })\n)",
+      "reference_result": [
+        {
+          "Parish Name": "Westhoughton",
+          "Area (square metres)": 17863619.374054,
+          "Perimeter Length (metres)": 23327.8459312447,
+          "Average Area of all Bolton parishes": 13570624.795644144
+        },
+        {
+          "Parish Name": "Horwich",
+          "Area (square metres)": 14241134.2186432,
+          "Perimeter Length (metres)": 22206.5637131862,
+          "Average Area of all Bolton parishes": 13570624.795644144
+        },
+        {
+          "Parish Name": "Blackrod",
+          "Area (square metres)": 8607120.79423523,
+          "Perimeter Length (metres)": 17264.8833179432,
+          "Average Area of all Bolton parishes": 13570624.795644144
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each representing one of the largest Bolton parishes in 2017, with columns: Parish Name, Area (square metres), Perimeter Length (metres), and the Average Area of all Bolton parishes (same value repeated)."
+    },
+    {
+      "id": "57fdf31a",
+      "question": "What is the area of the constituency Aldershot in the December 2019 constituencies (pcon v2) dataset?",
+      "keywords": [
+        "constituencies",
+        "pcon",
+        "v2"
+      ],
+      "relevant_table_ids": [
+        "8fc709e1-6181-4a55-8a57-f588832b95db___5937f636-f0cf-4e39-97cd-dce6ed6b6bfb"
+      ],
+      "table_aliases": {
+        "Table_0": "8fc709e1-6181-4a55-8a57-f588832b95db___5937f636-f0cf-4e39-97cd-dce6ed6b6bfb"
+      },
+      "reference_code": "area = Table_0.loc[Table_0['PCON19NM'] == 'Aldershot', 'Shape__Area'].sum()",
+      "reference_result": [
+        {
+          "result": 52978156.0155792
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The land area of the Aldershot constituency in square metres as recorded in the December 2019 parliamentary constituency boundaries dataset."
+    },
+    {
+      "id": "b620b9f8",
+      "question": "During the 1990 FSCRC Lavan Sands littoral cockle dredging study, for each habitat type, what is the total number of records, its share of all records, and the location that recorded the most points for that habitat?",
+      "keywords": [
+        "1990",
+        "habitat",
+        "lavan"
+      ],
+      "relevant_table_ids": [
+        "2c0fde7e-d724-41b3-8348-a8b5740e7bc3___7f25653d-404f-4eb6-8154-a6681baf21f9"
+      ],
+      "table_aliases": {
+        "Table_0": "2c0fde7e-d724-41b3-8348-a8b5740e7bc3___7f25653d-404f-4eb6-8154-a6681baf21f9"
+      },
+      "reference_code": "total_count = Table_0.shape[0]\nloc_counts = (\n    Table_0\n    .groupby(['HabitatCode', 'LocationName'])\n    .size()\n    .reset_index(name='loc_count')\n)\nloc_counts['rank'] = (\n    loc_counts\n    .groupby('HabitatCode')['loc_count']\n    .rank(method='first', ascending=False)\n)\ntop_loc = loc_counts.loc[loc_counts['rank'] == 1].drop(columns='rank')\nhabitat_totals = (\n    Table_0\n    .groupby('HabitatCode')\n    .size()\n    .reset_index(name='habitat_total')\n)\nmerged = pd.merge(habitat_totals, top_loc, on='HabitatCode', how='inner')\nmerged['share_pct'] = merged['habitat_total'] / total_count * 100\nresult = merged.sort_values('share_pct', ascending=False)",
+      "reference_result": [
+        {
+          "HabitatCode": "LMS.PCer",
+          "habitat_total": 73,
+          "LocationName": "Control area (station 1) (Lavan Sands)",
+          "loc_count": 4,
+          "share_pct": 20.7977207977
+        },
+        {
+          "HabitatCode": "LS.LSa.MuSa.CerPo",
+          "habitat_total": 61,
+          "LocationName": "Heavily dredged area (station 33) (Lavan Sands)",
+          "loc_count": 4,
+          "share_pct": 17.3789173789
+        },
+        {
+          "HabitatCode": "LS.LSa.MuSa.BatCare",
+          "habitat_total": 49,
+          "LocationName": "Control area (station 6) (Lavan Sands)",
+          "loc_count": 4,
+          "share_pct": 13.9601139601
+        },
+        {
+          "HabitatCode": "LMS.MacAre",
+          "habitat_total": 37,
+          "LocationName": "Control area (station 11) (Lavan Sands)",
+          "loc_count": 3,
+          "share_pct": 10.5413105413
+        },
+        {
+          "HabitatCode": "LMU.HedMac",
+          "habitat_total": 37,
+          "LocationName": "Control area (station 1) (Lavan Sands)",
+          "loc_count": 4,
+          "share_pct": 10.5413105413
+        },
+        {
+          "HabitatCode": "LGS.Lan",
+          "habitat_total": 30,
+          "LocationName": "Heavily dredged area (station 29) (Lavan Sands)",
+          "loc_count": 4,
+          "share_pct": 8.547008547
+        },
+        {
+          "HabitatCode": "LS.LSa.MuSa.Lan",
+          "habitat_total": 29,
+          "LocationName": "Heavily dredged area (station 29) (Lavan Sands)",
+          "loc_count": 4,
+          "share_pct": 8.2621082621
+        },
+        {
+          "HabitatCode": "LS.LSa.MuSa",
+          "habitat_total": 13,
+          "LocationName": "Control area (station 1) (Lavan Sands)",
+          "loc_count": 2,
+          "share_pct": 3.7037037037
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per habitat type showing (1) the total number of records, (2) the percentage share of all records, and (3) the location name that contributed the most points for that habitat, sorted by descending share."
+    }
+  ]
+}

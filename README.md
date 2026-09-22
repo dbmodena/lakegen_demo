@@ -167,6 +167,19 @@ Start the API locally:
 uv run uvicorn src.api:app --host 127.0.0.1 --port 8000
 ```
 
+By default the API executes one workflow at a time. To execute up to two
+independent questions or batch jobs concurrently, set the limit before starting
+Uvicorn:
+
+```bash
+LAKEGEN_WORKFLOW_WORKERS=2 uv run uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+Each workflow can itself use `scan_workers` processes for retrieval. Start with
+`2` workflow workers and reduce `scan_workers` in the experiment configuration
+if the host becomes CPU- or memory-bound; raising both limits blindly can make
+the total work slower.
+
 Open <http://127.0.0.1:8000/docs> for interactive documentation and endpoint
 testing. Check that the service is running with:
 
@@ -218,8 +231,21 @@ curl --fail-with-body -X POST \
   -F 'questions=@queries/generated_queries_nyc.json'
 ```
 
-Batch jobs run sequentially. Their state and results are stored in
-`.lakegen_jobs/`, so they remain available after an API restart.
+Batch jobs run with the `LAKEGEN_WORKFLOW_WORKERS` limit. Their state and
+results are stored in `.lakegen_jobs/`, so they remain available after an API
+restart.
+
+For a large JSON collection, this client splits it into independent durable API
+jobs and submits those jobs concurrently:
+
+```bash
+.venv/bin/python scripts/submit_parallel_batches.py benchmark/50q_nyc.json \
+  --chunk-size 10 --parallelism 2 --wait
+```
+
+`--parallelism` controls only request submission; actual execution is bounded
+by `LAKEGEN_WORKFLOW_WORKERS`. The tool accepts a root JSON list or an envelope
+with `questions`, `queries`, or `cases`, and preserves any inline `config`.
 
 ## 5. Retrieval modes
 

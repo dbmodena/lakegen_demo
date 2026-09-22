@@ -205,6 +205,41 @@
         [
           "Food Standards Agency",
           "compliance"
+        ],
+        [
+          "species",
+          "observations",
+          "survey"
+        ],
+        [
+          "Calf",
+          "Man",
+          "1991",
+          "survey"
+        ],
+        [
+          "BFE",
+          "boundaries",
+          "2022"
+        ],
+        [
+          "Loch",
+          "Sween",
+          "habitat"
+        ],
+        [
+          "Breydon",
+          "littoral",
+          "survey"
+        ],
+        [
+          "benthic",
+          "ash",
+          "mass"
+        ],
+        [
+          "civil",
+          "salary"
         ]
       ],
       "failed_keyword_combinations": [
@@ -227,9 +262,10 @@
           "water"
         ],
         [
-          "ash‑free",
+          "ash",
           "coarse",
           "dry",
+          "free",
           "mass",
           "matter",
           "organic",
@@ -237,22 +273,28 @@
         ]
       ],
       "question_memories": {
-        "219941ee238e96dd7cbb0c9a3cf66c29615f4e5e4969e4925c1602e266522bee": [
+        "ad314af613608db5b57ce91e99e1e3b3d8518f52916244a0d699dd9bf21e8435": [
           {
             "outcome": "insufficient_coverage",
             "terms": [
-              "Food Standards Agency",
-              "compliance"
+              "civil",
+              "salary"
             ],
-            "reason": "The user asks for counts of sub‑questions and Q2‑series questions across specific FSA compliance sections (September 2019, March 2019, June 2019, April 2020). This requires a dataset that lists individual questionnaire items with fields such as section date, question identifier, and question type (e.g., sub‑question, Q2‑series). The tables retrieved with the concepts \"Food Standards Agency\" and \"compliance\" are raw drinking milk premises registers. Their schemas contain premi",
-            "suggestion": "Search for datasets using concepts like \"Food Standards Agency\", \"compliance questionnaire\", \"section\", \"questions\" or \"FSA compliance questionnaire\". Include the term \"question type\" or \"Q2\" to target tables that list individual questionnaire items.",
+            "reason": "The question requires data on senior civil servant posts within the Department for Transport for the year 2022, including grade, unit, and salary to compute the highest average salary among the top 10 posts. All inspected candidates (1, 7, 9, 11, 14) either belong to other departments (e.g., Ministry of Justice, Department for Work & Pensions, Department for Levelling Up, Housing and Communities, Department for Communities and Local Government) or lack the required Department",
+            "suggestion": "Search for tables using concepts that directly reference the transport department and senior civil servant salaries, e.g., [\"transport\", \"senior\", \"salary\"] or [\"department\", \"transport\", \"organogram\"]. Include the year concept if possible, such as \"2022\".",
             "tables": [
-              "f6706084-9c82-4a50-a781-41e0e6229948___269dc1f5-8237-4654-818f-d3697f273947.parquet",
-              "f6706084-9c82-4a50-a781-41e0e6229948___b42336ea-f85f-4025-8898-ce959400416a.parquet"
+              "a90a9f70-e28c-4a95-a7a7-f79d12fbe219___0ad7dc05-c897-4f13-96cf-3e3f4c5d7de7.parquet",
+              "ff02e341-378c-49af-8885-9266cc4b5f23___217364da-4d0c-47da-bec4-99da7295f80c.parquet",
+              "9ab2b6f2-be7f-46f0-aef3-f7b29a78ce6e___a34c5fa6-fcaf-438d-aecd-78ea7242e9c8.parquet",
+              "ff02e341-378c-49af-8885-9266cc4b5f23___0b50b8de-7a34-4ca9-a609-9f9941401f44.parquet",
+              "ff02e341-378c-49af-8885-9266cc4b5f23___370ed770-eea5-4672-99e5-5b93dc229615.parquet"
             ],
             "evidence": {
-              "f6706084-9c82-4a50-a781-41e0e6229948___269dc1f5-8237-4654-818f-d3697f273947.parquet": "Contains premises details only; no columns for questionnaire sections, question identifiers, or question types.",
-              "f6706084-9c82-4a50-a781-41e0e6229948___b42336ea-f85f-4025-8898-ce959400416a.parquet": "Contains premises details only; lacks any fields related to questionnaire sections or question categories."
+              "a90a9f70-e28c-4a95-a7a7-f79d12fbe219___0ad7dc05-c897-4f13-96cf-3e3f4c5d7de7.parquet": "Only covers Ministry of Justice, no transport data, missing required department and year.",
+              "ff02e341-378c-49af-8885-9266cc4b5f23___217364da-4d0c-47da-bec4-99da7295f80c.parquet": "Parent Department is Department for Communities and Local Government, not Transport.",
+              "9ab2b6f2-be7f-46f0-aef3-f7b29a78ce6e___a34c5fa6-fcaf-438d-aecd-78ea7242e9c8.parquet": "Only contains Department for Work & Pensions, no Transport rows.",
+              "ff02e341-378c-49af-8885-9266cc4b5f23___0b50b8de-7a34-4ca9-a609-9f9941401f44.parquet": "Parent Department is Department for Levelling Up, Housing and Communities, not Transport.",
+              "ff02e341-378c-49af-8885-9266cc4b5f23___370ed770-eea5-4672-99e5-5b93dc229615.parquet": "Same as above, no Transport data."
             }
           }
         ]
@@ -398,7 +440,170 @@
         [
           "Scottish Parliamentary Constituencies",
           "May 2016"
+        ],
+        [
+          "Calf of Man",
+          "observations"
+        ],
+        [
+          "Boundary Feature Extract",
+          "2022"
+        ],
+        [
+          "Loch Sween",
+          "habitat"
+        ],
+        [
+          "Loch Sween",
+          "habitat"
+        ],
+        [
+          "Breydon Water",
+          "habitat"
+        ],
+        [
+          "benthic ash-free dry mass",
+          "Till"
+        ],
+        [
+          "Senior Civil Service salaries",
+          "Department for Transport"
+        ],
+        [
+          "Department for Transport",
+          "civil servant salaries"
+        ],
+        [
+          "water abstraction licences",
+          "Northern Ireland"
+        ],
+        [
+          "fire and rescue authority",
+          "England"
+        ],
+        [
+          "LSOA",
+          "electoral ward"
+        ],
+        [
+          "Greater Manchester combined authority",
+          "land area"
+        ],
+        [
+          "Greater Manchester combined authority boundary",
+          "land area"
+        ],
+        [
+          "species records",
+          "survey"
+        ],
+        [
+          "bush contribution score"
+        ],
+        [
+          "bush contribution",
+          "Northern Ireland"
+        ],
+        [
+          "bush contribution"
+        ],
+        [
+          "Community Safety Partnerships",
+          "area"
+        ],
+        [
+          "government spending",
+          "transactions"
+        ],
+        [
+          "International Procurement Office",
+          "transactions"
+        ],
+        [
+          "community centres",
+          "Northern Ireland"
+        ],
+        [
+          "Leeds",
+          "refunds"
+        ],
+        [
+          "BFE district",
+          "perimeter"
+        ],
+        [
+          "BFE district",
+          "area"
+        ],
+        [
+          "British Flood Estimation",
+          "perimeter"
+        ],
+        [
+          "Community Safety Partnerships",
+          "area"
+        ],
+        [
+          "total rates balance",
+          "domestic balance"
+        ],
+        [
+          "total rates balance",
+          "domestic balance"
+        ],
+        [
+          "Drinking Water Safeguard Zones",
+          "surface water"
+        ],
+        [
+          "Drinking Water Safeguard Zones",
+          "surface water"
         ]
+      ],
+      "failed_keyword_combinations": [],
+      "question_memories": {
+        "9777aa51234d67fc6938e9ffb547fc92d5a2b6ced0187932bba4c97de07f6e93": [
+          {
+            "outcome": "insufficient_coverage",
+            "terms": [
+              "Drinking Water Safeguard Zones",
+              "surface water"
+            ],
+            "reason": "The question requires attribute description lengths per Category for the Drinking Water Safeguard Zones (surface water) dataset, but also explicitly restricts the analysis to the period 1 April 2012 to 31 March 2022. The inspected tables (Candidate 1 and Candidate 2) contain the necessary Category and Brief Description columns, but they have no date or period column that can be used to confirm that the records apply to the requested time window. Without a concrete period fiel",
+            "suggestion": "Search for tables that include both the Drinking Water Safeguard Zones (surface water) attribute descriptions and a temporal field (e.g., 'Effective Date', 'Start Date', 'Year', or similar) covering the years 2012‑2022. Use concepts such as \"Drinking Water Safeguard Zones surface water\" and \"effective date\" or \"year\".",
+            "tables": [
+              "6ac22521-2e77-4dc8-ba90-6bb55d2ea3b8___45968054-e5d0-4925-a6d4-ba77fc145d28.parquet",
+              "3d136e9a-78cf-4452-824d-39d715ba5b69___56deafb5-44fc-4fba-838a-ebcd1a4b6a94.parquet"
+            ]
+          }
+        ]
+      }
+    },
+    "uk|semantic|metadata-v1||q.op=AND": {
+      "keyword_history": [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        []
       ],
       "failed_keyword_combinations": []
     }
