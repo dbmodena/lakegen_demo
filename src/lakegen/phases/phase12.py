@@ -248,6 +248,7 @@ def phase12_agent(
         discovery_config=discovery_config,
         # Terminal, frontend, and the saved activity log -- but never the prompt.
         notice_callback=emit_stream,
+        llm=llm,
     )
     agent_tools = tools_manager.get_tools()
 
