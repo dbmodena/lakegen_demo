@@ -21,7 +21,7 @@ from llama_index.llms.oci_genai import OCIGenAI
 from llama_index.llms.oci_genai.utils import CHAT_MODELS, PROVIDERS, XAIProvider
 
 from prompts.prompt_manager import PromptManager
-from src.client_solr import LocalSolrClient
+from src.client_solr import LocalSolrClient, resolve_solr_core
 from lakegen.core.table_io import list_table_files
 from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
 from lakegen.core.config import LOG_DIR
@@ -398,7 +398,7 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
 @lru_cache(maxsize=8)
 def get_solr(core):
     return LocalSolrClient(
-        core=core,
+        core=resolve_solr_core(core),
         base_url=os.environ.get("SOLR_BASE_URL", "http://localhost:8983/solr"),
     )
 

@@ -9,6 +9,8 @@ import threading
 from pathlib import Path
 from typing import Any, Iterable
 
+from lakegen.keyword_terms import keyword_terms
+
 
 _LOCK = threading.Lock()
 _VERSION = 1
@@ -16,18 +18,11 @@ _MAX_EVENTS_PER_QUESTION = 20
 _MAX_QUESTIONS_PER_SCOPE = 200
 
 
-def _normalise_combination(values: Iterable[str]) -> frozenset[str]:
-    return frozenset(
-        term.casefold()
-        for value in values
-        for term in str(value).split()
-        if term.strip()
-    )
-
-
 def _prune(combinations: Iterable[Iterable[str]]) -> list[frozenset[str]]:
+    # Re-normalising on load also upgrades bans stored under an older, coarser
+    # term rule, so they keep matching what Solr actually ANDs.
     unique = sorted(
-        {_normalise_combination(item) for item in combinations} - {frozenset()},
+        {keyword_terms(item) for item in combinations} - {frozenset()},
         key=lambda item: (len(item), sorted(item)),
     )
     kept: list[frozenset[str]] = []

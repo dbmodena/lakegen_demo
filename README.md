@@ -59,6 +59,39 @@ export SOLR_BASE_URL=http://localhost:8983/solr
 The supported Solr cores and data portals are `nyc`, `valencia`, `bologna`,
 `paris`, and `uk`.
 
+A portal and its Solr core share one name, and the data directory, Pneuma
+route and database path are all derived from it. To serve a portal from a
+differently named core, set `LAKEGEN_SOLR_CORE_<PORTAL>`. Only the core that is
+queried changes; everything derived from the portal name stays as it is:
+
+```bash
+export LAKEGEN_SOLR_CORE_UK=uk_fixed   # portal "uk" is queried from core uk_fixed
+```
+
+`index_retrieval.py` ignores this and writes to the core it is given.
+
+#### Rebuilding the corrected UK core
+
+`scripts/build_uk_fixed.py` rebuilds the `uk_fixed` core from
+`metadata_retrieved_cleaned.json` and the parquet files. Compared with the
+first UK build it names each table by package title plus resource name (not the
+resource name alone, which is often the literal "CSV"), stores descriptions as
+plain text, and keeps `columns.name`, `columns.label` and `columns.type`
+aligned with the parquet schema (a column with an empty name is stored as
+DuckDB's `C<index>`).
+
+```bash
+python scripts/build_uk_fixed.py                # dry run: diff against the core
+python scripts/build_uk_fixed.py --apply        # write (backs up first, then verifies)
+python scripts/build_uk_fixed.py --apply --embed  # also OCI cohere.embed-v4.0 vectors
+python scripts/build_uk_fixed.py --verify       # re-run the checks only
+python scripts/build_uk_fixed.py --restore backups/uk_fixed_build/before.jsonl.gz
+```
+
+It never creates a core and refuses the production cores. `scripts/` and
+`tests/` are git-ignored in this repository, so add the script with
+`git add -f`.
+
 ### Experiment configuration
 
 All settings and their accepted values are documented in

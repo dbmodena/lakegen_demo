@@ -294,6 +294,7 @@ def phase12_agent(
             emit_stream=emit_stream,
             cancel_check=cancel_check,
             tools=agent_tools,
+            tool_available=tools_manager.is_tool_available,
             max_iterations=16,
             max_repeats=3,
             max_tool_calls=12,
@@ -332,6 +333,7 @@ def phase12_agent(
                     llm=llm, system_prompt=system_prompt, user_prompt=planner_prompt,
                     agent_name="semantic_planner_recovery", emit_stream=emit_stream,
                     cancel_check=cancel_check, tools=agent_tools,
+                    tool_available=tools_manager.is_tool_available,
                     max_iterations=6, max_repeats=2, max_tool_calls=4,
                     timeout_seconds=180,
                 )
@@ -394,6 +396,7 @@ def phase12_agent(
                     llm=llm, system_prompt=system_prompt, user_prompt=planner_prompt,
                     agent_name="semantic_planner_recovery", emit_stream=emit_stream,
                     cancel_check=cancel_check, tools=agent_tools,
+                    tool_available=tools_manager.is_tool_available,
                     max_iterations=6, max_repeats=2, max_tool_calls=4,
                     timeout_seconds=180,
                 )

@@ -48,6 +48,11 @@ def match_local_csv(doc: dict, all_files: list[str]) -> str | None:
     return None
 
 
+def _text(value: object) -> str:
+    """``str`` that leaves a missing value empty instead of spelling it "None"."""
+    return "" if value is None else str(value).strip()
+
+
 def solr_metadata_from_doc(doc: dict) -> dict[str, object]:
     tags = doc.get("tags", [])
     if not isinstance(tags, list):
@@ -56,14 +61,17 @@ def solr_metadata_from_doc(doc: dict) -> dict[str, object]:
     columns = doc.get("columns", [])
     if not isinstance(columns, list):
         columns = []
+    # Solr documents restore an absent column description as None, and
+    # ``.get(key, "")`` only defaults an absent key, so a bare ``str`` here
+    # printed "None" after every column in the agent's context.
     structured_columns = [
         {
-            "name": str(column.get("name", "")).strip(),
-            "description": str(column.get("description", "")).strip(),
-            "type": str(column.get("type", "")).strip(),
+            "name": _text(column.get("name")),
+            "description": _text(column.get("description")),
+            "type": _text(column.get("type")),
         }
         for column in columns
-        if isinstance(column, dict) and str(column.get("name", "")).strip()
+        if isinstance(column, dict) and _text(column.get("name"))
     ]
     return {
         "title": doc.get("title", ""),
@@ -114,12 +122,12 @@ def _candidate_columns(meta: dict[str, object]) -> list[dict[str, str]]:
         if valid:
             return [
                 {
-                    "name": str(column.get("name", "")).strip(),
-                    "type": str(column.get("type", "")).strip(),
-                    "description": str(column.get("description", "")).strip(),
+                    "name": _text(column.get("name")),
+                    "type": _text(column.get("type")),
+                    "description": _text(column.get("description")),
                 }
                 for column in valid
-                if str(column.get("name", "")).strip()
+                if _text(column.get("name"))
             ]
 
     # Compatibility with metadata recorded before structured columns existed.
@@ -132,14 +140,14 @@ def _candidate_columns(meta: dict[str, object]) -> list[dict[str, str]]:
     types = types if isinstance(types, list) else []
     return [
         {
-            "name": str(name),
-            "type": str(types[index]) if index < len(types) else "",
+            "name": _text(name),
+            "type": _text(types[index]) if index < len(types) else "",
             "description": (
-                str(descriptions[index]) if index < len(descriptions) else ""
+                _text(descriptions[index]) if index < len(descriptions) else ""
             ),
         }
         for index, name in enumerate(names)
-        if str(name).strip()
+        if _text(name)
     ]
 
 

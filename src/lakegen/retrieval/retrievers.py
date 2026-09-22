@@ -145,6 +145,21 @@ class KeywordRetriever:
             hit.lexical_rank = hit.rank
         return hits
 
+    def count(self, keywords: Sequence[str]) -> int:
+        """How many tables contain every keyword, by the same strict AND query.
+
+        Never retried as OR, whatever ``or_fallback`` says: a count that a
+        fallback could inflate would say nothing about which words fail together.
+        """
+        clean_keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
+        if not clean_keywords:
+            return 0
+        params: dict[str, Any] = {"q_op": "AND", "rows": 0}
+        if self.query_fields is not None:
+            params["qf"] = self.query_fields
+        response = self.solr.select(tokens=clean_keywords, **params)
+        return int(response.get("response", {}).get("numFound", 0))
+
 
 class SemanticRetriever:
     """Dense retriever inspired by DPR's dual-encoder paradigm.
@@ -244,15 +259,32 @@ class HybridRetriever:
         *,
         top_k: int,
     ) -> list[RetrievalHit]:
+        return self.retrieve_with_lexical_count(question, keywords, top_k=top_k)[0]
+
+    def retrieve_with_lexical_count(
+        self,
+        question: str,
+        keywords: Sequence[str],
+        *,
+        top_k: int,
+    ) -> tuple[list[RetrievalHit], int | None]:
+        """Fuse both branches and report how many tables the lexical one matched.
+
+        Fusion returns tables even when the strict-AND lexical branch matches
+        none, and truncating to ``top_k`` can drop every lexical hit from the
+        result, so the fused hits cannot say whether the keywords matched. The
+        count is ``None`` when the lexical branch was not run (``alpha == 0``).
+        """
         # Weighted fusion has two exact, useful boundary conditions.  Returning
         # the selected branch directly avoids normalization/tie-breaking from
         # perturbing its documents, order, scores, ranks, or top_k.  RRF is a
         # separate rank-fusion baseline and intentionally ignores alpha.
         if self.config.fusion_method == FusionMethod.WEIGHTED:
             if self.config.alpha == 1.0:
-                return self.lexical.retrieve(keywords, top_k=top_k)[:top_k]
+                lexical_hits = self.lexical.retrieve(keywords, top_k=top_k)
+                return lexical_hits[:top_k], len(lexical_hits)
             if self.config.alpha == 0.0:
-                return self.semantic.retrieve(question, top_k=top_k)[:top_k]
+                return self.semantic.retrieve(question, top_k=top_k)[:top_k], None
 
         candidate_count = top_k * self.config.candidate_multiplier
         lexical_hits = self.lexical.retrieve(keywords, top_k=candidate_count)
@@ -328,7 +360,7 @@ class HybridRetriever:
         )
         for rank, hit in enumerate(fused[:top_k], 1):
             hit.rank = rank
-        return fused[:top_k]
+        return fused[:top_k], len(lexical_hits)
 
 
 class TableRetrievalService:
@@ -349,6 +381,9 @@ class TableRetrievalService:
         self.solr = solr
         self.config = config
         self.observer = observer
+        # What the lexical branch matched in the latest hybrid retrieve(), or
+        # None when it did not report one. Fused hits cannot show this.
+        self.last_lexical_hit_count: int | None = None
         self.keyword = KeywordRetriever(
             solr,
             query_fields=config.lexical_query_fields,
@@ -418,6 +453,7 @@ class TableRetrievalService:
     ) -> list[RetrievalHit]:
         requested_k = top_k or self.config.top_k
         started = time.monotonic()
+        self.last_lexical_hit_count = None
         try:
             if self.config.mode == RetrievalMode.KEYWORD:
                 fetch_k = max(lexical_fetch_k or requested_k, requested_k)
@@ -434,7 +470,11 @@ class TableRetrievalService:
                 hits = self.semantic.retrieve(question, top_k=requested_k)
             elif self.config.mode == RetrievalMode.HYBRID:
                 assert self.hybrid is not None
-                hits = self.hybrid.retrieve(question, keywords, top_k=requested_k)
+                hits, self.last_lexical_hit_count = (
+                    self.hybrid.retrieve_with_lexical_count(
+                        question, keywords, top_k=requested_k
+                    )
+                )
             elif self.config.mode.is_pneuma:
                 assert self.pneuma is not None
                 hits = self.pneuma.retrieve(
@@ -474,6 +514,10 @@ class TableRetrievalService:
         if self.observer is not None:
             self.observer(run)
         return hits
+
+    def lexical_match_count(self, keywords: Sequence[str]) -> int:
+        """How many tables contain every keyword; a diagnostic, not a retrieval run."""
+        return self.keyword.count(keywords)
 
     def _run_record(
         self,

@@ -166,6 +166,10 @@ class LakeGenSession:
     # blank P12State every round -- that wasted the round's own bounded
     # inspection budget on re-verifying what was already known.
     carried_inspection: dict[str, str] = field(default_factory=dict)
+    # Word sets that earlier rounds proved match nothing under strict AND. Each
+    # round builds a fresh P12State, so without this the agent re-proposes sets
+    # that an earlier round already proved dead and spends its attempts on them.
+    failed_keyword_combinations: list[frozenset[str]] = field(default_factory=list)
     tokens: dict[str, int] = field(
         default_factory=lambda: {"p1": 0, "p2": 0, "p3": 0, "p4": 0}
     )
@@ -202,6 +206,14 @@ class LakeGenSession:
     @property
     def cancelled(self) -> bool:
         return self._cancelled.is_set()
+
+    def seed_keyword_bans(self, state: Any) -> None:
+        """Start a round with the word sets earlier rounds proved match nothing."""
+        state.failed_keyword_combinations = list(self.failed_keyword_combinations)
+
+    def remember_keyword_bans(self, state: Any) -> None:
+        """Keep what this round learned about zero-result word sets for the next."""
+        self.failed_keyword_combinations = list(state.failed_keyword_combinations)
 
     def request_cancel(self) -> None:
         """Signal all running phases to stop."""

@@ -607,6 +607,7 @@ async def _run_unified_gate(
                     unified_state.carried_tables = list(session.carried_tables)
                     unified_state.carried_metadata = dict(session.carried_metadata)
                     unified_state.inspection_cache = dict(session.carried_inspection)
+                    session.seed_keyword_bans(unified_state)
                     selected, keywords, smeta, reasoning, trace, tokens = await cl.make_async(phase12_agent)(
                         query=session.query,
                         llm=llm,
@@ -622,6 +623,7 @@ async def _run_unified_gate(
                         state=unified_state,
                     )
                     unified_calls = 1
+                    session.remember_keyword_bans(unified_state)
                     if reasoning.startswith("REJECT_KEYWORDS:"):
                         for table in unified_state.rejection_skip_tables:
                             session.excluded_tables.add(table.casefold())
@@ -995,6 +997,7 @@ async def _run_locked_workflow(question: str) -> str:
     session.carried_tables = []
     session.carried_metadata = {}
     session.carried_inspection = {}
+    session.failed_keyword_combinations = []
     session.tool_access_telemetry = {
         "configured_tool_access": runtime.experiment.tool_access.value,
         "execution_path": runtime.experiment.tool_access.value,

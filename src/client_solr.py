@@ -36,6 +36,20 @@ KNN_METADATA_FIELDS = (
 )
 
 
+def resolve_solr_core(portal: str) -> str:
+    """The Solr core that serves a portal.
+
+    LakeGen names a portal and its Solr core with the same string ("uk"), and
+    derives the data directory, Pneuma route and database path from it.
+    ``LAKEGEN_SOLR_CORE_<PORTAL>`` (for example ``LAKEGEN_SOLR_CORE_UK=uk_fixed``)
+    points the portal at a differently named core without changing any of that.
+    Only the query path calls this; ``index_retrieval.py`` writes to the core it
+    is told to, so an admin run can never be redirected by the environment.
+    """
+    override = os.environ.get(f"LAKEGEN_SOLR_CORE_{portal.strip().upper()}", "").strip()
+    return override or portal
+
+
 class LocalSolrClient:
     _COLUMN_DEFAULTS = {"description": None}
 

@@ -15,6 +15,7 @@ from lakegen.agents.agent_runner import run_agent_workflow
 from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.experiment_config import DiscoveryArchitecture
+from lakegen.keyword_terms import keyword_terms
 from lakegen.orchestrated_context import (
     PreparedDiscoveryContext,
     prepare_discovery_context,
@@ -288,9 +289,7 @@ def run_unified_orchestrated_discovery(
     memory_events: list[dict[str, object]] = []
 
     def remember_failed_keywords(values: list[str]) -> None:
-        failed = frozenset(
-            term.casefold() for value in values for term in value.split() if term.strip()
-        )
+        failed = keyword_terms(values)
         if not failed or any(known <= failed for known in hard_bans):
             return
         hard_bans[:] = [known for known in hard_bans if not failed < known]
@@ -298,9 +297,7 @@ def run_unified_orchestrated_discovery(
         hard_bans.sort(key=lambda item: (len(item), sorted(item)))
 
     def banned_subset(values: list[str]) -> frozenset[str] | None:
-        proposed = frozenset(
-            term.casefold() for value in values for term in value.split() if term.strip()
-        )
+        proposed = keyword_terms(values)
         matches = [known for known in hard_bans if known <= proposed]
         return min(matches, key=lambda item: (len(item), sorted(item)), default=None)
 

@@ -112,7 +112,12 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
             "Map each essential question requirement to an object containing "
             "the exact selected table in `table` and supporting column names "
             "in `columns`, e.g. {'requested year': {'table': "
-            "'permits.parquet', 'columns': ['issue_date']}}."
+            "'permits.parquet', 'columns': ['issue_date']}}. `table` must be "
+            "one of the `tables` selected in this same call. `columns` is "
+            "REQUIRED and must be a list, even for a single column -- "
+            "['issue_date'], never 'issue_date'. Every essential requirement "
+            "needs its own entry, and every selected table must be the "
+            "`table` of at least one entry."
         ),
     )
     table_roles: dict[str, str] = Field(
@@ -161,8 +166,21 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
         default=None,
         description=(
             "Non-oracle executable semantics derived only from the question and "
-            "inspected table evidence. Bind every filter, dimension, and measure "
-            "to exact selected-table columns; never use benchmark expectations."
+            "inspected table evidence; never use benchmark expectations. A JSON "
+            "object -- never a SQL string or prose -- with these keys: "
+            "`measures` (REQUIRED, at least one) [{output, operation "
+            "(count_rows|count_distinct|sum|mean|min|max|ratio|difference|"
+            "custom), table, columns, evidence}]; `dimensions` [{output, table, "
+            "column, evidence}]; `filters`/`temporal_filters` [{requirement, "
+            "table, column, operator (equals|contains|in|range|not_null|other), "
+            "value, evidence}]; `joins` [{tables, keys: {table: column}, how, "
+            "evidence}]; `ordering` [{output, direction}]; `limit` (int or "
+            "null); `null_policy` (str). Every binding's `table` must be one of "
+            "the selected tables and every `column`/`columns` must be an exact "
+            "inspected column name; `evidence` cites the inspected schema that "
+            "justifies the binding. Omit `output_columns` and `table_roles` "
+            "here -- they are filled in automatically from `dimensions`/"
+            "`measures` outputs and from this call's own `table_roles` argument."
         )
     )
 
@@ -205,9 +223,17 @@ def _normalize_semantic_plan(
     normalized = dict(plan)
     operation_aliases = {
         "count": "count_rows", "avg": "mean", "average": "mean",
+        # A scalar lookup ("the area of X") is not an aggregate; the model
+        # reaches for a passthrough name here often enough that it is worth
+        # mapping onto the schema's own escape hatch rather than failing.
+        "value": "custom", "identity": "custom", "lookup": "custom",
+        "none": "custom", "select": "custom", "raw": "custom",
     }
     operator_aliases = {
         "is_not_null": "not_null", "year_eq": "equals", "year_equals": "equals",
+    }
+    direction_aliases = {
+        "asc": "ascending", "desc": "descending",
     }
     default_table = selected_tables[0] if len(selected_tables) == 1 else ""
     for key in ("filters", "temporal_filters", "dimensions", "measures"):
@@ -234,6 +260,20 @@ def _normalize_semantic_plan(
                     item["columns"] = [item.pop("column")]
             items.append(item)
         normalized[key] = items
+    if isinstance(normalized.get("ordering"), list):
+        # A coder_brief's own `ordering` may be an arbitrary pass-through value
+        # (e.g. a free-form string), not this structured shape -- touch it only
+        # when it is already a list, never coerce a non-list value away.
+        ordering: list[object] = []
+        for raw in normalized["ordering"]:
+            if not isinstance(raw, dict):
+                ordering.append(raw)
+                continue
+            item = dict(raw)
+            direction = str(item.get("direction") or "").casefold()
+            item["direction"] = direction_aliases.get(direction, direction)
+            ordering.append(item)
+        normalized["ordering"] = ordering
     joins: list[object] = []
     for raw in normalized.get("joins", []) if isinstance(normalized.get("joins"), list) else []:
         if not isinstance(raw, dict):
@@ -261,6 +301,52 @@ def _normalize_semantic_plan(
         joins.append(join)
     normalized["joins"] = joins
     return normalized
+
+
+def _normalize_requirement_coverage(
+    requirement_coverage: dict[str, object], selected_tables: list[str]
+) -> dict[str, object]:
+    """Normalize harmless requirement_coverage input variants.
+
+    Never guesses a table when more than one is selected -- that would bind a
+    requirement to evidence the model never actually gave -- but the two
+    mistakes actually seen in practice (a single column string instead of a
+    list, and an omitted table when only one is selected) are unambiguous.
+    """
+    default_table = selected_tables[0] if len(selected_tables) == 1 else ""
+    normalized: dict[str, object] = {}
+    for requirement, evidence in requirement_coverage.items():
+        if not isinstance(evidence, dict):
+            normalized[requirement] = evidence
+            continue
+        item = dict(evidence)
+        table = str(item.get("table") or "").strip()
+        item["table"] = table or default_table
+        columns = item.get("columns")
+        if columns is None and item.get("column"):
+            columns = [item.pop("column")]
+        elif isinstance(columns, str):
+            columns = [columns]
+        if columns is not None:
+            item["columns"] = columns
+        normalized[requirement] = item
+    return normalized
+
+
+def _derive_output_columns(plan: dict[str, object]) -> list[str]:
+    """Name every result column once, from each dimension's/measure's `output`.
+
+    Repeating that same list back as `output_columns` is a common, harmless
+    omission in a model-supplied semantic_plan; only used where that field is
+    genuinely optional input, never to invent a coder_brief's own explicit
+    (and separately meaningful, possibly intentionally empty) output_columns.
+    """
+    return [
+        str(item.get("output")) for item in [
+            *plan.get("dimensions", []), *plan.get("measures", [])
+        ]
+        if isinstance(item, dict) and str(item.get("output") or "").strip()
+    ]
 
 
 def _draft_item(raw: object, names: tuple[str, ...]) -> dict[str, object]:
@@ -386,7 +472,13 @@ class P12State:
         self.candidate_scores: dict[str, float] = {}
         self.search_cache: dict[tuple[str, ...], str] = {}
         self.search_attempts: list[dict[str, object]] = []
+        # Retrieval representation (e.g. embedding) generation failure: blocks
+        # re-running search_tables, since retrieval itself is what's broken.
         self.semantic_failure: str | None = None
+        # semantic_plan / draft validation failure from confirm_unified_selection
+        # or submit_semantic_plan_draft. Unrelated to retrieval, so it must never
+        # gate search_tables -- only a bad plan, not the search, needs retrying.
+        self.plan_failure: str | None = None
         self.initial_stall_reason: str | None = None
         self.recovery_started = False
         self.recovery_stop_reason: str | None = None
@@ -964,10 +1056,22 @@ class Phase12ToolsManager:
         if key not in self.state.inspection_cache:
             self.state.inspection_cache[key] = _inspect_columns(self.csv_dir, name)
             return self.state.inspection_cache[key]
+        if count == 1:
+            # First time this schema is actually shown this round -- whether
+            # freshly cached above or carried over from a prior round -- so
+            # the full profile earns its place in context.
+            return (
+                f"Cached inspection (attempt {count}/"
+                f"{self.discovery.max_inspections_per_file}):\n"
+                + self.state.inspection_cache[key]
+            )
+        # Already shown once this round: point back instead of re-sending a
+        # profile the agent has already seen, to keep context lean.
+        candidate_label = f"Candidate {visible_candidates.index(name) + 1}"
         return (
             f"Cached inspection (attempt {count}/"
-            f"{self.discovery.max_inspections_per_file}):\n"
-            + self.state.inspection_cache[key]
+            f"{self.discovery.max_inspections_per_file}): already shown above "
+            f"for {candidate_label}. Reuse that schema; do not request it again."
         )
 
     def expand_candidates(self, missing_requirements: str) -> str:
@@ -1105,7 +1209,9 @@ class Phase12ToolsManager:
                 "Selection blocked by temporal validation: " + coverage_issue + "."
             )
 
-        requirement_coverage = requirement_coverage or {}
+        requirement_coverage = _normalize_requirement_coverage(
+            requirement_coverage or {}, normalized_tables
+        )
         table_roles = table_roles or {}
         uncovered_requirements = list(dict.fromkeys(
             str(item).strip() for item in (uncovered_requirements or [])
@@ -1144,10 +1250,12 @@ class Phase12ToolsManager:
                 semantic_plan = _normalize_semantic_plan(
                     semantic_plan, normalized_tables
                 )
+                if not semantic_plan.get("output_columns"):
+                    semantic_plan["output_columns"] = _derive_output_columns(semantic_plan)
             try:
                 semantic_plan = SemanticAnalysisPlan.model_validate(semantic_plan).model_dump()
             except Exception as exc:
-                self.state.semantic_failure = str(exc)
+                self.state.plan_failure = str(exc)
                 raise ValueError(
                     "Selection blocked: invalid semantic_plan: "
                     f"{exc}\nCorrect the listed fields and call "
@@ -1343,7 +1451,7 @@ class Phase12ToolsManager:
             "coder_brief": coder_brief,
             **({"semantic_plan": semantic_plan} if contract_first else {}),
         }
-        self.state.semantic_failure = None
+        self.state.plan_failure = None
         self.state.selection_plan_source = (
             "confirm_unified_selection" if contract_first else "selection_only"
         )
@@ -1642,7 +1750,7 @@ class Phase12ToolsManager:
                 semantic_plan=compiled,
             )
         except Exception as exc:
-            self.state.semantic_failure = str(exc)
+            self.state.plan_failure = str(exc)
             raise ValueError(
                 "Semantic draft validation failed. Correct only the reported fields "
                 f"and call submit_semantic_plan_draft again. Error: {exc}"
@@ -1678,6 +1786,79 @@ class Phase12ToolsManager:
             name="search_tables",
             description=self._search_tool_description(),
         )
+
+    def is_tool_available(self, tool_name: str) -> bool:
+        """Report whether a tool is still worth offering to the model.
+
+        Every tool already refuses gracefully once spent, but that refusal
+        still costs a full model turn and one of the run's capped tool calls.
+        This mirrors each tool's own exhaustion checks -- never a precondition
+        the tool just hasn't met *yet* -- so the pruning agent can drop a
+        genuinely spent tool from a turn's offering instead of paying for a
+        refusal that only repeats what the last one already said. A tool
+        blocked only by something else that can still change (an expansion
+        that hasn't run, a carried schema not yet served) stays offered.
+        """
+        if tool_name == "search_tables":
+            mode = self.retrieval_config.mode
+            if (
+                mode in (RetrievalMode.SEMANTIC, RetrievalMode.HYBRID)
+                and self.state.semantic_failure is not None
+            ):
+                return False
+            # inspection_counts, not inspection_cache: see _search's own note --
+            # a carried-forward schema must not look like an in-round inspection.
+            if self.state.inspection_counts and not self.discovery.search_after_inspection:
+                return False
+            nonempty_attempts = sum(
+                bool(attempt.get("current_candidates"))
+                for attempt in self.state.search_attempts
+            )
+            lexical_retry_limit = (
+                self.discovery.max_search_attempts + self.discovery.max_zero_result_retries
+            )
+            search_limit_reached = (
+                nonempty_attempts >= self.discovery.max_search_attempts
+                or len(self.state.search_attempts) >= lexical_retry_limit
+            )
+            if mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
+                return not search_limit_reached
+            return len(self.state.search_attempts) < self.discovery.max_search_attempts
+
+        if tool_name == "expand_candidates":
+            # Only the spendable resource -- the expansion budget -- withdraws
+            # this tool. "Nothing to inspect yet" and "nothing hidden right now"
+            # are the tool's own, still-changeable refusals, not exhaustion.
+            return self.state.expansion_count < self.discovery.max_expansions
+
+        if tool_name == "inspect_columns":
+            visible_keys = {
+                candidate.casefold()
+                for candidate in self.state.all_candidates[: self.state.visible_candidate_count]
+            }
+            attempted_candidates = len(self.state.inspection_counts)
+            current_limit = (
+                self.discovery.initial_shortlist_size
+                if self.state.expansion_count == 0
+                else self.discovery.max_inspected_candidates
+            )
+            if attempted_candidates < current_limit:
+                return True
+            # A carried schema not yet served this round bypasses the limit in
+            # inspect_columns itself, so it must not look spent here either.
+            has_unserved_carried = any(
+                key in self.state.inspection_cache and key not in self.state.inspection_counts
+                for key in visible_keys
+            )
+            if has_unserved_carried:
+                return True
+            return (
+                self.state.expansion_count == 0
+                and self.is_tool_available("expand_candidates")
+                and self.state.visible_candidate_count < len(self.state.all_candidates)
+            )
+
+        return True
 
     def get_tools(self) -> list[FunctionTool]:
         return [

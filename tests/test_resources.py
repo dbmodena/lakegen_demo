@@ -71,6 +71,25 @@ def test_get_solr_honors_configurable_base_url(monkeypatch):
     resources.get_solr.cache_clear()
 
 
+def test_get_solr_serves_a_portal_from_the_configured_core(monkeypatch):
+    resources.get_solr.cache_clear()
+    monkeypatch.setenv("LAKEGEN_SOLR_CORE_UK", "uk_fixed")
+
+    assert resources.get_solr("uk").core == "uk_fixed"
+    assert resources.get_solr("nyc").core == "nyc"
+    resources.get_solr.cache_clear()
+
+
+def test_get_solr_uses_the_portal_name_without_an_override(monkeypatch):
+    resources.get_solr.cache_clear()
+    monkeypatch.delenv("LAKEGEN_SOLR_CORE_UK", raising=False)
+    monkeypatch.setenv("LAKEGEN_SOLR_CORE_NYC", "  ")
+
+    assert resources.get_solr("uk").core == "uk"
+    assert resources.get_solr("nyc").core == "nyc"
+    resources.get_solr.cache_clear()
+
+
 def test_get_llm_builds_oci_client(monkeypatch):
     captured = {}
     fake_llm = object()

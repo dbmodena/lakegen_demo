@@ -921,7 +921,7 @@ def run_question(
                     "reasoning_available_to_coder": False,
                     "selection_plan": dict(selection_state.selection_plan),
                     "selection_advisories": list(selection_state.selection_advisories),
-                    "semantic_plan_failure": selection_state.semantic_failure,
+                    "semantic_plan_failure": selection_state.plan_failure,
                     "initial_stall_reason": selection_state.initial_stall_reason,
                     "recovery_started": selection_state.recovery_started,
                     "recovery_stop_reason": selection_state.recovery_stop_reason,

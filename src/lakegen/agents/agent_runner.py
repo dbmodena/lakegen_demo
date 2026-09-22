@@ -8,6 +8,7 @@ from llama_index.core.agent.workflow import (
     ToolCallResult,
 )
 from llama_index.core.llms import LLM
+from pydantic import Field
 
 from lakegen.phases.logging import (
     Phase2AgentStall,
@@ -17,6 +18,23 @@ from lakegen.phases.logging import (
     format_phase2_tool_output,
     format_phase2_tool_result,
 )
+
+
+class _ToolPruningFunctionAgent(FunctionAgent):
+    """A FunctionAgent that offers the model only the tools still worth calling.
+
+    Every call to a spent tool costs a full model turn and one of the agent's
+    capped tool calls just to hear a refusal, so the model is simply not shown
+    it. ``get_tools`` is left alone: a stray call to a withdrawn tool still
+    reaches that tool's own refusal message rather than a generic "not found".
+    """
+
+    tool_available: Callable[[str], bool] | None = Field(default=None, exclude=True)
+
+    async def take_step(self, ctx, llm_input, tools, memory):
+        if self.tool_available is not None:
+            tools = [tool for tool in tools if self.tool_available(tool.metadata.name)]
+        return await super().take_step(ctx, llm_input, tools, memory)
 
 
 def run_agent_workflow(
@@ -33,10 +51,14 @@ def run_agent_workflow(
     max_tool_calls: int | None = None,
     timeout_seconds: float | None = None,
     chat_history: list | None = None,
+    tool_available: Callable[[str], bool] | None = None,
 ) -> str:
     """
     Run a LlamaIndex FunctionAgent and safely yield events/handle stalls.
     Abstracts the boilerplate async loops for phase1 and phase2.
+
+    ``tool_available`` is asked, before every model turn, whether each tool is
+    still worth offering; tools it rejects are left out of that turn's request.
     """
     async def _run_agent():
         kwargs = {
@@ -49,7 +71,10 @@ def run_agent_workflow(
         if tool_retriever is not None:
             kwargs["tool_retriever"] = tool_retriever
 
-        explorer = FunctionAgent(**kwargs)
+        if tool_available is not None:
+            explorer = _ToolPruningFunctionAgent(tool_available=tool_available, **kwargs)
+        else:
+            explorer = FunctionAgent(**kwargs)
 
         handler = explorer.run(
             user_msg=user_prompt,

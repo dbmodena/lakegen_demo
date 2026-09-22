@@ -1239,3 +1239,132 @@ def test_structured_relevance_prompt_changes_only_the_answer_instruction():
         "Is the table relevant to answer the question? "
         "Answer with the JSON verdict described in the system message."
     )
+
+
+def test_hybrid_reports_lexical_branch_count_even_when_fusion_hides_it():
+    # The semantic branch outranks the only lexical hit, so top_k=1 drops it:
+    # the fused hit list alone would look like "the keywords matched nothing".
+    lexical = StubBranch([hit("a", 1, 1)])
+    semantic = StubBranch([hit("b", 10, 1), hit("c", 5, 2)])
+    config = RetrievalConfig(mode="hybrid", alpha=0.1)
+    hybrid = HybridRetriever(lexical, semantic, config)
+
+    hits, lexical_count = hybrid.retrieve_with_lexical_count("q", ["kw"], top_k=1)
+
+    assert [h.document["resource_id"] for h in hits] == ["b"]
+    assert hits[0].lexical_rank is None
+    assert lexical_count == 1
+    assert hybrid.retrieve("q", ["kw"], top_k=1)[0].document["resource_id"] == "b"
+
+
+def test_hybrid_reports_zero_when_lexical_branch_matches_nothing():
+    lexical = StubBranch([])
+    semantic = StubBranch([hit("b", 10, 1)])
+    hybrid = HybridRetriever(lexical, semantic, RetrievalConfig(mode="hybrid"))
+
+    hits, lexical_count = hybrid.retrieve_with_lexical_count("q", ["kw"], top_k=5)
+
+    assert [h.document["resource_id"] for h in hits] == ["b"]
+    assert lexical_count == 0
+
+
+@pytest.mark.parametrize(
+    ("alpha", "expected_count", "expected_id"), [(1.0, 1, "a"), (0.0, None, "b")]
+)
+def test_hybrid_boundary_alphas_report_count_only_when_lexical_runs(
+    alpha, expected_count, expected_id
+):
+    lexical = StubBranch([hit("a", 1, 1)])
+    semantic = StubBranch([hit("b", 10, 1)])
+    hybrid = HybridRetriever(lexical, semantic, RetrievalConfig(mode="hybrid", alpha=alpha))
+
+    hits, lexical_count = hybrid.retrieve_with_lexical_count("q", ["kw"], top_k=5)
+
+    assert [h.document["resource_id"] for h in hits] == [expected_id]
+    assert lexical_count == expected_count
+    assert (lexical.calls == []) == (alpha == 0.0)
+
+
+def test_service_exposes_lexical_branch_count_of_latest_hybrid_retrieve():
+    from lakegen.retrieval import TableRetrievalService
+
+    config = RetrievalConfig(
+        mode=RetrievalMode.HYBRID,
+        embedding_model="test-multilingual",
+        representation_version="metadata-v1",
+    )
+    semantic_docs = [{"resource_id": "b", "score": 0.9}]
+    empty = TableRetrievalService(
+        FakeSolr(select_docs=[], knn_docs=semantic_docs), config,
+        embedding_model=FakeEmbedding(),
+    )
+    matched = TableRetrievalService(
+        FakeSolr(select_docs=[{"resource_id": "a", "score": 1.0}], knn_docs=semantic_docs),
+        config, embedding_model=FakeEmbedding(),
+    )
+
+    assert empty.last_lexical_hit_count is None
+    assert empty.retrieve(question="q", keywords=["kw"], top_k=5)
+    assert empty.last_lexical_hit_count == 0
+    matched.retrieve(question="q", keywords=["kw"], top_k=5)
+    assert matched.last_lexical_hit_count == 1
+
+
+def test_service_reports_no_lexical_count_outside_hybrid():
+    from lakegen.retrieval import TableRetrievalService
+
+    service = TableRetrievalService(
+        FakeSolr(select_docs=[{"resource_id": "a", "score": 1.0}]),
+        RetrievalConfig(mode=RetrievalMode.KEYWORD),
+    )
+
+    service.retrieve(question="q", keywords=["kw"], top_k=5)
+
+    assert service.last_lexical_hit_count is None
+
+
+class CountingSolr:
+    def __init__(self, num_found):
+        self.num_found = num_found
+        self.calls = []
+
+    def select(self, tokens, **params):
+        self.calls.append((list(tokens), params))
+        return {"response": {"numFound": self.num_found, "docs": []}}
+
+
+def test_keyword_count_asks_solr_for_the_strict_and_match_count_only():
+    solr = CountingSolr(7)
+
+    count = KeywordRetriever(solr, query_fields="title^2 text").count(
+        ["belfast", " lough ", ""]
+    )
+
+    assert count == 7
+    assert solr.calls == [
+        (["belfast", "lough"], {"q_op": "AND", "rows": 0, "qf": "title^2 text"})
+    ]
+
+
+def test_keyword_count_never_retries_as_or_even_when_the_fallback_is_on():
+    solr = CountingSolr(0)
+
+    assert KeywordRetriever(solr, or_fallback=True).count(["belfast", "lough"]) == 0
+    assert [params["q_op"] for _, params in solr.calls] == ["AND"]
+
+
+def test_keyword_count_of_no_keywords_is_zero_without_a_query():
+    solr = CountingSolr(5)
+
+    assert KeywordRetriever(solr).count(["", "  "]) == 0
+    assert solr.calls == []
+
+
+def test_service_lexical_match_count_delegates_to_the_keyword_retriever():
+    from lakegen.retrieval import TableRetrievalService
+
+    solr = CountingSolr(3)
+    service = TableRetrievalService(solr, RetrievalConfig(mode=RetrievalMode.KEYWORD))
+
+    assert service.lexical_match_count(["a", "b"]) == 3
+    assert solr.calls[0][1]["rows"] == 0

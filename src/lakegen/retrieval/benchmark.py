@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-from src.client_solr import LocalSolrClient
+from src.client_solr import LocalSolrClient, resolve_solr_core
 from lakegen.experiment_config import load_experiment_config
 from lakegen.retrieval.config import FusionMethod, RetrievalConfig, RetrievalMode
 from lakegen.retrieval.embeddings import EmbeddingModel
@@ -670,7 +670,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     cases = load_benchmark_cases(input_path)
     report = run_retriever_benchmark(
-        LocalSolrClient(core, base_url=args.solr_base_url),
+        LocalSolrClient(resolve_solr_core(core), base_url=args.solr_base_url),
         cases,
         base_config=base_config,
         alphas=args.alphas,
