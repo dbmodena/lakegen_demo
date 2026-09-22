@@ -1448,7 +1448,8 @@ class Phase12ToolsManager:
                     and self.state.visible_candidate_count < len(self.state.all_candidates)
                 ):
                     return (
-                        "Inspection blocked: the initial shortlist is limited to 3 "
+                        "Inspection blocked: the initial shortlist is limited to "
+                        f"{self.discovery.initial_shortlist_size} "
                         "candidates. If coverage is incomplete, call expand_candidates "
                         "before inspecting another candidate."
                     )

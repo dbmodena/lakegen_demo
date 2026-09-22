@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import os
 import sys
 import asyncio
 import re
@@ -260,7 +261,17 @@ def phase12_agent(
         retrieval_memory=retrieval_memory,
         value_search=(retrieval_config or RetrievalConfig()).mode.value_keywords,
         verbatim_entities=(retrieval_config or RetrievalConfig()).mode.verbatim_entities,
+        initial_shortlist_size=(discovery_config or DiscoveryConfig()).initial_shortlist_size,
+        max_inspected_candidates=(discovery_config or DiscoveryConfig()).max_inspected_candidates,
     )
+    if os.getenv("LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT") == "1":
+        system_prompt += (
+            "\n\nEXPERIMENTAL SELECTION CHECK: Before confirming, state the expected "
+            "table count internally. Select one table unless the question has a "
+            "separate source, period, or join requirement. For every table after "
+            "the first, require one unique required measure, filter, period, or join "
+            "key that no already selected table covers; otherwise exclude it."
+        )
 
     token_counter = next(
         (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")),
@@ -298,7 +309,10 @@ def phase12_agent(
             tool_available=tools_manager.is_tool_available,
             max_iterations=16,
             max_repeats=3,
-            max_tool_calls=12,
+            max_tool_calls=max(
+                12,
+                (discovery_config or DiscoveryConfig()).initial_shortlist_size + 5,
+            ),
             timeout_seconds=300,
         )
     except Phase2AgentStall as stall_err:

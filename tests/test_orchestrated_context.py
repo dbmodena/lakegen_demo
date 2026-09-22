@@ -256,7 +256,7 @@ def test_rendered_discovery_prompts_are_mode_neutral():
 
 
 def test_value_search_prompts_ask_for_cell_values_without_naming_the_retriever():
-    """grep_values matches cell contents only, so its search terms must be values.
+    """Value-oriented retrieval prompts must request cell values.
 
     Rendering without the flag leaves every prompt as it was, so the other arms
     of the experiment keep identical instructions.
@@ -837,44 +837,3 @@ def test_intent_search_values_are_optional_normalized_and_chosen_by_mode():
     assert listed.search_values == ["East River", "2016-17"]
     assert listed.search_terms(value_search=True) == ["East River", "2016-17"]
     assert listed.search_terms(value_search=False) == ["road incidents"]
-
-
-def test_value_mode_orchestration_searches_the_listed_values(monkeypatch):
-    calls = []
-    response = _intent(["road incidents"], search_values=["Queens", "2024"])
-    monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
-        lambda **_kwargs: (response, "trace", 1),
-    )
-
-    def fake_prepare(**kwargs):
-        calls.append(kwargs["keywords"])
-        raise RuntimeError("stop after retrieval")
-
-    monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context", fake_prepare
-    )
-    with pytest.raises(RuntimeError, match="stop after retrieval"):
-        run_unified_orchestrated_discovery(
-            query="How many?", llm=object(), solr_client=object(), all_files=[],
-            retrieval_config=RetrievalConfig(mode=RetrievalMode.GREP_VALUES),
-        )
-
-    assert calls == [["Queens", "2024"]]
-
-
-def test_value_mode_rejects_an_intent_that_lists_no_values(monkeypatch):
-    """Falling back to concepts would search dataset topics against cells."""
-    monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
-        lambda **_kwargs: (_intent(["road incidents"]), "trace", 1),
-    )
-    monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
-        lambda **_kwargs: pytest.fail("searched without any listed values"),
-    )
-    with pytest.raises(ValueError, match="search_values"):
-        run_unified_orchestrated_discovery(
-            query="How many?", llm=object(), solr_client=object(), all_files=[],
-            retrieval_config=RetrievalConfig(mode=RetrievalMode.GREP_VALUES),
-        )

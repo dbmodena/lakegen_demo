@@ -17,7 +17,6 @@ from lakegen.retrieval.config import (
 )
 from lakegen.retrieval.embeddings import EmbeddingModel, get_embedding_model
 from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
-from lakegen.retrieval.grep import GrepRetriever
 from lakegen.retrieval.models import (
     RetrievalHit,
     RetrievalRun,
@@ -429,17 +428,6 @@ class TableRetrievalService:
         )
         if config.mode == RetrievalMode.DUCKDB_AGENTIC and self.duckdb_agentic is None:
             raise ValueError("duckdb_agentic retrieval requires a local table_dir")
-        # Both grep modalities are the same retriever; it reads the mode to decide
-        # whether anything outside the cells may select or score a file.
-        self.grep = (
-            GrepRetriever(config, table_dir)
-            if config.mode.is_grep and table_dir is not None
-            else None
-        )
-        if config.mode.is_grep and self.grep is None:
-            raise ValueError(
-                f"{config.mode.value} retrieval requires a local table_dir"
-            )
 
     def retrieve(
         self,
@@ -482,14 +470,13 @@ class TableRetrievalService:
                     top_k=requested_k,
                     entities=entities,
                 )
-            elif self.config.mode.is_grep:
-                assert self.grep is not None
-                hits = self.grep.retrieve(question, keywords, top_k=requested_k)
-            else:
+            elif self.config.mode == RetrievalMode.DUCKDB_AGENTIC:
                 assert self.duckdb_agentic is not None
                 hits = self.duckdb_agentic.retrieve(
                     question, keywords, top_k=requested_k
                 )
+            else:
+                raise ValueError(f"unsupported retrieval mode: {self.config.mode}")
         except Exception as exc:
             run = self._run_record(
                 question=question,

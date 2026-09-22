@@ -613,9 +613,8 @@ def _search_description(tmp_path, mode):
 def test_search_tool_description_is_identical_for_all_topic_based_modes(tmp_path):
     """The agent is not told which retriever runs, so it cannot adapt to it.
 
-    grep_values and pneuma_seeker are the exceptions: one matches cell contents
-    only and the other scans for named entities, so asking either arm for
-    dataset topics would handicap it by construction.
+    Pneuma-Seeker is the exception because it scans for named entities, so
+    asking that arm for dataset topics would handicap it by construction.
     """
     descriptions = {
         _search_description(tmp_path, mode)
@@ -655,14 +654,6 @@ def test_pneuma_seeker_asks_the_agent_for_verbatim_entities(monkeypatch, tmp_pat
     assert "table.parquet" in result
     assert calls[0]["entities"] == ["East River"]
     assert calls[0]["keywords"] == []  # Pneuma ranks the question itself
-
-
-def test_grep_values_asks_the_agent_for_cell_values(tmp_path):
-    description = _search_description(tmp_path, RetrievalMode.GREP_VALUES)
-
-    assert "values likely to appear verbatim in the cells" in description
-    assert "dataset concepts" not in description
-    assert "grep" not in description.lower()  # still never names the retriever
 
 
 @pytest.mark.parametrize("mode", list(RetrievalMode))
@@ -1716,47 +1707,6 @@ def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_pat
     final_expansion = manager.expand_candidates("table")
     assert "Expansion limit reached" in final_expansion
     assert "Do not call expand_candidates again" in final_expansion
-
-
-def test_grep_values_search_tool_takes_a_list_and_passes_values_whole(
-    monkeypatch, tmp_path
-):
-    """A space-separated string would split "East River"; a list cannot."""
-    calls = []
-
-    class FakeService:
-        def retrieve(self, **kwargs):
-            calls.append(kwargs["keywords"])
-            return []
-
-    monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
-    )
-    manager = Phase12ToolsManager(
-        P12State(), object(), [], tmp_path,
-        question="Which tables are relevant?",
-        retrieval_config=RetrievalConfig(mode=RetrievalMode.GREP_VALUES),
-    )
-    tool = manager.get_tools()[0]
-
-    assert tool.metadata.name == "search_tables"
-    parameters = tool.metadata.get_parameters_dict()
-    assert parameters["properties"]["values"]["type"] == "array"
-    result = tool.call(values=[" East  River ", "2016-17", ""]).content
-
-    assert calls == [["East River", "2016-17"]]
-    assert "grep" not in result.lower()  # the agent is still not told the retriever
-
-
-def test_other_topic_modes_share_the_concepts_list_tool(tmp_path):
-    manager = Phase12ToolsManager(
-        P12State(), object(), [], tmp_path,
-        question="Which tables are relevant?",
-        retrieval_config=RetrievalConfig(mode=RetrievalMode.GREP),
-    )
-
-    parameters = manager.get_tools()[0].metadata.get_parameters_dict()
-    assert parameters["properties"]["concepts"]["type"] == "array"
 
 
 def test_keyword_tool_splits_multiword_concepts_into_solr_words(monkeypatch, tmp_path):

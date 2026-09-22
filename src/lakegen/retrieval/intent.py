@@ -34,7 +34,7 @@ class RetrievalIntent(BaseModel):
     status: Literal["resolved", "unresolved"]
     concepts: list[str] = Field(max_length=2)
     entities: list[str]
-    # Asked for only when retrieval matches cell contents (grep_values): the
+    # Reserved for retrieval modes that match cell contents directly: the
     # values to search for, each kept whole. Optional, so every other mode's
     # intent is unchanged.
     search_values: list[str] = Field(default_factory=list)

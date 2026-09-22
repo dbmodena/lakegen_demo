@@ -78,13 +78,57 @@ from typing import Any, Protocol
 import pyarrow.parquet as pq
 import requests
 
+from lakegen import cell_scan
 from lakegen.retrieval.config import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.models import RetrievalHit, document_key, min_max_normalize
 
-# The same scanner the grep modality uses: every column cast to text, and one
-# column in flight, read a chunk of rows at a time. Content search lifts its row
-# and column caps, and builds the pattern from an entity's letters and digits.
-from lakegen.retrieval.grep import ScanResult, probe_many, scan_many
+# Every column is cast to text in isolated worker processes, one column and one
+# bounded chunk at a time. This keeps Pneuma-Seeker's content scan independent
+# from any optional retrieval implementation.
+ScanResult = tuple[dict[str, dict[str, int]], tuple[str, ...], int]
+
+
+def _patterns(
+    terms: Sequence[str], pattern: Callable[[str], str]
+) -> list[tuple[str, str]]:
+    return [(term, pattern(term)) for term in terms]
+
+
+def scan_many(
+    paths: Sequence[Path],
+    terms: Sequence[str],
+    *,
+    max_columns: int | None,
+    max_rows: int | None,
+    workers: int,
+    pattern: Callable[[str], str],
+) -> list[ScanResult | None]:
+    patterns = _patterns(terms, pattern)
+    return cell_scan.run(
+        "scan",
+        [(str(path), patterns, max_columns, max_rows) for path in paths],
+        workers=workers,
+    )
+
+
+def probe_many(
+    paths: Sequence[Path],
+    terms: Sequence[str],
+    *,
+    max_columns: int | None,
+    max_rows: int,
+    workers: int,
+    pattern: Callable[[str], str],
+) -> list[int]:
+    patterns = _patterns(terms, pattern)
+    return [
+        count or 0
+        for count in cell_scan.run(
+            "probe",
+            [(str(path), patterns, max_columns, max_rows) for path in paths],
+            workers=workers,
+        )
+    ]
 
 
 class PneumaClient(Protocol):

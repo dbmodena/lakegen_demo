@@ -2,7 +2,7 @@
 
 Scanning a lake runs thousands of small polars queries, and polars can crash
 natively under that load: on 2026-09-14 the kernel logged ``polars-3: segfault
-... in _polars_runtime.abi3.so`` during a ``grep_values`` search, and the
+... in _polars_runtime.abi3.so`` during a full-lake content scan, and the
 Chainlit app died with it. A segfault cannot be caught, so every session in
 the process went down. The crash is intermittent -- twice in roughly a hundred
 multi-threaded full-lake scans -- and no polars release after 1.40.1 lists a

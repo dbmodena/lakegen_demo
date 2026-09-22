@@ -21,13 +21,6 @@ class RetrievalMode(StrEnum):
     PNEUMA = "pneuma"
     PNEUMA_SEEKER = "pneuma_seeker"
     DUCKDB_AGENTIC = "duckdb_agentic"
-    GREP = "grep"
-    GREP_VALUES = "grep_values"
-
-    @property
-    def is_grep(self) -> bool:
-        """True for the grep family: the full-signal mode and its values-only twin."""
-        return self in (RetrievalMode.GREP, RetrievalMode.GREP_VALUES)
 
     @property
     def is_pneuma(self) -> bool:
@@ -38,12 +31,9 @@ class RetrievalMode(StrEnum):
     def value_keywords(self) -> bool:
         """True when search terms should be cell values rather than dataset topics.
 
-        ``grep_values`` matches nothing but cell contents, so a term that names a
-        dataset from the outside ("school enrollment") finds little; the values
-        its rows actually store ("Brooklyn", "suspension") are what it can find.
-        The prompts that produce search terms read this flag.
+        No currently supported retrieval mode requests value-only keywords.
         """
-        return self is RetrievalMode.GREP_VALUES
+        return False
 
     @property
     def verbatim_entities(self) -> bool:
@@ -75,8 +65,7 @@ class RetrievalMode(StrEnum):
     def requires_table_dir(self) -> bool:
         """True for modalities that read local Parquet instead of a Solr index."""
         return (
-            self.is_grep
-            or self is RetrievalMode.DUCKDB_AGENTIC
+            self is RetrievalMode.DUCKDB_AGENTIC
             # Plain pneuma stays service-only; only the Seeker scans cells.
             or self is RetrievalMode.PNEUMA_SEEKER
         )

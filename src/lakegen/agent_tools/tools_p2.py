@@ -476,8 +476,8 @@ class Phase2JudgeToolsManager:
     INITIAL_CANDIDATES = 10
     EXPANSION_SIZE = 5
     MAX_EXPANSIONS = 1
-    INITIAL_SHORTLIST_SIZE = 3
-    MAX_INSPECTED_CANDIDATES = 6
+    INITIAL_SHORTLIST_SIZE = 10
+    MAX_INSPECTED_CANDIDATES = 10
 
     def __init__(
         self,
@@ -559,12 +559,14 @@ class Phase2JudgeToolsManager:
             if attempted_candidates >= current_limit:
                 if self.expansion_count == 0 and self.visible_candidate_count < len(self.candidates):
                     return (
-                        "Inspection blocked: the initial shortlist is limited to 3 "
+                        "Inspection blocked: the initial shortlist is limited to "
+                        f"{self.INITIAL_SHORTLIST_SIZE} "
                         "candidates. If coverage is incomplete, call expand_candidates "
                         "before inspecting another candidate."
                     )
                 return (
-                    "Inspection blocked: at most 5 distinct candidates may be "
+                    "Inspection blocked: at most "
+                    f"{self.MAX_INSPECTED_CANDIDATES} distinct candidates may be "
                     "inspected for this request."
                 )
         count = self._inspection_counts.get(key, 0) + 1

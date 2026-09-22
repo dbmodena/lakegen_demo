@@ -594,6 +594,7 @@ def run_question(
                         state=selection_state,
                         retrieval_observer=agentic_retrieval_observer,
                         require_semantic_plan=experiment.require_semantic_plan,
+                        discovery_config=experiment.discovery,
                     )
                     keyword_history = [
                         list(item) for item in selection_state.keyword_history

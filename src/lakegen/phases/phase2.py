@@ -278,7 +278,7 @@ def phase2_select_tables(
             tools=agent_tools,
             max_iterations=10,
             max_repeats=3,
-            max_tool_calls=8,
+            max_tool_calls=15,
             timeout_seconds=300,
         )
     except Phase2AgentStall as stall_err:

@@ -259,49 +259,13 @@ the effective value. Example YAML files are loaded only when supplied.
 - `semantic`: vector search using the complete question.
 - `hybrid`: combines lexical and semantic results.
 - `duckdb_agentic`: searches local Parquet files without a Solr index.
-Each modality's evidence families are weighted by `grep_value_weight` (cell
-matches) and `grep_metadata_weight` (filename, column names, catalog fields),
-and `pneuma_seeker`'s content stage by `pneuma_content_weight`, with its
+`pneuma_seeker`'s content stage is weighted by `pneuma_content_weight`, with its
 title, column-name and cell evidence weighted by `pneuma_table_name_weight`,
 `pneuma_column_name_weight` and `pneuma_cell_weight`. A family
 weighted `0` is **not computed**: it cannot change a ranking, so the work is
-skipped rather than performed and multiplied away. Weighting values `0` turns
-grep into a metadata-only search that reads no cells at all; weighting metadata
-`0` is what `grep_values` does by mode. Setting both to `0` is rejected, and
+skipped rather than performed and multiplied away. In particular,
 `pneuma_content_weight: 0` makes `pneuma_seeker` exactly equal to `pneuma`.
 
-All three local-Parquet modalities (`grep`, `grep_values`, `pneuma_seeker`) scan
-**every file in the lake by default**. The per-file scan is an independent
-bounded read, so it runs as a parallel map over `scan_workers` worker processes
-(default 16): on a 2,673-file/179 GB lake an exhaustive `grep_values` search
-takes ~10s end to end, against ~52s scanning one file at a time. Every polars
-query runs in those workers, never in the application process: polars has
-segfaulted under this load, and a worker crash now costs a retried batch instead
-of the app. Setting `grep_max_files` reintroduces a cut for deliberately
-cheap runs, but a cut is an *approximation, not just a saving*: it changes which
-files are read and the IDF (or per-keyword maximum) the survivors are scored
-with, so a capped run is not comparable with a full one. Such runs mark
-themselves `truncated` in their evidence.
-
-- `grep`: regex search over local Parquet files without a Solr index. Unlike
-  `duckdb_agentic` it casts every column to text, so matches in numeric and
-  temporal columns count too, and it reads one column at a time through the
-  streaming engine so a multi-GB table stays within bounded memory. Ranking is
-  TF-IDF over the query terms, with per-file frequency normalized by row count.
-  Filenames, column names, and the catalog contribute alongside the cells.
-- `grep_values`: the same retriever restricted to cell values. Filenames,
-  column names, and catalog metadata never select or score a file, so a table
-  is found only where the question's terms appear in its data. The discovery
-  prompts ask the model for a list of values likely to be stored in the rows
-  (category labels, place names, codes, years) instead of dataset topics, and
-  the search uses exactly those values, each matched whole: nothing is split,
-  aliased, or added from the question. The catalog is
-  still read for the title, description, and tags a hit displays, which leaves
-  the ranking as the only difference from `grep`. Where a lake exceeds
-  `grep_max_files` there is no free signal left to order it by, so a bounded
-  prefix read of every file replaces the metadata prefilter and
-  `grep_probe_rows_per_file` becomes the knob that trades cost for reach into
-  long tables; a lake under that cap is scanned whole.
 - `pneuma`: uses a separately prepared Pneuma index and service.
 - `pneuma_seeker`: Pneuma augmented as in the *Pneuma-Seeker* paper (§5.3),
   "Pneuma + content search + table enumeration". The content search follows
@@ -515,8 +479,8 @@ section 5, and `pneuma` and `pneuma_seeker` need the Pneuma service from
 section 8. Hybrid runs once per `--alphas` value (default `0.25 0.5 0.75`),
 plus once with reciprocal rank fusion.
 
-- `--table-dir`: the local Parquet directory. `grep`, `grep_values`,
-  `duckdb_agentic`, and `pneuma_seeker` need it, and without it they are
+- `--table-dir`: the local Parquet directory. `duckdb_agentic` and
+  `pneuma_seeker` need it, and without it they are
   recorded as skipped. When it is given, every gold table must exist in it,
   otherwise the run fails without writing the report.
 - `--output`: the JSON report, with every case's ranking and the mean metrics
