@@ -1,8 +1,7 @@
 # Free-form experiment identifier. It is stored in manifests and logs so runs
 # can be distinguished and reproduced. It must not be empty.
-# Run this configuration through ``src.api_2:app`` to exercise the isolated
-# agent_tools_2/core_2 variant. The standard API continues to use the baseline.
-experiment_id: uk-keyword-agent-tools-v2
+# Canonical keyword configuration for the current agent-tool implementation.
+experiment_id: uk-keyword
 
 # Experiment seed (integer >= 0), recorded to make runs comparable.
 seed: 0

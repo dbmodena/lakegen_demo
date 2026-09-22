@@ -730,7 +730,7 @@ def test_keyword_zero_results_are_banned_and_force_a_new_and_query(
     assert "added to the zero-result banlist" in narrower
     assert "known zero-result keyword subset {alpha}" in blocked
     assert "table.parquet" in recovered
-    assert [call["q_op"] for call in calls] == ["AND", "AND", "AND"]
+    assert [call["q_op"] for call in calls] == ["AND", "OR", "AND", "AND"]
     assert [sorted(item) for item in state.failed_keyword_combinations] == [["alpha"]]
     assert state.keyword_history == [["alpha", "beta"], ["alpha"], ["gamma"]]
 
@@ -1782,7 +1782,10 @@ def test_keyword_tool_preserves_multiword_concepts(monkeypatch, tmp_path):
         concepts=[" Transport  for Greater Manchester ", "invoices"]
     )
 
-    assert calls == [["Transport for Greater Manchester", "invoices"]]
+    assert calls == [
+        ["Transport for Greater Manchester", "invoices"],
+        ["Transport for Greater Manchester", "invoices"],
+    ]
 
 
 def test_keyword_banlist_uses_actual_and_terms_inside_concepts(tmp_path):

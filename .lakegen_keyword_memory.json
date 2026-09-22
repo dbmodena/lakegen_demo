@@ -170,6 +170,41 @@
         [
           "National Gallery",
           "payments"
+        ],
+        [
+          "Northern Ireland",
+          "house price index"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "invoices"
+        ],
+        [
+          "Northern Ireland",
+          "house sales"
+        ],
+        [
+          "Causeway Coast and Glens",
+          "house sales"
+        ],
+        [
+          "Transport for Greater Manchester",
+          "expenses"
+        ],
+        [
+          "LSOA",
+          "ward"
+        ],
+        [
+          "Submarine Delivery Agency organogram"
+        ],
+        [
+          "Submarine Delivery Agency",
+          "organogram"
+        ],
+        [
+          "Food Standards Agency",
+          "compliance"
         ]
       ],
       "failed_keyword_combinations": [
@@ -202,26 +237,22 @@
         ]
       ],
       "question_memories": {
-        "acbd894582d6b75bc76fdf5e90467347115404f1c27e4d83629a7185d85abc96": [
+        "219941ee238e96dd7cbb0c9a3cf66c29615f4e5e4969e4925c1602e266522bee": [
           {
             "outcome": "insufficient_coverage",
             "terms": [
-              "National Gallery",
-              "payments"
+              "Food Standards Agency",
+              "compliance"
             ],
-            "reason": "All inspected tables (candidates 1, 4, 6, 11) describe National Gallery payments over £25,000 for specific months, including August 2022, but the 'Amount' column is stored as a string, not a numeric type. Computing average payment amounts requires a numeric column, which is missing. Therefore none of the inspected tables can satisfy the required measure (numeric payment amount).",
-            "suggestion": "Search for datasets using concepts like ['National Gallery', 'financial transactions'] or ['National Gallery', 'expenditure data'] that include a numeric 'Amount' or 'Payment amount' column.",
+            "reason": "The user asks for counts of sub‑questions and Q2‑series questions across specific FSA compliance sections (September 2019, March 2019, June 2019, April 2020). This requires a dataset that lists individual questionnaire items with fields such as section date, question identifier, and question type (e.g., sub‑question, Q2‑series). The tables retrieved with the concepts \"Food Standards Agency\" and \"compliance\" are raw drinking milk premises registers. Their schemas contain premi",
+            "suggestion": "Search for datasets using concepts like \"Food Standards Agency\", \"compliance questionnaire\", \"section\", \"questions\" or \"FSA compliance questionnaire\". Include the term \"question type\" or \"Q2\" to target tables that list individual questionnaire items.",
             "tables": [
-              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___1107323d-29e4-4cd1-8cbe-e46c2ed446e6.parquet",
-              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___14c1b2e9-3276-48a3-8704-9e1c80aa98ee.parquet",
-              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___242cc8f2-5c60-4cca-b6df-82bedd396c1f.parquet",
-              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___2e04b292-5f19-4f98-9c6b-ed0fde248458.parquet"
+              "f6706084-9c82-4a50-a781-41e0e6229948___269dc1f5-8237-4654-818f-d3697f273947.parquet",
+              "f6706084-9c82-4a50-a781-41e0e6229948___b42336ea-f85f-4025-8898-ce959400416a.parquet"
             ],
             "evidence": {
-              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___242cc8f2-5c60-4cca-b6df-82bedd396c1f.parquet": "Amount column is string, not numeric.",
-              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___1107323d-29e4-4cd1-8cbe-e46c2ed446e6.parquet": "Amount column is string, not numeric.",
-              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___14c1b2e9-3276-48a3-8704-9e1c80aa98ee.parquet": "Amount column is string, not numeric.",
-              "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___2e04b292-5f19-4f98-9c6b-ed0fde248458.parquet": "Amount column is string, not numeric."
+              "f6706084-9c82-4a50-a781-41e0e6229948___269dc1f5-8237-4654-818f-d3697f273947.parquet": "Contains premises details only; no columns for questionnaire sections, question identifiers, or question types.",
+              "f6706084-9c82-4a50-a781-41e0e6229948___b42336ea-f85f-4025-8898-ce959400416a.parquet": "Contains premises details only; lacks any fields related to questionnaire sections or question categories."
             }
           }
         ]

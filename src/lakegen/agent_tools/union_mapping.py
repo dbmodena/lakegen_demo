@@ -29,8 +29,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from lakegen.agent_tools_2.column_values import as_number, column_kind, map_uniques, mostly_numeric
-from lakegen.agent_tools_2.schema_matching import SCHEMA_MATCH_THRESHOLD
+from lakegen.agent_tools.column_values import as_number, column_kind, map_uniques, mostly_numeric
+from lakegen.agent_tools.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 UNION = "UNION"
 SUBSET_UNION = "SUBSET_UNION"

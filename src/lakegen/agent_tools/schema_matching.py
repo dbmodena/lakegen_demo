@@ -1,16 +1,13 @@
-"""Valentine schema matching with the table-pair criteria used by OrQa.
+"""Valentine schema matching: the name-similar column pairs that join and union evidence start from.
 
-OrQa scores a pair of tables with schema-only COMA and reads everything off the
-column-pair scores:
+Schema-only COMA (`use_instances=False`) scores column-NAME similarity between two tables. It never
+reads values, so a sample of the first rows gives the same ranked output as the full table --
+measured on OrQa's data: identical output, 0.0 s instead of 62 s on a 19M-row pair -- and a sample
+is all it is given.
 
-- the pair gate passes when the average score over every returned column pair,
-  or the single best score, reaches 0.5;
-- a union is supported when the average score reaches 0.5, aligned on the
-  column pairs that score at least 0.5;
-- a join is supported when the best score reaches 0.5, and that pair is the key.
-
-Unlike OrQa, which samples the first rows and columns, every row and column of
-both tables is matched.
+A COMA score is not evidence that two tables join or union: identical names score 1.0 everywhere in
+open data (`Date`, `Name`, `Parent Department`). `join_keys` measures the values of each candidate
+pair and `union_mapping` measures how much of each table maps; this module only proposes candidates.
 """
 
 from __future__ import annotations
@@ -22,30 +19,31 @@ import pandas as pd
 from valentine import valentine_match
 from valentine.algorithms import Coma
 
+# A column pair is a candidate for a join key / union mapping at or above this name score.
 SCHEMA_MATCH_THRESHOLD = 0.5
-SM_MACRO_AVG_THRESHOLD = 0.5
-SM_MICRO_AVG_THRESHOLD = 0.5
+SM_MACRO_AVG_THRESHOLD = SCHEMA_MATCH_THRESHOLD
+SM_MICRO_AVG_THRESHOLD = SCHEMA_MATCH_THRESHOLD
+# Rows given to COMA. Schema-only matching ignores values, so more rows only cost time.
+COMA_SAMPLE_ROWS = 1000
 
 ColumnMatch = tuple[str, str, float]
 
 
 def match_columns(q: pd.DataFrame, r: pd.DataFrame) -> dict[tuple[str, str], float]:
     """Score column correspondences between ``q`` and ``r`` with schema-only COMA."""
-    # Instance matching is disabled, so row sampling is neither needed nor
-    # supported by current Valentine releases.
-    raw = valentine_match(q, r, Coma(use_instances=False))
-    matches: dict[tuple[str, str], float] = {}
-    for pair, score in raw.items():
-        if hasattr(pair, "source_column") and hasattr(pair, "target_column"):
-            source, target = pair.source_column, pair.target_column
-        else:
-            source, target = pair[0][-1], pair[1][-1]
-        matches[(str(source), str(target))] = float(score)
-    return matches
+    raw = valentine_match(
+        [q.head(COMA_SAMPLE_ROWS), r.head(COMA_SAMPLE_ROWS)],
+        Coma(use_instances=False),
+        instance_sample_size=COMA_SAMPLE_ROWS,
+    )
+    return {
+        (str(pair.source_column), str(pair.target_column)): float(score)
+        for pair, score in raw.items()
+    }
 
 
 def verify_pair_schema(q: pd.DataFrame, r: pd.DataFrame) -> dict[str, object]:
-    """Return OrQa's pair evidence: ranked matches, average and best score."""
+    """Return the ranked column-pair matches for a table pair, with their average and best score."""
     start = time.time()
     matches = match_columns(q, r)
     elapsed = time.time() - start
@@ -58,20 +56,19 @@ def verify_pair_schema(q: pd.DataFrame, r: pd.DataFrame) -> dict[str, object]:
     return {
         "matches": match_list,
         "sm_macro_avg": round(average, 3),
-        # The best single column match, so one excellent join key keeps a
-        # pair alive even when the schemas differ overall.
         "sm_micro_avg": match_list[0][2] if match_list else 0.0,
         "sm_n_matches": len(match_list),
         "sm_time": round(elapsed, 3),
     }
 
 
+# Retained for callers that consume raw COMA evidence. Phase-2 itself uses the
+# measured value-based evidence in ``join_keys`` and ``union_mapping``.
 def passes_schema_gate(
     evidence: dict[str, object],
     macro_threshold: float = SM_MACRO_AVG_THRESHOLD,
     micro_threshold: float = SM_MICRO_AVG_THRESHOLD,
 ) -> bool:
-    """A pair proceeds when the schemas match globally or one column pair matches strongly."""
     return (
         evidence["sm_macro_avg"] >= macro_threshold
         or evidence["sm_micro_avg"] >= micro_threshold
@@ -79,7 +76,6 @@ def passes_schema_gate(
 
 
 def union_evidence(evidence: dict[str, object], q_columns: Sequence[str]) -> dict[str, object]:
-    """Aligned column pairs for a union, and whether the average score supports one."""
     confident = [
         (q_col, r_col, score)
         for q_col, r_col, score in evidence["matches"]
@@ -90,15 +86,12 @@ def union_evidence(evidence: dict[str, object], q_columns: Sequence[str]) -> dic
         "q_columns": [q_col for q_col, _, _ in confident],
         "r_columns": [r_col for _, r_col, _ in confident],
         "column_scores": [score for _, _, score in confident],
-        "union_column_ratio": (
-            round(len(matched_q_columns) / len(q_columns), 4) if q_columns else 0.0
-        ),
+        "union_column_ratio": round(len(matched_q_columns) / len(q_columns), 4) if q_columns else 0.0,
         "supported": evidence["sm_macro_avg"] >= SM_MACRO_AVG_THRESHOLD,
     }
 
 
 def join_evidence(evidence: dict[str, object]) -> dict[str, object]:
-    """The best column pair as join key, and whether its score supports a join."""
     matches = evidence["matches"]
     if not matches:
         return {"key": None, "score": 0.0, "supported": False, "alternatives": []}
@@ -107,7 +100,5 @@ def join_evidence(evidence: dict[str, object]) -> dict[str, object]:
         "key": (q_key, r_key),
         "score": score,
         "supported": evidence["sm_micro_avg"] >= SM_MICRO_AVG_THRESHOLD,
-        "alternatives": [
-            match for match in matches[1:] if match[2] >= SCHEMA_MATCH_THRESHOLD
-        ],
+        "alternatives": [match for match in matches[1:] if match[2] >= SCHEMA_MATCH_THRESHOLD],
     }

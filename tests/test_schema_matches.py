@@ -74,7 +74,7 @@ def test_check_join_union_states_that_same_kind_tables_union(tmp_path):
     assert result.startswith("Join/union check between 'left.parquet' and 'right.parquet'")
     assert "UNION: 'left.parquet' unions with 'right.parquet'" in result
     assert "borough -> borough" in result
-    assert "4 of 4 columns of 'left.parquet' aligned" in result
+    assert "4 columns map 1-1 (100% of the left table's columns" in result
     assert "schema" not in result.casefold()
 
 
@@ -91,13 +91,13 @@ def test_check_join_union_states_the_join_key(tmp_path):
         tmp_path, "schools.parquet", "attendance.parquet"
     )
 
-    assert "JOIN: 'schools.parquet' joins 'attendance.parquet' on " in result
+    assert "JOIN: 'schools.parquet' joins 'attendance.parquet'; candidate keys" in result
     assert "school_id (schools.parquet) = School ID (attendance.parquet)" in result
 
 
 def test_check_join_union_states_join_without_union(monkeypatch, tmp_path):
-    pd.DataFrame({"id": [1], "b": [1], "c": [1]}).to_parquet(tmp_path / "left.parquet")
-    pd.DataFrame({"key": [1], "y": [1], "z": [1]}).to_parquet(tmp_path / "right.parquet")
+    pd.DataFrame({"id": [1, 2], "b": [1, 1], "c": [1, 1]}).to_parquet(tmp_path / "left.parquet")
+    pd.DataFrame({"key": [1, 2], "y": [1, 1], "z": [1, 1]}).to_parquet(tmp_path / "right.parquet")
     monkeypatch.setattr(
         schema_matching,
         "match_columns",
@@ -106,11 +106,9 @@ def test_check_join_union_states_join_without_union(monkeypatch, tmp_path):
 
     result = tools_p2._check_join_union(tmp_path, "left.parquet", "right.parquet")
 
-    assert (
-        "JOIN: 'left.parquet' joins 'right.parquet' on "
-        "id (left.parquet) = key (right.parquet) (match score 0.900 >= 0.5)."
-    ) in result
-    assert "UNION: 'left.parquet' does not union with 'right.parquet'" in result
+    assert "JOIN: 'left.parquet' joins 'right.parquet'; candidate keys" in result
+    assert "id (left.parquet) = key (right.parquet) -- 1:1, 2 shared key values" in result
+    assert "NO UNION:" in result
 
 
 def test_check_join_union_states_no_relationship(monkeypatch, tmp_path):
@@ -122,11 +120,8 @@ def test_check_join_union_states_no_relationship(monkeypatch, tmp_path):
 
     result = tools_p2._check_join_union(tmp_path, "left.parquet", "right.parquet")
 
-    assert (
-        "NO RELATIONSHIP: 'left.parquet' neither joins nor unions with 'right.parquet'"
-    ) in result
-    assert "JOIN:" not in result
-    assert "UNION:" not in result
+    assert "NO JOIN: no column pair between 'left.parquet' and 'right.parquet' has similar names" in result
+    assert "NO UNION:" in result
 
 
 def test_check_join_union_runs_valentine_for_the_same_file(monkeypatch, tmp_path):
@@ -168,8 +163,8 @@ def test_check_join_union_compares_all_rows_and_columns(monkeypatch, tmp_path):
 def test_match_columns_uses_schema_only_valentine_api(monkeypatch):
     calls = []
 
-    def fake_valentine_match(q, r, matcher):
-        calls.append((q, r, matcher))
+    def fake_valentine_match(frames, matcher, **kwargs):
+        calls.append((frames, matcher, kwargs))
         return {}
 
     monkeypatch.setattr(schema_matching, "valentine_match", fake_valentine_match)
@@ -177,9 +172,10 @@ def test_match_columns_uses_schema_only_valentine_api(monkeypatch):
     schema_matching.match_columns(pd.DataFrame({"a": [1]}), pd.DataFrame({"b": [1]}))
 
     assert len(calls) == 1
-    assert list(calls[0][0].columns) == ["a"]
-    assert list(calls[0][1].columns) == ["b"]
-    assert calls[0][2].__class__.__name__ == "Coma"
+    assert list(calls[0][0][0].columns) == ["a"]
+    assert list(calls[0][0][1].columns) == ["b"]
+    assert calls[0][1].__class__.__name__ == "Coma"
+    assert calls[0][2]["instance_sample_size"] == schema_matching.COMA_SAMPLE_ROWS
 
 
 def test_check_join_union_reports_unreadable_tables(tmp_path):

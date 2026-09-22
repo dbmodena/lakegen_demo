@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from lakegen.agent_tools_2.column_values import (
+from lakegen.agent_tools.column_values import (
     column_kind,
     format_datetime,
     format_number,
@@ -35,10 +35,10 @@ from lakegen.agent_tools_2.column_values import (
     map_uniques,
     mostly_numeric,
 )
-from lakegen.agent_tools_2.schema_matching import SCHEMA_MATCH_THRESHOLD
+from lakegen.agent_tools.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 if TYPE_CHECKING:
-    from lakegen.core_2.table_io import TableProfile
+    from lakegen.core.table_io import TableProfile
 
 # distinct/non-null rows at or above this count a side as "unique" for the cardinality label
 UNIQUE_RATIO = 0.99

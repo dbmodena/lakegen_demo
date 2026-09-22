@@ -733,6 +733,23 @@ class Phase12ToolsManager:
                 else self.retrieval_config.mode.value
             )
 
+            # Keep the new-version fallback, but retain the current version's
+            # zero-result memory and retry limits below.  A strict AND miss can
+            # still expose useful candidates through a clearly labelled OR pass.
+            if (
+                not hits
+                and len(keywords) > 1
+                and self.retrieval_config.mode == RetrievalMode.KEYWORD
+            ):
+                hits = retriever.retrieve(
+                    question=self.question,
+                    keywords=keywords,
+                    top_k=fetch_k,
+                    lexical_fetch_k=fetch_k,
+                    q_op="OR",
+                )
+                search_mode = "OR fallback"
+
             searched = (
                 "the question only"
                 if self.retrieval_config.mode.ranks_question_only
