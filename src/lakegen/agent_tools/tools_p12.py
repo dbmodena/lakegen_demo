@@ -1,12 +1,16 @@
+import itertools
 import json
+import math
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, Literal, Mapping
+from typing import Callable, Literal, Mapping, Sequence
 from pydantic import BaseModel, Field, model_validator
 
 from llama_index.core.tools import FunctionTool
 from llama_index.core import VectorStoreIndex
+from llama_index.core.llms import LLM, ChatMessage
 from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 
 from lakegen.core.types import SolrMetadata, StreamCallback
@@ -536,6 +540,69 @@ class P12State:
         return list(dict.fromkeys(inspected))
 
 
+# ============================================================================
+# decompose_preview_search (DiscoveryConfig flag): split one question into its
+# per-table distinguishing-detail search phrases, preview a few real AND-word
+# candidates per phrase (with match counts and top matches) and let the model
+# pick before any of them is actually run. Ported from
+# experiments/retrieval_lab's decompose_tuned_preview_noacronym, the strongest
+# keyword-search arm found there -- a real, if modest, improvement over a
+# single free-form search at every scale tested (84/50/100/249 questions).
+# ============================================================================
+
+# Generic function words, stripped before a phrase's content words are counted
+# against the index.
+_SEARCH_STOPWORDS = set(
+    "a an the of for in on at to and or by with from as is are was were be "
+    "been that this these those what which who how many much per its their "
+    "our your not no than then into over under between".split()
+)
+# Quantifier/aggregation words: they describe how to compute the answer, not
+# what the dataset is, so they never occur in a table's title, description or
+# publisher and only ever narrow or kill an AND query.
+_AGGREGATION_STOPWORDS = set(
+    "total average count counts correlation proportion percentage share rank "
+    "distinct most largest smallest top each combined since increase decrease "
+    "change difference number".split()
+)
+
+_DECOMPOSE_SYSTEM_PROMPT = """Some questions need SEVERAL tables from an open-data portal. Portals publish the same dataset many times: one file per year, month or snapshot, per edition, per agency or per area, all with almost identical descriptions. A question that compares, combines or spans such files needs each of them, and the files differ only in their distinguishing detail (a date, a year, an edition, an agency, a place) - or the question combines genuinely different datasets.
+List the distinct tables the question needs. For each, write one standalone search request in plain words: the dataset's subject words plus THAT table's own distinguishing detail (its date, agency, edition or place). Write a SEPARATE entry for each distinct date or edition the question mentions, even when several appear in the same clause (e.g. "June 2022 and July 2023" needs two entries, one per month) -- never fold two into one request. Name the organisation exactly as the question names it; do not expand an acronym or guess a fuller official name yourself.
+Never write the same request twice. If one table is enough, return a single request.
+Return JSON: {"tables": [{"detail": "...", "request": "..."}]} with 1 to 4 entries."""
+
+_CANDIDATE_PICK_SYSTEM_PROMPT = """You help a keyword search find the right table(s) in an open-data portal. Every candidate search below is an AND search (a table must contain every word) that the portal already ran; you see how many tables it matches and the first few matches. Pick the searches most likely to surface the table(s) THE QUESTION IS ABOUT: their top matches must name the question's subject, organisation, place and period. Prefer searches whose matches are on-topic over ones that are merely small. Return JSON: {"picks": [numbers]} with 1 to 3 numbers."""
+
+
+def _extract_json_object(text: str) -> dict:
+    """Parse one JSON object out of an LLM response, tolerating code fences and
+    leading prose by scanning for the first balanced ``{...}``."""
+    stripped = text.strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", stripped, re.DOTALL)
+    if fenced:
+        stripped = fenced.group(1)
+    try:
+        loaded = json.loads(stripped)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        loaded = None
+        for index, character in enumerate(stripped):
+            if character != "{":
+                continue
+            try:
+                candidate, _ = decoder.raw_decode(stripped[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                loaded = candidate
+                break
+        if loaded is None:
+            raise
+    if not isinstance(loaded, dict):
+        raise ValueError("response must be a JSON object")
+    return loaded
+
+
 class Phase12ToolsManager:
     """Manager for Phase 1 & 2 unified tools to avoid closures and improve testability."""
 
@@ -550,6 +617,7 @@ class Phase12ToolsManager:
         retrieval_observer: Callable[[RetrievalRun], None] | None = None,
         discovery_config: DiscoveryConfig | None = None,
         notice_callback: StreamCallback | None = None,
+        llm: LLM | None = None,
     ):
         self.state = state
         self.solr_client = solr_client
@@ -560,6 +628,14 @@ class Phase12ToolsManager:
         self.retrieval_observer = retrieval_observer
         self.discovery = discovery_config or DiscoveryConfig()
         self.notice_callback = notice_callback
+        # Only used by decompose_preview_search (see DiscoveryConfig): the same
+        # LLM instance driving the agent, reused for the internal decompose and
+        # candidate-pick calls rather than constructing a second, separate one.
+        self.llm = llm
+        # decompose_preview_search only: per-word Solr match counts, memoized
+        # for the life of this manager so sub-questions that share a word don't
+        # re-query it.
+        self._word_freq_cache: dict[str, int] = {}
 
     def _emit_notice(self, text: str) -> None:
         """Report to the operator, never to the agent.
@@ -692,7 +768,14 @@ class Phase12ToolsManager:
         runs, so the banlist keys on what Solr actually matched regardless of
         how the agent grouped or punctuated its concepts.
         """
-        return self._search(split_keywords(concepts or []))
+        listed = concepts or []
+        if (
+            self.discovery.decompose_preview_search
+            and self.llm is not None
+            and self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID)
+        ):
+            return self._decompose_preview_search(listed)
+        return self._search(split_keywords(listed))
 
     def search_table_values(self, values: list[str]) -> str:
         """Search for tables whose cells contain the listed values."""
@@ -713,6 +796,244 @@ class Phase12ToolsManager:
             if str(entity).strip()
         ]
         return self._search(listed, entities=listed)
+
+    def _search_limit_reached(self) -> bool:
+        nonempty_attempts = sum(
+            bool(attempt.get("current_candidates"))
+            for attempt in self.state.search_attempts
+        )
+        lexical_retry_limit = (
+            self.discovery.max_search_attempts
+            + self.discovery.max_zero_result_retries
+        )
+        kw_hybrid_limit_reached = (
+            nonempty_attempts >= self.discovery.max_search_attempts
+            or len(self.state.search_attempts) >= lexical_retry_limit
+        )
+        if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
+            return kw_hybrid_limit_reached
+        return len(self.state.search_attempts) >= self.discovery.max_search_attempts
+
+    def _run_one_retrieval(
+        self, keywords: list[str], entities: list[str] | None = None
+    ) -> dict:
+        """Run one retrieval call, map it onto local files, fold it into the
+        accumulated candidate pool (reciprocal-rank fusion with whatever is
+        already there), and ban a zero-lexical-hit AND query as its smallest
+        failing word subsets. Appends one entry to state.search_attempts.
+
+        Does not check whether a search may run at all (cache, inspection
+        lock, attempt limit) -- the caller decides that once, up front, since
+        one caller (decompose_preview_search) may need this to run several
+        times for what the agent experiences as a single search.
+        """
+        if self.retrieval_observer is None:
+            retriever = get_table_retrieval_service(
+                self.solr_client,
+                self.retrieval_config,
+                *([self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []),
+            )
+        else:
+            retriever = get_table_retrieval_service(
+                self.solr_client,
+                self.retrieval_config,
+                *([self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []),
+                observer=self.retrieval_observer,
+            )
+        # Retrieved candidates must first be mapped and de-duplicated against
+        # local files.  Request a wider ranked list here and apply the
+        # workflow's final top_k only after that mapping below. Widen by
+        # the current ban count too (mirrors DIVIDED's _solr_and_search),
+        # so a banned hit shrinks the fetch instead of the final visible
+        # pool -- otherwise every accumulated ban would silently starve
+        # top_k with nothing backfilling it.
+        fetch_k = (
+            max(self.discovery.fetch_floor, self.retrieval_config.top_k)
+            + len(self.state.excluded_tables)
+        )
+        retrieval_started = time.monotonic()
+        hits = retriever.retrieve(
+            question=self.question,
+            keywords=keywords,
+            top_k=fetch_k,
+            lexical_fetch_k=fetch_k,
+            q_op="AND",
+            entities=entities,
+        )
+        search_mode = (
+            "AND" if self.retrieval_config.mode == RetrievalMode.KEYWORD
+            else self.retrieval_config.mode.value
+        )
+
+        searched = (
+            "the question only"
+            if self.retrieval_config.mode.ranks_question_only
+            else f"concepts {list(keywords)}"
+        )
+        self._emit_notice(
+            f"\n> \U0001f50e **Retrieval:** `{self.retrieval_config.mode.value}` "
+            f"\u00b7 {searched} "
+            f"\u00b7 {len(hits)} ranked hits in "
+            f"{time.monotonic() - retrieval_started:.1f}s\n"
+        )
+
+        self.state.keyword_history.append(keywords)
+        attempt = len(self.state.keyword_history)
+
+        current_candidates: list[str] = []
+        for hit in hits:
+            doc = hit.document
+            matched = match_local_csv(doc, self.all_files)
+            if (
+                matched is None
+                or matched in current_candidates
+                or matched.casefold() in self.state.excluded_tables
+            ):
+                continue
+            current_candidates.append(matched)
+            previous_rank = self.state.best_ranks.get(matched)
+            self.state.candidate_scores[matched] = (
+                self.state.candidate_scores.get(matched, 0.0)
+                + 1.0 / (60.0 + hit.rank)
+            )
+            if previous_rank is None or hit.rank < previous_rank:
+                self.state.best_ranks[matched] = hit.rank
+                self.state.solr_meta[matched] = solr_metadata_from_doc(doc)
+                self.state.solr_meta[matched]["retrieval"] = hit.to_log_dict()
+                self.state.solr_meta[matched]["best_attempt"] = attempt
+                self.state.solr_meta[matched]["best_keywords"] = list(keywords)
+            if matched not in self.state.all_candidates:
+                self.state.all_candidates.append(matched)
+            if len(current_candidates) >= self.retrieval_config.top_k:
+                break
+
+        # Fuse at most two distinct agent searches with reciprocal-rank
+        # contributions. The first search alone preserves its original order.
+        self.state.all_candidates.sort(key=lambda candidate: (
+            -self.state.candidate_scores.get(candidate, 0.0),
+            self.state.best_ranks.get(candidate, 10**9),
+            candidate,
+        ))
+        self.state.all_candidates = self.state.all_candidates[
+            : self.retrieval_config.top_k
+        ]
+        # Carried candidates from a prior round already proved they
+        # satisfy part of the question; re-surface them regardless of
+        # whether this round's retrieval finds them again, even if that
+        # means displacing the weakest fresh candidate.
+        for table in self.state.carried_tables:
+            if table.casefold() in self.state.excluded_tables:
+                continue
+            if table in self.state.all_candidates:
+                self.state.all_candidates.remove(table)
+            self.state.all_candidates.insert(0, table)
+            if table not in self.state.solr_meta and table in self.state.carried_metadata:
+                self.state.solr_meta[table] = self.state.carried_metadata[table]
+        if len(self.state.all_candidates) > self.retrieval_config.top_k:
+            self.state.all_candidates = self.state.all_candidates[
+                : self.retrieval_config.top_k
+            ]
+        candidates = self.state.all_candidates
+        self.state.visible_candidate_count = min(
+            self.discovery.initial_candidates,
+            len(candidates),
+        )
+        visible_candidates = candidates[: self.state.visible_candidate_count]
+        self.state.search_attempts.append(
+            {
+                "attempt": attempt,
+                "keywords": list(keywords),
+                "search_mode": search_mode,
+                "current_candidates": list(current_candidates),
+                "accumulated_candidates": list(candidates),
+            }
+        )
+
+        # A strict AND lexical branch can fail to match anything while the
+        # overall search still returns candidates in HYBRID mode, rescued by
+        # the semantic branch -- that miss must still be shrunk and banned,
+        # or a repeat of the same doomed words looks new every time.
+        learned = None
+        lexical_empty = False
+        if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
+            lexical_empty = (
+                not hits if self.retrieval_config.mode == RetrievalMode.KEYWORD
+                else getattr(retriever, "last_lexical_hit_count", None) == 0
+            )
+            if lexical_empty:
+                count_fn = getattr(retriever, "lexical_match_count", None)
+                learned = self._shrink_and_ban(keywords, count_fn)
+            elif not current_candidates:
+                # Solr matched something real for this AND query, just
+                # nothing available locally -- ban the whole query as
+                # attempted; there is nothing lexically zero to shrink.
+                self._ban(keyword_terms(keywords))
+
+        return {
+            "attempt": attempt,
+            "keywords": keywords,
+            "searched": searched,
+            "search_mode": search_mode,
+            "current_candidates": current_candidates,
+            "candidates": candidates,
+            "visible_candidates": visible_candidates,
+            "lexical_empty": lexical_empty,
+            "learned": learned,
+        }
+
+    def _format_search_response(self, result: dict) -> str:
+        attempt, searched = result["attempt"], result["searched"]
+        current_candidates, candidates = result["current_candidates"], result["candidates"]
+        visible_candidates = result["visible_candidates"]
+        lexical_empty, learned = result["lexical_empty"], result["learned"]
+
+        if not current_candidates:
+            failed = [sorted(item) for item in self.state.failed_keyword_combinations]
+            self._record_retrieval_memory_event(
+                outcome="zero_results",
+                terms=list(result["keywords"]),
+            )
+            return (
+                f"Attempt: {attempt}\nSearched: {searched}\n"
+                "No tables found. "
+                + (f"{learned} " if learned else "")
+                + "This AND keyword combination was added to "
+                "the zero-result banlist. Search again with a genuinely "
+                "different query.\n"
+                + (
+                    f"Zero-result banlist: {failed}"
+                    if self.retrieval_config.mode in (
+                        RetrievalMode.KEYWORD,
+                        RetrievalMode.HYBRID,
+                    )
+                    else ""
+                )
+            )
+
+        prefix = ""
+        if lexical_empty:
+            failed = [sorted(item) for item in self.state.failed_keyword_combinations]
+            prefix = (
+                "No table contains all of these words."
+                + (f" {learned}" if learned else "")
+                + "\n"
+                f"Zero-result banlist: {failed}\n"
+                "The candidates below do not match every word (found through "
+                "the configured semantic branch instead):\n\n"
+            )
+
+        return (
+            f"Attempt: {attempt}\nSearched: {searched}\n\n"
+            + prefix
+            + "Candidates in retrieval order after local-file mapping:\n"
+            + format_candidate_context(visible_candidates, self.state.solr_meta)
+            + (
+                f"\n{len(candidates) - len(visible_candidates)} additional "
+                "ranked candidates are available through expand_candidates."
+                if len(candidates) > len(visible_candidates)
+                else ""
+            )
+        )
 
     def _search(
         self, supplied_concepts: list[str], entities: list[str] | None = None
@@ -775,228 +1096,284 @@ class Phase12ToolsManager:
                     "Search refinement blocked: a candidate has already been "
                     "inspected. Use the existing evidence or one guided expansion."
                 )
-            nonempty_attempts = sum(
-                bool(attempt.get("current_candidates"))
-                for attempt in self.state.search_attempts
-            )
-            lexical_retry_limit = (
-                self.discovery.max_search_attempts
-                + self.discovery.max_zero_result_retries
-            )
-            search_limit_reached = (
-                nonempty_attempts >= self.discovery.max_search_attempts
-                or len(self.state.search_attempts) >= lexical_retry_limit
-            )
-            if (
-                len(self.state.search_attempts) >= self.discovery.max_search_attempts
-                and self.retrieval_config.mode not in (
-                    RetrievalMode.KEYWORD,
-                    RetrievalMode.HYBRID,
-                )
-            ) or (
-                self.retrieval_config.mode in (
-                    RetrievalMode.KEYWORD,
-                    RetrievalMode.HYBRID,
-                )
-                and search_limit_reached
-            ):
+            if self._search_limit_reached():
                 return (
                     f"Search limit reached ({self.discovery.max_search_attempts} "
                     "attempt(s)). Do not call search_tables again; inspect, expand "
                     "if needed, then select."
                 )
             self.state.used_keywords = supplied_concepts
-            self.state.keyword_history.append(keywords)
-            attempt = len(self.state.keyword_history)
-
-            if self.retrieval_observer is None:
-                retriever = get_table_retrieval_service(
-                    self.solr_client,
-                    self.retrieval_config,
-                    *([self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []),
-                )
-            else:
-                retriever = get_table_retrieval_service(
-                    self.solr_client,
-                    self.retrieval_config,
-                    *([self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []),
-                    observer=self.retrieval_observer,
-                )
-            # Retrieved candidates must first be mapped and de-duplicated against
-            # local files.  Request a wider ranked list here and apply the
-            # workflow's final top_k only after that mapping below. Widen by
-            # the current ban count too (mirrors DIVIDED's _solr_and_search),
-            # so a banned hit shrinks the fetch instead of the final visible
-            # pool -- otherwise every accumulated ban would silently starve
-            # top_k with nothing backfilling it.
-            fetch_k = (
-                max(self.discovery.fetch_floor, self.retrieval_config.top_k)
-                + len(self.state.excluded_tables)
+            result = self._run_one_retrieval(keywords, entities)
+            response = self._format_search_response(result)
+            self.state.search_cache[key] = response
+            return response
+        except EmbeddingGenerationError as exc:
+            detail = str(exc)
+            cause = exc.__cause__
+            if cause is not None:
+                detail = f"{detail}: {cause}"
+            self.state.semantic_failure = detail
+            return (
+                "Error generating the configured retrieval representation: "
+                f"{detail}. The retrieval request has finished and must not be repeated."
             )
-            retrieval_started = time.monotonic()
-            hits = retriever.retrieve(
-                question=self.question,
-                keywords=keywords,
-                top_k=fetch_k,
-                lexical_fetch_k=fetch_k,
-                q_op="AND",
-                entities=entities,
+        except Exception as exc:
+            return f"Error during table retrieval: {exc}."
+
+    # ---------------------------------------------------- decompose_preview_search
+
+    def _chat_json(self, system: str, user: str, *, stage: str) -> dict:
+        """One structured LLM call, with a single syntax-repair retry."""
+        response = self.llm.chat([
+            ChatMessage(role="system", content=system),
+            ChatMessage(role="user", content=user),
+        ])
+        raw = str(response.message.content or "").strip()
+        try:
+            return _extract_json_object(raw)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            repair = self.llm.chat([
+                ChatMessage(role="system", content=system),
+                ChatMessage(role="user", content=(
+                    user + f"\n\nYour {stage} response was not one valid JSON "
+                    "object. Return ONLY the same intended object as valid "
+                    "JSON, no prose, no code fences."
+                )),
+            ])
+            return _extract_json_object(str(repair.message.content or "").strip())
+
+    def _decompose_question(self) -> list[str]:
+        """Split the ORIGINAL question into 1-4 standalone per-table search
+        requests. Falls back to the question itself on any failure."""
+        try:
+            obj = self._chat_json(
+                _DECOMPOSE_SYSTEM_PROMPT, f"QUESTION: {self.question}", stage="decompose"
             )
-            search_mode = (
-                "AND" if self.retrieval_config.mode == RetrievalMode.KEYWORD
-                else self.retrieval_config.mode.value
+        except Exception:
+            return [self.question]
+        subs: list[str] = []
+        for table in obj.get("tables") or []:
+            request = str((table or {}).get("request") or "").strip()
+            if request and request not in subs:
+                subs.append(request)
+        return subs[:4] or [self.question]
+
+    def _word_frequency(self, word: str) -> int:
+        key = word.casefold()
+        if key not in self._word_freq_cache:
+            response = self.solr_client.select([word], q_op="AND", rows=0)
+            self._word_freq_cache[key] = int(
+                response.get("response", {}).get("numFound", 0)
             )
+        return self._word_freq_cache[key]
 
-            searched = (
-                "the question only"
-                if self.retrieval_config.mode.ranks_question_only
-                else f"concepts {list(keywords)}"
+    def _and_count(self, words: Sequence[str]) -> int:
+        response = self.solr_client.select(list(words), q_op="AND", rows=0)
+        return int(response.get("response", {}).get("numFound", 0))
+
+    def _question_search_words(self, text: str, cap: int = 8) -> list[str]:
+        """Content words of `text` that occur somewhere in the index, rarest first."""
+        seen, out = set(), []
+        for word in re.findall(r"[\w'\u2019-]+", text):
+            key = word.casefold().strip("'\u2019-")
+            if (
+                key
+                and key not in _SEARCH_STOPWORDS
+                and key not in _AGGREGATION_STOPWORDS
+                and key not in seen
+            ):
+                seen.add(key)
+                out.append(word.strip("'\u2019-"))
+        present = [word for word in out if self._word_frequency(word) > 0]
+        present.sort(key=self._word_frequency)
+        return present[:cap]
+
+    def _candidate_word_subsets(
+        self, words: list[str], *, lo: int = 1, hi: int = 60, cap: int = 8, workers: int = 6
+    ) -> list[tuple[list[str], int]]:
+        """2-word AND combinations whose match count fits the pool, rarest
+        first. Capped to pairs and a small word universe (unlike the lab
+        version's 2-3 word / 13-word sweep) since each combination costs one
+        live Solr round trip and this runs inline in an interactive tool call.
+        """
+        combos = list(itertools.combinations(words, 2))
+        if not combos:
+            return []
+
+        def probe(combo: tuple[str, str]) -> tuple[tuple[str, str], int]:
+            return combo, self._and_count(combo)
+
+        out: list[tuple[list[str], int]] = []
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            for combo, matched in executor.map(probe, combos):
+                if lo <= matched <= hi:
+                    out.append((list(combo), matched))
+        # Same relative order as ranking by summed IDF: for same-size subsets,
+        # log(N) per word is a constant, so ranking by ascending summed
+        # log(frequency) is equivalent to descending summed IDF, without
+        # needing the corpus size N at all.
+        out.sort(key=lambda item: sum(
+            math.log(max(1, self._word_frequency(word))) for word in item[0]
+        ))
+        return out[:cap]
+
+    def _preview_candidate_words(self, words: list[str]) -> str:
+        response = self.solr_client.select(
+            words, q_op="AND", rows=3, fl="title,publisher,description"
+        )
+        docs = response.get("response", {}).get("docs", [])
+        items = []
+        for doc in docs:
+            description = re.sub(
+                r"\s+", " ", re.sub(r"<[^>]+>", " ", doc.get("description") or "")
+            ).strip()[:70]
+            items.append(f"{(doc.get('publisher') or '')[:22]} | {doc.get('title') or ''} | {description}")
+        return " ;; ".join(items)
+
+    def _pick_candidate_word_sets(self, sub_question: str) -> list[list[str]]:
+        """1-3 AND-word sets to actually search for one sub-question, chosen
+        by the model from a preview of real candidates (match count + top
+        matches), not guessed blind."""
+        words = self._question_search_words(sub_question)
+        if len(words) < 2:
+            return [words] if words else []
+        subsets = self._candidate_word_subsets(words)
+        if not subsets:
+            return [words[:3]]
+        try:
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                previews = list(executor.map(
+                    lambda item: self._preview_candidate_words(item[0]), subsets
+                ))
+            listing = "\n".join(
+                f"{i}. {json.dumps(words_)}  matches {n}: {preview}"
+                for i, ((words_, n), preview) in enumerate(zip(subsets, previews), 1)
             )
-            self._emit_notice(
-                f"\n> \U0001f50e **Retrieval:** `{self.retrieval_config.mode.value}` "
-                f"\u00b7 {searched} "
-                f"\u00b7 {len(hits)} ranked hits in "
-                f"{time.monotonic() - retrieval_started:.1f}s\n"
+            obj = self._chat_json(
+                _CANDIDATE_PICK_SYSTEM_PROMPT,
+                f"QUESTION: {sub_question}\n\nCANDIDATE SEARCHES:\n{listing}",
+                stage="candidate pick",
             )
+        except Exception:
+            return [subsets[0][0]]
+        picks = [
+            int(pick) for pick in (obj.get("picks") or [])
+            if str(pick).isdigit() and 1 <= int(pick) <= len(subsets)
+        ][:3]
+        chosen = [subsets[pick - 1][0] for pick in picks]
+        return chosen or [subsets[0][0]]
 
-            current_candidates: list[str] = []
-            for hit in hits:
-                doc = hit.document
-                matched = match_local_csv(doc, self.all_files)
-                if (
-                    matched is None
-                    or matched in current_candidates
-                    or matched.casefold() in self.state.excluded_tables
-                ):
-                    continue
-                current_candidates.append(matched)
-                previous_rank = self.state.best_ranks.get(matched)
-                self.state.candidate_scores[matched] = (
-                    self.state.candidate_scores.get(matched, 0.0)
-                    + 1.0 / (60.0 + hit.rank)
-                )
-                if previous_rank is None or hit.rank < previous_rank:
-                    self.state.best_ranks[matched] = hit.rank
-                    self.state.solr_meta[matched] = solr_metadata_from_doc(doc)
-                    self.state.solr_meta[matched]["retrieval"] = hit.to_log_dict()
-                    self.state.solr_meta[matched]["best_attempt"] = attempt
-                    self.state.solr_meta[matched]["best_keywords"] = list(keywords)
-                if matched not in self.state.all_candidates:
-                    self.state.all_candidates.append(matched)
-                if len(current_candidates) >= self.retrieval_config.top_k:
-                    break
+    def _format_decompose_response(self, sub_questions: list[str], results: list[dict]) -> str:
+        candidates = self.state.all_candidates
+        visible_candidates = candidates[: self.state.visible_candidate_count]
+        attempts = [result["attempt"] for result in results]
+        searched = "; ".join(f"table {i}: {sub}" for i, sub in enumerate(sub_questions, 1))
+        any_candidates = any(result["current_candidates"] for result in results)
+        all_lexical_empty = all(result["lexical_empty"] for result in results)
+        learned_notes = " ".join(
+            result["learned"] for result in results if result["learned"]
+        )
 
-            # Fuse at most two distinct agent searches with reciprocal-rank
-            # contributions. The first search alone preserves its original order.
-            self.state.all_candidates.sort(key=lambda candidate: (
-                -self.state.candidate_scores.get(candidate, 0.0),
-                self.state.best_ranks.get(candidate, 10**9),
-                candidate,
-            ))
-            self.state.all_candidates = self.state.all_candidates[
-                : self.retrieval_config.top_k
-            ]
-            # Carried candidates from a prior round already proved they
-            # satisfy part of the question; re-surface them regardless of
-            # whether this round's retrieval finds them again, even if that
-            # means displacing the weakest fresh candidate.
-            for table in self.state.carried_tables:
-                if table.casefold() in self.state.excluded_tables:
-                    continue
-                if table in self.state.all_candidates:
-                    self.state.all_candidates.remove(table)
-                self.state.all_candidates.insert(0, table)
-                if table not in self.state.solr_meta and table in self.state.carried_metadata:
-                    self.state.solr_meta[table] = self.state.carried_metadata[table]
-            if len(self.state.all_candidates) > self.retrieval_config.top_k:
-                self.state.all_candidates = self.state.all_candidates[
-                    : self.retrieval_config.top_k
-                ]
-            candidates = self.state.all_candidates
-            self.state.visible_candidate_count = min(
-                self.discovery.initial_candidates,
-                len(candidates),
+        if not any_candidates:
+            failed = [sorted(item) for item in self.state.failed_keyword_combinations]
+            self._record_retrieval_memory_event(
+                outcome="zero_results",
+                terms=[word for result in results for word in result["keywords"]],
             )
-            visible_candidates = candidates[: self.state.visible_candidate_count]
-            self.state.search_attempts.append(
-                {
-                    "attempt": attempt,
-                    "keywords": list(keywords),
-                    "search_mode": search_mode,
-                    "current_candidates": list(current_candidates),
-                    "accumulated_candidates": list(candidates),
-                }
-            )
-
-            # A strict AND lexical branch can fail to match anything while the
-            # overall search still returns candidates in HYBRID mode, rescued by
-            # the semantic branch -- that miss must still be shrunk and banned,
-            # or a repeat of the same doomed words looks new every time.
-            learned = None
-            lexical_empty = False
-            if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
-                lexical_empty = (
-                    not hits if self.retrieval_config.mode == RetrievalMode.KEYWORD
-                    else getattr(retriever, "last_lexical_hit_count", None) == 0
-                )
-                if lexical_empty:
-                    count_fn = getattr(retriever, "lexical_match_count", None)
-                    learned = self._shrink_and_ban(keywords, count_fn)
-                elif not current_candidates:
-                    # Solr matched something real for this AND query, just
-                    # nothing available locally -- ban the whole query as
-                    # attempted; there is nothing lexically zero to shrink.
-                    self._ban(keyword_terms(keywords))
-
-            if not current_candidates:
-                failed = [sorted(item) for item in self.state.failed_keyword_combinations]
-                self._record_retrieval_memory_event(
-                    outcome="zero_results",
-                    terms=list(keywords),
-                )
-                response = (
-                    f"Attempt: {attempt}\nSearched: {searched}\n"
-                    "No tables found. "
-                    + (f"{learned} " if learned else "")
-                    + "This AND keyword combination was added to "
-                    "the zero-result banlist. Search again with a genuinely "
-                    "different query.\n"
-                    + (
-                        f"Zero-result banlist: {failed}"
-                        if self.retrieval_config.mode in (
-                            RetrievalMode.KEYWORD,
-                            RetrievalMode.HYBRID,
-                        )
-                        else ""
-                    )
-                )
-                self.state.search_cache[key] = response
-                return response
-
-            prefix = ""
-            if lexical_empty:
-                failed = [sorted(item) for item in self.state.failed_keyword_combinations]
-                prefix = (
-                    "No table contains all of these words."
-                    + (f" {learned}" if learned else "")
-                    + "\n"
-                    f"Zero-result banlist: {failed}\n"
-                    "The candidates below do not match every word (found through "
-                    "the configured semantic branch instead):\n\n"
-                )
-
-            response = (
-                f"Attempt: {attempt}\nSearched: {searched}\n\n"
-                + prefix
-                + "Candidates in retrieval order after local-file mapping:\n"
-                + format_candidate_context(visible_candidates, self.state.solr_meta)
+            return (
+                f"Attempt: {attempts[0]}-{attempts[-1]}\n"
+                f"Searched (split by table): {searched}\n"
+                "No tables found for any of the split searches. "
+                + (f"{learned_notes} " if learned_notes else "")
+                + "These AND combinations were added to the zero-result "
+                "banlist. Search again with a genuinely different query.\n"
                 + (
-                    f"\n{len(candidates) - len(visible_candidates)} additional "
-                    "ranked candidates are available through expand_candidates."
-                    if len(candidates) > len(visible_candidates)
+                    f"Zero-result banlist: {failed}"
+                    if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID)
                     else ""
                 )
             )
+
+        prefix = ""
+        if all_lexical_empty:
+            failed = [sorted(item) for item in self.state.failed_keyword_combinations]
+            prefix = (
+                "No table contains all of the words in any split search."
+                + (f" {learned_notes}" if learned_notes else "")
+                + "\n"
+                f"Zero-result banlist: {failed}\n"
+                "The candidates below do not match every word (found through "
+                "the configured semantic branch instead):\n\n"
+            )
+
+        return (
+            f"Attempt: {attempts[0]}-{attempts[-1]}\n"
+            f"Searched (split by table): {searched}\n\n"
+            + prefix
+            + "Candidates in retrieval order after local-file mapping:\n"
+            + format_candidate_context(visible_candidates, self.state.solr_meta)
+            + (
+                f"\n{len(candidates) - len(visible_candidates)} additional "
+                "ranked candidates are available through expand_candidates."
+                if len(candidates) > len(visible_candidates)
+                else ""
+            )
+        )
+
+    def _decompose_preview_search(self, concepts: list[str]) -> str:
+        """decompose_tuned_preview_noacronym, ported from
+        experiments/retrieval_lab/arms_retrieval.py: split the ORIGINAL
+        question into its per-table distinguishing-detail search phrases,
+        then for each, preview a few real AND-word candidates (with match
+        counts and top matches) and let the model pick before any of them
+        actually runs. The agent's own `concepts` still gate caching and the
+        zero-result banlist exactly as a plain search would, so the tool's
+        contract to the agent is unchanged; only what actually gets searched
+        gets smarter.
+        """
+        try:
+            key = self._search_cache_key(concepts)
+            if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
+                failed_subset = self._failed_keyword_subset(split_keywords(concepts))
+                if failed_subset is not None:
+                    blocked = ", ".join(sorted(failed_subset))
+                    return (
+                        "Search rejected before retrieval: this AND query contains "
+                        f"the known zero-result keyword subset {{{blocked}}}. "
+                        "Formulate a different query that does not contain that subset."
+                    )
+            if key in self.state.search_cache:
+                return (
+                    "Search skipped: identical concepts were already used. Do not "
+                    "repeat this search.\n" + self.state.search_cache[key]
+                )
+            if self.state.inspection_counts and not self.discovery.search_after_inspection:
+                return (
+                    "Search refinement blocked: a candidate has already been "
+                    "inspected. Use the existing evidence or one guided expansion."
+                )
+            if self._search_limit_reached():
+                return (
+                    f"Search limit reached ({self.discovery.max_search_attempts} "
+                    "attempt(s)). Do not call search_tables again; inspect, expand "
+                    "if needed, then select."
+                )
+
+            self.state.used_keywords = concepts
+            sub_questions = self._decompose_question()
+
+            results = []
+            for sub_question in sub_questions:
+                for words in self._pick_candidate_word_sets(sub_question):
+                    if words:
+                        results.append(self._run_one_retrieval(words))
+
+            if not results:
+                # Decompose/pick produced nothing usable: fall back to the
+                # plain single-shot search over the agent's own concepts.
+                return self._search(split_keywords(concepts))
+
+            response = self._format_decompose_response(sub_questions, results)
             self.state.search_cache[key] = response
             return response
         except EmbeddingGenerationError as exc:
@@ -1916,6 +2293,7 @@ def make_p12_tools(
     retrieval_observer: Callable[[RetrievalRun], None] | None = None,
     discovery_config: DiscoveryConfig | None = None,
     notice_callback: StreamCallback | None = None,
+    llm: LLM | None = None,
 ):
     """
     Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
@@ -1931,5 +2309,6 @@ def make_p12_tools(
         retrieval_observer=retrieval_observer,
         discovery_config=discovery_config,
         notice_callback=notice_callback,
+        llm=llm,
     )
     return manager.get_tools()

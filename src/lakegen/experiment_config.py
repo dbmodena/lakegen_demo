@@ -131,6 +131,17 @@ class DiscoveryConfig(FrozenModel):
     # is how the agent learns a candidate is wrong, so leaving this false means it
     # cannot act on what it just learned.
     search_after_inspection: bool = False
+    # Enabled: that one search_keyword_concepts call internally splits the
+    # question into its distinguishing per-table searches (date/edition/
+    # agency/place), previews a few AND-word candidates per one with real
+    # match counts, and lets the model pick before any of them is actually
+    # run -- validated in experiments/retrieval_lab as a consistent, if
+    # modest, improvement over the single free-form search at every scale
+    # tested (84/50/100/249 questions), and confirmed live against production
+    # Solr + LLM. Requires an ``llm`` on the manager; silently falls back to
+    # the single-shot search when none was supplied, so it is always safe to
+    # leave on. Set to False to force the old single free-form search.
+    decompose_preview_search: bool = True
 
     @property
     def fetch_floor(self) -> int:
