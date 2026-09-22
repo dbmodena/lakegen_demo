@@ -11,6 +11,7 @@ from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 
 from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.experiment_config import DiscoveryConfig
+from lakegen.keyword_terms import keyword_terms, minimal_failing_subsets, split_keywords
 from lakegen.agent_tools.tools_p2 import (
     MIN_BAN_JUSTIFICATION_CHARS,
     _check_join_union,
@@ -582,36 +583,54 @@ class Phase12ToolsManager:
             keyword.casefold() for keyword in keywords if keyword.strip()
         ))
 
-    @staticmethod
-    def _keyword_terms(keywords: list[str]) -> frozenset[str]:
-        """Return the actual whitespace-delimited terms used by Solr AND."""
-        return frozenset(
-            term.casefold()
-            for keyword in keywords
-            for term in keyword.split()
-            if term.strip()
-        )
-
     def _failed_keyword_subset(self, keywords: list[str]) -> frozenset[str] | None:
         """Return the smallest known failed subset contained in ``keywords``."""
-        proposed = self._keyword_terms(keywords)
+        proposed = keyword_terms(keywords)
         matches = [failed for failed in self.state.failed_keyword_combinations
                    if failed <= proposed]
         return min(matches, key=lambda item: (len(item), sorted(item)), default=None)
 
-    def _remember_failed_keywords(self, keywords: list[str]) -> None:
-        """Add one failed AND query and prune its now-redundant supersets."""
-        failed = self._keyword_terms(keywords)
-        if not failed or any(known <= failed for known in self.state.failed_keyword_combinations):
+    def _ban(self, terms: frozenset[str]) -> None:
+        """Add one failed AND term set and prune its now-redundant supersets."""
+        if not terms or any(known <= terms for known in self.state.failed_keyword_combinations):
             return
         self.state.failed_keyword_combinations = [
             known for known in self.state.failed_keyword_combinations
-            if not failed < known
+            if not terms < known
         ]
-        self.state.failed_keyword_combinations.append(failed)
+        self.state.failed_keyword_combinations.append(terms)
         self.state.failed_keyword_combinations.sort(
             key=lambda item: (len(item), sorted(item))
         )
+
+    def _shrink_and_ban(
+        self, keywords: list[str], count_fn: Callable[[list[str]], int] | None
+    ) -> str | None:
+        """Ban a genuinely zero-lexical-hit AND query as its smallest failing
+        word subsets when ``count_fn`` can tell them apart, else ban the whole
+        query. Returns what was learned, or ``None`` to signal the caller's
+        plain fallback wording (no probe was possible or none was conclusive).
+        """
+        terms = keyword_terms(keywords)
+        if count_fn is None or len(terms) < 2:
+            self._ban(terms)
+            return None
+        try:
+            failing, alone = minimal_failing_subsets(terms, count_fn)
+        except Exception:
+            self._ban(terms)
+            return None
+        alone_text = ", ".join(f"{word} {count}" for word, count in sorted(alone.items()))
+        if failing:
+            for subset in failing:
+                self._ban(subset)
+            sets_text = ", ".join("{" + ", ".join(sorted(subset)) + "}" for subset in failing)
+            text = f"Smallest word sets that already match nothing: {sets_text}."
+            if alone_text:
+                text += f" Tables containing each word alone: {alone_text}."
+            return text
+        self._ban(terms)
+        return f"Each word matches tables alone ({alone_text})." if alone_text else None
 
     def _search_tool_description(self) -> str:
         if self.retrieval_config.mode.value_keywords:
@@ -666,11 +685,14 @@ class Phase12ToolsManager:
         )
 
     def search_keyword_concepts(self, concepts: list[str]) -> str:
-        """Search with one or two complete concepts using strict AND."""
-        listed = concepts or []
-        return self._search([
-            " ".join(str(item).split()) for item in listed if str(item).strip()
-        ])
+        """Search with one or two complete concepts using strict AND.
+
+        Concepts are split into the individual words Solr ANDs together
+        (matching WordDelimiterGraphFilter) and deduplicated before the search
+        runs, so the banlist keys on what Solr actually matched regardless of
+        how the agent grouped or punctuated its concepts.
+        """
+        return self._search(split_keywords(concepts or []))
 
     def search_table_values(self, values: list[str]) -> str:
         """Search for tables whose cells contain the listed values."""
@@ -825,23 +847,6 @@ class Phase12ToolsManager:
                 else self.retrieval_config.mode.value
             )
 
-            # Keep the new-version fallback, but retain the current version's
-            # zero-result memory and retry limits below.  A strict AND miss can
-            # still expose useful candidates through a clearly labelled OR pass.
-            if (
-                not hits
-                and len(keywords) > 1
-                and self.retrieval_config.mode == RetrievalMode.KEYWORD
-            ):
-                hits = retriever.retrieve(
-                    question=self.question,
-                    keywords=keywords,
-                    top_k=fetch_k,
-                    lexical_fetch_k=fetch_k,
-                    q_op="OR",
-                )
-                search_mode = "OR fallback"
-
             searched = (
                 "the question only"
                 if self.retrieval_config.mode.ranks_question_only
@@ -923,20 +928,37 @@ class Phase12ToolsManager:
                 }
             )
 
+            # A strict AND lexical branch can fail to match anything while the
+            # overall search still returns candidates in HYBRID mode, rescued by
+            # the semantic branch -- that miss must still be shrunk and banned,
+            # or a repeat of the same doomed words looks new every time.
+            learned = None
+            lexical_empty = False
+            if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
+                lexical_empty = (
+                    not hits if self.retrieval_config.mode == RetrievalMode.KEYWORD
+                    else getattr(retriever, "last_lexical_hit_count", None) == 0
+                )
+                if lexical_empty:
+                    count_fn = getattr(retriever, "lexical_match_count", None)
+                    learned = self._shrink_and_ban(keywords, count_fn)
+                elif not current_candidates:
+                    # Solr matched something real for this AND query, just
+                    # nothing available locally -- ban the whole query as
+                    # attempted; there is nothing lexically zero to shrink.
+                    self._ban(keyword_terms(keywords))
+
             if not current_candidates:
-                if self.retrieval_config.mode in (
-                    RetrievalMode.KEYWORD,
-                    RetrievalMode.HYBRID,
-                ):
-                    self._remember_failed_keywords(keywords)
-                    failed = [sorted(item) for item in self.state.failed_keyword_combinations]
+                failed = [sorted(item) for item in self.state.failed_keyword_combinations]
                 self._record_retrieval_memory_event(
                     outcome="zero_results",
                     terms=list(keywords),
                 )
                 response = (
                     f"Attempt: {attempt}\nSearched: {searched}\n"
-                    "No tables found. This AND keyword combination was added to "
+                    "No tables found. "
+                    + (f"{learned} " if learned else "")
+                    + "This AND keyword combination was added to "
                     "the zero-result banlist. Search again with a genuinely "
                     "different query.\n"
                     + (
@@ -951,9 +973,22 @@ class Phase12ToolsManager:
                 self.state.search_cache[key] = response
                 return response
 
+            prefix = ""
+            if lexical_empty:
+                failed = [sorted(item) for item in self.state.failed_keyword_combinations]
+                prefix = (
+                    "No table contains all of these words."
+                    + (f" {learned}" if learned else "")
+                    + "\n"
+                    f"Zero-result banlist: {failed}\n"
+                    "The candidates below do not match every word (found through "
+                    "the configured semantic branch instead):\n\n"
+                )
+
             response = (
                 f"Attempt: {attempt}\nSearched: {searched}\n\n"
-                "Candidates in retrieval order after local-file mapping:\n"
+                + prefix
+                + "Candidates in retrieval order after local-file mapping:\n"
                 + format_candidate_context(visible_candidates, self.state.solr_meta)
                 + (
                     f"\n{len(candidates) - len(visible_candidates)} additional "
