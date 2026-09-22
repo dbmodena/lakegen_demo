@@ -77,6 +77,8 @@ _MESSAGES: dict[str, str] = {
     "status.rejected_tables": "rejected tables",
     "status.success": "success",
     "status.error": "error",
+    "benchmark.sidebar_title": "UK Reference Benchmark",
+    "benchmark.unavailable": "Benchmark unavailable.",
 }
 
 

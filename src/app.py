@@ -42,6 +42,10 @@ from lakegen.ui.state import (  # noqa: E402
     set_runtime_settings,
 )
 from lakegen.ui.i18n import t  # noqa: E402
+from lakegen.ui.benchmark_sidebar import (  # noqa: E402
+    set_uk_benchmark_executing,
+    show_uk_benchmark_sidebar,
+)
 from lakegen.ui.starters import starters_for_core  # noqa: E402
 from lakegen.ui.workflow import WORKFLOW_LOCK, run_lakegen_workflow  # noqa: E402
 
@@ -146,6 +150,9 @@ async def on_chat_start() -> None:
         )
         set_runtime_settings(runtime)
         session.runtime = runtime
+
+        if selected_solr_core == "uk":
+            await show_uk_benchmark_sidebar()
     except Exception as exc:
         logger.exception("LakeGen failed during on_chat_start")
         await cl.Message(
@@ -205,8 +212,12 @@ async def on_message(message: cl.Message) -> None:
         )
         new_session.workflow_task = asyncio.current_task()
         cl.user_session.set("lakegen_session", new_session)
-        
-        await run_lakegen_workflow(message.content)
+
+        await set_uk_benchmark_executing(True)
+        try:
+            await run_lakegen_workflow(message.content)
+        finally:
+            await set_uk_benchmark_executing(False)
     except (asyncio.CancelledError, WorkflowCancelled):
         logger.info("Workflow cancelled by user.")
         await cl.Message(content="⏹ Workflow stopped.").send()

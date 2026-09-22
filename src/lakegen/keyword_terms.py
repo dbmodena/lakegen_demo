@@ -59,6 +59,25 @@ def keyword_terms(values: Iterable[str]) -> frozenset[str]:
     )
 
 
+def split_keywords(values: Iterable[str]) -> list[str]:
+    """Split values into the individual words Solr ANDs together, deduplicated
+    and in first-occurrence order.
+
+    A companion to :func:`keyword_terms` for callers that must issue one word
+    per AND clause -- e.g. building the actual search request -- rather than
+    just comparing term sets against the banlist.
+    """
+    seen: set[str] = set()
+    words: list[str] = []
+    for value in values:
+        for word in str(value).split():
+            for part in _word_parts(word):
+                if part not in seen:
+                    seen.add(part)
+                    words.append(part)
+    return words
+
+
 def minimal_failing_subsets(
     terms: Iterable[str],
     count: Callable[[Sequence[str]], int],
