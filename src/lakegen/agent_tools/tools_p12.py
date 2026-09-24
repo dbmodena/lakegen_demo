@@ -1210,8 +1210,7 @@ class Phase12ToolsManager:
                     )
                 return "No concepts provided. Search with one or two dataset concepts."
             if (
-                self.retrieval_config.mode
-                in (RetrievalMode.SEMANTIC, RetrievalMode.HYBRID)
+                self.retrieval_config.mode.uses_embeddings
                 and self.state.semantic_failure is not None
             ):
                 return (
@@ -2431,7 +2430,7 @@ class Phase12ToolsManager:
         if tool_name == "search_tables":
             mode = self.retrieval_config.mode
             if (
-                mode in (RetrievalMode.SEMANTIC, RetrievalMode.HYBRID)
+                mode.uses_embeddings
                 and self.state.semantic_failure is not None
             ):
                 return False

@@ -730,8 +730,7 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
         retrieval_config = getattr(config, "retrieval", None)
         if (
             retrieval_config is not None
-            and RetrievalMode(retrieval_config.mode)
-            in (RetrievalMode.SEMANTIC, RetrievalMode.HYBRID)
+            and RetrievalMode(retrieval_config.mode).uses_embeddings
         ):
             health = check_embedding_health(
                 retrieval_config.embedding_model,

@@ -15,6 +15,7 @@ from scripts_pneuma.pneuma_judge import (
     structured_relevance_prompt,
 )
 from lakegen.retrieval import (
+    DuckDBSemanticHybridRetriever,
     HybridRetriever,
     FusionMethod,
     KeywordRetriever,
@@ -1368,3 +1369,191 @@ def test_service_lexical_match_count_delegates_to_the_keyword_retriever():
 
     assert service.lexical_match_count(["a", "b"]) == 3
     assert solr.calls[0][1]["rows"] == 0
+
+
+class StubDuckDB:
+    """Stands in for DuckDBAgenticRetriever, which names hits by Parquet file."""
+
+    def __init__(self, hits):
+        self.hits = hits
+        self.calls = []
+
+    def retrieve(self, question, keywords, *, top_k):
+        self.calls.append((question, list(keywords), top_k))
+        return list(self.hits)
+
+
+def duckdb_hit(file_name, score, rank):
+    return RetrievalHit(
+        document={
+            "resource_id": file_name,
+            "dataset_id": file_name.rsplit(".", 1)[0],
+            "title": file_name,
+            "description": "From DuckDB.",
+            "duckdb_evidence": {
+                "primary_terms": ["fiber"],
+                "term_counts": {"fiber": 2},
+                "total_rows": 9,
+            },
+        },
+        score=score,
+        rank=rank,
+    )
+
+
+def test_duckdb_semantic_mode_reads_parquet_embeds_the_question_and_has_a_label():
+    mode = RetrievalMode.HYBRID_DUCKDB_SEMANTIC
+
+    assert mode.value == "hybrid_duckdb_semantic"
+    assert mode.label == "hybrid (duckdb + semantic)"
+    assert mode.requires_table_dir and mode.uses_embeddings
+    assert not mode.ranks_question_only
+    # The Solr hybrid is untouched.
+    assert RetrievalMode.HYBRID.label == "hybrid"
+    assert not RetrievalMode.HYBRID.requires_table_dir
+
+
+def test_duckdb_semantic_hybrid_fuses_by_rrf_on_the_catalog_document():
+    catalog = {
+        "dataset_id": "DS", "resource_id": "b", "title": "B", "description": "Catalog."
+    }
+    resolver = SolrPneumaDocumentResolver(FakeCatalogSolr([catalog]))
+    duckdb = StubDuckDB([
+        duckdb_hit("DS___b.parquet", 50.0, 1),
+        duckdb_hit("orphan.parquet", 10.0, 2),
+    ])
+    semantic = StubBranch([
+        hit("c", 0.9, 1),
+        RetrievalHit(
+            document={"dataset_id": "DS", "resource_id": "b", "title": "B"},
+            score=0.8,
+            rank=2,
+        ),
+    ])
+    config = RetrievalConfig(
+        mode=RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+        fusion_method=FusionMethod.RRF,
+        candidate_multiplier=2,
+        rrf_k=60,
+    )
+
+    results = DuckDBSemanticHybridRetriever(
+        duckdb, semantic, config, resolver
+    ).retrieve("q?", ["fiber"], top_k=3)
+
+    # The UK file DS___b is catalog document b, so both branches fuse into one hit.
+    assert [item.document["resource_id"] for item in results] == [
+        "b", "c", "orphan.parquet"
+    ]
+    assert results[0].score == pytest.approx(1 / 61 + 1 / 62)
+    assert (results[0].lexical_rank, results[0].semantic_rank) == (1, 2)
+    assert [item.rank for item in results] == [1, 2, 3]
+    assert results[0].document["description"] == (
+        "Catalog. DuckDB keyword evidence: 1 primary terms, 1 found in values; "
+        "9 total rows."
+    )
+    assert results[0].document["duckdb_evidence"]["term_counts"] == {"fiber": 2}
+    assert catalog["description"] == "Catalog."
+    # A file without a catalog document keeps DuckDB's own.
+    assert results[2].document["description"] == "From DuckDB."
+    assert duckdb.calls == [("q?", ["fiber"], 6)]
+    assert semantic.calls == [("q?", 6)]
+
+
+def test_service_runs_the_duckdb_semantic_hybrid_over_local_parquet(tmp_path):
+    import pandas as pd
+    from lakegen.retrieval import TableRetrievalService
+
+    pd.DataFrame({"connection_type": ["fiber", "dsl"]}).to_parquet(
+        tmp_path / "DS___b.parquet"
+    )
+    catalog = {"dataset_id": "DS", "resource_id": "b", "title": "Connectivity"}
+    solr = FakeSolr(knn_docs=[{**catalog, "score": 0.9}])
+    config = RetrievalConfig(
+        mode=RetrievalMode.HYBRID_DUCKDB_SEMANTIC, fusion_method=FusionMethod.RRF
+    )
+    with pytest.raises(ValueError, match="requires a local table_dir"):
+        TableRetrievalService(solr, config, embedding_model=FakeEmbedding())
+
+    runs = []
+    service = TableRetrievalService(
+        solr,
+        config,
+        embedding_model=FakeEmbedding(),
+        pneuma_document_resolver=SolrPneumaDocumentResolver(
+            FakeCatalogSolr([catalog])
+        ),
+        table_dir=str(tmp_path),
+        observer=runs.append,
+    )
+    hits = service.retrieve(
+        question="Which schools have fiber?", keywords=["fiber"], top_k=5
+    )
+
+    assert len(hits) == 1
+    assert (hits[0].lexical_rank, hits[0].semantic_rank) == (1, 1)
+    assert hits[0].document["duckdb_evidence"]["term_counts"]["fiber"] == 1
+    assert (runs[0].fusion_method, runs[0].rrf_k) == (FusionMethod.RRF, 60)
+
+
+def test_duckdb_semantic_hybrid_weighted_fusion_normalizes_each_branch():
+    duckdb = StubDuckDB([
+        duckdb_hit("a.parquet", 100.0, 1),
+        duckdb_hit("b.parquet", 40.0, 2),
+        duckdb_hit("c.parquet", 20.0, 3),
+    ])
+    semantic = StubBranch([
+        RetrievalHit(document={"resource_id": "c.parquet"}, score=0.9, rank=1),
+        RetrievalHit(document={"resource_id": "d"}, score=0.5, rank=2),
+    ])
+    config = RetrievalConfig(
+        mode=RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+        fusion_method=FusionMethod.WEIGHTED,
+        alpha=0.25,
+    )
+
+    results = DuckDBSemanticHybridRetriever(
+        duckdb, semantic, config, SolrPneumaDocumentResolver(FakeCatalogSolr([]))
+    ).retrieve("q?", ["fiber"], top_k=4)
+
+    scores = {item.document["resource_id"]: item.score for item in results}
+    # DuckDB 100/40/20 -> 1/0.25/0; semantic 0.9/0.5 -> 1/0; a missing branch is 0.
+    assert scores == pytest.approx({
+        "c.parquet": 0.75, "a.parquet": 0.25, "b.parquet": 0.0625, "d": 0.0
+    })
+    assert [item.document["resource_id"] for item in results][:3] == [
+        "c.parquet", "a.parquet", "b.parquet"
+    ]
+
+
+def test_benchmark_runs_the_duckdb_semantic_arms_like_hybrid():
+    configs = benchmark_module._experiment_configs(
+        RetrievalConfig(), [RetrievalMode.HYBRID_DUCKDB_SEMANTIC], (0.5,), True
+    )
+
+    assert [
+        (label, config.fusion_method, config.alpha) for label, config in configs
+    ] == [
+        ("hybrid (duckdb + semantic)-weighted-a0.5", FusionMethod.WEIGHTED, 0.5),
+        ("hybrid (duckdb + semantic)-rrf-k60", FusionMethod.RRF, 0.5),
+    ]
+
+
+def test_benchmark_scores_hits_under_the_local_file_they_map_to(tmp_path):
+    # Gold ids are file stems; a UK Solr document holds only the resource half.
+    (tmp_path / "DS___gold.parquet").write_bytes(b"")
+    solr = FakeSolr(
+        select_docs=[{"dataset_id": "DS", "resource_id": "gold", "score": 1.0}]
+    )
+
+    report = run_retriever_benchmark(
+        solr,
+        [BenchmarkCase("q1", "Question?", ("kw",), ("DS___gold",))],
+        base_config=RetrievalConfig(top_k=10),
+        modes=(RetrievalMode.KEYWORD,),
+        table_dir=tmp_path,
+    )
+
+    keyword = report["experiments"]["keyword"]
+    assert keyword["cases"][0]["ranking"] == ["DS___gold"]
+    assert keyword["mean_metrics"]["Hit@1"] == 1.0

@@ -81,6 +81,15 @@ def _contains_term(text: str, term: str) -> bool:
     return any(variant in text for variant in _term_variants(term))
 
 
+def evidence_note(evidence: dict[str, Any]) -> str:
+    """The sentence a hit's description carries about its ``duckdb_evidence``."""
+    found = sum(count > 0 for count in evidence["term_counts"].values())
+    return (
+        f"DuckDB keyword evidence: {len(evidence['primary_terms'])} primary terms, "
+        f"{found} found in values; {evidence['total_rows']} total rows."
+    )
+
+
 def _identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
@@ -587,6 +596,25 @@ class DuckDBAgenticRetriever:
                         ]
                     except duckdb.Error:
                         pass
+                evidence = {
+                    "terms": terms,
+                    "primary_terms": primary_terms,
+                    "secondary_terms": secondary_terms,
+                    "matched_columns": row.schema_columns,
+                    "searched_columns": row.searched_columns,
+                    "term_counts": row.term_counts,
+                    "match_count": match_count,
+                    "joint_match_count": row.joint_count,
+                    "primary_coverage": sum(
+                        term in row.filename_terms
+                        or term in row.schema_terms
+                        or row.metadata_term_scores.get(term, 0) > 0
+                        or row.term_counts.get(term, 0) > 0
+                        for term in primary_terms
+                    ) / max(1, len(primary_terms)),
+                    "total_rows": entry.rows,
+                    "samples": samples,
+                }
                 document = {
                     "resource_id": entry.path.name,
                     "dataset_id": entry.path.stem,
@@ -595,32 +623,13 @@ class DuckDBAgenticRetriever:
                     "resource_name": entry.resource_name,
                     "description": (
                         ((entry.description + " ") if entry.description else "")
-                        + f"DuckDB keyword evidence: {len(primary_terms)} primary terms, "
-                        f"{sum(count > 0 for count in row.term_counts.values())} found in values; "
-                        f"{entry.rows} total rows."
+                        + evidence_note(evidence)
                     ),
                     "columns": [
                         {"name": name, "type": dtype} for name, dtype in entry.columns
                     ],
                     "tags": list(entry.tags),
-                    "duckdb_evidence": {
-                        "terms": terms,
-                        "primary_terms": primary_terms,
-                        "secondary_terms": secondary_terms,
-                        "matched_columns": row.schema_columns,
-                        "searched_columns": row.searched_columns,
-                        "term_counts": row.term_counts,
-                        "match_count": match_count,
-                        "joint_match_count": row.joint_count,
-                        "primary_coverage": sum(
-                            term in row.filename_terms
-                            or term in row.schema_terms
-                            or row.metadata_term_scores.get(term, 0) > 0
-                            or row.term_counts.get(term, 0) > 0
-                            for term in primary_terms
-                        ) / max(1, len(primary_terms)),
-                        "samples": samples,
-                    },
+                    "duckdb_evidence": evidence,
                 }
                 hits.append(RetrievalHit(document=document, score=row.score))
         finally:

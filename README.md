@@ -259,6 +259,13 @@ the effective value. Example YAML files are loaded only when supplied.
 - `semantic`: vector search using the complete question.
 - `hybrid`: combines lexical and semantic results.
 - `duckdb_agentic`: searches local Parquet files without a Solr index.
+- `hybrid_duckdb_semantic`, shown as "hybrid (duckdb + semantic)": fuses the
+  `duckdb_agentic` ranking with semantic search by `fusion_method`, as
+  `hybrid` does: `weighted` min-max normalizes each branch and weights DuckDB
+  by `alpha`, `rrf` uses `rrf_k`. A table missing from a branch scores 0
+  there. Each DuckDB hit is resolved to the catalog document of its Parquet
+  file before fusion. It needs the vector index and the local Parquet
+  directory. `hybrid` is a separate mode and is unchanged.
 `pneuma_seeker`'s content stage is weighted by `pneuma_content_weight`, with its
 title, column-name and cell evidence weighted by `pneuma_table_name_weight`,
 `pneuma_column_name_weight` and `pneuma_cell_weight`. A family
@@ -474,15 +481,18 @@ Chainlit, and API workflows ignore it.
 
 #### Modes, options, and outputs
 
-Every retrieval mode is run. `semantic` and `hybrid` need the vector index from
-section 5, and `pneuma` and `pneuma_seeker` need the Pneuma service from
-section 8. Hybrid runs once per `--alphas` value (default `0.25 0.5 0.75`),
-plus once with reciprocal rank fusion.
+Every retrieval mode is run unless `--modes` names some. `semantic`, `hybrid`
+and `hybrid_duckdb_semantic` need the vector index from section 5, and `pneuma`
+and `pneuma_seeker` need the Pneuma service from section 8. `hybrid` and `hybrid_duckdb_semantic` each run once per `--alphas`
+value (default `0.25 0.5 0.75`), plus once with reciprocal rank fusion.
 
-- `--table-dir`: the local Parquet directory. `duckdb_agentic` and
-  `pneuma_seeker` need it, and without it they are
+- `--table-dir`: the local Parquet directory. `duckdb_agentic`,
+  `hybrid_duckdb_semantic` and `pneuma_seeker` need it, and without it they are
   recorded as skipped. When it is given, every gold table must exist in it,
-  otherwise the run fails without writing the report.
+  otherwise the run fails without writing the report. Each hit is then scored
+  under the local file it maps to (as the workflow maps it), since gold ids are
+  file names: UK files are `<dataset_id>___<resource_id>`, which a Solr
+  `resource_id` alone never equals.
 - `--output`: the JSON report, with every case's ranking and the mean metrics
   of each mode.
 - `--metrics-log`: the CSV file the mean metrics are appended to (default

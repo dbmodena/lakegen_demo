@@ -16,7 +16,7 @@ from lakegen.retrieval.config import (
     RetrievalMode,
 )
 from lakegen.retrieval.embeddings import EmbeddingModel, get_embedding_model
-from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
+from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever, evidence_note
 from lakegen.retrieval.models import (
     RetrievalHit,
     RetrievalRun,
@@ -362,6 +362,121 @@ class HybridRetriever:
         return fused[:top_k], len(lexical_hits)
 
 
+class DuckDBSemanticHybridRetriever:
+    """Fusion of the DuckDB Parquet search and dense KNN.
+
+    ``hybrid`` fuses BM25 with KNN; this fuses the ``duckdb_agentic`` ranking
+    with KNN instead, by ``fusion_method`` as ``hybrid`` does: ``rrf`` sums
+    ``1 / (rrf_k + rank)`` over the branches, ``weighted`` min-max normalizes
+    each branch's scores and takes ``alpha * duckdb + (1 - alpha) * semantic``.
+    A table missing from a branch scores 0 there. Each branch retrieves
+    ``top_k * candidate_multiplier`` candidates. The DuckDB branch fills the
+    lexical fields of a hit, KNN the semantic ones.
+
+    DuckDB names a table by its Parquet file and Solr by its catalog document,
+    so each DuckDB hit is resolved to the catalog document of the same file
+    before fusion; otherwise one table would count once per branch and never
+    fuse. A file without a catalog document keeps DuckDB's own. DuckDB's
+    evidence stays on the fused hit, as it does in ``duckdb_agentic``.
+    """
+
+    def __init__(
+        self,
+        duckdb_branch: DuckDBAgenticRetriever,
+        semantic: SemanticRetriever,
+        config: RetrievalConfig,
+        resolver: DocumentResolver,
+    ) -> None:
+        self.duckdb = duckdb_branch
+        self.semantic = semantic
+        self.config = config
+        self.resolver = resolver
+
+    def _duckdb_hits(
+        self, question: str, keywords: Sequence[str], candidate_count: int
+    ) -> dict[str, RetrievalHit]:
+        """DuckDB's hits keyed like the semantic branch's, best rank first."""
+        by_key: dict[str, RetrievalHit] = {}
+        for hit in self.duckdb.retrieve(question, keywords, top_k=candidate_count):
+            document = hit.document
+            catalog = self.resolver(str(document.get("resource_id") or ""))
+            if catalog is not None:
+                evidence = document["duckdb_evidence"]
+                description = str(catalog.get("description") or "").strip()
+                document = {
+                    **catalog,
+                    "description": (description + " " if description else "")
+                    + evidence_note(evidence),
+                    "duckdb_evidence": evidence,
+                }
+            key = document_key(document)
+            if key not in by_key:
+                by_key[key] = RetrievalHit(
+                    document=document, score=hit.score, rank=hit.rank
+                )
+        return by_key
+
+    def retrieve(
+        self,
+        question: str,
+        keywords: Sequence[str],
+        *,
+        top_k: int,
+    ) -> list[RetrievalHit]:
+        candidate_count = top_k * self.config.candidate_multiplier
+        duckdb_by_key = self._duckdb_hits(question, keywords, candidate_count)
+        semantic_by_key = _best_finite_hits(
+            self.semantic.retrieve(question, top_k=candidate_count)
+        )
+        duckdb_scores = {key: hit.score for key, hit in duckdb_by_key.items()}
+        semantic_scores = {key: hit.score for key, hit in semantic_by_key.items()}
+        normalized_duckdb = min_max_normalize(duckdb_scores)
+        normalized_semantic = min_max_normalize(semantic_scores)
+
+        fused: list[RetrievalHit] = []
+        for key in set(duckdb_by_key) | set(semantic_by_key):
+            duckdb_hit = duckdb_by_key.get(key)
+            semantic_hit = semantic_by_key.get(key)
+            # The DuckDB document is the catalog one plus DuckDB's evidence, so
+            # it is the richer of the two whenever both branches found the table.
+            document = (duckdb_hit or semantic_hit).document
+            if self.config.fusion_method == FusionMethod.RRF:
+                score = sum(
+                    1.0 / (self.config.rrf_k + branch_hit.rank)
+                    for branch_hit in (duckdb_hit, semantic_hit)
+                    if branch_hit is not None and branch_hit.rank > 0
+                )
+            else:
+                score = (
+                    self.config.alpha * normalized_duckdb.get(key, 0.0)
+                    + (1.0 - self.config.alpha) * normalized_semantic.get(key, 0.0)
+                )
+            fused.append(
+                RetrievalHit(
+                    document=document,
+                    score=score,
+                    lexical_score=duckdb_scores.get(key),
+                    semantic_score=semantic_scores.get(key),
+                    normalized_lexical_score=normalized_duckdb.get(key, 0.0),
+                    normalized_semantic_score=normalized_semantic.get(key, 0.0),
+                    lexical_rank=duckdb_hit.rank if duckdb_hit else None,
+                    semantic_rank=semantic_hit.rank if semantic_hit else None,
+                )
+            )
+
+        no_rank = candidate_count + 1
+        fused.sort(
+            key=lambda hit: (
+                -hit.score,
+                min(hit.lexical_rank or no_rank, hit.semantic_rank or no_rank),
+                hit.key,
+            )
+        )
+        for rank, hit in enumerate(fused[:top_k], 1):
+            hit.rank = rank
+        return fused[:top_k]
+
+
 class TableRetrievalService:
     """Uniform entry point used by LakeGen Phase 2 and benchmark code."""
 
@@ -389,7 +504,7 @@ class TableRetrievalService:
             or_fallback=config.keyword_or_fallback,
         )
         self.semantic: SemanticRetriever | None = None
-        if config.mode in (RetrievalMode.SEMANTIC, RetrievalMode.HYBRID):
+        if config.mode.uses_embeddings:
             model = embedding_model or get_embedding_model(
                 config.embedding_model, config.embedding_base_url
             )
@@ -421,13 +536,31 @@ class TableRetrievalService:
             raise ValueError(
                 f"{config.mode.value} retrieval requires a local table_dir"
             )
+        uses_duckdb = config.mode in (
+            RetrievalMode.DUCKDB_AGENTIC,
+            RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+        )
         self.duckdb_agentic = (
             DuckDBAgenticRetriever(config, table_dir)
-            if config.mode == RetrievalMode.DUCKDB_AGENTIC and table_dir is not None
+            if uses_duckdb and table_dir is not None
             else None
         )
-        if config.mode == RetrievalMode.DUCKDB_AGENTIC and self.duckdb_agentic is None:
-            raise ValueError("duckdb_agentic retrieval requires a local table_dir")
+        if uses_duckdb and self.duckdb_agentic is None:
+            raise ValueError(
+                f"{config.mode.value} retrieval requires a local table_dir"
+            )
+        self.duckdb_semantic = (
+            DuckDBSemanticHybridRetriever(
+                self.duckdb_agentic,
+                self.semantic,
+                config,
+                pneuma_document_resolver or SolrPneumaDocumentResolver(solr),
+            )
+            if config.mode == RetrievalMode.HYBRID_DUCKDB_SEMANTIC
+            and self.duckdb_agentic is not None
+            and self.semantic is not None
+            else None
+        )
 
     def retrieve(
         self,
@@ -475,6 +608,11 @@ class TableRetrievalService:
                 hits = self.duckdb_agentic.retrieve(
                     question, keywords, top_k=requested_k
                 )
+            elif self.config.mode == RetrievalMode.HYBRID_DUCKDB_SEMANTIC:
+                assert self.duckdb_semantic is not None
+                hits = self.duckdb_semantic.retrieve(
+                    question, keywords, top_k=requested_k
+                )
             else:
                 raise ValueError(f"unsupported retrieval mode: {self.config.mode}")
         except Exception as exc:
@@ -517,6 +655,10 @@ class TableRetrievalService:
         error: str = "",
         duration_seconds: float,
     ) -> RetrievalRun:
+        fuses = self.config.mode in (
+            RetrievalMode.HYBRID,
+            RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+        )
         return RetrievalRun(
             mode=self.config.mode,
             question=question,
@@ -528,26 +670,19 @@ class TableRetrievalService:
             error=error,
             duration_seconds=round(duration_seconds, 6),
             lexical_query_fields=self.config.lexical_query_fields,
-            alpha=self.config.alpha if self.config.mode == RetrievalMode.HYBRID else None,
-            candidate_multiplier=(
-                self.config.candidate_multiplier
-                if self.config.mode == RetrievalMode.HYBRID
-                else None
-            ),
+            alpha=self.config.alpha if fuses else None,
+            candidate_multiplier=self.config.candidate_multiplier if fuses else None,
+            # Only ``hybrid`` can rescore a missing signal; the DuckDB + semantic
+            # hybrid always scores it 0.
             missing_signal_policy=(
                 self.config.missing_signal_policy
                 if self.config.mode == RetrievalMode.HYBRID
                 else None
             ),
-            fusion_method=(
-                self.config.fusion_method
-                if self.config.mode == RetrievalMode.HYBRID
-                else None
-            ),
+            fusion_method=self.config.fusion_method if fuses else None,
             rrf_k=(
                 self.config.rrf_k
-                if self.config.mode == RetrievalMode.HYBRID
-                and self.config.fusion_method == FusionMethod.RRF
+                if fuses and self.config.fusion_method == FusionMethod.RRF
                 else None
             ),
             hits=hits,

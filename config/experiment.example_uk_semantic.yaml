@@ -57,6 +57,9 @@ retrieval:
   #   - pneuma_seeker: pneuma + content search + table enumeration
   #   - duckdb_agentic: bounded DuckDB SQL over local Parquet schemas, metadata,
   #     and sampled cell values. Good structured, index-free baseline.
+  #   - hybrid_duckdb_semantic (shown as "hybrid (duckdb + semantic)"): fuses
+  #     the duckdb_agentic ranking with semantic KNN by fusion_method (alpha =
+  #     DuckDB weight when weighted); needs the local Parquet.
   mode: semantic
 
   # Ranked retrieval pool size. The selector initially sees 10 and can reveal

@@ -21,6 +21,25 @@ class RetrievalMode(StrEnum):
     PNEUMA = "pneuma"
     PNEUMA_SEEKER = "pneuma_seeker"
     DUCKDB_AGENTIC = "duckdb_agentic"
+    # RRF of the duckdb_agentic ranking and the semantic one. The Solr ``hybrid``
+    # (BM25 + KNN) is a separate mode and is left as it is.
+    HYBRID_DUCKDB_SEMANTIC = "hybrid_duckdb_semantic"
+
+    @property
+    def label(self) -> str:
+        """The name shown to people; ``value`` stays the config/CLI spelling."""
+        if self is RetrievalMode.HYBRID_DUCKDB_SEMANTIC:
+            return "hybrid (duckdb + semantic)"
+        return self.value
+
+    @property
+    def uses_embeddings(self) -> bool:
+        """True when retrieval embeds the question, so it needs the embedding model."""
+        return self in (
+            RetrievalMode.SEMANTIC,
+            RetrievalMode.HYBRID,
+            RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+        )
 
     @property
     def is_pneuma(self) -> bool:
@@ -65,7 +84,7 @@ class RetrievalMode(StrEnum):
     def requires_table_dir(self) -> bool:
         """True for modalities that read local Parquet instead of a Solr index."""
         return (
-            self is RetrievalMode.DUCKDB_AGENTIC
+            self in (RetrievalMode.DUCKDB_AGENTIC, RetrievalMode.HYBRID_DUCKDB_SEMANTIC)
             # Plain pneuma stays service-only; only the Seeker scans cells.
             or self is RetrievalMode.PNEUMA_SEEKER
         )

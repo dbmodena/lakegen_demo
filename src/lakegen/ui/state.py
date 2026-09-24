@@ -37,6 +37,8 @@ SOLR_CORE_PORTAL_NAMES = {
     "uk": "UK Open Data portal",
 }
 RETRIEVAL_MODE_OPTIONS = [mode.value for mode in RetrievalMode]
+# Dropdown label -> mode value; the label is what people see.
+RETRIEVAL_MODE_ITEMS = {mode.label: mode.value for mode in RetrievalMode}
 
 
 @dataclass

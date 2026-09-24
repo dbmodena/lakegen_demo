@@ -16,7 +16,9 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from src.client_solr import LocalSolrClient, resolve_solr_core
+from lakegen.core.table_io import list_table_files
 from lakegen.experiment_config import load_experiment_config
+from lakegen.phases.utils import match_local_csv
 from lakegen.retrieval.config import FusionMethod, RetrievalConfig, RetrievalMode
 from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
@@ -254,6 +256,20 @@ def _resource_id(document: dict[str, Any]) -> str:
     return ""
 
 
+def _ranked_id(document: dict[str, Any], table_files: list[str]) -> str:
+    """The id a hit is scored under: the stem of the local file it maps to.
+
+    Gold ids name local files (``validate_gold_tables`` resolves
+    ``<table_dir>/<id>.parquet``), but a Solr document's ``resource_id`` is only
+    part of a UK file name (``<dataset_id>___<resource_id>``) and DuckDB names a
+    hit by its file name, suffix included. So a hit is mapped the way the
+    workflow maps it, with ``match_local_csv``; without a table directory, or
+    when nothing maps, the document's own id is used.
+    """
+    matched = match_local_csv(document, table_files) if table_files else None
+    return Path(matched).stem if matched is not None else _resource_id(document)
+
+
 def _experiment_configs(
     base: RetrievalConfig,
     modes: Iterable[RetrievalMode | str],
@@ -263,13 +279,15 @@ def _experiment_configs(
     experiments: list[tuple[str, RetrievalConfig]] = []
     for raw_mode in modes:
         mode = RetrievalMode(raw_mode)
-        if mode != RetrievalMode.HYBRID:
+        if mode not in (RetrievalMode.HYBRID, RetrievalMode.HYBRID_DUCKDB_SEMANTIC):
             experiments.append((mode.value, replace(base, mode=mode)))
             continue
+        # "hybrid-weighted-a0.5", "hybrid (duckdb + semantic)-weighted-a0.5", ...
+        name = mode.label
         for alpha in alphas:
             experiments.append(
                 (
-                    f"hybrid-weighted-a{alpha:g}",
+                    f"{name}-weighted-a{alpha:g}",
                     replace(
                         base,
                         mode=mode,
@@ -281,7 +299,7 @@ def _experiment_configs(
         if include_rrf:
             experiments.append(
                 (
-                    f"hybrid-rrf-k{base.rrf_k}",
+                    f"{name}-rrf-k{base.rrf_k}",
                     replace(base, mode=mode, fusion_method=FusionMethod.RRF),
                 )
             )
@@ -305,6 +323,7 @@ def run_retriever_benchmark(
     base = base_config or RetrievalConfig(top_k=max(k_values))
     if base.top_k < max(k_values):
         base = replace(base, top_k=max(k_values))
+    table_files = list_table_files(table_dir) if table_dir is not None else []
     experiments: dict[str, Any] = {}
     for label, config in _experiment_configs(base, modes, alphas, include_rrf):
         if config.mode.requires_table_dir and table_dir is None:
@@ -335,7 +354,7 @@ def run_retriever_benchmark(
             except Exception as exc:
                 hits = []
                 error = f"{type(exc).__name__}: {exc}"
-            ranking = [_resource_id(hit.document) for hit in hits]
+            ranking = [_ranked_id(hit.document, table_files) for hit in hits]
             metrics = evaluate_ranking(
                 ranking, case.relevant_table_ids, k_values=k_values
             )
@@ -634,6 +653,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--table-dir", type=Path)
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--candidate-multiplier", type=int, default=None)
+    parser.add_argument(
+        "--modes",
+        nargs="+",
+        choices=[mode.value for mode in RetrievalMode],
+        default=None,
+        help="Retrieval modes to run (default: every mode)",
+    )
     parser.add_argument("--alphas", type=float, nargs="+", default=(0.25, 0.5, 0.75))
     parser.add_argument(
         "--metrics-log",
@@ -673,6 +699,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         LocalSolrClient(resolve_solr_core(core), base_url=args.solr_base_url),
         cases,
         base_config=base_config,
+        modes=args.modes or tuple(RetrievalMode),
         alphas=args.alphas,
         table_dir=args.table_dir,
     )
