@@ -25,12 +25,17 @@ def test_inspected_candidates_accepts_structured_recovery_candidates():
     assert state.inspected_candidates() == ["events.parquet"]
 from lakegen.agent_tools import tools_p2
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
-from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback, build_requirement_ledger
+from lakegen.keyword_memory import format_question_retrieval_memory
+from lakegen.agent_tools.requirement_ledger import (
+    _period_years, build_minimal_selection_fallback, build_requirement_ledger,
+    requirement_ledger_blockers,
+)
 from lakegen.phases.phase12 import (
     _conservative_draft_from_requirements,
     _extract_plausible_json,
     _inspected_runtime_evidence,
     _reasoning_with_selection_plan,
+    _recover_blocked_selection,
     _recover_minimal_selection_plan,
     _semantic_planner_prompt,
 )
@@ -249,6 +254,55 @@ def test_search_excludes_previously_rejected_tables(monkeypatch, tmp_path):
     assert "good.parquet" in result
     assert "bad.parquet" not in result
     assert state.all_candidates == ["good.parquet"]
+
+
+def test_search_finding_only_banned_tables_is_empty_and_bans_its_words(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    class FakeService:
+        def retrieve(self, **kwargs):
+            calls.append(kwargs["keywords"])
+            if "fresh" in kwargs["keywords"]:
+                return [_hit("good", 1, ["value"])]
+            return [_hit("bad", 1, ["value"]), _hit("worse", 2, ["value"])]
+
+    monkeypatch.setattr(
+        tools_p12, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
+    )
+    state = P12State()
+    state.excluded_tables = {"bad.parquet", "worse.parquet"}
+    manager = Phase12ToolsManager(
+        state, object(), ["bad.parquet", "worse.parquet", "good.parquet"], tmp_path,
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.KEYWORD),
+    )
+
+    first = manager.search_tables("water licences")
+    refused = manager.search_tables("water licences ni")
+    recovered = manager.search_tables("fresh words")
+
+    assert "No usable tables" in first
+    assert "bad.parquet, worse.parquet" in first
+    assert "{licences, water} is now banned for this question" in first
+    assert "Candidate" not in first
+    assert refused.startswith("Search rejected before retrieval")
+    assert "found only tables already banned" in refused
+    assert "good.parquet" in recovered
+    assert calls == [["water", "licences"], ["fresh", "words"]]
+    # Question-scoped: never joins the persisted cross-question banlist.
+    assert state.banned_table_keyword_combinations == [frozenset({"water", "licences"})]
+    assert state.failed_keyword_combinations == []
+    # The banned-only search spends a zero-result retry, not a found attempt.
+    assert state.search_call_outcomes() == [False, True]
+    assert state.retrieval_memory_events[0] == {
+        "outcome": "banned_tables_only",
+        "terms": ["water", "licences"],
+        "tables": ["bad.parquet", "worse.parquet"],
+    }
+    assert "found only tables already banned: bad.parquet, worse.parquet" in (
+        format_question_retrieval_memory(state.retrieval_memory_events)
+    )
 
 
 def test_search_widens_fetch_by_excluded_count(monkeypatch, tmp_path):
@@ -561,7 +615,7 @@ def test_configured_search_contract_is_mode_neutral_while_question_only_modes_us
     assert "gold.parquet" in first
     assert calls == [("Which school has the highest bandwidth?", [], 15)]
     assert state.used_keywords == ["invented", "keyword"]
-    assert "Pass `concepts` as a list of 1-2 concise dataset concepts" in description
+    assert "Pass `concepts` as a list of 2-4 single-word dataset concepts" in description
     # Deduplicated by the agent's own concepts, as in keyword modes: a different
     # search is not "identical", it is over the attempt limit.
     assert repeated.startswith("Search skipped: identical concepts")
@@ -623,7 +677,7 @@ def test_search_tool_description_is_identical_for_all_topic_based_modes(tmp_path
     }
 
     assert len(descriptions) == 1
-    assert "Pass `concepts` as a list of 1-2 concise dataset concepts" in descriptions.pop()
+    assert "Pass `concepts` as a list of 2-4 single-word dataset concepts" in descriptions.pop()
 
 
 def test_pneuma_seeker_asks_the_agent_for_verbatim_entities(monkeypatch, tmp_path):
@@ -1749,3 +1803,449 @@ def test_keyword_banlist_uses_actual_and_terms_inside_concepts(tmp_path):
     result = manager.search_keyword_concepts(["Belfast Lough", "cells"])
 
     assert "known zero-result keyword subset {belfast, lough}" in result
+
+
+# A live UK run: "How many water abstraction licences were in place in
+# Northern Ireland as of 16 May 2023?". The architect bound the snapshot column
+# Dataset_Da (sampled '2023/05/16 ...') under keys that never repeated "2023",
+# was blocked three times, then wrote its own primary source into its bans.
+_NI_QUESTION = (
+    "How many water abstraction licences were in place in Northern Ireland "
+    "as of 16 May 2023?"
+)
+_NI_INSPECTION = """Schema for ni.parquet:
+Rows: 853
+Temporal coverage:
+- date_licen: 2007-07-10 to 2023-02-24 (missing/unparseable 38.5%)
+- Date_Appli: 2007-01-17 to 2023-03-29 (missing/unparseable 5.7%)
+Columns (types and categories sampled from first 500 rows):
+- apprefno (str)
+- Source (Category sample): ['Groundwater', 'Surface water']
+- date_licen (str)
+- Dataset_Da (Category sample): ['2023/05/16 00:00:00+00']"""
+
+
+def _ni_manager(tmp_path):
+    pd.DataFrame({
+        "apprefno": ["A1"], "date_licen": ["2020/01/01"],
+        "Dataset_Da": ["2023/05/16 00:00:00+00"],
+    }).to_parquet(tmp_path / "ni.parquet")
+    pd.DataFrame({"value": [1]}).to_parquet(tmp_path / "other.parquet")
+    state = P12State()
+    state.all_candidates = ["ni.parquet", "other.parquet"]
+    state.visible_candidate_count = 2
+    state.inspection_cache["ni.parquet"] = _NI_INSPECTION
+    state.inspection_cache["other.parquet"] = "Schema for other.parquet:\n- value (int64)"
+    manager = Phase12ToolsManager(
+        state, object(), state.all_candidates, tmp_path, question=_NI_QUESTION,
+    )
+    return state, manager
+
+
+def _temporal_scope(ledger, period="2023"):
+    return next(
+        item for item in ledger
+        if item["kind"] == "temporal_scope" and item["request"] == period
+    )
+
+
+def test_period_binds_to_bound_column_whose_inspected_values_show_it(tmp_path):
+    state, manager = _ni_manager(tmp_path)
+
+    result = manager.confirm_unified_selection(
+        "Dataset_Da is the 16 May 2023 snapshot; count licences.", ["ni.parquet"],
+        requirement_coverage={
+            "licence count": {"table": "ni.parquet", "columns": ["apprefno"]},
+            "snapshot date": {"table": "ni.parquet", "columns": ["Dataset_Da"]},
+        },
+        table_roles={"ni.parquet": "licence snapshot"},
+        requirements={"measures": ["count distinct licences"], "result_type": "number"},
+    )
+
+    assert "FINAL_PAYLOAD" in result
+    item = _temporal_scope(state.selection_plan["requirement_ledger"])
+    assert item["status"] == "bound"
+    assert item["evidence"] == {"table": "ni.parquet", "columns": ["Dataset_Da"]}
+
+
+def test_sampled_values_beat_a_date_range_that_merely_spans_the_period():
+    ledger = build_requirement_ledger(
+        _NI_QUESTION,
+        {
+            "licence date": {"table": "ni.parquet", "columns": ["date_licen"]},
+            "snapshot": {"table": "ni.parquet", "columns": ["Dataset_Da"]},
+        },
+        {}, [], inspections={"ni.parquet": _NI_INSPECTION},
+    )
+
+    assert _temporal_scope(ledger)["evidence"]["columns"] == ["Dataset_Da"]
+
+
+def test_period_binds_through_measured_range_only_when_inside_it():
+    coverage = {"issue date": {"table": "ni.parquet", "columns": ["date_licen"]}}
+    inspections = {"ni.parquet": _NI_INSPECTION}
+
+    inside = build_requirement_ledger(
+        "How many licences were issued in 2015?", coverage, {}, [],
+        inspections=inspections,
+    )
+    outside = build_requirement_ledger(
+        "How many licences were issued in 2024?", coverage, {}, [],
+        inspections=inspections,
+    )
+
+    assert _temporal_scope(inside, "2015")["evidence"]["columns"] == ["date_licen"]
+    assert _temporal_scope(outside, "2024")["status"] == "unresolved"
+
+
+def test_period_years_expand_fiscal_and_slash_periods():
+    assert _period_years("2023") == [2023]
+    assert _period_years("2019-20") == [2019, 2020]
+    assert _period_years("1999-00") == [1999, 2000]
+    assert _period_years("2019/2020") == [2019, 2020]
+
+
+def test_unproven_period_blocks_with_an_actionable_message(tmp_path):
+    state, manager = _ni_manager(tmp_path)
+
+    with pytest.raises(ValueError) as blocked:
+        manager.confirm_unified_selection(
+            "Count licences in the NI snapshot.", ["ni.parquet"],
+            requirement_coverage={
+                "licence count": {"table": "ni.parquet", "columns": ["apprefno"]},
+            },
+            table_roles={"ni.parquet": "licence snapshot"},
+        )
+
+    message = str(blocked.value)
+    assert 'no requirement_coverage key names "2023"' in message
+    assert '"2023": {"table": "ni.parquet", "columns": ["<date or snapshot column>"]}' in message
+    assert "reject it instead of confirming again" in message
+    assert state.blocked_selection["tables"] == ["ni.parquet"]
+    assert state.selection_plan == {}
+
+
+def test_rejection_cannot_ban_a_table_proposed_in_the_same_attempt(tmp_path):
+    state, manager = _ni_manager(tmp_path)
+    with pytest.raises(ValueError):
+        manager.confirm_unified_selection(
+            "Count licences in the NI snapshot.", ["ni.parquet"],
+            requirement_coverage={
+                "licence count": {"table": "ni.parquet", "columns": ["apprefno"]},
+            },
+        )
+
+    response = manager.reject_unified_selection(
+        "No licence status column.", "licence status",
+        ban_tables={
+            "ni.parquet": "Only a dataset-level snapshot column.",
+            "other.parquet": "Holds a single unrelated value column.",
+        },
+    )
+
+    assert state.rejection_skip_tables == ["other.parquet"]
+    assert state.rejection_keep_tables == ["ni.parquet"]
+    assert "Not banned, kept for the next attempt" in response
+    assert "ni.parquet" in response.splitlines()[-1]
+    assert state.retrieval_memory_events[-1]["evidence"] == {
+        "other.parquet": "Holds a single unrelated value column.",
+    }
+
+
+def test_blocked_confirmation_is_recovered_instead_of_top_candidates(tmp_path):
+    state, manager = _ni_manager(tmp_path)
+    with pytest.raises(ValueError):
+        manager.confirm_unified_selection(
+            "Count licences in the NI snapshot.", ["ni.parquet"],
+            requirement_coverage={
+                "licence count": {"table": "ni.parquet", "columns": ["apprefno"]},
+            },
+            table_roles={"ni.parquet": "licence snapshot"},
+        )
+
+    tables, reasoning, plan, advisory = _recover_blocked_selection(
+        state, ["ni.parquet", "other.parquet"]
+    )
+
+    assert tables == ["ni.parquet"]
+    assert reasoning == "Count licences in the NI snapshot."
+    assert plan["requirement_coverage"]["licence count"]["columns"] == ["apprefno"]
+    assert plan["recovered_from_existing_discovery_context"] is True
+    assert requirement_ledger_blockers(plan["requirement_ledger"], tables) == ["2023"]
+    assert "No selected-table column was bound for: 2023" in advisory
+    assert _recover_blocked_selection(state, ["other.parquet"]) is None
+    assert _recover_blocked_selection(P12State(), ["ni.parquet"]) is None
+
+
+def test_catalogue_text_is_plain_words_with_real_less_than_signs_kept():
+    from lakegen.core.catalogue import clean_catalogue_text
+
+    styled = (
+        "<span style='font-family:Lato, &quot;Avenir Next&quot;; "
+        "font-size:18px;'>This file is a best fit lookup</span>"
+    )
+
+    assert clean_catalogue_text(styled) == "This file is a best fit lookup"
+    assert clean_catalogue_text("centres with <25 eyes") == "centres with <25 eyes"
+    assert clean_catalogue_text("<P>accuracy is &lt;10m.</P><P></P>") == "accuracy is <10m."
+    assert clean_catalogue_text("Roles &amp; Salaries&nbsp;2021") == "Roles & Salaries 2021"
+    assert clean_catalogue_text(None) == ""
+
+
+def test_candidate_context_serves_the_description_without_portal_html():
+    from lakegen.phases.utils import format_candidate_context, solr_metadata_from_doc
+
+    metadata = solr_metadata_from_doc({
+        "title": "CSV",
+        "description": (
+            '<DIV STYLE="text-align:Left;"><DIV><DIV><P><SPAN><SPAN>In Northern '
+            "Ireland water abstraction and impoundment is controlled by The "
+            "Water Abstraction and Impoundment (Licensing) Regulations"
+            "</SPAN></SPAN></P></DIV></DIV></DIV>"
+        ),
+        "tags": ["<b>Abstraction</b>", "NIEA"],
+        "columns": [{"name": "apprefno", "description": "<p>Reference</p>", "type": "str"}],
+    })
+
+    context = format_candidate_context(["ni.parquet"], {"ni.parquet": metadata})
+
+    assert "  Description: In Northern Ireland water abstraction and impoundment" in context
+    assert "  Topics: Abstraction, NIEA" in context
+    assert "apprefno [str] — Reference" in context
+    assert "<" not in context
+
+
+def test_count_rows_measure_needs_no_columns(tmp_path):
+    """Live UK run: the architect's licence count, {"operation": "count_rows"}
+    with no `columns`, was rejected as "measures.0.columns Field required"."""
+    state, manager = _ni_manager(tmp_path)
+    count_licences = {
+        "output": "licence_count", "operation": "count_rows",
+        "table": "ni.parquet", "evidence": "one row per licence in the snapshot",
+    }
+
+    result = manager.confirm_unified_selection(
+        "Dataset_Da is the 16 May 2023 snapshot; count its licence rows.",
+        ["ni.parquet"],
+        requirement_coverage={
+            "snapshot 16 May 2023": {"table": "ni.parquet", "columns": ["Dataset_Da"]},
+        },
+        table_roles={"ni.parquet": "licence snapshot"},
+        semantic_plan={"measures": [count_licences]},
+    )
+
+    assert "FINAL_PAYLOAD" in result
+    assert state.selection_plan["semantic_plan"]["measures"][0]["columns"] == []
+    compiled = compile_semantic_plan_draft(
+        {"measures": [{"output": "licence_count", "operation": "count_rows"}]},
+        ["ni.parquet"], {"ni.parquet": "licence snapshot"},
+        {"ni.parquet": {"apprefno", "Dataset_Da"}},
+    )
+    assert compiled["measures"][0]["operation"] == "count_rows"
+
+
+def test_aggregating_measure_without_columns_is_still_rejected(tmp_path):
+    _state, manager = _ni_manager(tmp_path)
+
+    with pytest.raises(ValueError, match="columns is required for operation 'sum'"):
+        manager.confirm_unified_selection(
+            "Sum the daily volumes.", ["ni.parquet"],
+            requirement_coverage={
+                "snapshot 16 May 2023": {"table": "ni.parquet", "columns": ["Dataset_Da"]},
+            },
+            table_roles={"ni.parquet": "licence snapshot"},
+            semantic_plan={"measures": [{
+                "output": "total_volume", "operation": "sum",
+                "table": "ni.parquet", "evidence": "vol_perday is numeric",
+            }]},
+        )
+
+
+# --- context management: state board, compaction, loop guards ---------------
+
+
+def _tool_call(name, call_id, **kwargs):
+    from llama_index.core.base.llms.types import ChatMessage, ToolCallBlock
+
+    return ChatMessage(role="assistant", blocks=[
+        ToolCallBlock(tool_name=name, tool_kwargs=kwargs, tool_call_id=call_id)
+    ])
+
+
+def _tool_result(text, call_id):
+    from llama_index.core.base.llms.types import ChatMessage
+
+    return ChatMessage(role="tool", content=text, additional_kwargs={"tool_call_id": call_id})
+
+
+def test_state_board_keeps_what_each_inspected_candidate_shows(tmp_path):
+    state, manager = _ni_manager(tmp_path)
+    state.inspection_counts["ni.parquet"] = 1
+
+    board = manager.context.render_board()
+
+    assert board.startswith("[DISCOVERY STATE")
+    assert '- Candidate 1 "Unknown": 853 rows; 2023: in Dataset_Da values' in board
+    assert "question words found nowhere: water, abstraction, licences, northern, ireland" in board
+    assert "Budgets: inspections 1 of 3 used (6 after expand_candidates)" in board
+    assert "Tools still worth calling: search_tables" not in board
+    assert "confirm_unified_selection, reject_unified_selection" in board
+
+
+def test_state_board_reports_the_last_blocked_confirmation(tmp_path):
+    state, manager = _ni_manager(tmp_path)
+    confirm = manager._tracked(manager.confirm_unified_selection, "confirm_unified_selection")
+    arguments = dict(
+        reasoning="Count licences.", tables=["ni.parquet"],
+        requirement_coverage={"licence count": {"table": "ni.parquet", "columns": ["apprefno"]}},
+    )
+
+    with pytest.raises(ValueError):
+        confirm(**arguments)
+    with pytest.raises(ValueError) as again:
+        confirm(**arguments)
+
+    from lakegen.agent_tools.discovery_context import REPEATED_BLOCK
+
+    assert str(again.value).startswith(REPEATED_BLOCK)
+    assert state.confirm_blocks == 2
+    board = manager.context.render_board()
+    assert "Last confirm_unified_selection was blocked (2 blocked so far): Selection blocked: the question asks about 2023" in board
+
+
+def test_compaction_shortens_superseded_results_and_keeps_one_current_board(tmp_path):
+    from lakegen.agent_tools.discovery_context import COMPACTED
+
+    state, manager = _ni_manager(tmp_path)
+    del state.inspection_cache["other.parquet"]
+    state.inspection_counts["ni.parquet"] = 1
+    state.solr_meta["ni.parquet"] = {"title": "NI licences", "description": "Register", "columns.name": ["apprefno"]}
+    state.solr_meta["other.parquet"] = {"title": "Other", "description": "Unrelated values", "columns.name": ["value"]}
+    listing = "Attempt: 1\nSearched: concepts ['water']\n\nCandidates in retrieval order after local-file mapping:\nCandidate 1 (retrieval rank 1)\n  File: ni.parquet\n  Description: " + "x" * 900 + "\n\nCandidate 2 (retrieval rank 2)\n  File: other.parquet"
+    manager.context.record("search_tables", listing)
+    manager.context.record("inspect_columns", _NI_INSPECTION)
+    first_block = "Selection blocked: first reason. Add an entry."
+    second_block = "Selection blocked: second reason. Add an entry."
+    manager.context.record("confirm_unified_selection", first_block, error=True)
+    manager.context.record("confirm_unified_selection", second_block, error=True)
+    history = [
+        _tool_call("search_tables", "c0"), _tool_result(listing, "c0"),
+        _tool_call("inspect_columns", "c1"), _tool_result(_NI_INSPECTION, "c1"),
+        _tool_call("confirm_unified_selection", "c2"), _tool_result(first_block, "c2"),
+        _tool_call("confirm_unified_selection", "c3"), _tool_result(second_block, "c3"),
+    ]
+
+    edited = manager.context.edit(history)
+    texts = [message.content for message in edited if message.role.value == "tool"]
+
+    assert texts[0].startswith(COMPACTED + "Attempt: 1 Searched: concepts ['water']")
+    assert "Candidate 1: NI licences -- inspected, profile below" in texts[0]
+    assert "Candidate 2: Other -- Unrelated values | columns: value" in texts[0]
+    assert "x" * 50 not in texts[0]
+    assert texts[1] == _NI_INSPECTION
+    assert texts[2] == COMPACTED + "Earlier confirmation, superseded: Selection blocked: first reason."
+    assert texts[3].startswith(second_block + "\n\n[DISCOVERY STATE")
+    assert sum("[DISCOVERY STATE" in text for text in texts) == 1
+    assert [m.additional_kwargs for m in edited] == [m.additional_kwargs for m in history]
+    # Editing an already-edited history changes nothing but the refreshed board.
+    assert [m.content for m in manager.context.edit(edited)] == [m.content for m in edited]
+
+
+def test_context_editor_rewrites_what_the_model_sees_on_the_real_agent_loop():
+    import itertools
+
+    from llama_index.core.base.llms.types import ChatMessage, ToolCallBlock
+    from llama_index.core.llms.mock import MockFunctionCallingLLM
+    from llama_index.core.tools import FunctionTool
+
+    from lakegen.agents.agent_runner import run_agent_workflow
+
+    seen = []
+    script = iter([("lookup", {}), None])
+    ids = itertools.count()
+
+    def respond(messages):
+        seen.append([m.content for m in messages if m.role.value == "tool"])
+        step = next(script)
+        if step is None:
+            return ChatMessage(role="assistant", content="done")
+        return ChatMessage(role="assistant", blocks=[
+            ToolCallBlock(tool_name=step[0], tool_kwargs=step[1], tool_call_id=f"c{next(ids)}")
+        ])
+
+    def lookup() -> str:
+        """Lookup."""
+        return "raw result"
+
+    from llama_index.core.base.llms.types import TextBlock
+
+    def editor(messages):
+        return [
+            m.model_copy(update={"blocks": [TextBlock(text=m.content + " +edited")]})
+            if m.role.value == "tool" else m
+            for m in messages
+        ]
+
+    run_agent_workflow(
+        llm=MockFunctionCallingLLM(response_generator=respond), system_prompt="s",
+        user_prompt="u", agent_name="t", emit_stream=lambda _t: None,
+        tools=[FunctionTool.from_defaults(fn=lookup)], context_editor=editor,
+    )
+
+    assert seen == [[], ["raw result +edited"]]
+
+
+def test_repeated_search_points_back_and_a_withdrawn_tool_says_so(monkeypatch, tmp_path):
+    class Service:
+        def retrieve(self, **_kwargs):
+            return [RetrievalHit(document={"resource_id": "a", "title": "A"}, score=1.0, rank=1)]
+
+    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_a, **_k: Service())
+    pd.DataFrame({"value": [1]}).to_parquet(tmp_path / "a.parquet")
+    manager = Phase12ToolsManager(
+        P12State(), object(), ["a.parquet"], tmp_path,
+        retrieval_config=RetrievalConfig(mode=RetrievalMode.KEYWORD),
+    )
+    search = manager._tracked(manager.search_keyword_concepts, "search_tables")
+
+    first = search(["alpha"])
+    repeated = search(["alpha"])
+    manager.inspect_columns(candidate_number=1)
+    after_inspection = search(["beta"])
+
+    assert "Candidate 1" in first
+    assert repeated == (
+        "search_tables is no longer available in this attempt; the state block "
+        "lists the tools still worth calling. Search skipped: identical concepts "
+        "were already used (Attempt: 1, shown above). Do not repeat this search."
+    )
+    assert after_inspection.startswith("search_tables is no longer available in this attempt")
+
+
+def test_context_management_off_reproduces_the_previous_behaviour(monkeypatch, tmp_path):
+    from lakegen.experiment_config import DiscoveryConfig
+
+    state, manager = _ni_manager(tmp_path)
+    manager.discovery = DiscoveryConfig(state_board=False, compact_history=False)
+
+    tools = {tool.metadata.name: tool for tool in manager.get_tools()}
+    tools["inspect_columns"].call(candidate_number=1)
+
+    assert not manager.context.enabled
+    assert manager.context.kinds == {}
+    assert not tools["inspect_columns"].metadata.description.startswith("inspect_columns(")
+
+
+def test_unified_prompt_mentions_the_state_board_only_when_it_is_on():
+    from lakegen.core.resources import get_prompt_manager
+
+    def render(**flags):
+        return get_prompt_manager().render(
+            "unified_architect", "system_prompt", portal_name="UK", hint="",
+            initial_shortlist_size=3, max_inspected_candidates=6, **flags
+        )
+
+    assert "DISCOVERY STATE block" in render(state_board=True, compact_history=True)
+    assert "shown compacted" in render(state_board=True, compact_history=True)
+    assert "shown compacted" not in render(state_board=True, compact_history=False)
+    assert "DISCOVERY STATE" not in render(state_board=False, compact_history=False)

@@ -1,3 +1,5 @@
+import functools
+import inspect
 import itertools
 import json
 import math
@@ -13,8 +15,10 @@ from llama_index.core import VectorStoreIndex
 from llama_index.core.llms import LLM, ChatMessage
 from llama_index.core.objects import ObjectIndex, SimpleToolNodeMapping
 
+from lakegen.core.catalogue import clean_catalogue_text
+from lakegen.agent_tools.discovery_context import REPEATED_BLOCK, DiscoveryContext
 from lakegen.core.types import SolrMetadata, StreamCallback
-from lakegen.experiment_config import DiscoveryConfig
+from lakegen.experiment_config import DiscoveryConfig, KeywordSearchStrategy
 from lakegen.keyword_terms import keyword_terms, minimal_failing_subsets, split_keywords
 from lakegen.agent_tools.tools_p2 import (
     MIN_BAN_JUSTIFICATION_CHARS,
@@ -26,7 +30,7 @@ from lakegen.agent_tools.tools_p2 import (
 )
 from lakegen.agent_tools.requirement_ledger import (
     build_requirement_ledger,
-    requirement_ledger_blockers,
+    requirement_ledger_block_message,
 )
 from src.client_solr import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
@@ -74,9 +78,21 @@ class SemanticMeasureBinding(BaseModel):
         "ratio", "difference", "custom",
     ]
     table: str
-    columns: list[str]
+    # count_rows counts rows and reads no column; a live architect counting
+    # licences was blocked for omitting one. Every other operation names the
+    # inspected column(s) it reads.
+    columns: list[str] = Field(default_factory=list)
     distinct: bool = False
     evidence: str
+
+    @model_validator(mode="after")
+    def validate_columns_for_operation(self) -> "SemanticMeasureBinding":
+        if not self.columns and self.operation != "count_rows":
+            raise ValueError(
+                f"columns is required for operation {self.operation!r}: name "
+                "the inspected column(s) it reads; only count_rows may omit it"
+            )
+        return self
 
 
 class SemanticOrdering(BaseModel):
@@ -110,26 +126,23 @@ class SemanticAnalysisPlan(BaseModel):
 
 
 class ConfirmUnifiedSelectionSchema(BaseModel):
-    reasoning: str = Field(description="MANDATORY. Write a brief explanation IN ENGLISH explaining why these specific tables were selected and how they answer the question.")
-    tables: list[str] = Field(description="A list of ALL the exact file names needed (e.g., ['sales.parquet', 'dates.parquet']). Do not omit any table you need!")
+    reasoning: str = Field(description="Required. Brief English explanation of why these tables answer the question.")
+    tables: list[str] = Field(description="Every exact filename needed, e.g. ['sales.parquet', 'dates.parquet'].")
     requirement_coverage: dict[str, dict[str, object]] = Field(
         description=(
-            "Map each essential question requirement to an object containing "
-            "the exact selected table in `table` and supporting column names "
-            "in `columns`, e.g. {'requested year': {'table': "
-            "'permits.parquet', 'columns': ['issue_date']}}. `table` must be "
-            "one of the `tables` selected in this same call. `columns` is "
-            "REQUIRED and must be a list, even for a single column -- "
-            "['issue_date'], never 'issue_date'. Every essential requirement "
-            "needs its own entry, and every selected table must be the "
-            "`table` of at least one entry."
+            "Every essential requirement, each its own entry, mapped to "
+            "{'table': one of `tables`, 'columns': [exact inspected column "
+            "names]} -- `columns` is always a list, even for one column. Name "
+            "the question's own period and places in the key, e.g. "
+            "{'year 2021': {'table': 'permits.parquet', 'columns': "
+            "['issue_date']}}. Every selected table must back at least one entry."
         ),
     )
     table_roles: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Map every selected table filename to its distinct role in the "
-            "answer, e.g. fact records, lookup, or yearly partition."
+            "Each selected filename mapped to its distinct role, e.g. fact "
+            "records, lookup, or yearly partition."
         ),
     )
     combination_strategy: Literal[
@@ -153,39 +166,35 @@ class ConfirmUnifiedSelectionSchema(BaseModel):
     alternatives_rejected: dict[str, dict[str, object] | str] = Field(
         default_factory=dict,
         description=(
-            "At most two inspected alternative filenames mapped to objects with "
-            "`matched_requirements` and one concrete `missing_requirement`. A "
-            "legacy plain missing-requirement string is also accepted."
+            "Up to two inspected alternative filenames, each mapped to "
+            "{matched_requirements, missing_requirement} with one concrete "
+            "missing requirement."
         ),
     )
     requirements: dict[str, object] = Field(
         description=(
-            "Compact semantic requirements only: grouping, measures, filters, "
-            "result_type, ordering, limit. Every filter must name its table, "
-            "column, operator and value; keep different periods separate. "
-            "Optional explicit joins use left_table, "
-            "left_columns, right_table, right_columns, and how."
+            "Compact semantics: grouping, measures, filters, result_type, "
+            "ordering, limit. Each filter names its table, column, operator and "
+            "value; keep different periods separate. Joins: left_table, "
+            "left_columns, right_table, right_columns, how."
         ),
     )
     semantic_plan: dict[str, object] | None = Field(
         default=None,
         description=(
-            "Non-oracle executable semantics derived only from the question and "
-            "inspected table evidence; never use benchmark expectations. A JSON "
-            "object -- never a SQL string or prose -- with these keys: "
-            "`measures` (REQUIRED, at least one) [{output, operation "
-            "(count_rows|count_distinct|sum|mean|min|max|ratio|difference|"
-            "custom), table, columns, evidence}]; `dimensions` [{output, table, "
-            "column, evidence}]; `filters`/`temporal_filters` [{requirement, "
-            "table, column, operator (equals|contains|in|range|not_null|other), "
-            "value, evidence}]; `joins` [{tables, keys: {table: column}, how, "
-            "evidence}]; `ordering` [{output, direction}]; `limit` (int or "
-            "null); `null_policy` (str). Every binding's `table` must be one of "
-            "the selected tables and every `column`/`columns` must be an exact "
-            "inspected column name; `evidence` cites the inspected schema that "
-            "justifies the binding. Omit `output_columns` and `table_roles` "
-            "here -- they are filled in automatically from `dimensions`/"
-            "`measures` outputs and from this call's own `table_roles` argument."
+            "Executable semantics from the question and inspected evidence "
+            "only, never benchmark expectations; a JSON object, never SQL or "
+            "prose: `measures` (at least one) [{output, operation: count_rows|"
+            "count_distinct|sum|mean|min|max|ratio|difference|custom, table, "
+            "columns (omit only for count_rows), evidence}]; `dimensions` "
+            "[{output, table, column, evidence}]; `filters`/`temporal_filters` "
+            "[{requirement, table, column, operator: equals|contains|in|range|"
+            "not_null|other, value, evidence}]; `joins` [{tables, keys: {table: "
+            "column}, how, evidence}]; `ordering` [{output, direction}]; "
+            "`limit` (int or null); `null_policy`. Tables must be selected ones, "
+            "columns exact inspected names, `evidence` the inspected schema "
+            "behind the binding. `output_columns` and `table_roles` are filled "
+            "in automatically."
         )
     )
 
@@ -198,15 +207,13 @@ class RejectUnifiedSelectionSchema(BaseModel):
     ban_tables: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Already-inspected candidates you judge highly irrelevant -- they "
-            "satisfy none of the essential requirements -- mapped to the "
-            "concrete evidence proving that (e.g. 'Parent Department is only "
-            "Crown Prosecution Service, never the requested department'), so "
-            "they are excluded from later retrieval for this question. Every "
-            "other inspected candidate is kept and carries over to the next "
-            "attempt, even if it does not yet cover every requirement -- "
-            "only actively-proven-irrelevant tables belong here. A table "
-            "without a concrete justification is not banned."
+            "Inspected candidates proven to satisfy none of the essential "
+            "requirements, each mapped to the concrete evidence (e.g. 'Parent "
+            "Department is only Crown Prosecution Service, never the requested "
+            "department'); they are excluded from later retrieval. Every other "
+            "inspected candidate carries over to the next attempt. A table "
+            "without concrete evidence is not banned, nor one you proposed in "
+            "confirm_unified_selection during this attempt."
         ),
     )
 
@@ -215,7 +222,8 @@ class SubmitSemanticPlanDraftSchema(BaseModel):
     draft: dict[str, object] = Field(
         description=(
             "Compact draft with filters [column, operator, value], dimensions "
-            "[output, column], measures [output, operation, columns], optional "
+            "[output, column], measures [output, operation, columns (omit only "
+            "for count_rows)], optional "
             "joins, ordering [output, direction], and limit."
         )
     )
@@ -473,10 +481,18 @@ class P12State:
         # candidates.  If {a} fails, keeping the older {a, b} adds no
         # information: every future AND query containing a is already doomed.
         self.failed_keyword_combinations: list[frozenset[str]] = []
+        # Same antichain for AND combinations whose every local match is a
+        # table banned for this question (excluded_tables). Question-scoped:
+        # never persisted to keyword memory, since those tables may be exactly
+        # what another question needs.
+        self.banned_table_keyword_combinations: list[frozenset[str]] = []
         self.best_ranks: dict[str, int] = {}
         self.candidate_scores: dict[str, float] = {}
         self.search_cache: dict[tuple[str, ...], str] = {}
         self.search_attempts: list[dict[str, object]] = []
+        # search_tables calls that reached retrieval. One call can run several
+        # retrievals (the split keyword searches), each tagged with its call.
+        self.search_calls = 0
         # Retrieval representation (e.g. embedding) generation failure: blocks
         # re-running search_tables, since retrieval itself is what's broken.
         self.semantic_failure: str | None = None
@@ -501,6 +517,17 @@ class P12State:
         self.rejected_selections: set[tuple[str, ...]] = set()
         self.selection_plan: dict[str, object] = {}
         self.selection_advisories: list[str] = []
+        # Latest confirm_unified_selection blocked by the requirement ledger:
+        # its tables, reasoning, block message and would-be selection plan.
+        self.blocked_selection: dict[str, object] = {}
+        # Tables named in any confirm_unified_selection call that passed the
+        # visibility and inspection checks. The architect vouched for these as
+        # sources, so a later rejection cannot ban them as proven irrelevant.
+        self.proposed_tables: list[str] = []
+        # Latest confirm_unified_selection error and how many were blocked,
+        # for the state board and the repeated-block guard.
+        self.last_confirm_error: str | None = None
+        self.confirm_blocks = 0
         self.rejection_keep_tables: list[str] = []
         self.rejection_skip_tables: list[str] = []
         # Question-scoped retrieval evidence persisted by the service after a
@@ -517,6 +544,16 @@ class P12State:
         self.excluded_tables: set[str] = set()
         self.carried_tables: list[str] = []
         self.carried_metadata: SolrMetadata = {}
+
+    def search_call_outcomes(self) -> list[bool]:
+        """Per search_tables call, whether any of its retrievals found a local
+        table. The search budget counts calls, not retrievals, so a keyword
+        cascade that falls through several empty sets spends one attempt."""
+        found: dict[object, bool] = {}
+        for index, attempt in enumerate(self.search_attempts):
+            call = attempt.get("call", ("retrieval", index))
+            found[call] = found.get(call, False) or bool(attempt.get("current_candidates"))
+        return list(found.values())
 
     def inspected_candidates(self) -> list[str]:
         """Return successfully inspected candidates in retrieval order."""
@@ -541,10 +578,10 @@ class P12State:
 
 
 # ============================================================================
-# decompose_preview_search (DiscoveryConfig flag): split one question into its
-# per-table distinguishing-detail search phrases, preview a few real AND-word
-# candidates per phrase (with match counts and top matches) and let the model
-# pick before any of them is actually run. Ported from
+# keyword_search="decompose_preview" (DiscoveryConfig): split one question into
+# its per-table distinguishing-detail search phrases, preview a few real
+# AND-word candidates per phrase (with match counts and top matches) and let
+# the model pick before any of them is actually run. Ported from
 # experiments/retrieval_lab's decompose_tuned_preview_noacronym, the strongest
 # keyword-search arm found there -- a real, if modest, improvement over a
 # single free-form search at every scale tested (84/50/100/249 questions).
@@ -562,8 +599,8 @@ _SEARCH_STOPWORDS = set(
 # publisher and only ever narrow or kill an AND query.
 _AGGREGATION_STOPWORDS = set(
     "total average count counts correlation proportion percentage share rank "
-    "distinct most largest smallest top each combined since increase decrease "
-    "change difference number".split()
+    "distinct most largest smallest highest lowest top each combined since "
+    "increase decrease change difference number".split()
 )
 
 _DECOMPOSE_SYSTEM_PROMPT = """Some questions need SEVERAL tables from an open-data portal. Portals publish the same dataset many times: one file per year, month or snapshot, per edition, per agency or per area, all with almost identical descriptions. A question that compares, combines or spans such files needs each of them, and the files differ only in their distinguishing detail (a date, a year, an edition, an agency, a place) - or the question combines genuinely different datasets.
@@ -572,6 +609,18 @@ Never write the same request twice. If one table is enough, return a single requ
 Return JSON: {"tables": [{"detail": "...", "request": "..."}]} with 1 to 4 entries."""
 
 _CANDIDATE_PICK_SYSTEM_PROMPT = """You help a keyword search find the right table(s) in an open-data portal. Every candidate search below is an AND search (a table must contain every word) that the portal already ran; you see how many tables it matches and the first few matches. Pick the searches most likely to surface the table(s) THE QUESTION IS ABOUT: their top matches must name the question's subject, organisation, place and period. Prefer searches whose matches are on-topic over ones that are merely small. Return JSON: {"picks": [numbers]} with 1 to 3 numbers."""
+
+# keyword_search="cascade" (DiscoveryConfig): the searches run one at a time in
+# the order written and stop at the first that finds a table, so the ranking is
+# the whole strategy.
+_KEYWORD_CASCADE_SYSTEM_PROMPT = """You write keyword searches that find one table in an open-data portal's catalogue. Every search is a strict AND search: a table matches only if its catalogue entry (title, description, publisher, tags) contains EVERY word. The searches run one at a time in your order. The first one that finds any table ends the search. One that finds nothing is banned, and so is every later search containing the same failing words, so a word the catalogue does not use costs the whole search it is in.
+Write up to {size} searches for the table the REQUEST describes, ranked by importance:
+- Search 1 is the one most likely to find exactly that table: the dataset's subject words plus every distinguishing detail the request gives -- its place, region, organisation, period or edition. Keep place and region words exactly as written, short forms included (e.g. "NI", "NYC", "UK"): they are what separates this table from the same dataset published for other areas.
+- Calibrate each search for AND: 2 to 5 words, each one a word this table's catalogue entry would itself use. Leave out words that say how the answer is computed (highest, total, average, count, trend) and the question's own name for a value the table merely stores.
+- Each later search relaxes the one before in a single step: drop its least important word, or write one word as a catalogue might (a year short, "19" for 2019; a month without its year). Drop generic words and the question's own paraphrase of the subject first. Keep the distinguishing place, region and period longest: a search without them stops on whichever sibling table (same dataset, other area or period) it finds first. The last search is the dataset's core subject alone.
+- One word per item, in the portal's language. Prefer the request's own words, then the suggested words. Never expand an acronym or guess an official name. The QUESTION is context only: never add a detail that belongs to a different table of it.
+- Never write the same set of words twice.
+Return JSON: {{"searches": [["word", ...], ...]}} with 1 to {size} searches, most important first."""
 
 
 def _extract_json_object(text: str) -> dict:
@@ -628,14 +677,17 @@ class Phase12ToolsManager:
         self.retrieval_observer = retrieval_observer
         self.discovery = discovery_config or DiscoveryConfig()
         self.notice_callback = notice_callback
-        # Only used by decompose_preview_search (see DiscoveryConfig): the same
-        # LLM instance driving the agent, reused for the internal decompose and
-        # candidate-pick calls rather than constructing a second, separate one.
+        # Only used by the split keyword searches (see keyword_search in
+        # DiscoveryConfig): the same LLM instance driving the agent, reused for
+        # their internal calls rather than constructing a second, separate one.
         self.llm = llm
-        # decompose_preview_search only: per-word Solr match counts, memoized
+        # keyword_search="decompose_preview" only: per-word Solr match counts, memoized
         # for the life of this manager so sub-questions that share a word don't
         # re-query it.
         self._word_freq_cache: dict[str, int] = {}
+        # Records every tool result and edits the agent's history before each
+        # model call (state_board / compact_history in DiscoveryConfig).
+        self.context = DiscoveryContext(self)
 
     def _emit_notice(self, text: str) -> None:
         """Report to the operator, never to the agent.
@@ -666,18 +718,24 @@ class Phase12ToolsManager:
                    if failed <= proposed]
         return min(matches, key=lambda item: (len(item), sorted(item)), default=None)
 
-    def _ban(self, terms: frozenset[str]) -> None:
-        """Add one failed AND term set and prune its now-redundant supersets."""
-        if not terms or any(known <= terms for known in self.state.failed_keyword_combinations):
+    def _banned_table_keyword_subset(self, keywords: list[str]) -> frozenset[str] | None:
+        """Return the smallest known banned-tables-only subset in ``keywords``.
+        AND only narrows, so a superset can match nothing but those tables."""
+        proposed = keyword_terms(keywords)
+        matches = [banned for banned in self.state.banned_table_keyword_combinations
+                   if banned <= proposed]
+        return min(matches, key=lambda item: (len(item), sorted(item)), default=None)
+
+    def _ban(self, terms: frozenset[str], attr: str = "failed_keyword_combinations") -> None:
+        """Add one failed AND term set to the ``attr`` banlist of state and
+        prune its now-redundant supersets."""
+        known_sets: list[frozenset[str]] = getattr(self.state, attr)
+        if not terms or any(known <= terms for known in known_sets):
             return
-        self.state.failed_keyword_combinations = [
-            known for known in self.state.failed_keyword_combinations
-            if not terms < known
-        ]
-        self.state.failed_keyword_combinations.append(terms)
-        self.state.failed_keyword_combinations.sort(
-            key=lambda item: (len(item), sorted(item))
-        )
+        known_sets = [known for known in known_sets if not terms < known]
+        known_sets.append(terms)
+        known_sets.sort(key=lambda item: (len(item), sorted(item)))
+        setattr(self.state, attr, known_sets)
 
     def _shrink_and_ban(
         self, keywords: list[str], count_fn: Callable[[list[str]], int] | None
@@ -745,13 +803,11 @@ class Phase12ToolsManager:
             )
         return (
             "Search for relevant tables using the retrieval strategy configured by "
-            "the experiment. Pass `concepts` as a list of 1-2 concise dataset "
-            "concepts in the portal's native language. Keep each multi-word named "
-            "entity in one list item. The tool applies the original question and "
-            "the configured retrieval "
-            "parameters automatically. Exactly one initial search is allowed. Use "
-            "the bounded metadata and schema previews to shortlist the strongest "
-            "candidates, then verify them with inspect_columns before selecting tables."
+            "the experiment. Pass `concepts` as a list of 2-4 single-word dataset "
+            "concepts in the portal's native language; a multi-word name is "
+            "simply its words. The tool applies the original question "
+            "automatically. Exactly one initial search is allowed. Shortlist from "
+            "the returned previews, then verify with inspect_columns."
         )
 
     def search_tables(self, concepts_str: str = "") -> str:
@@ -767,14 +823,24 @@ class Phase12ToolsManager:
         (matching WordDelimiterGraphFilter) and deduplicated before the search
         runs, so the banlist keys on what Solr actually matched regardless of
         how the agent grouped or punctuated its concepts.
+
+        With an ``llm``, the configured ``keyword_search`` strategy decides what
+        actually runs; the agent's concepts still gate the cache and the
+        banlist as a plain search's would.
         """
         listed = concepts or []
-        if (
-            self.discovery.decompose_preview_search
-            and self.llm is not None
-            and self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID)
-        ):
-            return self._decompose_preview_search(listed)
+        strategy = self.discovery.keyword_search
+        mode = self.retrieval_config.mode
+        if self.llm is not None:
+            if strategy == KeywordSearchStrategy.CASCADE and mode == RetrievalMode.KEYWORD:
+                return self._split_search(
+                    listed, lambda requests: self._run_keyword_cascades(requests, listed)
+                )
+            if (
+                strategy == KeywordSearchStrategy.DECOMPOSE_PREVIEW
+                and mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID)
+            ):
+                return self._split_search(listed, self._run_preview_picks)
         return self._search(split_keywords(listed))
 
     def search_table_values(self, values: list[str]) -> str:
@@ -798,21 +864,18 @@ class Phase12ToolsManager:
         return self._search(listed, entities=listed)
 
     def _search_limit_reached(self) -> bool:
-        nonempty_attempts = sum(
-            bool(attempt.get("current_candidates"))
-            for attempt in self.state.search_attempts
-        )
+        outcomes = self.state.search_call_outcomes()
         lexical_retry_limit = (
             self.discovery.max_search_attempts
             + self.discovery.max_zero_result_retries
         )
         kw_hybrid_limit_reached = (
-            nonempty_attempts >= self.discovery.max_search_attempts
-            or len(self.state.search_attempts) >= lexical_retry_limit
+            sum(outcomes) >= self.discovery.max_search_attempts
+            or len(outcomes) >= lexical_retry_limit
         )
         if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
             return kw_hybrid_limit_reached
-        return len(self.state.search_attempts) >= self.discovery.max_search_attempts
+        return len(outcomes) >= self.discovery.max_search_attempts
 
     def _run_one_retrieval(
         self, keywords: list[str], entities: list[str] | None = None
@@ -824,7 +887,7 @@ class Phase12ToolsManager:
 
         Does not check whether a search may run at all (cache, inspection
         lock, attempt limit) -- the caller decides that once, up front, since
-        one caller (decompose_preview_search) may need this to run several
+        one caller (the split keyword searches) may need this to run several
         times for what the agent experiences as a single search.
         """
         if self.retrieval_observer is None:
@@ -881,14 +944,17 @@ class Phase12ToolsManager:
         attempt = len(self.state.keyword_history)
 
         current_candidates: list[str] = []
+        # Banned tables are dropped before anything is served: when they are
+        # all a search found, it counts as empty (see the bans below).
+        banned_hits: list[str] = []
         for hit in hits:
             doc = hit.document
             matched = match_local_csv(doc, self.all_files)
-            if (
-                matched is None
-                or matched in current_candidates
-                or matched.casefold() in self.state.excluded_tables
-            ):
+            if matched is None or matched in current_candidates:
+                continue
+            if matched.casefold() in self.state.excluded_tables:
+                if matched not in banned_hits:
+                    banned_hits.append(matched)
                 continue
             current_candidates.append(matched)
             previous_rank = self.state.best_ranks.get(matched)
@@ -942,6 +1008,7 @@ class Phase12ToolsManager:
         self.state.search_attempts.append(
             {
                 "attempt": attempt,
+                "call": self.state.search_calls,
                 "keywords": list(keywords),
                 "search_mode": search_mode,
                 "current_candidates": list(current_candidates),
@@ -963,6 +1030,10 @@ class Phase12ToolsManager:
             if lexical_empty:
                 count_fn = getattr(retriever, "lexical_match_count", None)
                 learned = self._shrink_and_ban(keywords, count_fn)
+            elif not current_candidates and banned_hits:
+                # Everything local it matched is banned for this question:
+                # ban the whole set, but only for this question.
+                self._ban(keyword_terms(keywords), "banned_table_keyword_combinations")
             elif not current_candidates:
                 # Solr matched something real for this AND query, just
                 # nothing available locally -- ban the whole query as
@@ -975,6 +1046,7 @@ class Phase12ToolsManager:
             "searched": searched,
             "search_mode": search_mode,
             "current_candidates": current_candidates,
+            "banned_hits": banned_hits,
             "candidates": candidates,
             "visible_candidates": visible_candidates,
             "lexical_empty": lexical_empty,
@@ -986,6 +1058,17 @@ class Phase12ToolsManager:
         current_candidates, candidates = result["current_candidates"], result["candidates"]
         visible_candidates = result["visible_candidates"]
         lexical_empty, learned = result["lexical_empty"], result["learned"]
+
+        if not current_candidates and result["banned_hits"] and not lexical_empty:
+            self._record_retrieval_memory_event(
+                outcome="banned_tables_only",
+                terms=list(result["keywords"]),
+                tables=list(result["banned_hits"]),
+            )
+            return (
+                f"Attempt: {attempt}\nSearched: {searched}\n"
+                + self._banned_only_note([result])
+            )
 
         if not current_candidates:
             failed = [sorted(item) for item in self.state.failed_keyword_combinations]
@@ -1035,6 +1118,79 @@ class Phase12ToolsManager:
             )
         )
 
+    def _banned_only_note(self, results: list[dict]) -> str:
+        """Tell the agent its search(es) found only tables banned for this
+        question, and to search for what those tables lack instead."""
+        banned_hits = list(dict.fromkeys(
+            table for result in results for table in result["banned_hits"]
+        ))
+        word_sets = list(dict.fromkeys(
+            "{" + ", ".join(sorted(keyword_terms(result["keywords"]))) + "}"
+            for result in results
+            if result["banned_hits"] and not result["lexical_empty"]
+        ))
+        return (
+            "No usable tables: every table found is already banned for this "
+            f"question ({', '.join(banned_hits)}). This counts as an empty "
+            f"result and {', '.join(word_sets)} "
+            f"{'is' if len(word_sets) == 1 else 'are'} now banned for this "
+            "question. Search again with different keywords, aimed at the "
+            "data those banned tables lack.\n"
+        )
+
+    def _search_refusal(self, key: tuple[str, ...], keywords: list[str]) -> str | None:
+        """Why a search keyed ``key`` over ``keywords`` must not run, or None."""
+        if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
+            failed_subset = self._failed_keyword_subset(keywords)
+            if failed_subset is not None:
+                blocked = ", ".join(sorted(failed_subset))
+                return (
+                    "Search rejected before retrieval: this AND query contains "
+                    f"the known zero-result keyword subset {{{blocked}}}. "
+                    "Formulate a different query that does not contain that subset."
+                )
+            banned_subset = self._banned_table_keyword_subset(keywords)
+            if banned_subset is not None:
+                blocked = ", ".join(sorted(banned_subset))
+                return (
+                    "Search rejected before retrieval: this AND query contains "
+                    f"{{{blocked}}}, which found only tables already banned for "
+                    "this question. Search with different keywords, aimed at "
+                    "the data those tables lack."
+                )
+        if key in self.state.search_cache:
+            if self.discovery.compact_history:
+                # The result is still in context: point to it, don't resend it.
+                attempt = self.state.search_cache[key].split("\n", 1)[0]
+                return (
+                    f"Search skipped: identical concepts were already used ({attempt}, "
+                    "shown above). Do not repeat this search."
+                )
+            return (
+                "Search skipped: identical concepts were already used. Do not "
+                "repeat this search.\n"
+                + self.state.search_cache[key]
+            )
+        # inspection_counts, not inspection_cache: a carried-forward
+        # table's cache entry is seeded onto inspection_cache before this
+        # round's first search, so checking inspection_cache here would
+        # block search_tables outright the moment anything was carried
+        # over. inspection_counts only grows from an inspect_columns call
+        # actually made this round, so it still blocks a genuine
+        # search-after-judging within the round.
+        if self.state.inspection_counts and not self.discovery.search_after_inspection:
+            return (
+                "Search refinement blocked: a candidate has already been "
+                "inspected. Use the existing evidence or one guided expansion."
+            )
+        if self._search_limit_reached():
+            return (
+                f"Search limit reached ({self.discovery.max_search_attempts} "
+                "attempt(s)). Do not call search_tables again; inspect, expand "
+                "if needed, then select."
+            )
+        return None
+
     def _search(
         self, supplied_concepts: list[str], entities: list[str] | None = None
     ) -> str:
@@ -1066,43 +1222,11 @@ class Phase12ToolsManager:
             # modes drop the concepts before retrieval, and keying on that empty
             # list told the agent that a different search repeated the first.
             key = self._search_cache_key([*supplied_concepts, *(entities or [])])
-            if self.retrieval_config.mode in (
-                RetrievalMode.KEYWORD,
-                RetrievalMode.HYBRID,
-            ):
-                failed_subset = self._failed_keyword_subset(keywords)
-                if failed_subset is not None:
-                    blocked = ", ".join(sorted(failed_subset))
-                    return (
-                        "Search rejected before retrieval: this AND query contains "
-                        f"the known zero-result keyword subset {{{blocked}}}. "
-                        "Formulate a different query that does not contain that subset."
-                    )
-            if key in self.state.search_cache:
-                return (
-                    "Search skipped: identical concepts were already used. Do not "
-                    "repeat this search.\n"
-                    + self.state.search_cache[key]
-                )
-            # inspection_counts, not inspection_cache: a carried-forward
-            # table's cache entry is seeded onto inspection_cache before this
-            # round's first search, so checking inspection_cache here would
-            # block search_tables outright the moment anything was carried
-            # over. inspection_counts only grows from an inspect_columns call
-            # actually made this round, so it still blocks a genuine
-            # search-after-judging within the round.
-            if self.state.inspection_counts and not self.discovery.search_after_inspection:
-                return (
-                    "Search refinement blocked: a candidate has already been "
-                    "inspected. Use the existing evidence or one guided expansion."
-                )
-            if self._search_limit_reached():
-                return (
-                    f"Search limit reached ({self.discovery.max_search_attempts} "
-                    "attempt(s)). Do not call search_tables again; inspect, expand "
-                    "if needed, then select."
-                )
+            refusal = self._search_refusal(key, keywords)
+            if refusal is not None:
+                return refusal
             self.state.used_keywords = supplied_concepts
+            self.state.search_calls += 1
             result = self._run_one_retrieval(keywords, entities)
             response = self._format_search_response(result)
             self.state.search_cache[key] = response
@@ -1120,7 +1244,7 @@ class Phase12ToolsManager:
         except Exception as exc:
             return f"Error during table retrieval: {exc}."
 
-    # ---------------------------------------------------- decompose_preview_search
+    # ------------------------------------------------- split keyword searches
 
     def _chat_json(self, system: str, user: str, *, stage: str) -> dict:
         """One structured LLM call, with a single syntax-repair retry."""
@@ -1224,9 +1348,7 @@ class Phase12ToolsManager:
         docs = response.get("response", {}).get("docs", [])
         items = []
         for doc in docs:
-            description = re.sub(
-                r"\s+", " ", re.sub(r"<[^>]+>", " ", doc.get("description") or "")
-            ).strip()[:70]
+            description = clean_catalogue_text(doc.get("description"))[:70]
             items.append(f"{(doc.get('publisher') or '')[:22]} | {doc.get('title') or ''} | {description}")
         return " ;; ".join(items)
 
@@ -1276,14 +1398,26 @@ class Phase12ToolsManager:
 
         if not any_candidates:
             failed = [sorted(item) for item in self.state.failed_keyword_combinations]
+            banned_only = [
+                result for result in results
+                if result["banned_hits"] and not result["lexical_empty"]
+            ]
             self._record_retrieval_memory_event(
-                outcome="zero_results",
+                outcome="banned_tables_only" if banned_only else "zero_results",
                 terms=[word for result in results for word in result["keywords"]],
+                tables=[table for result in banned_only for table in result["banned_hits"]],
             )
-            return (
+            header = (
                 f"Attempt: {attempts[0]}-{attempts[-1]}\n"
                 f"Searched (split by table): {searched}\n"
-                "No tables found for any of the split searches. "
+            )
+            if len(banned_only) == len(results):
+                return header + self._banned_only_note(banned_only)
+            return (
+                header
+                + (self._banned_only_note(banned_only) if banned_only else "")
+                + ("The other split searches found no tables. " if banned_only
+                   else "No tables found for any of the split searches. ")
                 + (f"{learned_notes} " if learned_notes else "")
                 + "These AND combinations were added to the zero-result "
                 "banlist. Search again with a genuinely different query.\n"
@@ -1320,57 +1454,31 @@ class Phase12ToolsManager:
             )
         )
 
-    def _decompose_preview_search(self, concepts: list[str]) -> str:
-        """decompose_tuned_preview_noacronym, ported from
-        experiments/retrieval_lab/arms_retrieval.py: split the ORIGINAL
-        question into its per-table distinguishing-detail search phrases,
-        then for each, preview a few real AND-word candidates (with match
-        counts and top matches) and let the model pick before any of them
-        actually runs. The agent's own `concepts` still gate caching and the
-        zero-result banlist exactly as a plain search would, so the tool's
-        contract to the agent is unchanged; only what actually gets searched
-        gets smarter.
+    def _split_search(
+        self, concepts: list[str], run_requests: Callable[[list[str]], list[dict]]
+    ) -> str:
+        """Split the ORIGINAL question into its per-table distinguishing-detail
+        search requests and let ``run_requests`` run the retrievals for them
+        (see ``keyword_search`` in DiscoveryConfig). The agent's own `concepts`
+        still gate caching and the zero-result banlist exactly as a plain
+        search would, so the tool's contract to the agent is unchanged; only
+        what actually gets searched gets smarter.
         """
         try:
             key = self._search_cache_key(concepts)
-            if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
-                failed_subset = self._failed_keyword_subset(split_keywords(concepts))
-                if failed_subset is not None:
-                    blocked = ", ".join(sorted(failed_subset))
-                    return (
-                        "Search rejected before retrieval: this AND query contains "
-                        f"the known zero-result keyword subset {{{blocked}}}. "
-                        "Formulate a different query that does not contain that subset."
-                    )
-            if key in self.state.search_cache:
-                return (
-                    "Search skipped: identical concepts were already used. Do not "
-                    "repeat this search.\n" + self.state.search_cache[key]
-                )
-            if self.state.inspection_counts and not self.discovery.search_after_inspection:
-                return (
-                    "Search refinement blocked: a candidate has already been "
-                    "inspected. Use the existing evidence or one guided expansion."
-                )
-            if self._search_limit_reached():
-                return (
-                    f"Search limit reached ({self.discovery.max_search_attempts} "
-                    "attempt(s)). Do not call search_tables again; inspect, expand "
-                    "if needed, then select."
-                )
+            refusal = self._search_refusal(key, split_keywords(concepts))
+            if refusal is not None:
+                return refusal
 
             self.state.used_keywords = concepts
+            self.state.search_calls += 1
             sub_questions = self._decompose_question()
-
-            results = []
-            for sub_question in sub_questions:
-                for words in self._pick_candidate_word_sets(sub_question):
-                    if words:
-                        results.append(self._run_one_retrieval(words))
+            results = run_requests(sub_questions)
 
             if not results:
-                # Decompose/pick produced nothing usable: fall back to the
-                # plain single-shot search over the agent's own concepts.
+                # Nothing usable was proposed, or every proposal was banned:
+                # fall back to the plain single-shot search over the agent's
+                # own concepts.
                 return self._search(split_keywords(concepts))
 
             response = self._format_decompose_response(sub_questions, results)
@@ -1389,6 +1497,104 @@ class Phase12ToolsManager:
         except Exception as exc:
             return f"Error during table retrieval: {exc}."
 
+    def _run_preview_picks(self, sub_questions: list[str]) -> list[dict]:
+        """decompose_tuned_preview_noacronym, ported from
+        experiments/retrieval_lab/arms_retrieval.py: for each request, preview
+        a few real AND-word candidates (with match counts and top matches) and
+        run every set the model picks."""
+        return [
+            self._run_one_retrieval(words)
+            for sub_question in sub_questions
+            for words in self._pick_candidate_word_sets(sub_question)
+            if words
+        ]
+
+    def _propose_keyword_cascade(self, request: str, concepts: list[str]) -> list[list[str]]:
+        """The model's AND word sets for one per-table request, ranked by
+        importance and deduplicated by the terms Solr actually ANDs. Empty on
+        failure."""
+        size = self.discovery.keyword_cascade_size
+        try:
+            obj = self._chat_json(
+                _KEYWORD_CASCADE_SYSTEM_PROMPT.format(size=size),
+                f"REQUEST: {request}\nQUESTION: {self.question}\n"
+                f"SUGGESTED WORDS: {json.dumps(concepts)}",
+                stage="keyword cascade",
+            )
+        except Exception:
+            return []
+        cascade: list[list[str]] = []
+        seen: set[frozenset[str]] = set()
+        for raw in obj.get("searches") or []:
+            if not isinstance(raw, list):
+                continue
+            words = [
+                word for word in split_keywords(str(item) for item in raw)
+                if word not in _SEARCH_STOPWORDS and word not in _AGGREGATION_STOPWORDS
+            ]
+            terms = keyword_terms(words)
+            if terms and terms not in seen:
+                seen.add(terms)
+                cascade.append(words)
+        return cascade[:size]
+
+    def _run_keyword_cascades(self, sub_questions: list[str], concepts: list[str]) -> list[dict]:
+        """For each per-table request, try the model's ranked AND word sets one
+        at a time and stop at the first that finds a local table.
+
+        Before each set reaches the portal it is checked against the banlist:
+        a set that is banned, or contains a banned subset -- including one an
+        earlier step of the same cascade just banned -- is skipped unsearched.
+        A set that finds nothing is banned by ``_run_one_retrieval`` (as its
+        smallest failing word subsets where those can be told apart). A set
+        another table's cascade already ran reuses that outcome, so the pool's
+        rank fusion never counts one search twice.
+        """
+        with ThreadPoolExecutor(max_workers=len(sub_questions)) as executor:
+            cascades = list(executor.map(
+                lambda request: self._propose_keyword_cascade(request, concepts),
+                sub_questions,
+            ))
+        results: list[dict] = []
+        found_by_terms: dict[frozenset[str], int] = {}
+        for table, (request, cascade) in enumerate(zip(sub_questions, cascades), 1):
+            steps: list[str] = []
+            for step, words in enumerate(cascade, 1):
+                terms = keyword_terms(words)
+                if terms in found_by_terms:
+                    found = found_by_terms[terms]
+                    steps.append(f"{step}. {words}: {found} table(s), already searched")
+                else:
+                    banned = (
+                        self._failed_keyword_subset(words)
+                        or self._banned_table_keyword_subset(words)
+                    )
+                    if banned is not None:
+                        steps.append(
+                            f"{step}. {words}: skipped, contains banned "
+                            "{" + ", ".join(sorted(banned)) + "}"
+                        )
+                        continue
+                    result = self._run_one_retrieval(words)
+                    results.append(result)
+                    found = found_by_terms[terms] = len(result["current_candidates"])
+                    steps.append(
+                        f"{step}. {words}: {found} table(s)"
+                        + (
+                            f", only banned tables ({len(result['banned_hits'])})"
+                            if not found and result["banned_hits"]
+                            else ""
+                        )
+                    )
+                if found:
+                    break
+            if cascade:
+                self._emit_notice(
+                    f"\n> \U0001fa9c **Keyword cascade, table {table}:** {request}\n"
+                    + "".join(f">    {line}\n" for line in steps)
+                )
+        return results
+
     def inspect_columns(
         self,
         file_name: str | None = None,
@@ -1396,20 +1602,13 @@ class Phase12ToolsManager:
         candidate_number: int | None = None,
     ) -> str:
         """
-        Returns a compact profile for one table in the active dataset.
-        Shows row count, bounded min/max coverage for temporal columns, column
-        types, and sample values for low-cardinality categorical columns. At
-        most two requests per file are useful; repeated requests use a cache.
-        If the question has a date or time range, compare it with the reported
-        temporal coverage before selecting the table.
-        Use this only after identifying a valid table file with search_tables.
-        Normally inspect the 2-4 strongest candidates from the bounded metadata
-        preview instead of inspecting every retrieved table.
-
-        Prefer candidate_number -- the "Candidate N" label search_tables and
-        expand_candidates already print above each entry -- over file_name or
-        filename. Generated filenames are long and easy to mistype; a small
-        integer has nothing to transcribe incorrectly.
+        Return a compact profile of one visible candidate: row count, min/max
+        coverage of its date columns, column types, and sample values of
+        low-cardinality columns. Compare a requested date or period with the
+        reported coverage before selecting the table. Pass candidate_number,
+        the "Candidate N" label printed above each candidate, rather than a
+        filename: generated filenames are long and easy to mistype. Asking
+        for the same file again points back to the profile already shown.
         """
         visible_candidates = self.state.all_candidates[
             : self.state.visible_candidate_count
@@ -1488,13 +1687,10 @@ class Phase12ToolsManager:
         )
 
     def expand_candidates(self, missing_requirements: str) -> str:
-        """Reveal hidden candidates that best cover a known metadata gap.
-
-        First inspect the strongest plausible visible candidates and identify the
-        missing measure, dimension, filter, period, or join key. This tool does
-        not run or re-rank retrieval; it only reveals the next ranked block.
-        After expansion, inspect only candidates whose metadata could fill the
-        identified gap. Do not call again when no ranked candidates remain.
+        """Reveal hidden candidates whose metadata best covers one concrete
+        missing measure, dimension, filter, period, or join key that the
+        inspected candidates lack. It does not re-run retrieval. Afterwards,
+        inspect only candidates whose metadata could fill that gap.
         """
         if not self.state.inspected_candidates():
             return (
@@ -1577,8 +1773,8 @@ class Phase12ToolsManager:
         semantic_plan: dict[str, object] | SemanticAnalysisPlan | None = None,
     ) -> str:
         """
-        CRITICAL: Use this tool ONLY when you have identified the required files after searching solr and inspecting them.
-        Calling this tool terminates execution and confirms the selection.
+        Confirm the selected tables once inspection has verified that they
+        cover every essential requirement. Ends discovery.
         """
         normalized_tables = list(dict.fromkeys(str(table).strip() for table in tables))
         if not normalized_tables:
@@ -1621,6 +1817,9 @@ class Phase12ToolsManager:
             raise ValueError(
                 "Selection blocked by temporal validation: " + coverage_issue + "."
             )
+        for table in normalized_tables:
+            if table not in self.state.proposed_tables:
+                self.state.proposed_tables.append(table)
 
         requirement_coverage = _normalize_requirement_coverage(
             requirement_coverage or {}, normalized_tables
@@ -1843,17 +2042,7 @@ class Phase12ToolsManager:
             uncovered_requirements,
             semantic_plan if isinstance(semantic_plan, dict) else None,
         )
-        ledger_blockers = requirement_ledger_blockers(
-            requirement_ledger, normalized_tables
-        )
-        if ledger_blockers:
-            raise ValueError(
-                "Selection blocked: fundamental data requirements lack concrete "
-                "selected-table/column evidence: " + ", ".join(ledger_blockers) + ". "
-                "Inspect or expand candidates and bind them in requirement_coverage. "
-                "Keep calculations in the ledger as computational."
-            )
-        self.state.selection_plan = {
+        selection_plan = {
             "requirement_coverage": requirement_coverage,
             "table_roles": table_roles,
             "combination_strategy": combination_strategy,
@@ -1864,6 +2053,20 @@ class Phase12ToolsManager:
             "coder_brief": coder_brief,
             **({"semantic_plan": semantic_plan} if contract_first else {}),
         }
+        block_message = requirement_ledger_block_message(
+            requirement_ledger, normalized_tables
+        )
+        if block_message:
+            # Kept so an attempt that ends without a terminal tool call falls
+            # back to the architect's own bindings, not to bare top candidates.
+            self.state.blocked_selection = {
+                "tables": list(normalized_tables),
+                "reasoning": reasoning,
+                "block_message": block_message,
+                "selection_plan": selection_plan,
+            }
+            raise ValueError(block_message)
+        self.state.selection_plan = selection_plan
         self.state.plan_failure = None
         self.state.selection_plan_source = (
             "confirm_unified_selection" if contract_first else "selection_only"
@@ -1887,13 +2090,9 @@ class Phase12ToolsManager:
         self, reasoning: str, suggestion: str, ban_tables: dict[str, str] | None = None
     ) -> str:
         """
-        Use this tool when the candidates cannot yet fully cover the question's
-        essential requirements. Map every already-inspected candidate you
-        judge highly irrelevant to the concrete evidence proving that in
-        ban_tables, so it is excluded from later retrieval for this question.
-        Every other inspected candidate is kept and carries over to the next
-        attempt, even if it does not cover every requirement.
-        Calling this tool means you have finished this attempt.
+        End this attempt when the candidates cannot cover the question's
+        essential requirements. Inspected candidates carry over to the next
+        attempt unless banned in ban_tables.
         """
         inspected = self.state.inspected_candidates()
         by_fold = {table.casefold(): table for table in inspected}
@@ -1910,11 +2109,17 @@ class Phase12ToolsManager:
                 f"for: {', '.join(unjustified)}. Give it a real justification "
                 "or drop it from ban_tables."
             )
-        banned = [
+        # A table this attempt already proposed as a source is not "proven to
+        # satisfy nothing": a live architect, blocked three times confirming
+        # its primary source, ended by writing that same table into its bans.
+        proposed = {table.casefold() for table in self.state.proposed_tables}
+        requested = [
             by_fold[table.casefold()]
             for table in (ban_tables or {})
             if table.casefold() in by_fold
         ]
+        banned = [table for table in requested if table.casefold() not in proposed]
+        protected = [table for table in requested if table.casefold() in proposed]
         self.state.rejection_skip_tables = banned
         self.state.rejection_keep_tables = [
             table for table in inspected if table not in banned
@@ -1925,9 +2130,19 @@ class Phase12ToolsManager:
             tables=list(inspected),
             reason=reasoning,
             suggestion=suggestion,
-            evidence=dict(ban_tables or {}),
+            evidence={
+                table: justification
+                for table, justification in (ban_tables or {}).items()
+                if table.casefold() not in proposed
+            },
         )
-        return f"REJECT_KEYWORDS: {reasoning}\nSuggestion: {suggestion}"
+        response = f"REJECT_KEYWORDS: {reasoning}\nSuggestion: {suggestion}"
+        if protected:
+            response += (
+                "\nNot banned, kept for the next attempt (proposed as a selected "
+                "source earlier in this attempt): " + ", ".join(protected)
+            )
+        return response
 
     def _build_coder_brief(
         self,
@@ -2122,7 +2337,8 @@ class Phase12ToolsManager:
     ) -> list[dict[str, object]]:
         """Create one compact mode-independent, non-prescriptive checklist."""
         return build_requirement_ledger(
-            self.question, coverage, requirements, uncovered, semantic_plan
+            self.question, coverage, requirements, uncovered, semantic_plan,
+            inspections=self.state.inspection_cache,
         )
 
     def submit_semantic_plan_draft(self, draft: dict[str, object]) -> str:
@@ -2223,20 +2439,7 @@ class Phase12ToolsManager:
             # a carried-forward schema must not look like an in-round inspection.
             if self.state.inspection_counts and not self.discovery.search_after_inspection:
                 return False
-            nonempty_attempts = sum(
-                bool(attempt.get("current_candidates"))
-                for attempt in self.state.search_attempts
-            )
-            lexical_retry_limit = (
-                self.discovery.max_search_attempts + self.discovery.max_zero_result_retries
-            )
-            search_limit_reached = (
-                nonempty_attempts >= self.discovery.max_search_attempts
-                or len(self.state.search_attempts) >= lexical_retry_limit
-            )
-            if mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
-                return not search_limit_reached
-            return len(self.state.search_attempts) < self.discovery.max_search_attempts
+            return not self._search_limit_reached()
 
         if tool_name == "expand_candidates":
             # Only the spendable resource -- the expansion budget -- withdraws
@@ -2273,14 +2476,73 @@ class Phase12ToolsManager:
 
         return True
 
+    @staticmethod
+    def tool_names() -> tuple[str, ...]:
+        return (
+            "search_tables", "inspect_columns", "expand_candidates",
+            "check_join_union", "confirm_unified_selection", "reject_unified_selection",
+        )
+
+    def _tracked(self, fn: Callable[..., str], tool_name: str) -> Callable[..., str]:
+        """Record each result for the context editor and, with state_board,
+        flag a call that can only repeat a refusal the model already has."""
+
+        @functools.wraps(fn)
+        def call(*args, **kwargs):
+            withdrawn = (
+                self.discovery.state_board
+                and tool_name in ("search_tables", "inspect_columns", "expand_candidates")
+                and not self.is_tool_available(tool_name)
+            )
+            try:
+                output = fn(*args, **kwargs)
+            except Exception as exc:
+                message = str(exc)
+                if tool_name == "confirm_unified_selection":
+                    repeated = message == self.state.last_confirm_error
+                    self.state.last_confirm_error = message
+                    self.state.confirm_blocks += 1
+                    if repeated and self.discovery.state_board:
+                        # A live architect resubmitted the same blocked
+                        # selection three times, each costing a full turn.
+                        message = REPEATED_BLOCK + message
+                        self.context.record(tool_name, message, error=True)
+                        raise ValueError(message) from exc
+                self.context.record(tool_name, message, error=True)
+                raise
+            if withdrawn:
+                output = (
+                    f"{tool_name} is no longer available in this attempt; the "
+                    "state block lists the tools still worth calling. " + output
+                )
+            self.context.record(tool_name, output)
+            return output
+
+        return call
+
     def get_tools(self) -> list[FunctionTool]:
+        def tool(fn, **kwargs) -> FunctionTool:
+            # An explicit description keeps LlamaIndex from prepending the
+            # Python signature, which only repeated the parameter schema.
+            kwargs.setdefault("description", inspect.cleandoc(fn.__doc__ or ""))
+            if self.context.enabled:
+                fn = self._tracked(fn, fn.__name__)
+            return FunctionTool.from_defaults(fn=fn, **kwargs)
+
+        search = self._search_tool()
+        if self.context.enabled:
+            search = FunctionTool.from_defaults(
+                fn=self._tracked(search.fn, "search_tables"),
+                name="search_tables",
+                description=search.metadata.description,
+            )
         return [
-            self._search_tool(),
-            FunctionTool.from_defaults(fn=self.inspect_columns),
-            FunctionTool.from_defaults(fn=self.expand_candidates),
-            FunctionTool.from_defaults(fn=self.check_join_union),
-            FunctionTool.from_defaults(fn=self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),
-            FunctionTool.from_defaults(fn=self.reject_unified_selection, fn_schema=RejectUnifiedSelectionSchema, return_direct=True),
+            search,
+            tool(self.inspect_columns),
+            tool(self.expand_candidates),
+            tool(self.check_join_union),
+            tool(self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),
+            tool(self.reject_unified_selection, fn_schema=RejectUnifiedSelectionSchema, return_direct=True),
         ]
 
 

@@ -43,6 +43,19 @@ discovery:
   max_inspected_candidates: 8
   max_inspections_per_file: 2
   search_after_inspection: false
+  # What one search call runs (keyword mode): single | decompose_preview |
+  # cascade. cascade: the model ranks AND word sets by importance; they run one
+  # at a time, skipping any set with a banned subset, until one finds a table.
+  # Hybrid mode runs decompose_preview as configured, and single otherwise.
+  keyword_search: cascade
+  # cascade only: how many ranked AND word sets the model proposes per table.
+  keyword_cascade_size: 5
+  # Context management (unified agent): state_board appends one short,
+  # system-kept summary of the round to the newest tool result;
+  # compact_history shortens results later calls superseded. Both false
+  # reproduces the previous behaviour.
+  state_board: true
+  compact_history: true
 
 retrieval:
   # Strategy used to retrieve candidate tables:

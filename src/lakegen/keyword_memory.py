@@ -113,7 +113,9 @@ def _clean_memory_event(raw: object) -> dict[str, object] | None:
     if not isinstance(raw, dict):
         return None
     outcome = _clean_memory_text(raw.get("outcome", ""), 80)
-    if outcome not in {"candidates_found", "zero_results", "insufficient_coverage"}:
+    if outcome not in {
+        "candidates_found", "zero_results", "banned_tables_only", "insufficient_coverage",
+    }:
         return None
     terms = [
         _clean_memory_text(item, 120)
@@ -217,14 +219,26 @@ def persist_question_retrieval_memory(
         temporary.replace(path)
 
 
-def format_question_retrieval_memory(events: Iterable[dict[str, object]]) -> str:
-    """Render persisted facts compactly; never present them as instructions."""
+def format_question_retrieval_memory(events: Iterable[object]) -> str:
+    """Render persisted facts compactly; never present them as instructions.
+
+    Events are cleaned and bounded here too, so a caller holding raw
+    in-memory events (the chat UI, which never persists them) can pass them
+    as they are; cleaning an already-persisted event changes nothing.
+    """
+    clean_events = [
+        event for event in (_clean_memory_event(item) for item in events)
+        if event is not None
+    ]
     lines: list[str] = []
-    for event in list(events)[-_MAX_EVENTS_PER_QUESTION:]:
+    for event in clean_events[-_MAX_EVENTS_PER_QUESTION:]:
         terms = ", ".join(map(str, event.get("terms", []))) or "(question-only)"
         outcome = event.get("outcome")
         if outcome == "zero_results":
             lines.append(f"- [{terms}] returned zero local candidates.")
+        elif outcome == "banned_tables_only":
+            tables = ", ".join(map(str, event.get("tables", [])))
+            lines.append(f"- [{terms}] found only tables already banned: {tables}.")
         elif outcome == "insufficient_coverage":
             tables = ", ".join(map(str, event.get("tables", [])))
             reason = str(event.get("reason", ""))

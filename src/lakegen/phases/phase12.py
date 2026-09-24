@@ -36,7 +36,10 @@ from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient
 from lakegen.experiment_config import DiscoveryConfig
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
-from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
+from lakegen.agent_tools.requirement_ledger import (
+    build_minimal_selection_fallback,
+    requirement_ledger_blockers,
+)
 from lakegen.retrieval import RetrievalConfig
 from lakegen.retrieval.models import RetrievalRun
 
@@ -92,6 +95,38 @@ def _recover_minimal_selection_plan(
 ) -> tuple[dict[str, object], list[str]]:
     """Recover non-blocking coder guidance when discovery exits without a plan."""
     return build_minimal_selection_fallback(selected, reasoning)
+
+
+def _recover_blocked_selection(
+    state: P12State, all_files: list[str]
+) -> tuple[list[str], str, dict[str, object], str] | None:
+    """Recover the last ledger-blocked confirm_unified_selection call.
+
+    For an attempt that ended without a terminal tool call (prose, loop
+    guard): the blocked call's tables and bindings are still the architect's
+    own inspected choice. A live run that fell back to the top three
+    inspected candidates with an empty plan instead handed the coder no
+    binding for the snapshot date the architect had identified.
+    """
+    blocked = state.blocked_selection
+    tables = [table for table in blocked.get("tables", []) if table in all_files]
+    if not tables:
+        return None
+    plan = {
+        **dict(blocked.get("selection_plan") or {}),
+        "recovered_from_existing_discovery_context": True,
+    }
+    unbound = requirement_ledger_blockers(
+        list(plan.get("requirement_ledger") or []), tables
+    )
+    advisory = (
+        "The selection plan was recovered from the architect's last "
+        "confirm_unified_selection call, which was blocked and never "
+        "validated. No selected-table column was bound for: "
+        + (", ".join(unbound) or "(none recorded)")
+        + ". Verify those against the data before relying on the plan."
+    )
+    return tables, str(blocked.get("reasoning") or ""), plan, advisory
 
 
 def _inspected_runtime_evidence(state: P12State, max_chars: int = 24000) -> str:
@@ -252,6 +287,7 @@ def phase12_agent(
         llm=llm,
     )
     agent_tools = tools_manager.get_tools()
+    context_editor = tools_manager.context.edit if tools_manager.context.enabled else None
 
     system_prompt = pm.render(
         "unified_architect",
@@ -263,6 +299,8 @@ def phase12_agent(
         verbatim_entities=(retrieval_config or RetrievalConfig()).mode.verbatim_entities,
         initial_shortlist_size=(discovery_config or DiscoveryConfig()).initial_shortlist_size,
         max_inspected_candidates=(discovery_config or DiscoveryConfig()).max_inspected_candidates,
+        state_board=tools_manager.discovery.state_board,
+        compact_history=tools_manager.discovery.compact_history,
     )
     if os.getenv("LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT") == "1":
         system_prompt += (
@@ -307,6 +345,7 @@ def phase12_agent(
             cancel_check=cancel_check,
             tools=agent_tools,
             tool_available=tools_manager.is_tool_available,
+            context_editor=context_editor,
             max_iterations=16,
             max_repeats=3,
             max_tool_calls=max(
@@ -349,6 +388,7 @@ def phase12_agent(
                     agent_name="semantic_planner_recovery", emit_stream=emit_stream,
                     cancel_check=cancel_check, tools=agent_tools,
                     tool_available=tools_manager.is_tool_available,
+                    context_editor=context_editor,
                     max_iterations=6, max_repeats=2, max_tool_calls=4,
                     timeout_seconds=180,
                 )
@@ -412,6 +452,7 @@ def phase12_agent(
                     agent_name="semantic_planner_recovery", emit_stream=emit_stream,
                     cancel_check=cancel_check, tools=agent_tools,
                     tool_available=tools_manager.is_tool_available,
+                    context_editor=context_editor,
                     max_iterations=6, max_repeats=2, max_tool_calls=4,
                     timeout_seconds=180,
                 )
@@ -541,6 +582,16 @@ def phase12_agent(
         parsed_advisories.extend(state.selection_advisories)
         if state.selection_plan_source == "none":
             state.selection_plan_source = "confirmed_state_recovery"
+
+    recovery = (
+        None if parsed_plan or reasoning.startswith("REJECT_KEYWORDS")
+        else _recover_blocked_selection(state, all_files)
+    )
+    if recovery is not None:
+        selected, blocked_reasoning, parsed_plan, advisory = recovery
+        reasoning = blocked_reasoning or reasoning
+        parsed_advisories.append(advisory)
+        state.selection_plan_source = "blocked_confirmation_recovery"
 
     if not parsed_plan:
         parsed_plan, recovered_advisories = _recover_minimal_selection_plan(

@@ -37,6 +37,7 @@ from lakegen.phases import (
     phase3_generate_and_execute,
     phase4_synthesize,
 )
+from lakegen.phases.utils import rejection_feedback_hint
 from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.core.resources import (
     get_all_table_files,
@@ -58,6 +59,7 @@ from lakegen.tracing import (
 from lakegen.experiment_config import ToolAccess
 from lakegen.orchestrated_context import prepare_discovery_context
 from lakegen.retrieval.intent import intent_entities
+from lakegen.keyword_memory import format_question_retrieval_memory
 from lakegen.phases.orchestrated_discovery import (
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
@@ -545,6 +547,13 @@ async def _run_table_gate(
 # Uncomment this block and comment the two-phase flow below to use the
 # unified single-agent approach instead.
 
+def _next_round_hint(architect_feedback: str, user_hint: str) -> str:
+    """A rejected round's architect feedback, plus what the user added."""
+    if architect_feedback and user_hint:
+        return f"{architect_feedback} User feedback: {user_hint}"
+    return architect_feedback or user_hint
+
+
 async def _run_unified_gate(
     session: LakeGenSession,
     llm,
@@ -559,6 +568,7 @@ async def _run_unified_gate(
 
     while True:
         session.check_cancelled()
+        architect_feedback = ""
         async with cl.Step(
             name="Phase 1 & 2 (Unified Architect & Search)",
             type="run",
@@ -621,10 +631,24 @@ async def _run_unified_gate(
                         cancel_check=session.check_cancelled,
                         retrieval_config=session.runtime.retrieval,
                         state=unified_state,
+                        retrieval_memory=format_question_retrieval_memory(
+                            session.retrieval_memory_events
+                        ),
+                        require_semantic_plan=session.runtime.experiment.require_semantic_plan,
+                        discovery_config=session.runtime.discovery,
                     )
                     unified_calls = 1
                     session.remember_keyword_bans(unified_state)
+                    session.retrieval_memory_events.extend(
+                        unified_state.retrieval_memory_events
+                    )
                     if reasoning.startswith("REJECT_KEYWORDS:"):
+                        # Same feedback the batch service hands its next round.
+                        architect_feedback = rejection_feedback_hint(
+                            reasoning,
+                            unified_state.rejection_keep_tables,
+                            schemas_preloaded=True,
+                        )
                         for table in unified_state.rejection_skip_tables:
                             session.excluded_tables.add(table.casefold())
                         for table in unified_state.rejection_keep_tables:
@@ -709,12 +733,19 @@ async def _run_unified_gate(
         await step.update()
 
         session.check_cancelled()
-        hint = await _ask_hint(
-            "What should the agent change? (e.g., use different keywords, or look for different tables)",
+        prompt = "What should the agent change? (e.g., use different keywords, or look for different tables)"
+        if architect_feedback:
+            prompt += (
+                "\n\nThe architect's own feedback from this round is passed on "
+                "automatically; add anything else it should know."
+            )
+        user_hint = await _ask_hint(
+            prompt,
             phase="discovery",
             gate=HumanGate.DATASET_HINT,
             remove_after_answer=True,
         )
+        hint = _next_round_hint(architect_feedback, user_hint)
 
 
 async def _run_execution(session: LakeGenSession, llm, pm) -> ExecutionOutcome:
@@ -998,6 +1029,8 @@ async def _run_locked_workflow(question: str) -> str:
     session.carried_metadata = {}
     session.carried_inspection = {}
     session.failed_keyword_combinations = []
+    session.banned_table_keyword_combinations = []
+    session.retrieval_memory_events = []
     session.tool_access_telemetry = {
         "configured_tool_access": runtime.experiment.tool_access.value,
         "execution_path": runtime.experiment.tool_access.value,

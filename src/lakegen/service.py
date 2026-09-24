@@ -27,6 +27,7 @@ from lakegen.phases import (
     phase3_generate_and_execute,
     phase4_synthesize,
 )
+from lakegen.phases.utils import rejection_feedback_hint
 from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode, evaluate_ranking
 from lakegen.retrieval.intent import intent_entities
@@ -383,6 +384,9 @@ def run_question(
     _persistent_keyword_history, failed_keyword_combinations = load_keyword_memory(
         keyword_memory_path, keyword_memory_scope
     )
+    # Word sets that found only this question's excluded_tables: carried
+    # across rounds like the bans above, but never persisted.
+    banned_table_keyword_combinations: list[frozenset[str]] = []
     retrieval_question_key = question_memory_key(question)
     retrieval_memory_summary = format_question_retrieval_memory(
         load_question_retrieval_memory(
@@ -567,6 +571,9 @@ def run_question(
                     selection_state.failed_keyword_combinations = list(
                         failed_keyword_combinations
                     )
+                    selection_state.banned_table_keyword_combinations = list(
+                        banned_table_keyword_combinations
+                    )
                     selection_state.rejected_selections = set(rejected_selection_keys)
                     selection_state.excluded_tables = set(excluded_tables)
                     selection_state.carried_tables = list(carried_tables)
@@ -601,6 +608,9 @@ def run_question(
                     ]
                     failed_keyword_combinations = list(
                         selection_state.failed_keyword_combinations
+                    )
+                    banned_table_keyword_combinations = list(
+                        selection_state.banned_table_keyword_combinations
                     )
                     new_history = keyword_history[persisted_keyword_count:]
                     persist_keyword_memory(
@@ -650,25 +660,11 @@ def run_question(
                             key: value for key, value in carried_inspection.items()
                             if key not in excluded_tables
                         }
-                        if selection_state.rejection_keep_tables:
-                            kept_str = ", ".join(selection_state.rejection_keep_tables)
-                            hint = (
-                                "The previous attempt already found tables that "
-                                "satisfy part of the question; those are kept and "
-                                f"must not be searched for again. Architect feedback: {reasoning}. "
-                                "Keep the concepts, entities, and time constraints "
-                                "that led to the kept tables unchanged, and adjust "
-                                "only what is needed to cover the remaining gap "
-                                f"described above. {kept_str} will already appear as "
-                                "an inspected candidate with its schema pre-loaded; "
-                                "do not spend a fresh inspect_columns call re-verifying "
-                                "it, spend that budget on the missing requirement instead."
-                            )
-                        else:
-                            hint = (
-                                "The previous keywords led to bad tables. Architect "
-                                f"feedback: {reasoning}. Generate completely different keywords."
-                            )
+                        hint = rejection_feedback_hint(
+                            reasoning,
+                            selection_state.rejection_keep_tables,
+                            schemas_preloaded=True,
+                        )
                         keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
                         if not keywords_rejected:
                             surviving_candidates = [
@@ -731,25 +727,9 @@ def run_question(
                             table for table in carried_tables
                             if table.casefold() not in excluded_tables
                         ]
-                        if selection_state.rejection_keep_tables:
-                            # Some inspected tables already satisfy part of the
-                            # question and are carried over untouched. Pivoting
-                            # every concept here would risk losing that
-                            # coverage, so only the remaining gap should move.
-                            hint = (
-                                "The previous attempt already found tables that "
-                                "satisfy part of the question; those are kept and "
-                                f"must not be searched for again. Architect feedback: {reasoning}. "
-                                "Keep the concepts, entities, and time constraints "
-                                "that led to the kept tables unchanged, and adjust "
-                                "only what is needed to cover the remaining gap "
-                                "described above."
-                            )
-                        else:
-                            hint = (
-                                "The previous keywords led to bad tables. Architect "
-                                f"feedback: {reasoning}. Generate completely different keywords."
-                            )
+                        hint = rejection_feedback_hint(
+                            reasoning, selection_state.rejection_keep_tables
+                        )
                         keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
                         if not keywords_rejected:
                             # This is the last allowed attempt. `candidates` is

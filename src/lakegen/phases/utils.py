@@ -2,6 +2,7 @@ import json
 import re
 from pathlib import Path
 
+from lakegen.core.catalogue import clean_catalogue_text
 from lakegen.phases.logging import format_phase2_solr_results
 from lakegen.core.types import SolrMetadata, StreamCallback
 
@@ -67,18 +68,23 @@ def solr_metadata_from_doc(doc: dict) -> dict[str, object]:
     structured_columns = [
         {
             "name": _text(column.get("name")),
-            "description": _text(column.get("description")),
+            "description": clean_catalogue_text(column.get("description")),
             "type": _text(column.get("type")),
         }
         for column in columns
         if isinstance(column, dict) and _text(column.get("name"))
     ]
+    # Catalogue text is cleaned once, here, where every search path turns a
+    # hit into metadata, so the agent never reads portal HTML. Column names
+    # and types are left as indexed: they must match the real schema.
     return {
-        "title": doc.get("title", ""),
-        "publisher": doc.get("publisher", ""),
-        "resource_name": doc.get("resource_name", doc.get("title", "")),
-        "description": doc.get("description", ""),
-        "tags": [str(tag) for tag in tags],
+        "title": clean_catalogue_text(doc.get("title")),
+        "publisher": clean_catalogue_text(doc.get("publisher")),
+        "resource_name": clean_catalogue_text(
+            doc.get("resource_name", doc.get("title"))
+        ),
+        "description": clean_catalogue_text(doc.get("description")),
+        "tags": [clean_catalogue_text(tag) for tag in tags],
         "columns.name": [column["name"] for column in structured_columns],
         "columns.description": [
             column["description"]
@@ -217,6 +223,40 @@ def format_candidate_context(
         blocks.append("\n".join(lines))
 
     return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+
+def rejection_feedback_hint(
+    reasoning: str, kept_tables: list[str], *, schemas_preloaded: bool = False
+) -> str:
+    """The next discovery round's hint after the architect rejected this one.
+
+    Shared by the batch service and the chat UI so both hand the agent the
+    same feedback. With tables kept, only the uncovered gap should move --
+    pivoting every concept risks losing the coverage already found.
+    ``schemas_preloaded`` marks kept tables whose inspection carries over.
+    """
+    if not kept_tables:
+        return (
+            "The previous keywords led to bad tables. Architect "
+            f"feedback: {reasoning}. Generate completely different keywords."
+        )
+    hint = (
+        "The previous attempt already found tables that "
+        "satisfy part of the question; those are kept and "
+        f"must not be searched for again. Architect feedback: {reasoning}. "
+        "Keep the concepts, entities, and time constraints "
+        "that led to the kept tables unchanged, and adjust "
+        "only what is needed to cover the remaining gap "
+        "described above."
+    )
+    if schemas_preloaded:
+        hint += (
+            f" {', '.join(kept_tables)} will already appear as "
+            "an inspected candidate with its schema pre-loaded; "
+            "do not spend a fresh inspect_columns call re-verifying "
+            "it, spend that budget on the missing requirement instead."
+        )
+    return hint
 
 
 def parse_table_selector_response(

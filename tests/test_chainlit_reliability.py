@@ -271,3 +271,109 @@ async def test_new_request_is_allowed_after_previous_workflow_finishes(monkeypat
     await workflow.run_lakegen_workflow("Next question?")
 
     assert runs == ["First question?", "Next question?"]
+
+
+def test_next_round_hint_merges_architect_and_user_feedback():
+    assert workflow._next_round_hint("Architect says X.", "try Y") == (
+        "Architect says X. User feedback: try Y"
+    )
+    assert workflow._next_round_hint("Architect says X.", "") == "Architect says X."
+    assert workflow._next_round_hint("", "try Y") == "try Y"
+    assert workflow._next_round_hint("", "") == ""
+
+
+@pytest.mark.asyncio
+async def test_unified_rejection_feedback_and_memory_reach_the_next_round(
+    monkeypatch, tmp_path
+):
+    """The chat UI used to start the round after a rejection with only the
+    user's typed hint: no architect feedback, no retrieval memory, and the
+    DiscoveryConfig defaults instead of the experiment's `discovery:`."""
+    config = ExperimentConfig(interaction_mode="human_gated")
+    session = _session()
+    session.runtime = SimpleNamespace(
+        model_name=config.model, experiment=config, retrieval=RetrievalConfig(),
+        discovery=config.discovery, csv_dir=tmp_path, portal_name="UK",
+    )
+    rejection = (
+        "REJECT_KEYWORDS: all candidates are fishing licences\n"
+        "Suggestion: water abstraction licence NI"
+    )
+    calls = []
+
+    def fake_phase12_agent(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            state = kwargs["state"]
+            state.rejection_keep_tables = ["kept.parquet"]
+            state.retrieval_memory_events.append({
+                "outcome": "insufficient_coverage", "terms": ["water", "licence"],
+                "tables": ["kept.parquet"], "reason": "all candidates are fishing licences",
+                "suggestion": "water abstraction licence NI",
+            })
+            return [], ["water", "licence"], {}, rejection, "", 0
+        return ["kept.parquet"], ["water"], {}, "Selected.", "", 0
+
+    def make_async(function):
+        async def run(*args, **kwargs):
+            return function(*args, **kwargs)
+        return run
+
+    class Step:
+        def __init__(self, **_kwargs):
+            self.output = ""
+            self.default_open = True
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        async def update(self):
+            pass
+
+    class Bridge:
+        def __init__(self, _step):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        def emit(self, _delta):
+            pass
+
+    choices = iter(["recalculate", "approve"])
+    hint_prompts = []
+
+    async def ask_choice(*_args, **_kwargs):
+        return next(choices)
+
+    async def ask_hint(prompt, **_kwargs):
+        hint_prompts.append(prompt)
+        return "look for NIEA registers"
+
+    monkeypatch.setattr(workflow, "phase12_agent", fake_phase12_agent)
+    monkeypatch.setattr(workflow.cl, "make_async", make_async)
+    monkeypatch.setattr(workflow.cl, "Step", Step)
+    monkeypatch.setattr(workflow, "StepStreamBridge", Bridge)
+    monkeypatch.setattr(workflow, "_ask_choice", ask_choice)
+    monkeypatch.setattr(workflow, "_ask_hint", ask_hint)
+
+    status = await workflow._run_unified_gate(session, None, None, None, ["kept.parquet"])
+
+    assert status == "approved"
+    first, second = calls
+    assert first["retrieval_memory"] == ""
+    assert second["hint"].startswith("The previous attempt already found tables")
+    assert f"Architect feedback: {rejection}." in second["hint"]
+    assert second["hint"].endswith("User feedback: look for NIEA registers")
+    assert "[water, licence] was insufficient: all candidates are fishing licences" in second["retrieval_memory"]
+    assert "Recorded next-search focus: water abstraction licence NI" in second["retrieval_memory"]
+    assert all(call["discovery_config"] is config.discovery for call in calls)
+    assert all(call["require_semantic_plan"] is config.require_semantic_plan for call in calls)
+    assert "passed on automatically" in hint_prompts[0]
+    assert session.carried_tables == ["kept.parquet"]

@@ -47,6 +47,14 @@ class InteractionMode(StrEnum):
     HUMAN_GATED = "human_gated"
 
 
+class KeywordSearchStrategy(StrEnum):
+    """What one search_tables call runs in keyword mode (see DiscoveryConfig)."""
+
+    SINGLE = "single"
+    DECOMPOSE_PREVIEW = "decompose_preview"
+    CASCADE = "cascade"
+
+
 class CoderContextLevel(StrEnum):
     FULL = "full"
     SCHEMA_ONLY = "schema_only"
@@ -131,17 +139,37 @@ class DiscoveryConfig(FrozenModel):
     # is how the agent learns a candidate is wrong, so leaving this false means it
     # cannot act on what it just learned.
     search_after_inspection: bool = False
-    # Enabled: that one search_keyword_concepts call internally splits the
-    # question into its distinguishing per-table searches (date/edition/
-    # agency/place), previews a few AND-word candidates per one with real
-    # match counts, and lets the model pick before any of them is actually
-    # run -- validated in experiments/retrieval_lab as a consistent, if
-    # modest, improvement over the single free-form search at every scale
-    # tested (84/50/100/249 questions), and confirmed live against production
-    # Solr + LLM. Requires an ``llm`` on the manager; silently falls back to
-    # the single-shot search when none was supplied, so it is always safe to
-    # leave on. Set to False to force the old single free-form search.
-    decompose_preview_search: bool = True
+    # What one search_keyword_concepts call runs:
+    #   single: the agent's own concepts, one strict-AND search.
+    #   decompose_preview: split the question into its per-table searches
+    #     (date/edition/agency/place), preview a few AND-word candidates per
+    #     one with real match counts, and run every set the model picks --
+    #     validated in experiments/retrieval_lab as a consistent, if modest,
+    #     improvement over single at every scale tested (84/50/100/249
+    #     questions). Keyword and hybrid mode.
+    #   cascade: split the question the same way, then for each per-table
+    #     search the model ranks ``keyword_cascade_size`` AND word sets by
+    #     importance. They run one at a time: a set containing a banned subset
+    #     is skipped unsearched, a set that finds nothing is banned, and the
+    #     first set that finds a table ends that table's cascade. Keyword mode
+    #     only -- in hybrid mode the semantic branch always returns something,
+    #     so there is no empty result to fall through on and the single fused
+    #     search runs instead. Not yet validated in the lab.
+    # Both split strategies need an ``llm`` on the manager and fall back to
+    # single without one, so they are always safe to leave on.
+    keyword_search: KeywordSearchStrategy = KeywordSearchStrategy.CASCADE
+    keyword_cascade_size: int = Field(default=5, gt=0)
+    # Context management for the unified agent, whose history is re-read in
+    # full on every model call. state_board appends one short, system-kept
+    # summary of the round (inspected candidates, period and question-word
+    # matches, budgets, last blocked confirmation, tools still worth calling)
+    # to the newest tool result, drops older copies, and flags calls that
+    # repeat a refusal. compact_history shortens tool results later calls have
+    # superseded: a candidate listing once candidates are being inspected, an
+    # older blocked confirmation, a long refusal. Both off reproduces the
+    # previous behaviour.
+    state_board: bool = True
+    compact_history: bool = True
 
     @property
     def fetch_floor(self) -> int:

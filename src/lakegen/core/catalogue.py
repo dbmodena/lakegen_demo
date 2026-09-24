@@ -21,6 +21,7 @@ sitting inside an otherwise real name ("Organogram - Senior CSV data").
 
 from __future__ import annotations
 
+import html
 import re
 
 # A "name" made only of these says nothing about the table.
@@ -50,6 +51,9 @@ _FORMAT_TOKEN = re.compile(
 # collapsed instead.
 _SEPARATORS = " -–—_,;:/|"
 _EMPTY_BRACKETS = re.compile(r"\(\s*\)|\[\s*\]|\{\s*\}")
+# A tag opens with a letter (or "/" and a letter), so a bare "<" in text such
+# as "centres with <25 eyes" is left alone.
+_HTML_TAG = re.compile(r"<!--.*?-->|</?[A-Za-z][^<>]*>", re.DOTALL)
 
 
 def _words(value: str) -> list[str]:
@@ -105,3 +109,19 @@ def catalogue_title(package_title: object, resource_name: object, *,
         if text and text not in parts:
             parts.append(text)
     return " ".join(parts) or strip_format_noise(fallback)
+
+
+def clean_catalogue_text(value: object) -> str:
+    """Catalogue text as the plain words a reader of the portal sees.
+
+    About a quarter of UK descriptions (the ArcGIS-harvested ones) are stored
+    as raw HTML, ``<DIV STYLE="text-align:Left;"><DIV><P><SPAN>...``, which
+    spent the agent's bounded description preview on markup. Tags go first
+    and entities are decoded after, so an escaped ``&lt;10m`` in the text
+    survives as ``<10m`` instead of being read as a tag.
+
+    >>> clean_catalogue_text('<DIV><P><SPAN>Licences &amp; permits</SPAN></P><P>&lt;10m</P></DIV>')
+    'Licences & permits <10m'
+    """
+    text = "" if value is None else str(value)
+    return " ".join(html.unescape(_HTML_TAG.sub(" ", text)).split())

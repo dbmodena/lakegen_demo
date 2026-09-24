@@ -170,6 +170,13 @@ class LakeGenSession:
     # round builds a fresh P12State, so without this the agent re-proposes sets
     # that an earlier round already proved dead and spends its attempts on them.
     failed_keyword_combinations: list[frozenset[str]] = field(default_factory=list)
+    # Word sets that earlier rounds found match only excluded_tables.
+    banned_table_keyword_combinations: list[frozenset[str]] = field(default_factory=list)
+    # Retrieval evidence from earlier rounds of this question (terms tried,
+    # rejection reasons, suggestions, ban evidence), rendered into each new
+    # round's prompt. Kept for the session only: writing it to the batch
+    # service's question memory would leak chat exploration into benchmarks.
+    retrieval_memory_events: list[dict[str, object]] = field(default_factory=list)
     tokens: dict[str, int] = field(
         default_factory=lambda: {"p1": 0, "p2": 0, "p3": 0, "p4": 0}
     )
@@ -210,10 +217,16 @@ class LakeGenSession:
     def seed_keyword_bans(self, state: Any) -> None:
         """Start a round with the word sets earlier rounds proved match nothing."""
         state.failed_keyword_combinations = list(self.failed_keyword_combinations)
+        state.banned_table_keyword_combinations = list(
+            self.banned_table_keyword_combinations
+        )
 
     def remember_keyword_bans(self, state: Any) -> None:
         """Keep what this round learned about zero-result word sets for the next."""
         self.failed_keyword_combinations = list(state.failed_keyword_combinations)
+        self.banned_table_keyword_combinations = list(
+            state.banned_table_keyword_combinations
+        )
 
     def request_cancel(self) -> None:
         """Signal all running phases to stop."""

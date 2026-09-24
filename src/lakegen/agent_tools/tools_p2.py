@@ -19,7 +19,7 @@ from lakegen.core.types import SolrMetadata
 from lakegen.phases.utils import format_candidate_context
 from lakegen.agent_tools.requirement_ledger import (
     build_requirement_ledger,
-    requirement_ledger_blockers,
+    requirement_ledger_block_message,
 )
 from lakegen.agent_tools.join_keys import find_join_keys, format_join_section
 from lakegen.agent_tools.schema_matching import verify_pair_schema
@@ -716,16 +716,11 @@ class Phase2JudgeToolsManager:
         uncovered = list(uncovered_requirements or [])
         ledger = build_requirement_ledger(
             self.question, coverage, normalized_requirements, uncovered,
-            semantic_plan,
+            semantic_plan, inspections=self._inspection_cache,
         )
-        blockers = requirement_ledger_blockers(ledger, normalized_tables)
-        if blockers:
-            raise ValueError(
-                "Selection blocked: fundamental data requirements lack concrete "
-                "selected-table/column evidence: " + ", ".join(blockers) + ". "
-                "Inspect or expand candidates and bind them in requirement_coverage. "
-                "Keep calculations in the ledger as computational."
-            )
+        block_message = requirement_ledger_block_message(ledger, normalized_tables)
+        if block_message:
+            raise ValueError(block_message)
         self.selection_plan = {
             "requirement_coverage": coverage,
             "table_roles": dict(table_roles or {}),

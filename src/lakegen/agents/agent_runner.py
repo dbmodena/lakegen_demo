@@ -7,7 +7,7 @@ from llama_index.core.agent.workflow import (
     ToolCall,
     ToolCallResult,
 )
-from llama_index.core.llms import LLM
+from llama_index.core.llms import LLM, ChatMessage
 from pydantic import Field
 
 from lakegen.phases.logging import (
@@ -27,13 +27,24 @@ class _ToolPruningFunctionAgent(FunctionAgent):
     capped tool calls just to hear a refusal, so the model is simply not shown
     it. ``get_tools`` is left alone: a stray call to a withdrawn tool still
     reaches that tool's own refusal message rather than a generic "not found".
+
+    ``context_editor``, when set, rewrites the in-run history (the scratchpad
+    of assistant tool calls and tool results) right before each model call,
+    e.g. to shorten results later calls superseded. The rewrite is stored, so
+    it is also what the next edit starts from.
     """
 
     tool_available: Callable[[str], bool] | None = Field(default=None, exclude=True)
+    context_editor: Callable[[list[ChatMessage]], list[ChatMessage]] | None = Field(
+        default=None, exclude=True
+    )
 
     async def take_step(self, ctx, llm_input, tools, memory):
         if self.tool_available is not None:
             tools = [tool for tool in tools if self.tool_available(tool.metadata.name)]
+        if self.context_editor is not None:
+            scratchpad = await ctx.store.get(self.scratchpad_key, default=[])
+            await ctx.store.set(self.scratchpad_key, self.context_editor(list(scratchpad)))
         return await super().take_step(ctx, llm_input, tools, memory)
 
 
@@ -52,6 +63,7 @@ def run_agent_workflow(
     timeout_seconds: float | None = None,
     chat_history: list | None = None,
     tool_available: Callable[[str], bool] | None = None,
+    context_editor: Callable[[list[ChatMessage]], list[ChatMessage]] | None = None,
 ) -> str:
     """
     Run a LlamaIndex FunctionAgent and safely yield events/handle stalls.
@@ -59,6 +71,7 @@ def run_agent_workflow(
 
     ``tool_available`` is asked, before every model turn, whether each tool is
     still worth offering; tools it rejects are left out of that turn's request.
+    ``context_editor`` rewrites the in-run history before every model turn.
     """
     async def _run_agent():
         kwargs = {
@@ -71,8 +84,10 @@ def run_agent_workflow(
         if tool_retriever is not None:
             kwargs["tool_retriever"] = tool_retriever
 
-        if tool_available is not None:
-            explorer = _ToolPruningFunctionAgent(tool_available=tool_available, **kwargs)
+        if tool_available is not None or context_editor is not None:
+            explorer = _ToolPruningFunctionAgent(
+                tool_available=tool_available, context_editor=context_editor, **kwargs
+            )
         else:
             explorer = FunctionAgent(**kwargs)
 
