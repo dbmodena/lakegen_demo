@@ -1,0 +1,639 @@
+{
+  "sample_metadata": {
+    "source": "queries/generated_queries_nyc_new_20260924.json",
+    "sampling_seed": 42,
+    "count": 20,
+    "status_filter": "success",
+    "selection": "balanced_by_difficulty_and_table_scope",
+    "difficulty_quotas": {
+      "easy": 7,
+      "medium": 7,
+      "hard": 6
+    },
+    "table_scope_requirements": {
+      "multi_table": 7,
+      "single_table": 13
+    },
+    "strata": {
+      "easy": {
+        "multi_table": 2,
+        "single_table": 5
+      },
+      "medium": {
+        "multi_table": 2,
+        "single_table": 5
+      },
+      "hard": {
+        "multi_table": 3,
+        "single_table": 3
+      }
+    },
+    "skipped_invalid_generated_records": 46
+  },
+  "cases": [
+    {
+      "id": "86158c70",
+      "question": "What is the total area of archived golf courses in the borough that has the most golf courses (combined archive and current) within assembly district 26?",
+      "keywords": [
+        "archive",
+        "golf"
+      ],
+      "relevant_table_ids": [
+        "snr4-t66y",
+        "rjqi-t95z"
+      ],
+      "table_aliases": {
+        "Table_0": "snr4-t66y",
+        "Table_1": "rjqi-t95z"
+      },
+      "reference_code": "combined = pd.concat([Table_0, Table_1], ignore_index=True)\nfiltered = combined[combined['NYS_ASSEMB'] == '26']\nborough_counts = filtered.groupby('BOROUGH')['GISPROPNUM'].nunique().reset_index(name='borough_course_count')\ntop_borough = borough_counts.sort_values('borough_course_count', ascending=False).head(1)\narchived_in_top = top_borough.merge(Table_1, on='BOROUGH', how='inner')\narchived_in_top['SHAPE_STAr_numeric'] = pd.to_numeric(archived_in_top['SHAPE_STAr'].str.replace(',', ''), errors='coerce')\ntotal_area = archived_in_top['SHAPE_STAr_numeric'].sum()",
+      "reference_result": [
+        {
+          "result": 18353622.313358
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The summed surface area (SHAPE_STAr) of all archived golf courses located in the borough that hosts the highest combined number of current and archived golf courses within Assembly District 26."
+    },
+    {
+      "id": "beab3bec",
+      "question": "In the NYC Planimetric Database, for each status of hydrography structures, what is the average elevation and the total area of waterbody features that share the same source identifier?",
+      "keywords": [
+        "hydrography",
+        "structures",
+        "waterbody"
+      ],
+      "relevant_table_ids": [
+        "53au-zf7x",
+        "pjs3-c3z5"
+      ],
+      "table_aliases": {
+        "Table_0": "53au-zf7x",
+        "Table_1": "pjs3-c3z5"
+      },
+      "reference_code": "import pandas as pd\nTable_1 = Table_1.copy()\nTable_1['area_numeric'] = pd.to_numeric(Table_1['SHAPE_Area'], errors='coerce')\narea_per_source = (\n    Table_1.groupby('SOURCE_ID', as_index=False)['area_numeric']\n    .sum()\n    .rename(columns={'area_numeric': 'area_per_source'})\n)\nmerged = Table_0.merge(area_per_source, how='left', on='SOURCE_ID')\narea_distinct = (\n    merged.groupby(['STATUS', 'SOURCE_ID'], as_index=False)['area_per_source']\n    .first()\n    .rename(columns={'area_per_source': 'area_distinct'})\n)\navg_elev = (\n    Table_0.groupby('STATUS', as_index=False)['ELEVATION']\n    .mean()\n    .rename(columns={'ELEVATION': 'avg_elevation'})\n)\ntotal_waterbody_area = (\n    area_distinct.groupby('STATUS', as_index=False)['area_distinct']\n    .sum()\n    .rename(columns={'area_distinct': 'total_waterbody_area'})\n)\nresult = avg_elev.merge(total_waterbody_area, how='inner', on='STATUS')",
+      "reference_result": [
+        {
+          "STATUS": "New",
+          "avg_elevation": 8.1831864213,
+          "total_waterbody_area": 20847.596069547
+        },
+        {
+          "STATUS": "Unchanged",
+          "avg_elevation": 8.6717933607,
+          "total_waterbody_area": 0.0
+        },
+        {
+          "STATUS": "Updated",
+          "avg_elevation": 7.1716953907,
+          "total_waterbody_area": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per structure status (New, Unchanged, Updated) showing the average elevation of structures with that status and the total area of distinct waterbodies that share the same SOURCE_ID."
+    },
+    {
+      "id": "8ca9acaa",
+      "question": "How many human-powered boat launch sites are there in Brooklyn?",
+      "keywords": [
+        "human"
+      ],
+      "relevant_table_ids": [
+        "pxkn-awzt"
+      ],
+      "table_aliases": {
+        "Table_0": "pxkn-awzt"
+      },
+      "reference_code": "brooklyn_count = Table_0[Table_0['Borough'] == 'Brooklyn'].shape[0]",
+      "reference_result": [
+        {
+          "result": 12
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of human-powered boat launch sites located in Brooklyn."
+    },
+    {
+      "id": "b0cb87ea",
+      "question": "What are the three NYC zip codes with the lowest mobile broadband adoption, and how does each zip code’s home broadband adoption compare to the city‑wide average home broadband adoption?",
+      "keywords": [
+        "broadband"
+      ],
+      "relevant_table_ids": [
+        "qz5f-yx82"
+      ],
+      "table_aliases": {
+        "Table_0": "qz5f-yx82"
+      },
+      "reference_code": "city_avg_home = Table_0['Home Broadband Adoption (Percentage of  Households)'].mean()\nresult = (\n    Table_0\n    .sort_values(by=['Mobile Broadband Adoption (Percentage of Households)'], ascending=True)\n    .head(3)\n    .assign(home_vs_city=lambda df: df['Home Broadband Adoption (Percentage of  Households)'] - city_avg_home)\n    [['Zip Code', 'Mobile Broadband Adoption (Percentage of Households)', 'Home Broadband Adoption (Percentage of  Households)', 'home_vs_city']]\n)",
+      "reference_result": [
+        {
+          "Zip Code": "11,224",
+          "Mobile Broadband Adoption (Percentage of Households)": 0.6028,
+          "Home Broadband Adoption (Percentage of  Households)": 0.6224,
+          "home_vs_city": -0.140621371
+        },
+        {
+          "Zip Code": "10,464",
+          "Mobile Broadband Adoption (Percentage of Households)": 0.6138,
+          "Home Broadband Adoption (Percentage of  Households)": 0.6383,
+          "home_vs_city": -0.124721371
+        },
+        {
+          "Zip Code": "11,219",
+          "Mobile Broadband Adoption (Percentage of Households)": 0.6211,
+          "Home Broadband Adoption (Percentage of  Households)": 0.5463,
+          "home_vs_city": -0.216721371
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each row containing the zip code, its mobile broadband adoption percentage, its home broadband adoption percentage, and the difference between its home adoption and the city‑wide average home adoption."
+    },
+    {
+      "id": "5f732428",
+      "question": "What are the average and total lengths of HMP lines for each project identifier in the NYC Emergency Management Hazard Mitigation Plan?",
+      "keywords": [
+        "hmp",
+        "lines"
+      ],
+      "relevant_table_ids": [
+        "hqhh-iv7p"
+      ],
+      "table_aliases": {
+        "Table_0": "hqhh-iv7p"
+      },
+      "reference_code": "Table_0['Shape_Leng'] = pd.to_numeric(\n    Table_0['Shape_Leng'].str.replace(',', ''), errors='coerce'\n)\nresult = (\n    Table_0.groupby('HMP_Index', as_index=False)\n    .agg(avg_length=('Shape_Leng', 'mean'), total_length=('Shape_Leng', 'sum'))\n)",
+      "reference_result": [
+        {
+          "HMP_Index": "MA.00195",
+          "avg_length": 446208.588546,
+          "total_length": 446208.588546
+        },
+        {
+          "HMP_Index": "MA.00218",
+          "avg_length": 51658.8424977,
+          "total_length": 51658.8424977
+        },
+        {
+          "HMP_Index": "MA.00219",
+          "avg_length": 112544.685244,
+          "total_length": 112544.685244
+        },
+        {
+          "HMP_Index": "MA.00289",
+          "avg_length": 6223.11679183,
+          "total_length": 6223.11679183
+        },
+        {
+          "HMP_Index": "MA.00334",
+          "avg_length": 418.940756325,
+          "total_length": 418.940756325
+        },
+        {
+          "HMP_Index": "MA.00336",
+          "avg_length": 1168.80286803,
+          "total_length": 1168.80286803
+        },
+        {
+          "HMP_Index": "MA.00341",
+          "avg_length": 300.92349331,
+          "total_length": 300.92349331
+        },
+        {
+          "HMP_Index": "MA.00344",
+          "avg_length": 989.976264862,
+          "total_length": 989.976264862
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per HMP_Index showing the average line length and the total line length for that project identifier, both in the original units of Shape_Leng (meters)."
+    },
+    {
+      "id": "ba9183ea",
+      "question": "Across all school subdivisions (geographies), which grade showed the biggest increase in the percentage of students at level 3 or 4 in English Language Arts from 2006 to 2012, and how does that increase compare to the same grade’s change in Math?",
+      "keywords": [
+        "level"
+      ],
+      "relevant_table_ids": [
+        "9uqq-k6t8",
+        "e5c5-ieuv"
+      ],
+      "table_aliases": {
+        "Table_0": "9uqq-k6t8",
+        "Table_1": "e5c5-ieuv"
+      },
+      "reference_code": "import pandas as pd\nela_clean = Table_0[~Table_0['Pct Level 3 and 4'].isin(['s'])].copy()\nela_clean['Pct Level 3 and 4'] = pd.to_numeric(ela_clean['Pct Level 3 and 4'], errors='coerce')\nela_2006 = (\n    ela_clean[ela_clean['Year'] == 2006]\n    .groupby('Grade', as_index=False)['Pct Level 3 and 4']\n    .mean()\n    .rename(columns={'Pct Level 3 and 4': 'ela_pct_2006'})\n)\nela_2012 = (\n    ela_clean[ela_clean['Year'] == 2012]\n    .groupby('Grade', as_index=False)['Pct Level 3 and 4']\n    .mean()\n    .rename(columns={'Pct Level 3 and 4': 'ela_pct_2012'})\n)\nela = pd.merge(ela_2006, ela_2012, on='Grade', how='inner')\nela['ela_increase'] = ela['ela_pct_2012'] - ela['ela_pct_2006']\nmath_clean = Table_1[~Table_1['Pct Level 3 and 4'].isin(['s'])].copy()\nmath_clean['Pct Level 3 and 4'] = pd.to_numeric(math_clean['Pct Level 3 and 4'], errors='coerce')\nmath_2006 = (\n    math_clean[math_clean['Year'] == 2006]\n    .groupby('Grade', as_index=False)['Pct Level 3 and 4']\n    .mean()\n    .rename(columns={'Pct Level 3 and 4': 'math_pct_2006'})\n)\nmath_2012 = (\n    math_clean[math_clean['Year'] == 2012]\n    .groupby('Grade', as_index=False)['Pct Level 3 and 4']\n    .mean()\n    .rename(columns={'Pct Level 3 and 4': 'math_pct_2012'})\n)\nmath = pd.merge(math_2006, math_2012, on='Grade', how='inner')\nmath['math_increase'] = math['math_pct_2012'] - math['math_pct_2006']\nresult = (\n    pd.merge(\n        ela[['Grade', 'ela_increase']],\n        math[['Grade', 'math_increase']],\n        on='Grade',\n        how='inner',\n    )\n    .sort_values(by='ela_increase', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Grade": "8",
+          "ela_increase": -0.442353694,
+          "math_increase": 12.6577687843
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the grade that had the largest increase in the Level 3 and 4 percentage for English Language Arts between 2006 and 2012, the magnitude of that ELA increase (percentage points), and the corresponding increase in Mathematics for the same grade."
+    },
+    {
+      "id": "f52d8ff6",
+      "question": "How many canine waste bag dispensers with any type of mounting surface are recorded in the NYC parks list and also appear on the canine waste dispensers map?",
+      "keywords": [
+        "canine",
+        "map"
+      ],
+      "relevant_table_ids": [
+        "5npv-j6gn",
+        "bcsx-ch6m"
+      ],
+      "table_aliases": {
+        "Table_0": "5npv-j6gn",
+        "Table_1": "bcsx-ch6m"
+      },
+      "reference_code": "import pandas as pd\nunion_df = pd.concat([Table_0[['OBJECTID']], Table_1[['OBJECTID']]], ignore_index=True)\ngrouped = union_df.groupby('OBJECTID').size().reset_index(name='disp_count')\nfiltered = grouped[grouped['disp_count'] == 2]\ncommon_dispensers = filtered.shape[0]",
+      "reference_result": [
+        {
+          "result": 620
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of dispensers that are present in both the NYC parks list (Table_0) and the GIS map (Table_1), regardless of mounting surface."
+    },
+    {
+      "id": "350b7f1c",
+      "question": "What is the difference between the average overall attendance of all NYC public schools and the average overall attendance of the five schools with the highest overall attendance in September 2021?",
+      "keywords": [
+        "2021",
+        "september"
+      ],
+      "relevant_table_ids": [
+        "6ucq-tfej"
+      ],
+      "table_aliases": {
+        "Table_0": "6ucq-tfej"
+      },
+      "reference_code": "avg_all = Table_0['Overall Attendance Rate'].mean()\nTable_0['attendance_rank'] = Table_0['Overall Attendance Rate'].rank(method='dense', ascending=False)\navg_top5 = Table_0.loc[Table_0['attendance_rank'] <= 5, 'Overall Attendance Rate'].mean()\nattendance_diff = avg_all - avg_top5",
+      "reference_result": [
+        {
+          "result": -11.1912197734
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Difference (percentage points) between the overall average attendance across all NYC public schools and the average attendance of the five schools with the highest attendance in September 2021."
+    },
+    {
+      "id": "bb8ea66f",
+      "question": "How many DOB violations were issued in borough 5?",
+      "keywords": [
+        "dob"
+      ],
+      "relevant_table_ids": [
+        "3h2n-5cm9"
+      ],
+      "table_aliases": {
+        "Table_0": "3h2n-5cm9"
+      },
+      "reference_code": "violation_count = Table_0[Table_0['BORO'] == 5]['ISN_DOB_BIS_VIOL'].count()",
+      "reference_result": [
+        {
+          "0": 69467
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total count of DOB violation records where the borough code equals 5."
+    },
+    {
+      "id": "d8a6e138",
+      "question": "In 2012, which month had the most Municipal Law articles, and what is the title of the first article published that month?",
+      "keywords": [
+        "articles"
+      ],
+      "relevant_table_ids": [
+        "d84z-5kap"
+      ],
+      "table_aliases": {
+        "Table_0": "d84z-5kap"
+      },
+      "reference_code": "import pandas as pd\n_df = (\n    Table_0\n    .assign(\n        _date=lambda x: pd.to_datetime(x['Column Date'], errors='coerce'),\n        year=lambda x: x['_date'].dt.year,\n        month=lambda x: x['_date'].dt.month,\n    )\n    .loc[lambda x: x['year'] == 2012]\n)\n_top_month = (\n    _df.groupby('month')\n        .size()\n        .reset_index(name='month_count')\n        .sort_values('month_count', ascending=False)\n        .head(1)\n        .iloc[0]['month']\n)\nresult = (\n    _df.loc[lambda x: x['month'] == _top_month]\n        .sort_values('Column Date', ascending=True)\n        .head(1)\n        .loc[:, ['month', 'Columns Title']]\n)\nresult",
+      "reference_result": [
+        {
+          "month": 3,
+          "Columns Title": "Municipal Law - Local Legislation: The Year in Review"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table containing the month (as a number) that had the highest number of 2012 articles and the title of the earliest article published in that month."
+    },
+    {
+      "id": "2c85a7e0",
+      "question": "What do the results show for the number of students scoring below 65 on the Geometry Regents exam in 2015?",
+      "keywords": [
+        "results",
+        "scoring"
+      ],
+      "relevant_table_ids": [
+        "bnea-fu3k"
+      ],
+      "table_aliases": {
+        "Table_0": "bnea-fu3k"
+      },
+      "reference_code": "df = (\n    Table_0\n    .assign(**{'Number Scoring Below 65': lambda x: pd.to_numeric(x['Number Scoring Below 65'], errors='coerce')})\n    .query('Year == 2015')\n    .loc[lambda d: d['Regents Exam'].str.contains('geometry', case=False, na=False)]\n    [['School DBN', 'School Name', 'Number Scoring Below 65']]\n)",
+      "reference_result": [
+        {
+          "School DBN": "08X507",
+          "School Name": "Stevenson Yabc",
+          "Number Scoring Below 65": null
+        },
+        {
+          "School DBN": "02M298",
+          "School Name": "Pace High School",
+          "Number Scoring Below 65": 81.0
+        },
+        {
+          "School DBN": "02M414",
+          "School Name": "N.Y.C. Museum School",
+          "Number Scoring Below 65": 12.0
+        },
+        {
+          "School DBN": "02M416",
+          "School Name": "Eleanor Roosevelt High School",
+          "Number Scoring Below 65": 10.0
+        },
+        {
+          "School DBN": "01M292",
+          "School Name": "Orchard Collegiate Academy",
+          "Number Scoring Below 65": 9.0
+        },
+        {
+          "School DBN": "01M292",
+          "School Name": "Orchard Collegiate Academy",
+          "Number Scoring Below 65": 12.0
+        },
+        {
+          "School DBN": "01M448",
+          "School Name": "University Neighborhood High School",
+          "Number Scoring Below 65": 59.0
+        },
+        {
+          "School DBN": "01M448",
+          "School Name": "University Neighborhood High School",
+          "Number Scoring Below 65": 32.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Each row lists a school (DBN and name) together with the count of students who scored below 65 on the Geometry Regents exam in 2015."
+    },
+    {
+      "id": "3b43ed38",
+      "question": "What is the ratio of the increase in Math level 3 & 4 percentage from 2006 to 2023 to the English Language Arts level 3 & 4 percentage in 2006 for the Citywide subdivision?",
+      "keywords": [
+        "2006",
+        "level",
+        "subdivision"
+      ],
+      "relevant_table_ids": [
+        "9uqq-k6t8",
+        "e5c5-ieuv",
+        "74kb-55u9"
+      ],
+      "table_aliases": {
+        "Table_0": "9uqq-k6t8",
+        "Table_1": "e5c5-ieuv",
+        "Table_2": "74kb-55u9"
+      },
+      "reference_code": "import pandas as pd\nmath_pct_2006 = pd.to_numeric(\n    Table_1.loc[\n        (Table_1['Geographic Subdivision'] == 'Citywide') &\n        (Table_1['Grade'] == 'All Grades') &\n        (Table_1['Year'] == 2006),\n        'Pct Level 3 and 4'\n    ].replace(['s'], pd.NA),\n    errors='coerce'\n).iloc[0]\nmath_pct_2023 = pd.to_numeric(\n    Table_2.loc[\n        (Table_2['Geographic Subdivision'] == 'Citywide') &\n        (Table_2['Grade'] == 'All Grades') &\n        (Table_2['Year'] == 2023),\n        'Pct Level 3 and 4'\n    ].replace(['s'], pd.NA),\n    errors='coerce'\n).iloc[0]\nela_pct_2006 = pd.to_numeric(\n    Table_0.loc[\n        (Table_0['Geographic Subdivision'] == 'Citywide') &\n        (Table_0['Grade'] == 'All Grades') &\n        (Table_0['Year'] == 2006),\n        'Pct Level 3 and 4'\n    ].replace(['s'], pd.NA),\n    errors='coerce'\n).iloc[0]\nmath_increase = math_pct_2023 - math_pct_2006\nratio = math_increase / ela_pct_2006\nresult = pd.DataFrame({'ratio': [ratio]})",
+      "reference_result": [
+        {
+          "ratio": -0.1400394477
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single numeric ratio representing (Math level 3 & 4 % increase from 2006 to 2023) divided by (ELA level 3 & 4 % in 2006) for the Citywide subdivision."
+    },
+    {
+      "id": "22dbf221",
+      "question": "How many water-quality samples have qualifiers that accompany the measurements at the ASP site?",
+      "keywords": [
+        "accompany"
+      ],
+      "relevant_table_ids": [
+        "shus-qn78"
+      ],
+      "table_aliases": {
+        "Table_0": "shus-qn78"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['Sample Site'] == 'ASP']\n    .loc[Table_0['Qualifier'] != '']\n    .shape[0]\n)",
+      "reference_result": [
+        {
+          "result": 3967
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of water‑quality samples collected at the ASP site that have a qualifier attached to the measurement."
+    },
+    {
+      "id": "985d4bf0",
+      "question": "Which plant category has the most plants available in the Greenbelt Native Plant Center inventory?",
+      "keywords": [
+        "greenbelt"
+      ],
+      "relevant_table_ids": [
+        "kz4v-8ai2"
+      ],
+      "table_aliases": {
+        "Table_0": "kz4v-8ai2"
+      },
+      "reference_code": "result = (\n    Table_0.assign(QuantityAvailable=pd.to_numeric(Table_0['QuantityAvailable'], errors='coerce'))\n          .groupby('ProductLine', as_index=False)['QuantityAvailable']\n          .sum()\n          .rename(columns={'QuantityAvailable': 'total_per_category'})\n          .sort_values('total_per_category', ascending=False)\n          .head(1)\n)",
+      "reference_result": [
+        {
+          "ProductLine": "Herb",
+          "total_per_category": 5142.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A one‑row table showing the product line (plant category) with the highest total number of plants available and the corresponding total count."
+    },
+    {
+      "id": "50c75994",
+      "question": "In congres district 11, which borough has the highest average area of active golf courses, what is that average area, what is the total length of archived golf courses in that borough, and how many directory‑listed golf courses are there in the same borough?",
+      "keywords": [
+        "congres",
+        "golf"
+      ],
+      "relevant_table_ids": [
+        "snr4-t66y",
+        "rjqi-t95z",
+        "dc95-rgxd"
+      ],
+      "table_aliases": {
+        "Table_0": "snr4-t66y",
+        "Table_1": "rjqi-t95z",
+        "Table_2": "dc95-rgxd"
+      },
+      "reference_code": "import pandas as pd\nactive_df = Table_2[Table_2['US_CONGRESS'] == 11].copy()\nactive_df['STArea_num'] = pd.to_numeric(active_df['STArea'].str.replace(',', '', regex=False), errors='coerce')\navg_area_df = (\n    active_df.groupby('BOROUGH', as_index=False)\n    .agg(avg_area=('STArea_num', 'mean'))\n)\nsorted_avg = avg_area_df.sort_values(by='avg_area', ascending=False)\ntop_borough_df = sorted_avg.head(1)\narchived_df = Table_1[Table_1['US_CONGRES'] == 11].copy()\narchived_df['SHAPE_STLe_num'] = pd.to_numeric(archived_df['SHAPE_STLe'].str.replace(',', '', regex=False), errors='coerce')\ntotal_length_df = (\n    archived_df.groupby('BOROUGH', as_index=False)\n    .agg(total_length=('SHAPE_STLe_num', 'sum'))\n)\ndirectory_df = Table_0[Table_0['US_CONGRES'] == 11]\ndir_count_df = (\n    directory_df.groupby('BOROUGH', as_index=False)\n    .agg(dir_count=('GISPROPNUM', 'count'))\n)\nmerged1 = top_borough_df.merge(total_length_df, on='BOROUGH', how='inner')\nresult = merged1.merge(dir_count_df, on='BOROUGH', how='inner')",
+      "reference_result": [
+        {
+          "BOROUGH": "B",
+          "avg_area": 7132309.135070801,
+          "total_length": 10860.8943935,
+          "dir_count": 1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the borough in congressional district 11 with the highest average area of active golf courses, the average area (square feet), the total length of archived golf courses (feet) in that borough, and the count of directory‑listed golf courses in that borough."
+    },
+    {
+      "id": "44b62dcf",
+      "question": "Which grade in the Citywide geography subdivision showed the largest increase in Math level 3 percentage from 2006 to 2023, and what was the Math minus English Language Arts level 3 percentage gap in 2006 for that grade?",
+      "keywords": [
+        "2006",
+        "level",
+        "subdivision",
+        "geography"
+      ],
+      "relevant_table_ids": [
+        "9uqq-k6t8",
+        "e5c5-ieuv",
+        "74kb-55u9"
+      ],
+      "table_aliases": {
+        "Table_0": "9uqq-k6t8",
+        "Table_1": "e5c5-ieuv",
+        "Table_2": "74kb-55u9"
+      },
+      "reference_code": "import pandas as pd\ndf_math_2006 = Table_1[\n    (Table_1['Geographic Subdivision'].str.lower() == 'citywide') &\n    (Table_1['Year'] == 2006) &\n    (Table_1['Student Category'] == 'All Students')\n].copy()\ndf_math_2006['Pct Level 3'] = df_math_2006['Pct Level 3'].replace(['s'], pd.NA)\ndf_math_2006['Pct Level 3'] = pd.to_numeric(df_math_2006['Pct Level 3'], errors='coerce')\ndf_math_2006 = df_math_2006.rename(columns={'Grade': 'grade_key', 'Pct Level 3': 'math_2006'})\ndf_ela_2006 = Table_0[\n    (Table_0['Geographic Subdivision'].str.lower() == 'citywide') &\n    (Table_0['Year'] == 2006) &\n    (Table_0['Student Category'] == 'All Students')\n].copy()\ndf_ela_2006['Pct Level 3'] = df_ela_2006['Pct Level 3'].replace(['s'], pd.NA)\ndf_ela_2006['Pct Level 3'] = pd.to_numeric(df_ela_2006['Pct Level 3'], errors='coerce')\ndf_ela_2006 = df_ela_2006.rename(columns={'Grade': 'grade_key', 'Pct Level 3': 'ela_2006'})\ndf_2006 = pd.merge(\n    df_math_2006,\n    df_ela_2006,\n    on=['Geographic Subdivision', 'Year', 'grade_key', 'Student Category'],\n    how='inner'\n)\ndf_2006['gap_2006'] = df_2006['math_2006'] - df_2006['ela_2006']\ndf_math_2023 = Table_2[\n    (Table_2['Geographic Subdivision'].str.lower() == 'citywide') &\n    (Table_2['Year'] == 2023) &\n    (Table_2['Student Category'] == 'All Students')\n].copy()\ndf_math_2023['Pct Level 3'] = df_math_2023['Pct Level 3'].replace(['s'], pd.NA)\ndf_math_2023['Pct Level 3'] = pd.to_numeric(df_math_2023['Pct Level 3'], errors='coerce')\ndf_math_2023 = df_math_2023.rename(columns={'Grade': 'grade_key_2023', 'Pct Level 3': 'math_2023'})\ndf_combined = pd.merge(\n    df_2006,\n    df_math_2023,\n    on=['Geographic Subdivision'],\n    how='inner'\n)\ndf_combined = df_combined[df_combined['grade_key'] == df_combined['grade_key_2023']]\ndf_combined['increase'] = df_combined['math_2023'] - df_combined['math_2006']\nresult = (\n    df_combined\n    .sort_values(by='increase', ascending=False)\n    .head(1)\n    [['grade_key', 'increase', 'gap_2006']]\n)",
+      "reference_result": [
+        {
+          "grade_key": "8",
+          "increase": -3.8,
+          "gap_2006": -2.3
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with the grade that had the largest increase in Math level 3 percentage from 2006 to 2023, the increase amount, and the Math minus ELA level 3 percentage gap in 2006 for that grade."
+    },
+    {
+      "id": "a6ceb765",
+      "question": "How many FOIL requests were submitted by mail to each New York City agency according to OpenRecords?",
+      "keywords": [
+        "openrecords"
+      ],
+      "relevant_table_ids": [
+        "kegn-anvq"
+      ],
+      "table_aliases": {
+        "Table_0": "kegn-anvq"
+      },
+      "reference_code": "mail_counts = (\n    Table_0[Table_0['Submission Method'] == 'Mail']\n    .groupby('Agency Name', as_index=False)\n    .agg(mail_requests=('Request ID', 'count'))\n)",
+      "reference_result": [
+        {
+          "Agency Name": "Administration for Children's Services",
+          "mail_requests": 30
+        },
+        {
+          "Agency Name": "Board of Correction",
+          "mail_requests": 3
+        },
+        {
+          "Agency Name": "Civilian Complaint Review Board",
+          "mail_requests": 184
+        },
+        {
+          "Agency Name": "Department of Buildings",
+          "mail_requests": 1302
+        },
+        {
+          "Agency Name": "Department of City Planning",
+          "mail_requests": 1928
+        },
+        {
+          "Agency Name": "Department of Consumer and Worker Protection",
+          "mail_requests": 203
+        },
+        {
+          "Agency Name": "Department of Correction",
+          "mail_requests": 595
+        },
+        {
+          "Agency Name": "Department of Cultural Affairs",
+          "mail_requests": 5
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per agency showing the number of FOIL requests that were submitted by mail."
+    },
+    {
+      "id": "d09f22a8",
+      "question": "According to openrecords, which agency had the highest number of FOIL requests closed in 2006, and how many of those were submitted by mail?",
+      "keywords": [
+        "openrecords"
+      ],
+      "relevant_table_ids": [
+        "kegn-anvq"
+      ],
+      "table_aliases": {
+        "Table_0": "kegn-anvq"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(\n        close_year=pd.to_datetime(Table_0['Request Close Date'], errors='coerce').dt.year,\n        is_mail=Table_0['Submission Method'] == 'Mail'\n    )\n    .loc[lambda df: (df['close_year'] == 2006) & (df['Request Status'] == 'Closed')]\n    .groupby('Agency Name', as_index=False)\n    .agg(\n        total_closed=('Request ID', 'count'),\n        mail_closed=('is_mail', 'sum')\n    )\n    .sort_values('total_closed', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Agency Name": "Department of City Planning",
+          "total_closed": 105,
+          "mail_closed": 105
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table containing the agency name, the total number of FOIL requests it closed in 2006, and how many of those were submitted by mail."
+    },
+    {
+      "id": "fbde4222",
+      "question": "What was the total number of EMS transports for psychological conditions in administrative district 03 of the NYC Department of Education during the first six months of 2015‑2016?",
+      "keywords": [
+        "psychological"
+      ],
+      "relevant_table_ids": [
+        "87hk-978a"
+      ],
+      "table_aliases": {
+        "Table_0": "87hk-978a"
+      },
+      "reference_code": "df_clean = Table_0.replace({'TOTAL EMS TRANSPORTS for EMOTIONAL/PSYCHOLOGICAL CONDITIONS': {'*': pd.NA}})\ndf_clean = df_clean.dropna(subset=['TOTAL EMS TRANSPORTS for EMOTIONAL/PSYCHOLOGICAL CONDITIONS'])\ndf_clean['TOTAL EMS TRANSPORTS for EMOTIONAL/PSYCHOLOGICAL CONDITIONS'] = pd.to_numeric(df_clean['TOTAL EMS TRANSPORTS for EMOTIONAL/PSYCHOLOGICAL CONDITIONS'], errors='coerce')\nresult = df_clean[df_clean['ADMINISTRATIVE DISTRICT'] == '03']['TOTAL EMS TRANSPORTS for EMOTIONAL/PSYCHOLOGICAL CONDITIONS'].sum()",
+      "reference_result": [
+        {
+          "0": 9
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of EMS transports for psychological conditions recorded for administrative district 03 during the first six months of the 2015‑2016 school year."
+    },
+    {
+      "id": "db9bff4b",
+      "question": "Which three program types have the highest typical class size in grades where the size is at least 16, and what are those sizes, for the 2015‑16 school year?",
+      "keywords": [
+        "16",
+        "size"
+      ],
+      "relevant_table_ids": [
+        "pknx-dgka"
+      ],
+      "table_aliases": {
+        "Table_0": "pknx-dgka"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['Average Class Size'] >= 16]\n    .groupby('Program Type', as_index=False)\n    .agg(typical_class_size=('Average Class Size', 'mean'))\n    .sort_values(by='typical_class_size', ascending=False)\n    .head(3)\n    .loc[:, ['Program Type', 'typical_class_size']]\n)",
+      "reference_result": [
+        {
+          "Program Type": "G&T",
+          "typical_class_size": 27.2837557604
+        },
+        {
+          "Program Type": "ICT",
+          "typical_class_size": 25.5896740753
+        },
+        {
+          "Program Type": "Gen Ed",
+          "typical_class_size": 25.3085713375
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing a Program Type and its average (typical) class size among grades where the class size was at least 16, sorted from highest to lowest size."
+    }
+  ]
+}

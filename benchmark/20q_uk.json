@@ -1,0 +1,689 @@
+{
+  "sample_metadata": {
+    "source": "queries/generated_queries_uk_new_20260924.json",
+    "sampling_seed": 42,
+    "count": 20,
+    "status_filter": "success",
+    "selection": "balanced_by_difficulty_and_table_scope",
+    "difficulty_quotas": {
+      "easy": 7,
+      "medium": 7,
+      "hard": 6
+    },
+    "table_scope_requirements": {
+      "multi_table": 7,
+      "single_table": 13
+    },
+    "strata": {
+      "easy": {
+        "multi_table": 2,
+        "single_table": 5
+      },
+      "medium": {
+        "multi_table": 2,
+        "single_table": 5
+      },
+      "hard": {
+        "multi_table": 3,
+        "single_table": 3
+      }
+    },
+    "skipped_invalid_generated_records": 39
+  },
+  "cases": [
+    {
+      "id": "a6c2dae1",
+      "question": "Which vendor received the highest total of payments over £25,000 from the National Gallery across June 2022 and May 2023, and how does that vendor’s total compare to the average total per vendor for each month?",
+      "keywords": [
+        "2022",
+        "june",
+        "over",
+        "2023",
+        "may",
+        "payments"
+      ],
+      "relevant_table_ids": [
+        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
+        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___40483359-c0ed-42d5-8e93-4a61afc63784"
+      ],
+      "table_aliases": {
+        "Table_0": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
+        "Table_1": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___40483359-c0ed-42d5-8e93-4a61afc63784"
+      },
+      "reference_code": "import pandas as pd\ndef _to_datetime(df):\n    df = df.copy()\n    df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')\n    return df\njune_df = (\n    Table_0\n    .pipe(_to_datetime)\n)\njune_df = (\n    june_df.loc[\n        (june_df['Entity'].str.lower() == 'national gallery') &\n        (june_df['Date'].dt.month == 6) &\n        (june_df['Date'].dt.year == 2022),\n        ['Supplier', 'Amount']\n    ]\n    .copy()\n)\njune_df['Amount'] = pd.to_numeric(june_df['Amount'], errors='coerce')\njune_df = june_df[june_df['Amount'] > 25000]\nmay_df = (\n    Table_1\n    .pipe(_to_datetime)\n)\nmay_df = (\n    may_df.loc[\n        (may_df['Entity'].str.lower() == 'national gallery') &\n        (may_df['Date'].dt.month == 5) &\n        (may_df['Date'].dt.year == 2023),\n        ['Supplier', 'Amount']\n    ]\n    .copy()\n)\nmay_df['Amount'] = pd.to_numeric(may_df['Amount'], errors='coerce')\nmay_df = may_df[may_df['Amount'] > 25000]\nunion_df = pd.concat([june_df, may_df], ignore_index=True)\nvendor_totals = (\n    union_df.groupby('Supplier', as_index=False)['Amount']\n    .sum()\n    .rename(columns={'Amount': 'total_amount'})\n)\ntop_vendor = vendor_totals.loc[vendor_totals['total_amount'].idxmax()].to_frame().T\navg_june = (\n    june_df.groupby('Supplier', as_index=False)['Amount']\n    .sum()['Amount']\n    .mean()\n)\navg_may = (\n    may_df.groupby('Supplier', as_index=False)['Amount']\n    .sum()['Amount']\n    .mean()\n)\ntop_vendor['avg_june'] = avg_june\ntop_vendor['avg_may'] = avg_may\nresult = top_vendor[['Supplier', 'total_amount', 'avg_june', 'avg_may']]",
+      "reference_result": [
+        {
+          "Supplier": "Westminster City Council Business Rates",
+          "total_amount": 1361868.0,
+          "avg_june": 284211.328,
+          "avg_may": 136499.8576190476
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row: the vendor (Supplier) that has the highest combined payment total across June 2022 and May 2023, its total amount, the average payment total per vendor for June 2022, and the average payment total per vendor for May 2023."
+    },
+    {
+      "id": "a312ab4c",
+      "question": "How many compliance sections appear in both the September 2019 and March 2019 FSA lists, and what share of the September 2019 sections does that represent?",
+      "keywords": [
+        "sections",
+        "september"
+      ],
+      "relevant_table_ids": [
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___9ac55517-a24e-446b-a5df-32b3709128fb"
+      ],
+      "table_aliases": {
+        "Table_0": "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "Table_1": "cf0adf86-5936-46f0-8d5f-73049b135d76___9ac55517-a24e-446b-a5df-32b3709128fb"
+      },
+      "reference_code": "common_df = Table_0.merge(Table_1, on='QuestionNo', how='inner')\ncommon_count = len(common_df)\nsep_count = len(Table_0)\nshare_sep = common_count / sep_count if sep_count != 0 else pd.NA\nresult = pd.DataFrame({'common_count': [common_count], 'share_sep': [share_sep]})",
+      "reference_result": [
+        {
+          "common_count": 112,
+          "share_sep": 1.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with column 'common_count' (the number of sections present in both September and March 2019 lists) and column 'share_sep' (the proportion of September sections that are common, expressed as a decimal)."
+    },
+    {
+      "id": "a065a024",
+      "question": "How many points recorded the Abra alba, Nucula nitida and Corbula gibba habitat in the 1990 Wimpey Environmental Scarborough survey?",
+      "keywords": [
+        "habitat",
+        "wimpey"
+      ],
+      "relevant_table_ids": [
+        "d8523778-861a-4c54-8497-8519816a5a6d___a619d2bc-6928-490d-9590-63df71c16235"
+      ],
+      "table_aliases": {
+        "Table_0": "d8523778-861a-4c54-8497-8519816a5a6d___a619d2bc-6928-490d-9590-63df71c16235"
+      },
+      "reference_code": "point_count = Table_0[Table_0['HabitatCode'] == 'CMS.AbrNucCor']['RecordKey'].count()\npoint_count",
+      "reference_result": [
+        {
+          "0": 36
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of point records for the Abra alba, Nucula nitida and Corbula gibba habitat in the 1990 Wimpey Environmental Scarborough survey."
+    },
+    {
+      "id": "6d2af36c",
+      "question": "Which area in Leeds had the highest total refunds written off on 14 July 2016, and what was that total?",
+      "keywords": [
+        "14"
+      ],
+      "relevant_table_ids": [
+        "46df84a7-eac4-4beb-ae7c-6e2460bd1e1a___4419a45f-1b04-4c2a-b810-c96bb1d8b83f"
+      ],
+      "table_aliases": {
+        "Table_0": "46df84a7-eac4-4beb-ae7c-6e2460bd1e1a___4419a45f-1b04-4c2a-b810-c96bb1d8b83f"
+      },
+      "reference_code": "Table_0['Amount written-off'] = pd.to_numeric(Table_0['Amount written-off'], errors='coerce')\nresult = (\n    Table_0\n    .groupby('Postcode', as_index=False)['Amount written-off']\n    .sum()\n    .rename(columns={'Amount written-off': 'total_refund'})\n    .sort_values('total_refund', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Postcode": "LS11 5QP",
+          "total_refund": 5369.6
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the postcode area with the highest total refund amount and the corresponding total, expressed in pounds."
+    },
+    {
+      "id": "672c0816",
+      "question": "How many observations were recorded at each location during the 1991 Calf of Man survey for species classified as Rare?",
+      "keywords": [
+        "calf"
+      ],
+      "relevant_table_ids": [
+        "1966c02e-b235-4665-8d0e-03ab1cc800b6___c39a13b4-3ddc-441a-bb50-f15cda093e53"
+      ],
+      "table_aliases": {
+        "Table_0": "1966c02e-b235-4665-8d0e-03ab1cc800b6___c39a13b4-3ddc-441a-bb50-f15cda093e53"
+      },
+      "reference_code": "result = Table_0[Table_0['Abundance_SACFORN'] == 'R'].groupby('LocationName').size().reset_index(name='rare_count')",
+      "reference_result": [
+        {
+          "LocationName": "Amulty Point (Calf of Man)",
+          "rare_count": 10
+        },
+        {
+          "LocationName": "Bay NE of the Stack (Calf of Man)",
+          "rare_count": 17
+        },
+        {
+          "LocationName": "Bay yn Ow (Calf of Man)",
+          "rare_count": 50
+        },
+        {
+          "LocationName": "Betwwen the Stack and Craegh Veanagh (Calf of Man)",
+          "rare_count": 34
+        },
+        {
+          "LocationName": "E. of Burroo, Calf (Calf of Man)",
+          "rare_count": 1
+        },
+        {
+          "LocationName": "East Cow Harbour (Calf of Man)",
+          "rare_count": 19
+        },
+        {
+          "LocationName": "East of the Stack (Calf of Man)",
+          "rare_count": 13
+        },
+        {
+          "LocationName": "Gibdale Bay E. Side (Calf of Man)",
+          "rare_count": 9
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per location with the count of observations whose abundance category is Rare (R) during the 1991 Calf of Man survey."
+    },
+    {
+      "id": "1a4d3750",
+      "question": "Across the biotoxin monitoring results from 2021, 2022, 2023 and 2026, which three loughs showed the greatest increase in the number of open mussel samples, and what were the counts of open samples for each lough in each year?",
+      "keywords": [
+        "2026",
+        "biotoxin",
+        "2022",
+        "2023"
+      ],
+      "relevant_table_ids": [
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___45dda33c-5269-4944-8f2a-36622aff5f76",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___2d98fe62-4498-4e5b-836b-bb1e837d9b15",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___29e57dc6-0a7c-4e4e-9e1f-0e556330eaaa"
+      ],
+      "table_aliases": {
+        "Table_0": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
+        "Table_1": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___45dda33c-5269-4944-8f2a-36622aff5f76",
+        "Table_2": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___2d98fe62-4498-4e5b-836b-bb1e837d9b15",
+        "Table_3": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___29e57dc6-0a7c-4e4e-9e1f-0e556330eaaa"
+      },
+      "reference_code": "Table_2_renamed = Table_2.rename(columns={'CurrentStatus': 'Current Status'})\n_df0 = Table_0[(Table_0['ShellfishSpecies'] == 'Mussels') & (Table_0['Current Status'] == 'OPEN')]\ncount_2026 = _df0.groupby('Lough').size().reset_index(name='count_2026')\n_df1 = Table_1[(Table_1['ShellfishSpecies'] == 'Mussels') & (Table_1['Current Status'] == 'OPEN')]\ncount_2022 = _df1.groupby('Lough').size().reset_index(name='count_2022')\n_df2 = Table_2_renamed[(Table_2_renamed['ShellfishSpecies'] == 'Mussels') & (Table_2_renamed['Current Status'] == 'OPEN')]\ncount_2021 = _df2.groupby('Lough').size().reset_index(name='count_2021')\n_df3 = Table_3[(Table_3['ShellfishSpecies'] == 'Mussels') & (Table_3['Current Status'] == 'Open')]\ncount_2023 = _df3.groupby('Lough').size().reset_index(name='count_2023')\nmerged = pd.merge(count_2021, count_2022, on='Lough', how='outer')\nmerged = pd.merge(merged, count_2023, on='Lough', how='outer')\nmerged = pd.merge(merged, count_2026, on='Lough', how='outer')\nmerged['increase'] = merged['count_2026'].fillna(0) - merged['count_2021'].fillna(0)\nresult = merged.sort_values('increase', ascending=False).head(3)\nresult = result[['Lough', 'count_2021', 'count_2022', 'count_2023', 'count_2026', 'increase']]",
+      "reference_result": [
+        {
+          "Lough": "Lough Foyle",
+          "count_2021": 2,
+          "count_2022": null,
+          "count_2023": null,
+          "count_2026": null,
+          "increase": -2.0
+        },
+        {
+          "Lough": "Carlingford",
+          "count_2021": 26,
+          "count_2022": 102.0,
+          "count_2023": 102.0,
+          "count_2026": 16.0,
+          "increase": -10.0
+        },
+        {
+          "Lough": "Dundrum",
+          "count_2021": 35,
+          "count_2022": null,
+          "count_2023": null,
+          "count_2026": null,
+          "increase": -35.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows – the three loughs that had the largest increase in open mussel sample counts from 2021 to 2026 – showing for each lough the counts of open mussel samples in 2021, 2022, 2023 and 2026 and the computed increase."
+    },
+    {
+      "id": "54316e8d",
+      "question": "How many Community Safety Partnerships existed in December 2023, and how many existed in December 2021?",
+      "keywords": [
+        "2023",
+        "safety"
+      ],
+      "relevant_table_ids": [
+        "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "8e18a5c0-5921-4be7-bd82-659a0eaaa81f___1fe9eae5-1d3e-4306-8f44-5ad6dd833684"
+      ],
+      "table_aliases": {
+        "Table_0": "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "Table_1": "8e18a5c0-5921-4be7-bd82-659a0eaaa81f___1fe9eae5-1d3e-4306-8f44-5ad6dd833684"
+      },
+      "reference_code": "import numpy as np\ncombined = pd.concat([Table_0, Table_1], ignore_index=True, sort=False)\ncombined = combined.assign(\n    is_2023=combined['CSP23CD'].notnull(),\n    is_2021=combined['CSP21CD'].notnull()\n)\ncombined['year'] = np.where(combined['is_2023'], 2023, 2021)\nresult = (\n    combined.groupby('year')\n            .size()\n            .reset_index(name='count')\n            .sort_values('year')\n            .reset_index(drop=True)\n)",
+      "reference_result": [
+        {
+          "year": 2021,
+          "count": 314
+        },
+        {
+          "year": 2023,
+          "count": 314
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A two‑row table where each row contains a year (2023 or 2021) and the corresponding number of Community Safety Partnerships that existed in December of that year."
+    },
+    {
+      "id": "1771dc95",
+      "question": "How many assets are in the TfGM property type that has the most assets?",
+      "keywords": [
+        "property",
+        "tfgm"
+      ],
+      "relevant_table_ids": [
+        "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
+      ],
+      "table_aliases": {
+        "Table_0": "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
+      },
+      "reference_code": "result = (Table_0.groupby('Internal Category').size().reset_index(name='category_count').sort_values('category_count', ascending=False).head(1)['category_count'].iloc[0])",
+      "reference_result": [
+        {
+          "0": 140
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The number of assets belonging to the property type that appears most frequently in the TfGM asset list."
+    },
+    {
+      "id": "c3487169",
+      "question": "Which 2015 electoral ward contains the lsoa11 area identified by code E01000104?",
+      "keywords": [
+        "electoral",
+        "lsoa11"
+      ],
+      "relevant_table_ids": [
+        "50c16cae-9b1d-40e6-9e09-72df7630c243___e5b0056b-cf54-4b30-bf97-1c174aed6b98"
+      ],
+      "table_aliases": {
+        "Table_0": "50c16cae-9b1d-40e6-9e09-72df7630c243___e5b0056b-cf54-4b30-bf97-1c174aed6b98"
+      },
+      "reference_code": "Table_0.loc[Table_0['LSOA11CD'] == 'E01000104', 'WD15NM'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "Village"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the 2015 electoral ward that contains the LSOA with code E01000104."
+    },
+    {
+      "id": "6cc20859",
+      "question": "For each bedrock type, which two line types have the highest average length of linear bedrock units along the Northern Ireland coastline, and what is the total length of those line types?",
+      "keywords": [
+        "linear"
+      ],
+      "relevant_table_ids": [
+        "fff315f7-05e2-4c7e-901e-af7b3a57680e___755d2944-92a0-47ba-98c1-75fc3923ea49"
+      ],
+      "table_aliases": {
+        "Table_0": "fff315f7-05e2-4c7e-901e-af7b3a57680e___755d2944-92a0-47ba-98c1-75fc3923ea49"
+      },
+      "reference_code": "avg_len = Table_0.groupby(['TYPE', 'LINE_TYPE'], as_index=False)['Shape__Length'].mean().rename(columns={'Shape__Length': 'avg_length'})\navg_len = avg_len.assign(rank=avg_len.groupby('TYPE')['avg_length'].rank(method='first', ascending=False))\ntop2 = avg_len[avg_len['rank'] <= 2]\njoined = Table_0.merge(top2[['TYPE', 'LINE_TYPE']], on=['TYPE', 'LINE_TYPE'], how='inner')\ntotal_len = joined.groupby('TYPE', as_index=False)['Shape__Length'].sum().rename(columns={'Shape__Length': 'top2_total_length'})\nfinal = top2.merge(total_len, on='TYPE', how='inner')\nresult = final[['TYPE', 'LINE_TYPE', 'top2_total_length']]",
+      "reference_result": [
+        {
+          "TYPE": "COAL",
+          "LINE_TYPE": "Coal_Inf",
+          "top2_total_length": 7076.2172525732
+        },
+        {
+          "TYPE": "COAL",
+          "LINE_TYPE": "Coal_Obs",
+          "top2_total_length": 7076.2172525732
+        },
+        {
+          "TYPE": "MARINE",
+          "LINE_TYPE": "Marine_band",
+          "top2_total_length": 2023.7208805013
+        },
+        {
+          "TYPE": "UNDIFF",
+          "LINE_TYPE": "Ironstone_Inf",
+          "top2_total_length": 679.7892515377
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Rows for each bedrock TYPE, each of its two LINE_TYPEs with the highest average length, and the combined total length (in metres) of those two line types."
+    },
+    {
+      "id": "c7170f55",
+      "question": "How many water abstraction licences were in place in Northern Ireland as of 16 May 2023?",
+      "keywords": [
+        "abstraction"
+      ],
+      "relevant_table_ids": [
+        "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      ],
+      "table_aliases": {
+        "Table_0": "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      },
+      "reference_code": "Table_0[Table_0['Dataset_Da'] == '2023/05/16 00:00:00+00'].shape[0]",
+      "reference_result": [
+        {
+          "result": 853
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of water abstraction licences recorded in Northern Ireland on 16 May 2023."
+    },
+    {
+      "id": "6662eae2",
+      "question": "How many compliance sections are listed in total across the September 2019, June 2019, January 2020 and April 2020 Food Standards Agency reports?",
+      "keywords": [
+        "sections",
+        "september",
+        "june",
+        "january",
+        "april"
+      ],
+      "relevant_table_ids": [
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___83ad9edd-d21c-49cd-9cdc-ddc2273615a5",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___d37fe273-65d2-4264-9c0c-7d5ce5dacd03",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___ba629430-3f22-43d1-a850-12c50f8e5f1f"
+      ],
+      "table_aliases": {
+        "Table_0": "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "Table_1": "cf0adf86-5936-46f0-8d5f-73049b135d76___83ad9edd-d21c-49cd-9cdc-ddc2273615a5",
+        "Table_2": "cf0adf86-5936-46f0-8d5f-73049b135d76___d37fe273-65d2-4264-9c0c-7d5ce5dacd03",
+        "Table_3": "cf0adf86-5936-46f0-8d5f-73049b135d76___ba629430-3f22-43d1-a850-12c50f8e5f1f"
+      },
+      "reference_code": "total_0 = Table_0['QuestionNo'].count()\ntotal_1 = Table_1['QuestionNo'].count()\ntotal_2 = Table_2['QuestionNo'].count()\ntotal_3 = Table_3['QuestionNo'].count()\ntotal_all = total_0 + total_1 + total_2 + total_3\nresult = pd.DataFrame({'total_all': [total_all]})",
+      "reference_result": [
+        {
+          "total_all": 430
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of compliance sections listed across the September 2019, June 2019, January 2020 and April 2020 FSA reports."
+    },
+    {
+      "id": "38c9947f",
+      "question": "In july 2019, how many dinner hospitality events were recorded for the Business, Energy and Industrial Strategy ministers?",
+      "keywords": [
+        "july",
+        "strategy"
+      ],
+      "relevant_table_ids": [
+        "d314604c-035b-42b2-99fb-b5a56fc4818d___256c0de2-48c1-4b2d-9ebb-6ce88e6d7e71"
+      ],
+      "table_aliases": {
+        "Table_0": "d314604c-035b-42b2-99fb-b5a56fc4818d___256c0de2-48c1-4b2d-9ebb-6ce88e6d7e71"
+      },
+      "reference_code": "event_count = Table_0[(Table_0['Date'].str.startswith('2019-07')) & (Table_0['Type of hospitality received'] == 'Dinner')].shape[0]",
+      "reference_result": [
+        {
+          "result": 1
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of dinner‑type hospitality events recorded in July 2019 for BEIS ministers."
+    },
+    {
+      "id": "ba2f3db8",
+      "question": "As of 1 April 2025, how many local authority districts are in each community safety partnership, and which partnership has the highest number of districts?",
+      "keywords": [
+        "local"
+      ],
+      "relevant_table_ids": [
+        "1878dff0-fede-48f3-b011-3ca826714469___e8cc60d8-f3bb-4a29-ad58-821247d88d95"
+      ],
+      "table_aliases": {
+        "Table_0": "1878dff0-fede-48f3-b011-3ca826714469___e8cc60d8-f3bb-4a29-ad58-821247d88d95"
+      },
+      "reference_code": "result = (\n    Table_0.groupby('CSP25NM')['LAD25CD'].nunique()\n    .reset_index(name='district_count')\n    .sort_values(by='district_count', ascending=False)\n)",
+      "reference_result": [
+        {
+          "CSP25NM": "South Devon and Dartmoor",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "Western Suffolk",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "North Worcestershire",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "South Nottinghamshire",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "North Hampshire",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "South Worcester",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "Dorset",
+          "district_count": 2
+        },
+        {
+          "CSP25NM": "Dartford and Gravesham",
+          "district_count": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per community safety partnership showing the count of local authority districts in that partnership, sorted descending so the first row is the partnership with the highest number of districts."
+    },
+    {
+      "id": "4315607c",
+      "question": "For the National Gallery, which five suppliers received the highest total payments over £25,000 in June 2022 and July 2023, what were their total amounts in each month, and how did each supplier’s total change in absolute and percentage terms between the two months?",
+      "keywords": [
+        "2022",
+        "june",
+        "over",
+        "2023",
+        "july",
+        "payments"
+      ],
+      "relevant_table_ids": [
+        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
+        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___39c5d215-1aa4-4db7-bdab-658bd275a36c"
+      ],
+      "table_aliases": {
+        "Table_0": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
+        "Table_1": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___39c5d215-1aa4-4db7-bdab-658bd275a36c"
+      },
+      "reference_code": "import pandas as pd\nTable_0['Amount'] = pd.to_numeric(Table_0['Amount'], errors='coerce')\nTable_1['Amount'] = pd.to_numeric(Table_1['Amount'], errors='coerce')\njune_df = Table_0[\n    (pd.to_datetime(Table_0['Date'], dayfirst=True) >= '2022-06-01') &\n    (pd.to_datetime(Table_0['Date'], dayfirst=True) <= '2022-06-30')\n]\njune_agg = (\n    june_df.groupby('Supplier', as_index=False)['Amount']\n    .sum()\n    .rename(columns={'Amount': 'total_June2022'})\n)\njune_filtered = june_agg[june_agg['total_June2022'] > 25000]\njune_top5 = (\n    june_filtered.sort_values('total_June2022', ascending=False)\n    .head(5)\n)\njuly_df = Table_1[\n    (pd.to_datetime(Table_1['Date'], dayfirst=True) >= '2023-07-01') &\n    (pd.to_datetime(Table_1['Date'], dayfirst=True) <= '2023-07-31')\n]\njuly_agg = (\n    july_df.groupby('Supplier', as_index=False)['Amount']\n    .sum()\n    .rename(columns={'Amount': 'total_July2023'})\n)\njuly_filtered = july_agg[july_agg['total_July2023'] > 25000]\njuly_top5 = (\n    july_filtered.sort_values('total_July2023', ascending=False)\n    .head(5)\n)\nresult = (\n    pd.merge(june_top5, july_top5, on='Supplier', how='outer')\n    .assign(\n        change_abs=lambda df: df['total_July2023'].fillna(0) - df['total_June2022'].fillna(0),\n        change_pct=lambda df: (\n            (df['total_July2023'].fillna(0) - df['total_June2022'].fillna(0))\n            / df['total_June2022'].replace(0, pd.NA)\n        ) * 100\n    )\n    .sort_values('total_June2022', ascending=False, na_position='last')\n)",
+      "reference_result": [
+        {
+          "Supplier": "Westminster City Council Business Rates",
+          "total_June2022": 635740.0,
+          "total_July2023": null,
+          "change_abs": -635740.0,
+          "change_pct": -100.0
+        },
+        {
+          "Supplier": "Momart Ltd",
+          "total_June2022": 374481.6,
+          "total_July2023": null,
+          "change_abs": -374481.6,
+          "change_pct": -100.0
+        },
+        {
+          "Supplier": "CBRE Managed Services Ltd",
+          "total_June2022": 272934.66,
+          "total_July2023": 392280.98,
+          "change_abs": 119346.32,
+          "change_pct": 43.7270663975
+        },
+        {
+          "Supplier": "Gap Tents Ltd",
+          "total_June2022": 73281.0,
+          "total_July2023": null,
+          "change_abs": -73281.0,
+          "change_pct": -100.0
+        },
+        {
+          "Supplier": "EDF Energy 1 Limited",
+          "total_June2022": 68720.94,
+          "total_July2023": null,
+          "change_abs": -68720.94,
+          "change_pct": -100.0
+        },
+        {
+          "Supplier": "National Gallery Global",
+          "total_June2022": null,
+          "total_July2023": 198144.69,
+          "change_abs": 198144.69,
+          "change_pct": null
+        },
+        {
+          "Supplier": "PJ. Carey (Contractors) Ltd",
+          "total_June2022": null,
+          "total_July2023": 369513.01,
+          "change_abs": 369513.01,
+          "change_pct": null
+        },
+        {
+          "Supplier": "Securitas Security Services (UK) Ltd",
+          "total_June2022": null,
+          "total_July2023": 473737.87,
+          "change_abs": 473737.87,
+          "change_pct": null
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Up to ten rows, one per supplier that appears in the top‑5 of either month. Columns: Supplier, total_June2022 (sum of payments in June 2022, null if the supplier is not in the June top‑5), total_July2023 (sum of payments in July 2023, null if not in the July top‑5), change_abs (July total minus June total, null when either month is missing), and change_pct (percentage change from June to July, null when either month is missing). Rows are sorted by total_June2022 descending."
+    },
+    {
+      "id": "5d577810",
+      "question": "What was the total cash received in 2025 for each of the two Food Standards Agency cash management datasets (the August 2024‑to‑July 2025 dataset and the April 2024‑to‑March 2025 dataset), and which dataset had the higher total cash?",
+      "keywords": [
+        "2025",
+        "august",
+        "cash",
+        "april"
+      ],
+      "relevant_table_ids": [
+        "46dfa0df-a80e-46a2-914a-28095ddf2964___820fc849-617d-4bf4-a10e-fcb5fcf2d9fc",
+        "46dfa0df-a80e-46a2-914a-28095ddf2964___e2d2170d-f772-48b0-9a03-8cd8bece3c7f"
+      ],
+      "table_aliases": {
+        "Table_0": "46dfa0df-a80e-46a2-914a-28095ddf2964___820fc849-617d-4bf4-a10e-fcb5fcf2d9fc",
+        "Table_1": "46dfa0df-a80e-46a2-914a-28095ddf2964___e2d2170d-f772-48b0-9a03-8cd8bece3c7f"
+      },
+      "reference_code": "df0 = Table_0[Table_0['InvoiceMonth'].str.startswith('2025')].copy()\ncash_cols = ['MeatIndustryCash', 'MiscAndMilkIndustryCash', 'RadiologicalCash', 'GovernmentCash']\nfor col in cash_cols:\n    df0[col] = pd.to_numeric(df0[col].str.replace(',', ''), errors='coerce')\ntotal_cash_0 = df0[cash_cols].sum().sum()\naugust_df = pd.DataFrame({'Dataset': ['August'], 'total_cash': [total_cash_0]})\ndf1 = Table_1[Table_1['InvoiceMonth'].str.startswith('2025')].copy()\nfor col in cash_cols:\n    df1[col] = pd.to_numeric(df1[col].str.replace(',', ''), errors='coerce')\ntotal_cash_1 = df1[cash_cols].sum().sum()\napril_df = pd.DataFrame({'Dataset': ['April'], 'total_cash': [total_cash_1]})\nresult = pd.concat([august_df, april_df], ignore_index=True).sort_values(by='total_cash', ascending=False).reset_index(drop=True)",
+      "reference_result": [
+        {
+          "Dataset": "August",
+          "total_cash": 25803617
+        },
+        {
+          "Dataset": "April",
+          "total_cash": 11603866
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one per dataset (August and April), with columns Dataset and total_cash showing the 2025 total cash for each; rows are sorted descending so the first row is the dataset with the higher total cash."
+    },
+    {
+      "id": "9ab9315f",
+      "question": "Which town in the Causeway Coast and Glens Borough Council area has the most community centres, and how many are there?",
+      "keywords": [
+        "coast",
+        "community"
+      ],
+      "relevant_table_ids": [
+        "b8ee9aeb-2e1b-4960-997b-5db0165dae23___58f71e1c-f19a-4e9e-b7df-b7cdf572ceeb"
+      ],
+      "table_aliases": {
+        "Table_0": "b8ee9aeb-2e1b-4960-997b-5db0165dae23___58f71e1c-f19a-4e9e-b7df-b7cdf572ceeb"
+      },
+      "reference_code": "centres_per_town = (\n    Table_0.groupby('Town')['OBJECTID_1']\n    .count()\n    .reset_index(name='centres_per_town')\n    .sort_values('centres_per_town', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Town": "Coleraine",
+          "centres_per_town": 5
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the town name that has the highest number of community centres and the corresponding centre count."
+    },
+    {
+      "id": "1e3eeeb0",
+      "question": "For each spending area, what was the average transaction amount for the IPO in 2023, and which three areas had the highest average spending?",
+      "keywords": [
+        "2023",
+        "ipo"
+      ],
+      "relevant_table_ids": [
+        "68dc1356-a365-41d0-986b-db5a9407e52b___eeb6a6fc-fef7-4c68-b11d-a29dcda37c4b"
+      ],
+      "table_aliases": {
+        "Table_0": "68dc1356-a365-41d0-986b-db5a9407e52b___eeb6a6fc-fef7-4c68-b11d-a29dcda37c4b"
+      },
+      "reference_code": "df = Table_0[(pd.to_datetime(Table_0['Date'], dayfirst=True, errors='coerce').dt.year == 2023) & (Table_0['Entity'] == 'Intellectual Property Office')].copy()\ndf['Amount_num'] = pd.to_numeric(df['Amount'].str.replace(',', ''), errors='coerce')\nresult = (\n    df.groupby('Expense area', as_index=False)['Amount_num']\n      .mean()\n      .rename(columns={'Amount_num': 'avg_amount'})\n      .sort_values(by='avg_amount', ascending=False)\n      .head(3)\n)\nresult",
+      "reference_result": [
+        {
+          "Expense area": "Business & International Policy Directorate",
+          "avg_amount": 98784.675
+        },
+        {
+          "Expense area": "Projects",
+          "avg_amount": 43193.1554054054
+        },
+        {
+          "Expense area": "Strategy Directorate",
+          "avg_amount": 8474.77
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per expense area showing the average transaction amount for 2023, sorted descending by average amount; the first three rows correspond to the three areas with the highest average spending."
+    },
+    {
+      "id": "91a44cf8",
+      "question": "What is the land area of the Greater Manchester combined authority boundary as of December 2025?",
+      "keywords": [
+        "combined"
+      ],
+      "relevant_table_ids": [
+        "f8f2bdad-67d1-4b2e-98f1-be88f381ecc5___1c989598-3d7e-47af-adbd-40f82b175d13"
+      ],
+      "table_aliases": {
+        "Table_0": "f8f2bdad-67d1-4b2e-98f1-be88f381ecc5___1c989598-3d7e-47af-adbd-40f82b175d13"
+      },
+      "reference_code": "total_area = Table_0[Table_0['CAUTH25NM'] == 'Greater Manchester']['Shape__Area'].sum()",
+      "reference_result": [
+        {
+          "result": 1273633508.15593
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total land area of the Greater Manchester combined authority boundary in square metres as of December 2025."
+    },
+    {
+      "id": "0c9d637f",
+      "question": "For each office region, what is the total salary cost of senior civil servant posts at IfATE in March 2025 divided by the total full‑time staff count, and which region has the lowest cost per staff member?",
+      "keywords": [
+        "ifate",
+        "march"
+      ],
+      "relevant_table_ids": [
+        "bd3c498b-0984-42b4-85ed-773ee980c574___92ae2cd6-5c7d-4787-80d9-bcba17790847"
+      ],
+      "table_aliases": {
+        "Table_0": "bd3c498b-0984-42b4-85ed-773ee980c574___92ae2cd6-5c7d-4787-80d9-bcba17790847"
+      },
+      "reference_code": "result = (Table_0\n    .loc[(Table_0['Organisation'] == 'IfATE') & (Table_0['Grade (or equivalent)'] == 'SCS1')]\n    .groupby('Office Region', as_index=False)\n    .agg(total_cost=('Salary Cost of Reports (£)', 'sum'),\n         total_fte=('FTE', 'sum'))\n    .assign(cost_per_staff=lambda df: df['total_cost'] / df['total_fte'])\n    .loc[:, ['Office Region', 'cost_per_staff']]\n    .sort_values(by='cost_per_staff', ascending=True)\n    .head(1000))",
+      "reference_result": [
+        {
+          "Office Region": "West Midlands",
+          "cost_per_staff": 76353.0
+        },
+        {
+          "Office Region": "London",
+          "cost_per_staff": 1396582.9545454544
+        },
+        {
+          "Office Region": "North West",
+          "cost_per_staff": 1659451.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Each row contains an Office Region and its cost per staff member (total salary cost divided by total FTE). Rows are sorted ascending so the first row is the region with the lowest cost per staff."
+    }
+  ]
+}

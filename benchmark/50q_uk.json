@@ -1,6 +1,6 @@
 {
   "sample_metadata": {
-    "source": "queries/generated_queries_uk.json",
+    "source": "queries/generated_queries_uk_new_20260924.json",
     "sampling_seed": 42,
     "count": 50,
     "status_filter": "success",
@@ -28,874 +28,1202 @@
         "single_table": 10
       }
     },
-    "skipped_invalid_generated_records": 0
+    "skipped_invalid_generated_records": 39
   },
   "cases": [
     {
-      "id": "00eb3717",
-      "question": "Which locations recorded the species \"Grey lichens\" during the 1989 MNCR Cumbria littoral survey, and how many observations were made at each location?",
+      "id": "7734ccca",
+      "question": "Is the correlation between a 2015 BFE district’s perimeter-to-area ratio and its total area stronger among the districts with the highest ratios (top 20%) than across all districts?",
       "keywords": [
-        "locations",
-        "Grey",
-        "lichens",
-        "1989",
-        "MNCR",
-        "Cumbria",
-        "littoral",
-        "survey"
+        "2015",
+        "bfe",
+        "districts"
       ],
       "relevant_table_ids": [
-        "ca6bdf80-f80a-4ab8-a4dd-74ef9552a674___154d1292-a1d1-4168-b38d-208e7e72051f"
+        "8fa58e39-4bbb-4451-a895-3b3226bf2c71___d4cda088-ae9d-4e69-a497-f4f0d42e893e"
       ],
       "table_aliases": {
-        "Table_0": "ca6bdf80-f80a-4ab8-a4dd-74ef9552a674___154d1292-a1d1-4168-b38d-208e7e72051f"
+        "Table_0": "8fa58e39-4bbb-4451-a895-3b3226bf2c71___d4cda088-ae9d-4e69-a497-f4f0d42e893e"
       },
-      "reference_code": "result = (\n    Table_0[(Table_0['Species'] == 'Grey lichens') & (Table_0['Abundance_SACFORN'] == 'O')]\n    .groupby('LocationName')\n    .size()\n    .reset_index(name='obs_count')\n)",
+      "reference_code": "Table_0['ratio'] = Table_0['Shape__Length'] / Table_0['Shape__Area']\ncorr_all = Table_0[['ratio', 'Shape__Area']].corr(method='pearson').iloc[0, 1]\nthreshold = Table_0['ratio'].quantile(0.8)\nTable_0['top20_flag'] = Table_0['ratio'] >= threshold\ntop20_df = Table_0[Table_0['top20_flag']]\ncorr_top20 = top20_df[['ratio', 'Shape__Area']].corr(method='pearson').iloc[0, 1]\nTable_0['stronger'] = abs(corr_top20) > abs(corr_all)\nis_stronger = Table_0['stronger'].max()\nis_stronger",
       "reference_result": [
         {
-          "LocationName": "SE South Head",
-          "obs_count": 1
+          "0": false
+        }
+      ],
+      "expected_result_type": "boolean",
+      "expected_result_description": "True if the absolute Pearson correlation between perimeter‑to‑area ratio and total area among the top‑20 % ratio districts is greater than the absolute correlation across all districts; otherwise False."
+    },
+    {
+      "id": "a186a26b",
+      "question": "According to the 2021 RUC21 rural‑urban classification, among the local authority districts that are classified as urban, which three RUC21 categories contain the most districts and what share of all urban districts does each represent?",
+      "keywords": [
+        "authority",
+        "ruc21"
+      ],
+      "relevant_table_ids": [
+        "8daa9988-f4e6-40e3-82df-58bb0ae947a3___1e1245e8-b205-40bb-b63e-d6f7bff22590"
+      ],
+      "table_aliases": {
+        "Table_0": "8daa9988-f4e6-40e3-82df-58bb0ae947a3___1e1245e8-b205-40bb-b63e-d6f7bff22590"
+      },
+      "reference_code": "urban_df = Table_0[Table_0['Urban_rural_flag'] == 'Urban']\ncat_counts = (\n    urban_df.groupby('RUC21NM')['ObjectId']\n    .count()\n    .reset_index(name='category_count')\n)\ncat_counts['join_key'] = 1\ntotal_urban = pd.DataFrame({\n    'total_urban': [urban_df['ObjectId'].count()],\n    'join_key': [1]\n})\nmerged = cat_counts.merge(total_urban, on='join_key')\nmerged['share_pct'] = merged['category_count'] / merged['total_urban'] * 100\nresult = (\n    merged.sort_values('category_count', ascending=False)\n    .head(3)\n    [['RUC21NM', 'category_count', 'share_pct']]\n)",
+      "reference_result": [
+        {
+          "RUC21NM": "Urban: Majority nearer to a major town or city",
+          "category_count": 175,
+          "share_pct": 75.7575757576
+        },
+        {
+          "RUC21NM": "Intermediate urban: Majority nearer to a major town or city",
+          "category_count": 40,
+          "share_pct": 17.316017316
+        },
+        {
+          "RUC21NM": "Intermediate urban: Majority further from a major town or city",
+          "category_count": 10,
+          "share_pct": 4.329004329
         }
       ],
       "expected_result_type": "table",
-      "expected_result_description": "One row per location showing the number of Grey lichens observations (abundance code O) recorded there during the 1989 MNCR Cumbria littoral survey."
+      "expected_result_description": "A table with three rows, each showing an urban RUC21 category name, the count of districts in that category, and the percentage share of all urban districts that this count represents, ordered by descending count."
     },
     {
-      "id": "47c9fd9e",
-      "question": "According to the Food Standards Agency's 2026 Northern Ireland shellfish data, what is the average E. coli count, the average ASP toxin level, and the total number of mussel samples for each lough?",
+      "id": "fee9dafb",
+      "question": "What is the area of the LEP called Black Country in England as of December 2014?",
       "keywords": [
-        "Food",
-        "Standards",
-        "Agency",
-        "Northern",
-        "Ireland",
-        "mussels",
-        "Ecoli",
-        "ASP",
-        "average",
-        "count"
+        "lep"
       ],
       "relevant_table_ids": [
-        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
-        "a8cffab7-30fb-480b-8c40-ae6309253a76___cc1fa879-5af2-4e91-a86b-a58ad4c9676e"
+        "fd714875-0766-4734-829e-3baa3b520839___695a7214-ce7c-45a4-8a74-9e8d3fec6aec"
       ],
       "table_aliases": {
-        "Table_0": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
-        "Table_1": "a8cffab7-30fb-480b-8c40-ae6309253a76___cc1fa879-5af2-4e91-a86b-a58ad4c9676e"
+        "Table_0": "fd714875-0766-4734-829e-3baa3b520839___695a7214-ce7c-45a4-8a74-9e8d3fec6aec"
       },
-      "reference_code": "import pandas as pd\nimport numpy as np\njoined = Table_0.merge(\n    Table_1,\n    left_on='ShellfishSpecies',\n    right_on='Species',\n    how='inner',\n    suffixes=('', '_right')\n)\njoined = joined[joined['ShellfishSpecies'].str.lower().str.contains('mussel', na=False)]\njoined['EColi'] = pd.to_numeric(joined['EColi'], errors='coerce')\njoined['ASP20micrograms/gram'] = (\n    joined['ASP20micrograms/gram']\n    .replace(r'^<\\s*([0-9\\.]+)$', r'\\1', regex=True)\n    .replace({'NT': np.nan, 'NEG': np.nan})\n)\njoined['ASP20micrograms/gram'] = pd.to_numeric(joined['ASP20micrograms/gram'], errors='coerce')\nresult = (\n    joined.groupby('Lough')\n    .agg(\n        mean_ecoli=('EColi', 'mean'),\n        mean_asp=('ASP20micrograms/gram', 'mean'),\n        sample_count=('ShellfishSpecies', 'size')\n    )\n    .reset_index()\n)",
+      "reference_code": "Table_0.loc[Table_0['lep14nm'] == 'Black Country', 'Shape__Area'].squeeze()",
       "reference_result": [
         {
-          "Lough": "Belfast",
-          "mean_ecoli": 1901.8913043478,
-          "mean_asp": 0.3,
-          "sample_count": 2728
-        },
-        {
-          "Lough": "Carlingford",
-          "mean_ecoli": 1901.8913043478,
-          "mean_asp": 0.3,
-          "sample_count": 992
-        },
-        {
-          "Lough": "Strangford",
-          "mean_ecoli": 1901.8913043478,
-          "mean_asp": 0.3,
-          "sample_count": 558
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "One row per lough showing the mean E. coli count (CFU), the mean ASP toxin level (µg/g), and the total number of mussel samples collected in 2026."
-    },
-    {
-      "id": "b1b2ff27",
-      "question": "What is the total length of coal linear bedrock unit features along the Northern Ireland coast?",
-      "keywords": [
-        "total",
-        "length",
-        "coal",
-        "bedrock",
-        "unit",
-        "coast"
-      ],
-      "relevant_table_ids": [
-        "fff315f7-05e2-4c7e-901e-af7b3a57680e___755d2944-92a0-47ba-98c1-75fc3923ea49"
-      ],
-      "table_aliases": {
-        "Table_0": "fff315f7-05e2-4c7e-901e-af7b3a57680e___755d2944-92a0-47ba-98c1-75fc3923ea49"
-      },
-      "reference_code": "total_coal_length = Table_0.loc[Table_0['TYPE'] == 'COAL', 'Shape__Length'].sum()",
-      "reference_result": [
-        {
-          "result": 7076.2172525732
+          "result": 356974452.384933
         }
       ],
       "expected_result_type": "number",
-      "expected_result_description": "The sum of Shape__Length (in metres) for all rows where TYPE is 'COAL', representing the total length of coal linear bedrock unit features along the Northern Ireland coast."
+      "expected_result_description": "The land area of the Black Country LEP in square metres as of December 2014."
     },
     {
-      "id": "be12773d",
-      "question": "What is the total area of the Drinking Water Protected Areas (DWPA) catchments in Northern Ireland?",
+      "id": "1259d0e6",
+      "question": "Which strategic clinical network did the local authority district of Hartlepool belong to as of 31 December 2018?",
       "keywords": [
-        "area",
-        "drinking",
-        "water",
-        "protected",
-        "catchments",
-        "Northern",
-        "Ireland",
-        "DWPA"
+        "strategic"
       ],
       "relevant_table_ids": [
-        "d1c84afd-0ee5-4a02-a385-dbbbaa801990___ba19ffad-56f6-4c61-8110-d25a7e4e1ae4"
+        "aeff1259-a828-49ac-979d-26dff506cf97___5cf3d455-9703-49fa-bb64-0fd23a305f5b"
       ],
       "table_aliases": {
-        "Table_0": "d1c84afd-0ee5-4a02-a385-dbbbaa801990___ba19ffad-56f6-4c61-8110-d25a7e4e1ae4"
+        "Table_0": "aeff1259-a828-49ac-979d-26dff506cf97___5cf3d455-9703-49fa-bb64-0fd23a305f5b"
       },
-      "reference_code": "SELECT SUM(\"Area_Sq_Km\") AS total_area\nFROM Table_0;",
+      "reference_code": "Table_0.loc[Table_0['LAD18NM'] == 'Hartlepool', 'SCN18NM'].iloc[0]",
       "reference_result": [
         {
-          "total_area": 15793.3757136
+          "result": "Northern England"
         }
       ],
-      "expected_result_type": "number",
-      "expected_result_description": "Total surface area (in square kilometres) of all Drinking Water Protected Areas (DWPA) catchments in Northern Ireland."
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the strategic clinical network that covered the local authority district of Hartlepool on 31 December 2018."
     },
     {
-      "id": "150e5611",
-      "question": "How many TfGM land and property assets are leasehold, and how many of those are car parks?",
+      "id": "1c43a0cc",
+      "question": "Which unitary authority showed the biggest increase in boundary length between the 2016 dataset and the latest 2017 BFE dataset according to the ctyua records, and how many metres did it increase by?",
       "keywords": [
-        "how",
-        "many",
-        "TfGM",
-        "land",
-        "property",
-        "assets",
-        "leasehold",
-        "car",
-        "park"
-      ],
-      "relevant_table_ids": [
-        "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
-      ],
-      "table_aliases": {
-        "Table_0": "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
-      },
-      "reference_code": "Table_0['is_car_park'] = Table_0['Property'].str.contains(r'Car Park \\(', na=False)\nTable_0['is_leasehold'] = Table_0['Tenure Type'] == 'Leasehold'\nlease_df = Table_0.loc[Table_0['Tenure Type'] == 'Leasehold']\nresult = pd.DataFrame({'leasehold_total': [lease_df.shape[0]], 'leasehold_carpark': [lease_df['is_car_park'].sum()]})",
-      "reference_result": [
-        {
-          "leasehold_total": 98,
-          "leasehold_carpark": 5
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A single-row table with two columns: leasehold_total (the total number of TfGM land and property assets under leasehold tenure) and leasehold_carpark (the number of those leasehold assets that are car parks)."
-    },
-    {
-      "id": "a8b3423d",
-      "question": "What are the average land area and total perimeter length for each Westminster parliamentary constituency in the 2019 (v2) BFC boundary dataset from the Office for National Statistics?",
-      "keywords": [
-        "average",
-        "land",
-        "area",
-        "total",
-        "perimeter",
-        "length",
-        "each",
-        "Westminster",
-        "parliamentary",
-        "constituency"
-      ],
-      "relevant_table_ids": [
-        "8fc709e1-6181-4a55-8a57-f588832b95db___5937f636-f0cf-4e39-97cd-dce6ed6b6bfb"
-      ],
-      "table_aliases": {
-        "Table_0": "8fc709e1-6181-4a55-8a57-f588832b95db___5937f636-f0cf-4e39-97cd-dce6ed6b6bfb"
-      },
-      "reference_code": "result = (\n    Table_0.groupby('PCON19NM')\n    .agg(avg_area=('Shape__Area', 'mean'), total_perimeter=('Shape__Length', 'sum'))\n    .reset_index()\n)",
-      "reference_result": [
-        {
-          "PCON19NM": "Aberavon",
-          "avg_area": 177305753.442245,
-          "total_perimeter": 126526.049753681
-        },
-        {
-          "PCON19NM": "Aberconwy",
-          "avg_area": 604179932.281662,
-          "total_perimeter": 216580.928563937
-        },
-        {
-          "PCON19NM": "Aberdeen North",
-          "avg_area": 47406442.846344,
-          "total_perimeter": 57163.7436337929
-        },
-        {
-          "PCON19NM": "Aberdeen South",
-          "avg_area": 82308739.3095093,
-          "total_perimeter": 84591.2631486631
-        },
-        {
-          "PCON19NM": "Airdrie and Shotts",
-          "avg_area": 229438336.93837,
-          "total_perimeter": 92615.7077504331
-        },
-        {
-          "PCON19NM": "Aldershot",
-          "avg_area": 52978156.0155792,
-          "total_perimeter": 42197.6617288847
-        },
-        {
-          "PCON19NM": "Aldridge-Brownhills",
-          "avg_area": 44016547.9783554,
-          "total_perimeter": 38590.1779551088
-        },
-        {
-          "PCON19NM": "Altrincham and Sale West",
-          "avg_area": 50930495.5405426,
-          "total_perimeter": 47809.300356876
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with one row per constituency showing its average land area (square metres) and total boundary length (metres)."
-    },
-    {
-      "id": "12721cd0",
-      "question": "What was the overall attendance percentage across all primary and secondary schools in Leeds for the 2017/18 and 2018/19 academic years combined?",
-      "keywords": [
-        "attendance",
-        "Leeds",
-        "primary",
-        "secondary",
-        "overall"
-      ],
-      "relevant_table_ids": [
-        "20a2c5fe-e2e2-4a4a-ae6f-68ffe4bf234d___eddaf3b0-0515-4634-b138-87767f2ced78",
-        "280cf0c6-1e0f-4200-8c6d-1600d46501e2___fedc388a-cd7c-4802-9a3c-5027af2c955d"
-      ],
-      "table_aliases": {
-        "Table_0": "20a2c5fe-e2e2-4a4a-ae6f-68ffe4bf234d___eddaf3b0-0515-4634-b138-87767f2ced78",
-        "Table_1": "280cf0c6-1e0f-4200-8c6d-1600d46501e2___fedc388a-cd7c-4802-9a3c-5027af2c955d"
-      },
-      "reference_code": "total_primary_attended = Table_0['Total sessions attended'].sum()\ntotal_primary_possible = Table_0['Total of possible sessions'].sum()\ntotal_secondary_attended = Table_1['Total sessions attended'].sum()\ntotal_secondary_possible = Table_1['Total of possible sessions'].sum()\ntotal_attended = total_primary_attended + total_secondary_attended\ntotal_possible = total_primary_possible + total_secondary_possible\noverall_attendance_pct = (total_attended / total_possible) * 100\noverall_attendance_pct",
-      "reference_result": [
-        {
-          "result": 95.442558267
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "A single percentage value representing the combined attendance rate of all primary (2017/18) and secondary (2018/19) school pupils in Leeds, calculated as total attended sessions divided by total possible sessions."
-    },
-    {
-      "id": "242b070f",
-      "question": "What is the total salary cost of reports for senior DfT staff in the April 2022 and January 2022 organogram snapshots?",
-      "keywords": [
-        "DfT",
-        "salary",
-        "total",
-        "organogram",
-        "2022"
-      ],
-      "relevant_table_ids": [
-        "17d5c23d-f431-48e8-802a-b987431c8d92___1bf61f91-49af-4003-9587-dbf2cbe9a21d",
-        "17d5c23d-f431-48e8-802a-b987431c8d92___56eefc2b-4782-4a04-916c-8c55d85a6731"
-      ],
-      "table_aliases": {
-        "Table_0": "17d5c23d-f431-48e8-802a-b987431c8d92___1bf61f91-49af-4003-9587-dbf2cbe9a21d",
-        "Table_1": "17d5c23d-f431-48e8-802a-b987431c8d92___56eefc2b-4782-4a04-916c-8c55d85a6731"
-      },
-      "reference_code": "WITH combined AS (\n  SELECT TRY_CAST(\"Salary Cost of Reports (£)\" AS DOUBLE) AS salary\n  FROM \"Table_0\"\n  UNION ALL\n  SELECT TRY_CAST(\"Salary Cost of Reports (£)\" AS DOUBLE) AS salary\n  FROM \"Table_1\"\n)\nSELECT SUM(salary) AS total_salary_cost\nFROM combined;",
-      "reference_result": [
-        {
-          "total_salary_cost": 1388601541.0
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The combined total of the Salary Cost of Reports (£) across all senior staff rows in both snapshots, expressed in pounds."
-    },
-    {
-      "id": "c9f0bf7c",
-      "question": "What is the total land area of the Aldershot constituency according to the December 2021 Westminster BFE boundaries?",
-      "keywords": [
-        "total",
-        "land",
-        "area",
-        "Aldershot",
-        "constituency",
-        "BFE",
-        "boundaries",
-        "December",
-        "2021"
-      ],
-      "relevant_table_ids": [
-        "b3f2b467-cbd4-466a-9814-15678f78f4c3___17a77b8e-3280-42e0-8640-e23200a4d417"
-      ],
-      "table_aliases": {
-        "Table_0": "b3f2b467-cbd4-466a-9814-15678f78f4c3___17a77b8e-3280-42e0-8640-e23200a4d417"
-      },
-      "reference_code": "total_area = Table_0.loc[Table_0['PCON21NM'] == 'Aldershot', 'Shape__Area'].sum()",
-      "reference_result": [
-        {
-          "result": 52978156.0155792
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The total land area in square metres of the Aldershot constituency as defined in the December 2021 Westminster BFE boundaries."
-    },
-    {
-      "id": "dbffc283",
-      "question": "Do aquaculture licences with DARD numbers starting with \"B\" have larger average licensed areas than other licences, and how does this vary across culture methods?",
-      "keywords": [
-        "do",
-        "aquaculture",
-        "licences",
-        "DARD",
-        "numbers",
-        "starting",
-        "B",
-        "average",
-        "licensed",
-        "areas"
-      ],
-      "relevant_table_ids": [
-        "9522938c-3397-4857-a46d-17391e604181___0c00e059-51f5-4882-a1ea-544f2d04c215"
-      ],
-      "table_aliases": {
-        "Table_0": "9522938c-3397-4857-a46d-17391e604181___0c00e059-51f5-4882-a1ea-544f2d04c215"
-      },
-      "reference_code": "result = (\n    Table_0\n    .assign(is_B=Table_0['DARD Number'].str.startswith('B'))\n    .groupby(['Culture', 'is_B'], as_index=False)\n    .agg(avg_area=('Area (hectares)', 'mean'))\n    .sort_values(['is_B', 'avg_area'], ascending=[False, False])\n)",
-      "reference_result": [
-        {
-          "Culture": "Bottom Culture",
-          "is_B": true,
-          "avg_area": 60.2001428571
-        },
-        {
-          "Culture": "Cage",
-          "is_B": false,
-          "avg_area": 57.9655
-        },
-        {
-          "Culture": "Bottom Culture",
-          "is_B": false,
-          "avg_area": 30.2425384615
-        },
-        {
-          "Culture": "Trestle",
-          "is_B": false,
-          "avg_area": 21.1266363636
-        },
-        {
-          "Culture": "Suspended Culture",
-          "is_B": false,
-          "avg_area": 5.1811428571
-        },
-        {
-          "Culture": "Ranching",
-          "is_B": false,
-          "avg_area": 0.122
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "Rows showing each culture method, whether the licence DARD number starts with \"B\", the average licensed area, licence count, and rank of average area within the B‑prefix and non‑B groups (top five per group)."
-    },
-    {
-      "id": "68d723ff",
-      "question": "How many shellfish samples were taken each year in Belfast Lough during the 2025 and 2026 biotoxin surveys?",
-      "keywords": [
-        "samples",
-        "Belfast",
-        "2025",
-        "2026",
-        "year"
-      ],
-      "relevant_table_ids": [
-        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
-        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___87cabe0a-b4bf-4bd8-9e16-1f4f650d9517"
-      ],
-      "table_aliases": {
-        "Table_0": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
-        "Table_1": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___87cabe0a-b4bf-4bd8-9e16-1f4f650d9517"
-      },
-      "reference_code": "result = (\n    pd.concat([Table_0, Table_1], ignore_index=True)\n    .loc[lambda df: df['Lough'] == 'Belfast']\n    .assign(Year=lambda df: pd.to_datetime(df['DateOfSampling'], errors='coerce').dt.year)\n    .groupby('Year', as_index=False)\n    .agg(samples_per_year=('Year', 'size'))\n)",
-      "reference_result": [
-        {
-          "Year": 2025,
-          "samples_per_year": 77
-        },
-        {
-          "Year": 2026,
-          "samples_per_year": 44
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with one row per year (2025 and 2026) showing the number of shellfish samples collected in Belfast Lough."
-    },
-    {
-      "id": "4382e135",
-      "question": "How many land and property assets does Transport for Greater Manchester have in total?",
-      "keywords": [
-        "how",
-        "many",
-        "assets",
-        "total"
-      ],
-      "relevant_table_ids": [
-        "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
-      ],
-      "table_aliases": {
-        "Table_0": "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
-      },
-      "reference_code": "total_assets = Table_0.shape[0]",
-      "reference_result": [
-        {
-          "result": 276
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "A single integer representing how many distinct assets (including bus stations, Metrolink sites, park‑and‑ride locations and turnarounds) are listed."
-    },
-    {
-      "id": "db765093",
-      "question": "What are the top five professional groups with the highest total minimum salary for junior staff roles that have more than five full‑time equivalent posts, using the Office of Rail and Road organogram from 11 November 2021 and the HM Treasury organogram from September 2022?",
-      "keywords": [
-        "professional",
-        "groups",
-        "highest",
-        "total",
-        "minimum",
-        "salary",
-        "junior",
-        "posts",
-        "Office",
-        "Rail"
-      ],
-      "relevant_table_ids": [
-        "7c0a079f-1988-4326-ba52-71394d4f7f12___b175821f-0181-4c63-bd82-6c4d37df94cc",
-        "a5ffd07c-e31e-47c8-b343-1bcd9b5e3fe1___6d5926ad-b53e-4aa9-95af-cd7f14efd9f3"
-      ],
-      "table_aliases": {
-        "Table_0": "7c0a079f-1988-4326-ba52-71394d4f7f12___b175821f-0181-4c63-bd82-6c4d37df94cc",
-        "Table_1": "a5ffd07c-e31e-47c8-b343-1bcd9b5e3fe1___6d5926ad-b53e-4aa9-95af-cd7f14efd9f3"
-      },
-      "reference_code": "import pandas as pd\ndf = pd.concat([\n    Table_0[['Professional/Occupational Group', 'Payscale Minimum (£)', 'Number of Posts in FTE']],\n    Table_1[['Professional/Occupational Group', 'Payscale Minimum (£)', 'Number of Posts in FTE']]\n], ignore_index=True)\nresult = (\n    df\n    .replace({'Number of Posts in FTE': {'<5': 4}})\n    .assign(**{'Number of Posts in FTE': lambda d: pd.to_numeric(d['Number of Posts in FTE'], errors='coerce')})\n    .assign(high_posts=lambda d: d['Number of Posts in FTE'] > 5)\n    .loc[lambda d: d['high_posts']]\n    .assign(weighted_min=lambda d: d['Payscale Minimum (£)'] * d['Number of Posts in FTE'])\n    .groupby('Professional/Occupational Group', as_index=False)\n    .agg(total_min=('weighted_min', 'sum'))\n    .sort_values('total_min', ascending=False)\n    .head(5)\n)",
-      "reference_result": [
-        {
-          "Professional/Occupational Group": "Policy Profession",
-          "total_min": 18810975.0
-        },
-        {
-          "Professional/Occupational Group": "Operational Delivery",
-          "total_min": 3603822.39
-        },
-        {
-          "Professional/Occupational Group": "Science and Engineering",
-          "total_min": 634206.0
-        },
-        {
-          "Professional/Occupational Group": "Law",
-          "total_min": 462635.0
-        },
-        {
-          "Professional/Occupational Group": "Human Resources Profession",
-          "total_min": 419776.5
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "Up to five rows, each showing a professional/occupational group and the combined total minimum salary (£) for junior roles that have more than five full‑time equivalent posts."
-    },
-    {
-      "id": "40555073",
-      "question": "For each first policy number in the 2016 Tunbridge Wells LPO06 site allocations, show how many sites it covers, the average frontage length, and indicate whether that average is above the overall average frontage.",
-      "keywords": [
-        "first",
-        "policy",
-        "number",
         "2016",
-        "tunbridge",
-        "wells",
-        "lpo06",
-        "sites",
-        "average",
-        "frontage"
+        "unitary",
+        "2017",
+        "bfe",
+        "ctyua",
+        "latest"
       ],
       "relevant_table_ids": [
-        "26b286ed-79c8-4976-9f44-dbdc8820ca80___af4388d2-9069-4831-8cf7-236927687576"
+        "515ac716-b6c8-4621-a4fa-b846bc4fbcc8___14e847d4-18ee-4f9d-aea5-161f053b64a0",
+        "bb86a4ec-7d16-4a90-ae1b-4241cf341254___e4f4a0e4-6587-4dad-8ed4-fe9cc42c0532"
       ],
       "table_aliases": {
-        "Table_0": "26b286ed-79c8-4976-9f44-dbdc8820ca80___af4388d2-9069-4831-8cf7-236927687576"
+        "Table_0": "515ac716-b6c8-4621-a4fa-b846bc4fbcc8___14e847d4-18ee-4f9d-aea5-161f053b64a0",
+        "Table_1": "bb86a4ec-7d16-4a90-ae1b-4241cf341254___e4f4a0e4-6587-4dad-8ed4-fe9cc42c0532"
       },
-      "reference_code": "overall_avg = Table_0['SHAPESTLength'].mean()\nresult = (\n    Table_0\n    .groupby('POLNO_1ST')\n    .agg(\n        site_count=('OBJECTID', 'count'),\n        avg_frontage=('SHAPESTLength', 'mean')\n    )\n    .reset_index()\n    .assign(high_frontage_policy=lambda df: df['avg_frontage'] > overall_avg)\n)",
+      "reference_code": "merged = Table_0.merge(\n    Table_1,\n    left_on='ctyua16cd',\n    right_on='CTYUA17CD',\n    how='inner',\n    suffixes=('_16', '_17')\n)\nmerged['length_increase'] = merged['Shape__Length_17'] - merged['Shape__Length_16']\nresult = merged.sort_values('length_increase', ascending=False).head(1)[['ctyua16nm', 'length_increase']]",
       "reference_result": [
         {
-          "POLNO_1ST": "CR11",
-          "site_count": 4,
-          "avg_frontage": 221.8895150288,
-          "high_frontage_policy": true
-        },
-        {
-          "POLNO_1ST": "CR13",
-          "site_count": 4,
-          "avg_frontage": 111.2523683852,
-          "high_frontage_policy": false
-        },
-        {
-          "POLNO_1ST": "CR5",
-          "site_count": 29,
-          "avg_frontage": 168.1089780541,
-          "high_frontage_policy": true
-        },
-        {
-          "POLNO_1ST": "CR7",
-          "site_count": 2,
-          "avg_frontage": 312.8002024297,
-          "high_frontage_policy": true
-        },
-        {
-          "POLNO_1ST": "CR9",
-          "site_count": 4,
-          "avg_frontage": 104.2688589657,
-          "high_frontage_policy": false
+          "ctyua16nm": "Isles of Scilly",
+          "length_increase": 60249.213770934
         }
       ],
       "expected_result_type": "table",
-      "expected_result_description": "A table with one row per first policy number showing the number of sites, the average frontage length (metres), and a boolean flag indicating if that policy’s average frontage exceeds the overall average frontage across all sites."
+      "expected_result_description": "One row containing the unitary authority name and the increase in boundary length (metres) between the 2016 and 2017 datasets, representing the largest increase."
     },
     {
-      "id": "949412f5",
-      "question": "How many different species were observed in the 1990 MNCR Morecambe Bay to Whitehaven sublittoral survey?",
+      "id": "1ec55f71",
+      "question": "What share of Bradford's street lights are in the most common status category?",
       "keywords": [
-        "species",
-        "1990",
-        "Morecambe",
-        "Whitehaven",
-        "MNCR"
+        "street"
       ],
       "relevant_table_ids": [
-        "f393dfa6-1d29-4932-b7bb-cf90ba774949___2dafede1-b503-4779-a078-03261f5ea599"
+        "31822b25-9d7c-4daa-8013-76af040903a8___6eb04181-727b-4ef1-b0ac-aa7d6cdd255a"
       ],
       "table_aliases": {
-        "Table_0": "f393dfa6-1d29-4932-b7bb-cf90ba774949___2dafede1-b503-4779-a078-03261f5ea599"
+        "Table_0": "31822b25-9d7c-4daa-8013-76af040903a8___6eb04181-727b-4ef1-b0ac-aa7d6cdd255a"
       },
-      "reference_code": "distinct_species_count = Table_0['Species'].nunique()",
+      "reference_code": "total_lights = Table_0.shape[0]\nstatus_counts = Table_0.groupby('ITEM_STATUS', as_index=False).agg(status_count=('ITEM_STATUS', 'size'))\nstatus_counts = status_counts.sort_values('status_count', ascending=False)\nmost_common = status_counts.head(1)\nmost_common = most_common.assign(total_lights=total_lights)\nmost_common = most_common.assign(most_common_share=most_common['status_count'] / most_common['total_lights'])\nshare_value = most_common['most_common_share'].mean()\nshare_value",
       "reference_result": [
         {
-          "result": 28
+          "result": 0.9865900383
         }
       ],
       "expected_result_type": "number",
-      "expected_result_description": "The total number of unique species observed in the 1990 MNCR Morecambe Bay to Whitehaven sublittoral survey."
+      "expected_result_description": "A single numeric value between 0 and 1 representing the proportion of all Bradford street lights that are in the most frequent ITEM_STATUS category."
     },
     {
-      "id": "5fc49e17",
-      "question": "What is the average senior pay for each region across the Department for Work & Pensions (2022) and the Department for International Trade (2023) organograms?",
+      "id": "54316e8d",
+      "question": "How many Community Safety Partnerships existed in December 2023, and how many existed in December 2021?",
       "keywords": [
-        "region",
-        "average",
-        "senior",
-        "pay",
-        "DWP",
-        "InternationalTrade"
-      ],
-      "relevant_table_ids": [
-        "dbdf0bef-f47d-4ae9-9d78-fff8b7719f84___c1b38c0f-5d22-4ce2-9d61-6959873971e4",
-        "7d114298-919b-4108-9600-9313e34ce3b8___c43576e0-d821-4c1d-8945-cd01d03ce1cf"
-      ],
-      "table_aliases": {
-        "Table_0": "dbdf0bef-f47d-4ae9-9d78-fff8b7719f84___c1b38c0f-5d22-4ce2-9d61-6959873971e4",
-        "Table_1": "7d114298-919b-4108-9600-9313e34ce3b8___c43576e0-d821-4c1d-8945-cd01d03ce1cf"
-      },
-      "reference_code": "avg_pay_by_region = (\n    pd.concat([\n        Table_0[['Office Region', 'Actual Pay Floor (£)']],\n        Table_1[['Office Region', 'Actual Pay Floor (£)']]\n    ], ignore_index=True)\n    .groupby('Office Region', as_index=False)['Actual Pay Floor (£)']\n    .mean()\n    .rename(columns={'Actual Pay Floor (£)': 'avg_pay'})\n)",
-      "reference_result": [
-        {
-          "Office Region": "East Midlands",
-          "avg_pay": 70000.0
-        },
-        {
-          "Office Region": "East Of England",
-          "avg_pay": 70000.0
-        },
-        {
-          "Office Region": "London",
-          "avg_pay": 96759.2592592593
-        },
-        {
-          "Office Region": "North East",
-          "avg_pay": 84411.7647058823
-        },
-        {
-          "Office Region": "North West",
-          "avg_pay": 88815.7894736842
-        },
-        {
-          "Office Region": "Northern Ireland",
-          "avg_pay": null
-        },
-        {
-          "Office Region": "Scotland",
-          "avg_pay": 83571.4285714286
-        },
-        {
-          "Office Region": "South East",
-          "avg_pay": 97500.0
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with one row per region showing the average senior pay (in pounds) across the two departments."
-    },
-    {
-      "id": "01f13a56",
-      "question": "How many staff posts fall into each salary band (low <£40k, medium £40k‑£60k, high >£60k) for each office region according to the 2026 MHCLG organogram?",
-      "keywords": [
-        "salary",
-        "band",
-        "low",
-        "medium",
-        "high",
-        "staff",
-        "posts",
-        "office",
-        "region",
-        "MHCLG"
-      ],
-      "relevant_table_ids": [
-        "45526f3f-5ddb-4cf8-881d-fc403333876b___0ae2f6f8-8b9d-471d-a63f-f6f1deb66114"
-      ],
-      "table_aliases": {
-        "Table_0": "45526f3f-5ddb-4cf8-881d-fc403333876b___0ae2f6f8-8b9d-471d-a63f-f6f1deb66114"
-      },
-      "reference_code": "import numpy as np\nresult = (\n    Table_0\n    .assign(\n        Salary_Band=np.select(\n            [\n                Table_0['Payscale Minimum (£)'] < 40000,\n                (Table_0['Payscale Minimum (£)'] >= 40000) & (Table_0['Payscale Minimum (£)'] <= 60000)\n            ],\n            ['low', 'medium'],\n            default='high'\n        ),\n        Posts_num=pd.to_numeric(\n            Table_0['Number of Posts in FTE'].str.replace(r'[^\\d.]', '', regex=True),\n            errors='coerce'\n        )\n    )\n    .groupby(['Office Region', 'Salary_Band'], as_index=False)\n    .agg(post_count=('Posts_num', 'sum'))\n)",
-      "reference_result": [
-        {
-          "Office Region": "East Midlands",
-          "Salary_Band": "high",
-          "post_count": 25.0
-        },
-        {
-          "Office Region": "East Midlands",
-          "Salary_Band": "low",
-          "post_count": 45.0
-        },
-        {
-          "Office Region": "East Midlands",
-          "Salary_Band": "medium",
-          "post_count": 225.0
-        },
-        {
-          "Office Region": "East of England",
-          "Salary_Band": "high",
-          "post_count": 105.0
-        },
-        {
-          "Office Region": "East of England",
-          "Salary_Band": "low",
-          "post_count": 139.6486
-        },
-        {
-          "Office Region": "East of England",
-          "Salary_Band": "medium",
-          "post_count": 150.0
-        },
-        {
-          "Office Region": "London",
-          "Salary_Band": "high",
-          "post_count": 2316.7343
-        },
-        {
-          "Office Region": "London",
-          "Salary_Band": "low",
-          "post_count": 1211.0865
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "Rows showing Office Region, Salary_Band (low, medium, high) and the count of staff posts that belong to each band within that region, based on the March 2026 MHCLG organogram."
-    },
-    {
-      "id": "1f59cb00",
-      "question": "In the Bush Network area of Northern Ireland, how does the contribution score of each grid cell relate to its area, and which score range has the highest average area?",
-      "keywords": [
-        "Bush",
-        "Network",
-        "Northern",
-        "Ireland",
-        "contribution",
-        "score",
-        "area",
-        "average",
-        "range",
-        "highest"
-      ],
-      "relevant_table_ids": [
-        "1dcd7e8c-baf5-49fe-9c99-002cbf571a06___9bfdb6d9-871f-45a2-921b-a8a0e8ea887f"
-      ],
-      "table_aliases": {
-        "Table_0": "1dcd7e8c-baf5-49fe-9c99-002cbf571a06___9bfdb6d9-871f-45a2-921b-a8a0e8ea887f"
-      },
-      "reference_code": "import pandas as pd\ncorr_coeff = Table_0['GRIDCODE'].corr(Table_0['Shape__Area'], method='pearson')\nresult = (\n    Table_0.assign(\n        gridcode_bucket=pd.cut(\n            Table_0['GRIDCODE'],\n            bins=[57, 70, 85, 100],\n            labels=['low', 'medium', 'high'],\n            right=True,\n            include_lowest=True,\n        )\n    )\n    .groupby('gridcode_bucket')\n    .agg(\n        avg_area=('Shape__Area', 'mean'),\n        cell_count=('Shape__Area', 'size'),\n    )\n    .reset_index()\n    .assign(\n        area_rank=lambda df: df['avg_area'].rank(method='average', ascending=False),\n        gridcode_area_corr=corr_coeff,\n    )\n)",
-      "reference_result": [
-        {
-          "gridcode_bucket": "low",
-          "avg_area": 39.5136094777,
-          "cell_count": 619019,
-          "area_rank": 2.0,
-          "gridcode_area_corr": 0.0539627728
-        },
-        {
-          "gridcode_bucket": "medium",
-          "avg_area": 38.9538906556,
-          "cell_count": 336414,
-          "area_rank": 3.0,
-          "gridcode_area_corr": 0.0539627728
-        },
-        {
-          "gridcode_bucket": "high",
-          "avg_area": 60.9314583787,
-          "cell_count": 331518,
-          "area_rank": 1.0,
-          "gridcode_area_corr": 0.0539627728
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with one row per contribution‑score range (low, medium, high), showing the average cell area (square metres), the number of cells in the range, the rank of the range by average area (rank 1 = largest), and the overall Pearson correlation coefficient between score and area (repeated in each row)."
-    },
-    {
-      "id": "07ff2196",
-      "question": "For the December 2022 list of Local Enterprise Partnerships, how many LEPs fall into each combination of (a) whether the name contains the word \"Greater\", (b) a region type bucket (\"Greater\" vs \"Other\"), and (c) the name length category (short, medium, long)?",
-      "keywords": [
-        "counts",
-        "LEPs",
-        "Greater",
-        "region",
-        "type",
-        "length",
-        "category",
-        "December",
-        "2022"
-      ],
-      "relevant_table_ids": [
-        "58b3b035-e870-4764-b543-81e346af2b5e___646014a5-5fde-46c6-bb05-b04747ff66e3"
-      ],
-      "table_aliases": {
-        "Table_0": "58b3b035-e870-4764-b543-81e346af2b5e___646014a5-5fde-46c6-bb05-b04747ff66e3"
-      },
-      "reference_code": "import pandas as pd\nimport numpy as np\ncategories = {\n    'is_greater': [True, False],\n    'region_type': ['Greater', 'Other'],\n    'name_len_cat': ['short', 'medium', 'long']\n}\nresult = (\n    Table_0\n    .assign(\n        is_greater=lambda df: df['LEP22NM'].str.contains('Greater', na=False),\n        region_type=lambda df: np.where(df['LEP22NM'].str.contains('Greater', na=False), 'Greater', 'Other'),\n        name_len_cat=lambda df: pd.cut(\n            df['LEP22NM'].str.len(),\n            bins=[-1, 14, 25, float('inf')],\n            labels=['short', 'medium', 'long']\n        )\n    )\n    .groupby(['is_greater', 'region_type', 'name_len_cat'], as_index=False)\n    .size()\n    .rename(columns={'size': 'lep_count'})\n    .set_index(['is_greater', 'region_type', 'name_len_cat'])\n    .reindex(\n        pd.MultiIndex.from_product(\n            [categories['is_greater'], categories['region_type'], categories['name_len_cat']],\n            names=['is_greater', 'region_type', 'name_len_cat']\n        ),\n        fill_value=0\n    )\n    .reset_index()\n)",
-      "reference_result": [
-        {
-          "is_greater": true,
-          "region_type": "Greater",
-          "name_len_cat": "short",
-          "lep_count": 0
-        },
-        {
-          "is_greater": true,
-          "region_type": "Greater",
-          "name_len_cat": "medium",
-          "lep_count": 2
-        },
-        {
-          "is_greater": true,
-          "region_type": "Greater",
-          "name_len_cat": "long",
-          "lep_count": 1
-        },
-        {
-          "is_greater": true,
-          "region_type": "Other",
-          "name_len_cat": "short",
-          "lep_count": 0
-        },
-        {
-          "is_greater": true,
-          "region_type": "Other",
-          "name_len_cat": "medium",
-          "lep_count": 0
-        },
-        {
-          "is_greater": true,
-          "region_type": "Other",
-          "name_len_cat": "long",
-          "lep_count": 0
-        },
-        {
-          "is_greater": false,
-          "region_type": "Greater",
-          "name_len_cat": "short",
-          "lep_count": 0
-        },
-        {
-          "is_greater": false,
-          "region_type": "Greater",
-          "name_len_cat": "medium",
-          "lep_count": 0
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with one row per combination of the 'Greater' flag, the region_type bucket ('Greater' or 'Other'), and the name length category (short, medium, long), showing the count of LEPs (lep_count) in each group."
-    },
-    {
-      "id": "e35f9edb",
-      "question": "According to the Office for National Statistics' December 2022 ward lookup, how many electoral wards are in Powys compared to the rest of Wales?",
-      "keywords": [
-        "wards",
-        "Powys",
-        "Wales",
-        "2022",
-        "lookup"
-      ],
-      "relevant_table_ids": [
-        "3d2ce62a-c880-43eb-94bf-067e5326a11f___e7976653-344b-4d07-bc11-4511351d59ee"
-      ],
-      "table_aliases": {
-        "Table_0": "3d2ce62a-c880-43eb-94bf-067e5326a11f___e7976653-344b-4d07-bc11-4511351d59ee"
-      },
-      "reference_code": "Table_0['is_powys'] = Table_0['UA22NM'] == 'Powys'\nresult = (\n    Table_0.groupby('is_powys')\n    .agg(ward_count=('ObjectId', 'count'))\n    .reset_index()\n)\nresult",
-      "reference_result": [
-        {
-          "is_powys": false,
-          "ward_count": 721
-        },
-        {
-          "is_powys": true,
-          "ward_count": 60
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "Two rows: one where is_powys is true with the number of wards in Powys, and one where is_powys is false with the number of wards in the rest of Wales."
-    },
-    {
-      "id": "94b6a008",
-      "question": "How many pothole enquiries have been recorded by DfI Roads in Northern Ireland since the start of the 2026 reporting period?",
-      "keywords": [
-        "pothole",
-        "enquiries",
-        "2026",
-        "DfI",
-        "Roads",
-        "count"
-      ],
-      "relevant_table_ids": [
-        "4551d515-2236-4891-874a-6bd986d961ad___175676f3-f671-4992-af2c-b3efbdbcdb29"
-      ],
-      "table_aliases": {
-        "Table_0": "4551d515-2236-4891-874a-6bd986d961ad___175676f3-f671-4992-af2c-b3efbdbcdb29"
-      },
-      "reference_code": "filtered = Table_0[(Table_0['ENQUIRY_TYPE'] == 'Pothole') & (pd.to_datetime(Table_0['DATE_RECORDED'], dayfirst=True) >= pd.Timestamp('2026-04-01'))]\ntotal_enquiries = filtered.shape[0]",
-      "reference_result": [
-        {
-          "result": 10349
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The total number of pothole enquiries recorded from 1 April 2026 to the present."
-    },
-    {
-      "id": "0f0379b2",
-      "question": "How much larger is the total area of Community Safety Partnerships in 2023 compared to 2021?",
-      "keywords": [
-        "total",
-        "area",
         "2023",
+        "safety"
+      ],
+      "relevant_table_ids": [
+        "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "8e18a5c0-5921-4be7-bd82-659a0eaaa81f___1fe9eae5-1d3e-4306-8f44-5ad6dd833684"
+      ],
+      "table_aliases": {
+        "Table_0": "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "Table_1": "8e18a5c0-5921-4be7-bd82-659a0eaaa81f___1fe9eae5-1d3e-4306-8f44-5ad6dd833684"
+      },
+      "reference_code": "import numpy as np\ncombined = pd.concat([Table_0, Table_1], ignore_index=True, sort=False)\ncombined = combined.assign(\n    is_2023=combined['CSP23CD'].notnull(),\n    is_2021=combined['CSP21CD'].notnull()\n)\ncombined['year'] = np.where(combined['is_2023'], 2023, 2021)\nresult = (\n    combined.groupby('year')\n            .size()\n            .reset_index(name='count')\n            .sort_values('year')\n            .reset_index(drop=True)\n)",
+      "reference_result": [
+        {
+          "year": 2021,
+          "count": 314
+        },
+        {
+          "year": 2023,
+          "count": 314
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A two‑row table where each row contains a year (2023 or 2021) and the corresponding number of Community Safety Partnerships that existed in December of that year."
+    },
+    {
+      "id": "6662eae2",
+      "question": "How many compliance sections are listed in total across the September 2019, June 2019, January 2020 and April 2020 Food Standards Agency reports?",
+      "keywords": [
+        "sections",
+        "september",
+        "june",
+        "january",
+        "april"
+      ],
+      "relevant_table_ids": [
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___83ad9edd-d21c-49cd-9cdc-ddc2273615a5",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___d37fe273-65d2-4264-9c0c-7d5ce5dacd03",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___ba629430-3f22-43d1-a850-12c50f8e5f1f"
+      ],
+      "table_aliases": {
+        "Table_0": "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "Table_1": "cf0adf86-5936-46f0-8d5f-73049b135d76___83ad9edd-d21c-49cd-9cdc-ddc2273615a5",
+        "Table_2": "cf0adf86-5936-46f0-8d5f-73049b135d76___d37fe273-65d2-4264-9c0c-7d5ce5dacd03",
+        "Table_3": "cf0adf86-5936-46f0-8d5f-73049b135d76___ba629430-3f22-43d1-a850-12c50f8e5f1f"
+      },
+      "reference_code": "total_0 = Table_0['QuestionNo'].count()\ntotal_1 = Table_1['QuestionNo'].count()\ntotal_2 = Table_2['QuestionNo'].count()\ntotal_3 = Table_3['QuestionNo'].count()\ntotal_all = total_0 + total_1 + total_2 + total_3\nresult = pd.DataFrame({'total_all': [total_all]})",
+      "reference_result": [
+        {
+          "total_all": 430
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of compliance sections listed across the September 2019, June 2019, January 2020 and April 2020 FSA reports."
+    },
+    {
+      "id": "69a2fa6b",
+      "question": "What is the total daily water abstraction volume for licences held by the industrial sector in Northern Ireland as of 16 May 2023?",
+      "keywords": [
+        "abstraction"
+      ],
+      "relevant_table_ids": [
+        "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      ],
+      "table_aliases": {
+        "Table_0": "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      },
+      "reference_code": "total_industrial_volume = (\n    Table_0\n    .loc[(Table_0['Dataset_Da'] == '2023/05/16 00:00:00+00') & (Table_0['sectorid'] == 'Industrial'), 'vol_perday']\n    .sum()\n)",
+      "reference_result": [
+        {
+          "0": 6083896
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total daily water abstraction volume (in cubic metres per day) for all industrial licences on 16 May 2023."
+    },
+    {
+      "id": "e10ac691",
+      "question": "By 2025, did the Food Standards Agency receive more cash in March 2024 or in August 2024?",
+      "keywords": [
+        "2025",
+        "august",
+        "cash",
+        "march"
+      ],
+      "relevant_table_ids": [
+        "46dfa0df-a80e-46a2-914a-28095ddf2964___820fc849-617d-4bf4-a10e-fcb5fcf2d9fc",
+        "46dfa0df-a80e-46a2-914a-28095ddf2964___f7dd04ba-eb89-4ddc-bdd3-6b513a744423"
+      ],
+      "table_aliases": {
+        "Table_0": "46dfa0df-a80e-46a2-914a-28095ddf2964___820fc849-617d-4bf4-a10e-fcb5fcf2d9fc",
+        "Table_1": "46dfa0df-a80e-46a2-914a-28095ddf2964___f7dd04ba-eb89-4ddc-bdd3-6b513a744423"
+      },
+      "reference_code": "import pandas as pd\ncombined = pd.concat([Table_0, Table_1], ignore_index=True)\ncombined = combined[combined['InvoiceMonth'].isin(['2024-03', '2024-08'])]\ncash_cols = ['MeatIndustryCash', 'MiscAndMilkIndustryCash', 'RadiologicalCash', 'GovernmentCash']\nfor col in cash_cols:\n    combined[col] = pd.to_numeric(combined[col].str.replace(',', ''), errors='coerce')\ncombined['TotalCash'] = combined[cash_cols].sum(axis=1)\nanswer = combined.sort_values(by='TotalCash', ascending=False).head(1)['InvoiceMonth'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "2024-03"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The month (either March 2024 or August 2024) in which the Food Standards Agency received the higher total cash amount, based on summing all cash streams for that month."
+    },
+    {
+      "id": "2904992a",
+      "question": "Which library had the highest total number of attendees across all its events in 2019, and how many attendees did it have?",
+      "keywords": [
+        "attendees"
+      ],
+      "relevant_table_ids": [
+        "f61e6cf5-e689-446a-a7e1-4ff9ae1a13c7___b912e477-cbd4-48c7-8e6d-a4b2a70e863d"
+      ],
+      "table_aliases": {
+        "Table_0": "f61e6cf5-e689-446a-a7e1-4ff9ae1a13c7___b912e477-cbd4-48c7-8e6d-a4b2a70e863d"
+      },
+      "reference_code": "(\n    Table_0[Table_0['Date'].str.endswith('/2019')]\n    .groupby('Library', as_index=False)\n    .agg(total_attendees=('Attendees', 'sum'))\n    .sort_values(by='total_attendees', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Library": "Cambridge Central",
+          "total_attendees": 21544
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the library name with the highest total attendees in 2019 and the corresponding total attendee count."
+    },
+    {
+      "id": "9d63f6b8",
+      "question": "What is the area of the Aberdeen Central constituency in the May 2016 spc bfc?",
+      "keywords": [
+        "bfc",
+        "spc"
+      ],
+      "relevant_table_ids": [
+        "73799768-ba78-4bb2-9333-0546fcc5b870___bba44377-5393-440d-a485-65a97d1737f8"
+      ],
+      "table_aliases": {
+        "Table_0": "73799768-ba78-4bb2-9333-0546fcc5b870___bba44377-5393-440d-a485-65a97d1737f8"
+      },
+      "reference_code": "area = Table_0.loc[Table_0['spc16nm'] == 'Aberdeen Central', 'Shape__Area'].iloc[0]",
+      "reference_result": [
+        {
+          "result": 17194594.6387939
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total land area of the Aberdeen Central constituency (as of May 2016) in square metres."
+    },
+    {
+      "id": "8b0fcc06",
+      "question": "What are the five compliance sections that appear in the greatest number of the Food Standards Agency tables (September 2019, June 2019, January 2020, March 2019), and for each, how many of those tables include the section?",
+      "keywords": [
+        "sections",
+        "september",
+        "june",
+        "january"
+      ],
+      "relevant_table_ids": [
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___83ad9edd-d21c-49cd-9cdc-ddc2273615a5",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___d37fe273-65d2-4264-9c0c-7d5ce5dacd03",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___9ac55517-a24e-446b-a5df-32b3709128fb"
+      ],
+      "table_aliases": {
+        "Table_0": "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "Table_1": "cf0adf86-5936-46f0-8d5f-73049b135d76___83ad9edd-d21c-49cd-9cdc-ddc2273615a5",
+        "Table_2": "cf0adf86-5936-46f0-8d5f-73049b135d76___d37fe273-65d2-4264-9c0c-7d5ce5dacd03",
+        "Table_3": "cf0adf86-5936-46f0-8d5f-73049b135d76___9ac55517-a24e-446b-a5df-32b3709128fb"
+      },
+      "reference_code": "df0 = Table_0.copy()\ndf0['snap0'] = 1\ndf1 = Table_1.copy()\ndf1['snap1'] = 1\ndf2 = Table_2.copy()\ndf2['snap2'] = 1\ndf3 = Table_3.copy()\ndf3['snap3'] = 1\ncombined = pd.concat([df0, df1, df2, df3], ignore_index=True, sort=False)\ncombined['snap0'] = combined['snap0'].fillna(0)\ncombined['snap1'] = combined['snap1'].fillna(0)\ncombined['snap2'] = combined['snap2'].fillna(0)\ncombined['snap3'] = combined['snap3'].fillna(0)\nagg = (\n    combined\n    .groupby('QuestionText', as_index=False)[['snap0', 'snap1', 'snap2', 'snap3']]\n    .max()\n)\nagg['table_count'] = agg[['snap0', 'snap1', 'snap2', 'snap3']].sum(axis=1)\nresult = agg.sort_values(by='table_count', ascending=False).head(5)[['QuestionText', 'table_count']]",
+      "reference_result": [
+        {
+          "QuestionText": "Adequate separation of RTE and non RTE products",
+          "table_count": 4.0
+        },
+        {
+          "QuestionText": "Adequate unloading facilities (suitable ramps - containing rails - isolation pens).",
+          "table_count": 4.0
+        },
+        {
+          "QuestionText": "All handling and processes from slaughtering to despatch are done in a way that avoids the contamination of meat and offal entering the food chain.",
+          "table_count": 4.0
+        },
+        {
+          "QuestionText": "All hazards that are essential to be controlled by HACCP based procedures have been identified",
+          "table_count": 4.0
+        },
+        {
+          "QuestionText": "All products have Health Mark or Identification Mark as appropriate",
+          "table_count": 4.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with up to five rows, each row showing a compliance section (QuestionText) and the number of FSA tables (out of September 2019, June 2019, January 2020, March 2019) that contain that section, sorted by descending count."
+    },
+    {
+      "id": "a0ac9761",
+      "question": "Which Community Safety Partnerships (bsc) saw the biggest increase in boundary area between December 2020 and December 2023, and what was the average increase across all partnerships?",
+      "keywords": [
+        "2023",
+        "bsc",
+        "safety",
+        "2020",
+        "community"
+      ],
+      "relevant_table_ids": [
+        "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "c9d4f6b0-feff-4511-8609-dde4c66bacd0___e690a291-97e8-4290-8337-5e3fdf215883"
+      ],
+      "table_aliases": {
+        "Table_0": "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "Table_1": "c9d4f6b0-feff-4511-8609-dde4c66bacd0___e690a291-97e8-4290-8337-5e3fdf215883"
+      },
+      "reference_code": "merged = Table_0.merge(\n    Table_1,\n    left_on='CSP23CD',\n    right_on='CSP20CD',\n    how='inner',\n    suffixes=('_2023', '_2020')\n)\nmerged['area_diff'] = merged['Shape__Area_2023'] - merged['Shape__Area_2020']\nmerged['avg_increase'] = merged['area_diff'].mean()\nresult = (\n    merged.sort_values(by='area_diff', ascending=False)\n    .head(1)\n    .loc[:, ['CSP23NM', 'area_diff', 'avg_increase']]\n    .reset_index(drop=True)\n)",
+      "reference_result": [
+        {
+          "CSP23NM": "Lancaster",
+          "area_diff": 8361520.354187012,
+          "avg_increase": 169228.908041464
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table containing the name of the partnership with the largest boundary‑area increase (CSP23NM), the magnitude of that increase in square metres (area_diff), and the average increase across all partnerships (avg_increase)."
+    },
+    {
+      "id": "c7170f55",
+      "question": "How many water abstraction licences were in place in Northern Ireland as of 16 May 2023?",
+      "keywords": [
+        "abstraction"
+      ],
+      "relevant_table_ids": [
+        "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      ],
+      "table_aliases": {
+        "Table_0": "de7bc4d7-1c72-4805-b9af-2e6c5fff4dc3___1a03b726-296d-4711-8c3a-631efd3fce09"
+      },
+      "reference_code": "Table_0[Table_0['Dataset_Da'] == '2023/05/16 00:00:00+00'].shape[0]",
+      "reference_result": [
+        {
+          "result": 853
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of water abstraction licences recorded in Northern Ireland on 16 May 2023."
+    },
+    {
+      "id": "b67a9e2c",
+      "question": "In Bolton, what are the three most common types of TfGM property, how many of each are there, and what share of Bolton’s total TfGM properties does each represent?",
+      "keywords": [
+        "property",
+        "tfgm"
+      ],
+      "relevant_table_ids": [
+        "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
+      ],
+      "table_aliases": {
+        "Table_0": "dee83659-0a06-4fa2-85ba-46d29d44054f___b1b5012b-9539-4409-936b-5c3fbe60470c"
+      },
+      "reference_code": "bolton_total = Table_0[Table_0['Town'] == 'Bolton'].shape[0]\nresult = (\n    Table_0[Table_0['Town'] == 'Bolton']\n    .groupby('Internal Category')\n    .size()\n    .reset_index(name='category_count')\n    .assign(share=lambda df: df['category_count'] / bolton_total)\n    .sort_values('category_count', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "Internal Category": "Turnarounds/Laybys",
+          "category_count": 14,
+          "share": 0.6363636364
+        },
+        {
+          "Internal Category": "Heavy Rail Car Parks",
+          "category_count": 6,
+          "share": 0.2727272727
+        },
+        {
+          "Internal Category": "Bus Stations",
+          "category_count": 2,
+          "share": 0.0909090909
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing a property type in Bolton, the count of assets of that type, and the percentage share of Bolton’s total TfGM properties that the type represents."
+    },
+    {
+      "id": "725d7b0b",
+      "question": "For England, what proportion of the approved less‑than‑thoroughly‑cooked meat establishments from April 2024 are meat preparation establishments in each town, and which three towns have the highest such proportion?",
+      "keywords": [
+        "2024",
+        "april",
+        "less"
+      ],
+      "relevant_table_ids": [
+        "a4117fbf-e36c-49f5-abae-316607eda267___0112fbf1-52a8-4218-a64e-1b54fa1b8cec"
+      ],
+      "table_aliases": {
+        "Table_0": "a4117fbf-e36c-49f5-abae-316607eda267___0112fbf1-52a8-4218-a64e-1b54fa1b8cec"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(\n        is_ltcc=lambda df: df['Part_A__Section_V__Minced_meat__meat_preparations_and_mechanically_separated_meat']\n            .str.contains(r'\\(LTTC\\)', case=False, na=False),\n        is_mp_ltcc=lambda df: df['Part_A__Section_V__Minced_meat__meat_preparations_and_mechanically_separated_meat']\n            .str.contains('MPLTTC', case=False, na=False)\n    )\n    .loc[lambda df: df['Country'].str.strip().str.lower().eq('england') & df['is_ltcc']]\n    .groupby('Town', as_index=False)\n    .agg(\n        total_ltcc=('AppNo', 'count'),\n        mp_ltcc_count=('is_mp_ltcc', 'sum')\n    )\n    .assign(proportion=lambda d: d['mp_ltcc_count'] / d['total_ltcc'])\n    .sort_values('proportion', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "Town": "Derby",
+          "total_ltcc": 1,
+          "mp_ltcc_count": 1,
+          "proportion": 1.0
+        },
+        {
+          "Town": "Eastleigh",
+          "total_ltcc": 1,
+          "mp_ltcc_count": 1,
+          "proportion": 1.0
+        },
+        {
+          "Town": "Hereford",
+          "total_ltcc": 1,
+          "mp_ltcc_count": 1,
+          "proportion": 1.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing a town in England and the proportion (as a decimal) of its approved LTTC establishments that are meat‑preparation establishments, ordered from highest to lowest proportion."
+    },
+    {
+      "id": "a408886b",
+      "question": "What were the average payment amounts and the number of payments over £25,000 for each expense category at the National Gallery in June 2022 and July 2023, and which month had the higher average for each category?",
+      "keywords": [
+        "2022",
+        "june",
+        "over",
+        "2023",
+        "july",
+        "payments"
+      ],
+      "relevant_table_ids": [
+        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
+        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___39c5d215-1aa4-4db7-bdab-658bd275a36c"
+      ],
+      "table_aliases": {
+        "Table_0": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
+        "Table_1": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___39c5d215-1aa4-4db7-bdab-658bd275a36c"
+      },
+      "reference_code": "import numpy as np\nTable_0['Amount'] = pd.to_numeric(Table_0['Amount'].astype(str).str.replace(',', ''), errors='coerce')\nTable_1['Amount'] = pd.to_numeric(Table_1['Amount'].astype(str).str.replace(',', ''), errors='coerce')\njune = (\n    Table_0[Table_0['Date'].str.contains('06/2022', na=False)]\n    .groupby('Expense type', as_index=False)\n    .agg(\n        avg_June=('Amount', 'mean'),\n        count_over_25k_June=('Amount', lambda x: (x > 25000).sum())\n    )\n)\njuly = (\n    Table_1[Table_1['Date'].str.contains('07/2023', na=False)]\n    .groupby('Expense type', as_index=False)\n    .agg(\n        avg_July=('Amount', 'mean'),\n        count_over_25k_July=('Amount', lambda x: (x > 25000).sum())\n    )\n)\nresult = (\n    june.merge(july, on='Expense type', how='outer', suffixes=('_June2022', '_July2023'))\n    .rename(columns={\n        'avg_June': 'avg_June2022',\n        'count_over_25k_June': 'count_June2022',\n        'avg_July': 'avg_July2023',\n        'count_over_25k_July': 'count_July2023'\n    })\n    .fillna({\n        'count_June2022': 0,\n        'count_July2023': 0\n    })\n)\nresult['higher_month'] = np.where(\n    result['avg_July2023'].isna(), 'June',\n    np.where(\n        result['avg_June2022'].isna(), 'July',\n        np.where(result['avg_July2023'] > result['avg_June2022'], 'July', 'June')\n    )\n)",
+      "reference_result": [
+        {
+          "Expense type": "Building Maintenance",
+          "avg_June2022": null,
+          "count_June2022": 0.0,
+          "avg_July2023": 53900.0,
+          "count_July2023": 1.0,
+          "higher_month": "July"
+        },
+        {
+          "Expense type": "Building Works",
+          "avg_June2022": 136467.33,
+          "count_June2022": 2.0,
+          "avg_July2023": null,
+          "count_July2023": 0.0,
+          "higher_month": "June"
+        },
+        {
+          "Expense type": "Cleaning",
+          "avg_June2022": null,
+          "count_June2022": 0.0,
+          "avg_July2023": 93714.24,
+          "count_July2023": 1.0,
+          "higher_month": "July"
+        },
+        {
+          "Expense type": "Electricity",
+          "avg_June2022": 68720.94,
+          "count_June2022": 1.0,
+          "avg_July2023": null,
+          "count_July2023": 0.0,
+          "higher_month": "June"
+        },
+        {
+          "Expense type": "Gas",
+          "avg_June2022": null,
+          "count_June2022": 0.0,
+          "avg_July2023": 126698.48,
+          "count_July2023": 1.0,
+          "higher_month": "July"
+        },
+        {
+          "Expense type": "Land & Buildings Capital Expenditure",
+          "avg_June2022": null,
+          "count_June2022": 0.0,
+          "avg_July2023": 115732.5691666667,
+          "count_July2023": 12.0,
+          "higher_month": "July"
+        },
+        {
+          "Expense type": "Operational Consultants",
+          "avg_June2022": 73281.0,
+          "count_June2022": 1.0,
+          "avg_July2023": 82810.258,
+          "count_July2023": 5.0,
+          "higher_month": "July"
+        },
+        {
+          "Expense type": "Plant & Machinery Capital Expenditure",
+          "avg_June2022": null,
+          "count_June2022": 0.0,
+          "avg_July2023": 65299.44,
+          "count_July2023": 1.0,
+          "higher_month": "July"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per expense type with columns avg_June2022, count_June2022, avg_July2023, count_July2023, and higher_month indicating which month had the higher average payment."
+    },
+    {
+      "id": "ffd0cc4b",
+      "question": "Which entity had the highest total government procurement card spend over £500 in February 2017, and what was the amount?",
+      "keywords": [
+        "february",
+        "government"
+      ],
+      "relevant_table_ids": [
+        "710cd410-0724-4aac-b891-e48e9ec50d66___b3acdfb8-62b5-4a02-84fb-60aef67a20c7"
+      ],
+      "table_aliases": {
+        "Table_0": "710cd410-0724-4aac-b891-e48e9ec50d66___b3acdfb8-62b5-4a02-84fb-60aef67a20c7"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby('Entity', as_index=False)['Amount'].sum()\n    .rename(columns={'Amount': 'entity_total'})\n    .sort_values('entity_total', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Entity": "NE",
+          "entity_total": 349649.83
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with two columns: the Entity that incurred the highest total spend and the corresponding summed amount in pounds for February 2017."
+    },
+    {
+      "id": "7e023404",
+      "question": "Considering the Food Standards Agency cash‑management data for August 2024 through July 2025 and the December 2024 through November 2025 report, which month between December 2024 and July 2025 showed the biggest month‑over‑month rise in the gap between the total cash reported in the two datasets, and what was that increase?",
+      "keywords": [
+        "2025",
+        "august",
+        "cash",
+        "2024",
+        "december"
+      ],
+      "relevant_table_ids": [
+        "46dfa0df-a80e-46a2-914a-28095ddf2964___820fc849-617d-4bf4-a10e-fcb5fcf2d9fc",
+        "46dfa0df-a80e-46a2-914a-28095ddf2964___e2fcd21d-cdec-4614-b4da-63ec9327250b"
+      ],
+      "table_aliases": {
+        "Table_0": "46dfa0df-a80e-46a2-914a-28095ddf2964___820fc849-617d-4bf4-a10e-fcb5fcf2d9fc",
+        "Table_1": "46dfa0df-a80e-46a2-914a-28095ddf2964___e2fcd21d-cdec-4614-b4da-63ec9327250b"
+      },
+      "reference_code": "cash_cols = ['MeatIndustryCash', 'MiscAndMilkIndustryCash', 'RadiologicalCash', 'GovernmentCash']\nfor df in (Table_0, Table_1):\n    for col in cash_cols:\n        df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')\nTable_0 = Table_0.assign(TotalCash_0=Table_0[cash_cols].sum(axis=1))\nTable_1 = Table_1.assign(TotalCash_1=Table_1[cash_cols].sum(axis=1))\nt0 = Table_0[['InvoiceMonth', 'TotalCash_0']]\nt1 = Table_1[['InvoiceMonth', 'TotalCash_1']]\nmerged = t0.merge(t1, how='inner', on='InvoiceMonth')\nmerged = merged.assign(Gap=merged['TotalCash_1'] - merged['TotalCash_0'])\nmerged = merged[merged['InvoiceMonth'].between('2024-12', '2025-07')]\nmerged = merged.sort_values('InvoiceMonth')\nmerged = merged.assign(GapRise=merged['Gap'].diff())\nresult = merged.nlargest(1, 'GapRise')[['InvoiceMonth', 'GapRise']]",
+      "reference_result": [
+        {
+          "InvoiceMonth": "2025-01",
+          "GapRise": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with the month (InvoiceMonth) that experienced the largest month‑over‑month increase in the cash‑gap between the two reports, and the size of that increase."
+    },
+    {
+      "id": "6d2af36c",
+      "question": "Which area in Leeds had the highest total refunds written off on 14 July 2016, and what was that total?",
+      "keywords": [
+        "14"
+      ],
+      "relevant_table_ids": [
+        "46df84a7-eac4-4beb-ae7c-6e2460bd1e1a___4419a45f-1b04-4c2a-b810-c96bb1d8b83f"
+      ],
+      "table_aliases": {
+        "Table_0": "46df84a7-eac4-4beb-ae7c-6e2460bd1e1a___4419a45f-1b04-4c2a-b810-c96bb1d8b83f"
+      },
+      "reference_code": "Table_0['Amount written-off'] = pd.to_numeric(Table_0['Amount written-off'], errors='coerce')\nresult = (\n    Table_0\n    .groupby('Postcode', as_index=False)['Amount written-off']\n    .sum()\n    .rename(columns={'Amount written-off': 'total_refund'})\n    .sort_values('total_refund', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Postcode": "LS11 5QP",
+          "total_refund": 5369.6
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the postcode area with the highest total refund amount and the corresponding total, expressed in pounds."
+    },
+    {
+      "id": "8f8ae564",
+      "question": "What was the average monthly total cash received by the Food Standards Agency from August 2024 to July 2025, and how does it compare to the average monthly total cash from May 2025 to April 2026?",
+      "keywords": [
+        "2025",
+        "august",
+        "cash",
+        "2026",
+        "may"
+      ],
+      "relevant_table_ids": [
+        "46dfa0df-a80e-46a2-914a-28095ddf2964___820fc849-617d-4bf4-a10e-fcb5fcf2d9fc",
+        "46dfa0df-a80e-46a2-914a-28095ddf2964___e85778f6-4204-4052-b4d1-858ee7824a1d"
+      ],
+      "table_aliases": {
+        "Table_0": "46dfa0df-a80e-46a2-914a-28095ddf2964___820fc849-617d-4bf4-a10e-fcb5fcf2d9fc",
+        "Table_1": "46dfa0df-a80e-46a2-914a-28095ddf2964___e85778f6-4204-4052-b4d1-858ee7824a1d"
+      },
+      "reference_code": "import pandas as pd\nfor col in ['GovernmentCash', 'MeatIndustryCash', 'MiscAndMilkIndustryCash', 'RadiologicalCash']:\n    Table_0[col] = pd.to_numeric(Table_0[col].astype(str).str.replace(',', ''), errors='coerce')\nfor col in ['GovernmentCash', 'MeatIndustryCash', 'MiscAndMilkIndustryCash', 'RadiologicalCash']:\n    Table_1[col] = pd.to_numeric(Table_1[col].astype(str).str.replace(',', ''), errors='coerce')\nTable_0['TotalCash_0'] = Table_0['GovernmentCash'] + Table_0['MeatIndustryCash'] + Table_0['MiscAndMilkIndustryCash'] + Table_0['RadiologicalCash']\nTable_1['TotalCash_1'] = Table_1['GovernmentCash'] + Table_1['MeatIndustryCash'] + Table_1['MiscAndMilkIndustryCash'] + Table_1['RadiologicalCash']\nAvgCash_Aug2024_Jul2025 = Table_0['TotalCash_0'].mean()\nAvgCash_May2025_Apr2026 = Table_1['TotalCash_1'].mean()\nresult = pd.DataFrame({\n    'AvgCash_Aug2024_Jul2025': [AvgCash_Aug2024_Jul2025],\n    'AvgCash_May2025_Apr2026': [AvgCash_May2025_Apr2026]\n})",
+      "reference_result": [
+        {
+          "AvgCash_Aug2024_Jul2025": 3678398.0,
+          "AvgCash_May2025_Apr2026": 4144690.0658333334
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table with two columns: AvgCash_Aug2024_Jul2025 (average monthly total cash for Aug 2024‑Jul 2025) and AvgCash_May2025_Apr2026 (average monthly total cash for May 2025‑Apr 2026)."
+    },
+    {
+      "id": "6c008d9a",
+      "question": "What are the total and average areas of priority woodland habitats identified by the Northern Ireland Environment Agency in Northern Ireland that are larger than 2 hectares?",
+      "keywords": [
+        "woodland"
+      ],
+      "relevant_table_ids": [
+        "1eaac7d3-70ff-473d-be12-759bbf99423c___3e23c862-3c95-486a-afe0-32c6fb84262e"
+      ],
+      "table_aliases": {
+        "Table_0": "1eaac7d3-70ff-473d-be12-759bbf99423c___3e23c862-3c95-486a-afe0-32c6fb84262e"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[(Table_0['Hab_Type'] == 'Woodland') & (Table_0['Area_Hectares'] > 2), 'Area_Hectares']\n    .agg(total_area_gt2='sum', avg_area_gt2='mean')\n    .to_frame().T\n)",
+      "reference_result": [
+        {
+          "total_area_gt2": 13105.8,
+          "avg_area_gt2": 8.6052527905
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table with two columns: total_area_gt2 (hectares) and avg_area_gt2 (hectares) for priority woodland habitats larger than 2 hectares."
+    },
+    {
+      "id": "88babeef",
+      "question": "What are the average contribution score, total area, and number of grid cells in the moyola catchment?",
+      "keywords": [
+        "moyola"
+      ],
+      "relevant_table_ids": [
+        "981d7afb-bb29-495b-ba8b-d2527c45fe68___0f8f2ca0-6662-40cc-9a1d-8e60207ee2bd"
+      ],
+      "table_aliases": {
+        "Table_0": "981d7afb-bb29-495b-ba8b-d2527c45fe68___0f8f2ca0-6662-40cc-9a1d-8e60207ee2bd"
+      },
+      "reference_code": "result = pd.DataFrame({\n    'avg_score': [Table_0['GRIDCODE'].mean()],\n    'total_area': [Table_0['Shape__Area'].sum()],\n    'cell_count': [Table_0['OBJECTID'].count()]\n})",
+      "reference_result": [
+        {
+          "avg_score": 75.6810074948,
+          "total_area": 47024722.50618744,
+          "cell_count": 1094358
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with three columns: average contribution score (mean GRIDCODE), total area (sum of Shape__Area), and number of grid cells (count of OBJECTID) for the Moyola catchment."
+    },
+    {
+      "id": "17eefc51",
+      "question": "How does the average contribution score differ between cells larger than 50 m² and cells 50 m² or smaller in the Belfast Lough network in NI?",
+      "keywords": [
+        "belfast",
+        "ni"
+      ],
+      "relevant_table_ids": [
+        "a3fe25d5-d8b3-4137-b4d5-57289809ed72___b0f66d67-2c0b-4df9-8128-573c4360c678"
+      ],
+      "table_aliases": {
+        "Table_0": "a3fe25d5-d8b3-4137-b4d5-57289809ed72___b0f66d67-2c0b-4df9-8128-573c4360c678"
+      },
+      "reference_code": "df = Table_0.assign(is_large=Table_0['Shape__Area'] > 50)\navg_large = df.loc[df['is_large'], 'GRIDCODE'].mean()\navg_small = df.loc[~df['is_large'], 'GRIDCODE'].mean()\navg_diff = avg_large - avg_small\navg_diff",
+      "reference_result": [
+        {
+          "result": 2.6413847726
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single numeric value representing the difference between the average contribution score of cells larger than 50 m² and that of cells 50 m² or smaller (avg_large minus avg_small). Positive indicates larger cells have a higher average score."
+    },
+    {
+      "id": "60d94e2a",
+      "question": "In the BGG dataset for December 2022, which region of built‑up areas has the highest average land size, what is that average, and how does it compare to the overall average land size of all built‑up areas?",
+      "keywords": [
+        "bgg"
+      ],
+      "relevant_table_ids": [
+        "46fff29c-7836-4082-9495-99e87476d402___a5f02c30-d9aa-4302-85b1-5a16d82009b2"
+      ],
+      "table_aliases": {
+        "Table_0": "46fff29c-7836-4082-9495-99e87476d402___a5f02c30-d9aa-4302-85b1-5a16d82009b2"
+      },
+      "reference_code": "region_map = {'E': 'England', 'S': 'Scotland', 'W': 'Wales', 'K': 'Northern Ireland'}\ndf = Table_0.assign(region=Table_0['BUA22CD'].str[0].map(region_map))\nregion_avg = (\n    df.groupby('region', as_index=False)['Shape__Area']\n      .mean()\n      .rename(columns={'Shape__Area': 'region_avg'})\n)\noverall_avg = df['Shape__Area'].mean()\nresult = (\n    region_avg.assign(overall_avg=overall_avg)\n              .assign(avg_diff=lambda x: x['region_avg'] - x['overall_avg'])\n              .sort_values(by='region_avg', ascending=False)\n              .head(1)\n              .loc[:, ['region', 'region_avg', 'overall_avg', 'avg_diff']]\n)",
+      "reference_result": [
+        {
+          "region": "Northern Ireland",
+          "region_avg": 3004375.0,
+          "overall_avg": 2010537.5219426565,
+          "avg_diff": 993837.4780573435
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the region with the highest average land size, its average land size, the overall average land size across all built‑up areas, and the difference between the region average and the overall average."
+    },
+    {
+      "id": "5882d8b4",
+      "question": "What is the average contribution score for the bush network?",
+      "keywords": [
+        "bush"
+      ],
+      "relevant_table_ids": [
+        "0c705864-c657-44c1-8310-2e38fcf24f5f___10bdc4b4-c7d0-4012-912f-9eaf03eba734"
+      ],
+      "table_aliases": {
+        "Table_0": "0c705864-c657-44c1-8310-2e38fcf24f5f___10bdc4b4-c7d0-4012-912f-9eaf03eba734"
+      },
+      "reference_code": "avg_score = Table_0['GRIDCODE'].mean()",
+      "reference_result": [
+        {
+          "result": 75.0648851433
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average contribution score (GRIDCODE) across all Bush network cells (unitless)."
+    },
+    {
+      "id": "ba2f3db8",
+      "question": "As of 1 April 2025, how many local authority districts are in each community safety partnership, and which partnership has the highest number of districts?",
+      "keywords": [
+        "local"
+      ],
+      "relevant_table_ids": [
+        "1878dff0-fede-48f3-b011-3ca826714469___e8cc60d8-f3bb-4a29-ad58-821247d88d95"
+      ],
+      "table_aliases": {
+        "Table_0": "1878dff0-fede-48f3-b011-3ca826714469___e8cc60d8-f3bb-4a29-ad58-821247d88d95"
+      },
+      "reference_code": "result = (\n    Table_0.groupby('CSP25NM')['LAD25CD'].nunique()\n    .reset_index(name='district_count')\n    .sort_values(by='district_count', ascending=False)\n)",
+      "reference_result": [
+        {
+          "CSP25NM": "South Devon and Dartmoor",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "Western Suffolk",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "North Worcestershire",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "South Nottinghamshire",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "North Hampshire",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "South Worcester",
+          "district_count": 3
+        },
+        {
+          "CSP25NM": "Dorset",
+          "district_count": 2
+        },
+        {
+          "CSP25NM": "Dartford and Gravesham",
+          "district_count": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per community safety partnership showing the count of local authority districts in that partnership, sorted descending so the first row is the partnership with the highest number of districts."
+    },
+    {
+      "id": "19d2c944",
+      "question": "What is the average area of Community Safety Partnerships (bsc safety) in 2023 and in 2017?",
+      "keywords": [
+        "2023",
+        "bsc",
+        "safety"
+      ],
+      "relevant_table_ids": [
+        "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "5fd9711b-4304-491b-8eef-3c1ddf556ae4___b8081e43-9354-4fc2-a99c-661c832d814f"
+      ],
+      "table_aliases": {
+        "Table_0": "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
+        "Table_1": "5fd9711b-4304-491b-8eef-3c1ddf556ae4___b8081e43-9354-4fc2-a99c-661c832d814f"
+      },
+      "reference_code": "import pandas as pd\n_df_2023 = Table_0.assign(year_2023=2023)\n_df_2017 = Table_1.assign(year_2017=2017)\n_df_2023_sel = _df_2023[['year_2023', 'Shape__Area']]\n_df_2017_sel = _df_2017[['year_2017', 'Shape__Area']]\n_df_combined = pd.concat([_df_2023_sel, _df_2017_sel], ignore_index=True)\n_df_combined['year'] = _df_combined['year_2023'].combine_first(_df_combined['year_2017'])\nresult = (\n    _df_combined\n    .groupby('year', as_index=False)['Shape__Area']\n    .mean()\n    .rename(columns={'Shape__Area': 'avg_area'})\n)",
+      "reference_result": [
+        {
+          "year": 2017.0,
+          "avg_area": 480037718.8114718
+        },
+        {
+          "year": 2023.0,
+          "avg_area": 481842460.94041747
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with two rows: one for year 2023 and one for year 2017, each showing the average polygon area (square metres) of Community Safety Partnerships for that year."
+    },
+    {
+      "id": "977a274f",
+      "question": "In the 1990 Lavan study, what percentage of the habitat records belongs to each habitat type, and which habitat types are the most common?",
+      "keywords": [
+        "1990",
+        "habitat",
+        "lavan"
+      ],
+      "relevant_table_ids": [
+        "2c0fde7e-d724-41b3-8348-a8b5740e7bc3___7f25653d-404f-4eb6-8154-a6681baf21f9"
+      ],
+      "table_aliases": {
+        "Table_0": "2c0fde7e-d724-41b3-8348-a8b5740e7bc3___7f25653d-404f-4eb6-8154-a6681baf21f9"
+      },
+      "reference_code": "total_count = Table_0.shape[0]\nresult = (\n    Table_0.groupby('HabitatCode')\n    .size()\n    .reset_index(name='habitat_count')\n    .assign(pct_of_total=lambda df: df['habitat_count'] / total_count * 100)\n    .sort_values('pct_of_total', ascending=False)\n    .reset_index(drop=True)\n)",
+      "reference_result": [
+        {
+          "HabitatCode": "LMS.PCer",
+          "habitat_count": 73,
+          "pct_of_total": 20.7977207977
+        },
+        {
+          "HabitatCode": "LS.LSa.MuSa.CerPo",
+          "habitat_count": 61,
+          "pct_of_total": 17.3789173789
+        },
+        {
+          "HabitatCode": "LS.LSa.MuSa.BatCare",
+          "habitat_count": 49,
+          "pct_of_total": 13.9601139601
+        },
+        {
+          "HabitatCode": "LMS.MacAre",
+          "habitat_count": 37,
+          "pct_of_total": 10.5413105413
+        },
+        {
+          "HabitatCode": "LMU.HedMac",
+          "habitat_count": 37,
+          "pct_of_total": 10.5413105413
+        },
+        {
+          "HabitatCode": "LGS.Lan",
+          "habitat_count": 30,
+          "pct_of_total": 8.547008547
+        },
+        {
+          "HabitatCode": "LS.LSa.MuSa.Lan",
+          "habitat_count": 29,
+          "pct_of_total": 8.2621082621
+        },
+        {
+          "HabitatCode": "LS.LSa.MuSa",
+          "habitat_count": 13,
+          "pct_of_total": 3.7037037037
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per habitat type showing the percentage of total habitat point records; rows are sorted so the most common habitats appear first."
+    },
+    {
+      "id": "a065a024",
+      "question": "How many points recorded the Abra alba, Nucula nitida and Corbula gibba habitat in the 1990 Wimpey Environmental Scarborough survey?",
+      "keywords": [
+        "habitat",
+        "wimpey"
+      ],
+      "relevant_table_ids": [
+        "d8523778-861a-4c54-8497-8519816a5a6d___a619d2bc-6928-490d-9590-63df71c16235"
+      ],
+      "table_aliases": {
+        "Table_0": "d8523778-861a-4c54-8497-8519816a5a6d___a619d2bc-6928-490d-9590-63df71c16235"
+      },
+      "reference_code": "point_count = Table_0[Table_0['HabitatCode'] == 'CMS.AbrNucCor']['RecordKey'].count()\npoint_count",
+      "reference_result": [
+        {
+          "0": 36
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of point records for the Abra alba, Nucula nitida and Corbula gibba habitat in the 1990 Wimpey Environmental Scarborough survey."
+    },
+    {
+      "id": "42693a0b",
+      "question": "Which five parishes with an area larger than 10 million square metres have the longest perimeter in the 2021 BGC parishes boundaries, and what is their average area?",
+      "keywords": [
         "2021",
-        "larger"
+        "bgc",
+        "parishes"
+      ],
+      "relevant_table_ids": [
+        "9c1beb48-eb8e-4fa3-a8ba-0da954fd23ff___d1994ff4-61dc-43b2-b8f1-8df1fc27d313"
+      ],
+      "table_aliases": {
+        "Table_0": "9c1beb48-eb8e-4fa3-a8ba-0da954fd23ff___d1994ff4-61dc-43b2-b8f1-8df1fc27d313"
+      },
+      "reference_code": "top5 = (\n    Table_0[Table_0['Shape__Area'] > 10000000]\n    .sort_values(by='Shape__Length', ascending=False)\n    .head(5)\n)\navg_area = top5['Shape__Area'].mean()\nresult = top5.assign(avg_top5_area=avg_area)[['PAR21NM', 'Shape__Area', 'Shape__Length', 'avg_top5_area']]",
+      "reference_result": [
+        {
+          "PAR21NM": "Holbeach",
+          "Shape__Area": 100527608.849884,
+          "Shape__Length": 205712.124042838,
+          "avg_top5_area": 48403519.740654
+        },
+        {
+          "PAR21NM": "Pembrey and Burry Port Town",
+          "Shape__Area": 41394436.6531754,
+          "Shape__Length": 122455.21077219,
+          "avg_top5_area": 48403519.740654
+        },
+        {
+          "PAR21NM": "Gedney",
+          "Shape__Area": 51455531.863266,
+          "Shape__Length": 122195.796615572,
+          "avg_top5_area": 48403519.740654
+        },
+        {
+          "PAR21NM": "Kirton",
+          "Shape__Area": 30805741.8985596,
+          "Shape__Length": 120588.617435607,
+          "avg_top5_area": 48403519.740654
+        },
+        {
+          "PAR21NM": "Canvey Island",
+          "Shape__Area": 17834279.438385,
+          "Shape__Length": 104600.063900331,
+          "avg_top5_area": 48403519.740654
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table listing the five largest‑area parishes (name, area, perimeter) sorted by descending perimeter, plus an additional column showing the average area of these five parishes (same value repeated for each row)."
+    },
+    {
+      "id": "91a44cf8",
+      "question": "What is the land area of the Greater Manchester combined authority boundary as of December 2025?",
+      "keywords": [
+        "combined"
+      ],
+      "relevant_table_ids": [
+        "f8f2bdad-67d1-4b2e-98f1-be88f381ecc5___1c989598-3d7e-47af-adbd-40f82b175d13"
+      ],
+      "table_aliases": {
+        "Table_0": "f8f2bdad-67d1-4b2e-98f1-be88f381ecc5___1c989598-3d7e-47af-adbd-40f82b175d13"
+      },
+      "reference_code": "total_area = Table_0[Table_0['CAUTH25NM'] == 'Greater Manchester']['Shape__Area'].sum()",
+      "reference_result": [
+        {
+          "result": 1273633508.15593
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total land area of the Greater Manchester combined authority boundary in square metres as of December 2025."
+    },
+    {
+      "id": "0c6c9b06",
+      "question": "For each street lighting status in Bradford, what proportion of lights are defective, and which status shows the highest defect proportion?",
+      "keywords": [
+        "street"
+      ],
+      "relevant_table_ids": [
+        "31822b25-9d7c-4daa-8013-76af040903a8___6eb04181-727b-4ef1-b0ac-aa7d6cdd255a"
+      ],
+      "table_aliases": {
+        "Table_0": "31822b25-9d7c-4daa-8013-76af040903a8___6eb04181-727b-4ef1-b0ac-aa7d6cdd255a"
+      },
+      "reference_code": "total = Table_0.groupby('ITEM_STATUS').size().reset_index(name='total_per_status')\ndefective = Table_0[Table_0['DEFECT'].str.lower() == 'opendefect'.lower()]\ndefective_counts = defective.groupby('ITEM_STATUS').size().reset_index(name='defective_per_status')\nmerged = total.merge(defective_counts, on='ITEM_STATUS', how='outer')\nmerged['defective_per_status'] = merged['defective_per_status'].fillna(0).astype(int)\nmerged['defect_proportion'] = merged['defective_per_status'] / merged['total_per_status']\nmerged['rank'] = merged['defect_proportion'].rank(method='average', ascending=False)\nmerged",
+      "reference_result": [
+        {
+          "ITEM_STATUS": 1,
+          "total_per_status": 59225,
+          "defective_per_status": 2902,
+          "defect_proportion": 0.0489995779,
+          "rank": 6.0
+        },
+        {
+          "ITEM_STATUS": 3,
+          "total_per_status": 329,
+          "defective_per_status": 175,
+          "defect_proportion": 0.5319148936,
+          "rank": 2.0
+        },
+        {
+          "ITEM_STATUS": 4,
+          "total_per_status": 48,
+          "defective_per_status": 5,
+          "defect_proportion": 0.1041666667,
+          "rank": 5.0
+        },
+        {
+          "ITEM_STATUS": 5,
+          "total_per_status": 1,
+          "defective_per_status": 0,
+          "defect_proportion": 0.0,
+          "rank": 8.0
+        },
+        {
+          "ITEM_STATUS": 6,
+          "total_per_status": 128,
+          "defective_per_status": 5,
+          "defect_proportion": 0.0390625,
+          "rank": 7.0
+        },
+        {
+          "ITEM_STATUS": 7,
+          "total_per_status": 6,
+          "defective_per_status": 1,
+          "defect_proportion": 0.1666666667,
+          "rank": 3.0
+        },
+        {
+          "ITEM_STATUS": 8,
+          "total_per_status": 286,
+          "defective_per_status": 188,
+          "defect_proportion": 0.6573426573,
+          "rank": 1.0
+        },
+        {
+          "ITEM_STATUS": 9,
+          "total_per_status": 7,
+          "defective_per_status": 1,
+          "defect_proportion": 0.1428571429,
+          "rank": 4.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per ITEM_STATUS showing the defect proportion (defective lights / total lights) and a rank column where rank 1 indicates the highest proportion."
+    },
+    {
+      "id": "3da828ad",
+      "question": "In the 2007 Belfast Lough network in NI, what are the average contribution score and the total area of the ten largest cells (by area) that are bigger than 30 m², and how do these figures compare with the overall average contribution score and total area of the entire network?",
+      "keywords": [
+        "belfast",
+        "ni"
+      ],
+      "relevant_table_ids": [
+        "a3fe25d5-d8b3-4137-b4d5-57289809ed72___b0f66d67-2c0b-4df9-8128-573c4360c678"
+      ],
+      "table_aliases": {
+        "Table_0": "a3fe25d5-d8b3-4137-b4d5-57289809ed72___b0f66d67-2c0b-4df9-8128-573c4360c678"
+      },
+      "reference_code": "overall_avg_score = Table_0['GRIDCODE'].mean()\noverall_total_area = Table_0['Shape__Area'].sum()\ntop10 = (\n    Table_0[Table_0['Shape__Area'] > 30]\n    .sort_values(by='Shape__Area', ascending=False)\n    .head(10)\n)\ntop10_avg_score = top10['GRIDCODE'].mean()\ntop10_total_area = top10['Shape__Area'].sum()\nresult = pd.DataFrame({\n    'overall_avg_score': [overall_avg_score],\n    'overall_total_area': [overall_total_area],\n    'top10_avg_score': [top10_avg_score],\n    'top10_total_area': [top10_total_area]\n})\nresult",
+      "reference_result": [
+        {
+          "overall_avg_score": 75.9154686073,
+          "overall_total_area": 32358440.01448059,
+          "top10_avg_score": 100.0,
+          "top10_total_area": 268889.3209762573
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with four columns: overall_avg_score, overall_total_area, top10_avg_score, and top10_total_area. These represent the network‑wide average contribution score and total area, and the same metrics for the ten largest cells (area > 30 m²)."
+    },
+    {
+      "id": "b6479293",
+      "question": "Looking at the tourismlocations in the Mid Ulster district, which two towns have the highest number of locations, what are their counts, and how do those counts compare to the median number of locations per town?",
+      "keywords": [
+        "tourismlocations"
+      ],
+      "relevant_table_ids": [
+        "c9e1c7bd-f8c4-4d21-950b-2c773603de8d___8559bf61-b7a0-4b74-b628-e49195ad1645"
+      ],
+      "table_aliases": {
+        "Table_0": "c9e1c7bd-f8c4-4d21-950b-2c773603de8d___8559bf61-b7a0-4b74-b628-e49195ad1645"
+      },
+      "reference_code": "agg = Table_0.groupby('Town', dropna=False)['Id'].count().reset_index(name='location_count')\nmedian_count = agg['location_count'].median()\nresult = (\n    agg.assign(median_count=median_count)\n       .sort_values('location_count', ascending=False)\n       .head(2)\n       .assign(diff_to_median=lambda df: df['location_count'] - df['median_count'])\n       .loc[:, ['Town', 'location_count', 'median_count', 'diff_to_median']]\n)",
+      "reference_result": [
+        {
+          "Town": "Dungannon",
+          "location_count": 15,
+          "median_count": 3.0,
+          "diff_to_median": 12.0
+        },
+        {
+          "Town": "Magherafelt",
+          "location_count": 9,
+          "median_count": 3.0,
+          "diff_to_median": 6.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with two rows, each showing a town, its location count, the median location count across all towns, and the difference (count minus median)."
+    },
+    {
+      "id": "17ccf71f",
+      "question": "What is the land area of the Avon fire and rescue authority (FRA) in 2022 according to its BUC boundary?",
+      "keywords": [
+        "2022",
+        "buc",
+        "fra"
+      ],
+      "relevant_table_ids": [
+        "e6cb8668-2962-4e88-a87d-5f7039a80e11___a27efd1a-d6ca-4b4d-9df7-9f736d2252ac"
+      ],
+      "table_aliases": {
+        "Table_0": "e6cb8668-2962-4e88-a87d-5f7039a80e11___a27efd1a-d6ca-4b4d-9df7-9f736d2252ac"
+      },
+      "reference_code": "area = Table_0.loc[Table_0['FRA22NM'] == 'Avon', 'Shape__Area'].sum()",
+      "reference_result": [
+        {
+          "result": 1333988638.78641
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total land area of the Avon fire and rescue authority BUC in 2022, expressed in square metres."
+    },
+    {
+      "id": "64355b87",
+      "question": "How many compliance sections were recorded in total by the Food Standards Agency across September 2019, April 2020 and June 2019?",
+      "keywords": [
+        "sections",
+        "september",
+        "april",
+        "june"
+      ],
+      "relevant_table_ids": [
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___ba629430-3f22-43d1-a850-12c50f8e5f1f",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___83ad9edd-d21c-49cd-9cdc-ddc2273615a5"
+      ],
+      "table_aliases": {
+        "Table_0": "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "Table_1": "cf0adf86-5936-46f0-8d5f-73049b135d76___ba629430-3f22-43d1-a850-12c50f8e5f1f",
+        "Table_2": "cf0adf86-5936-46f0-8d5f-73049b135d76___83ad9edd-d21c-49cd-9cdc-ddc2273615a5"
+      },
+      "reference_code": "count_sept = Table_0['QuestionNo'].count()\ncount_april = Table_1['QuestionNo'].count()\ncount_june = Table_2['QuestionNo'].count()\ntotal_sections = count_sept + count_april + count_june\nresult = pd.DataFrame({'total_sections': [total_sections]})",
+      "reference_result": [
+        {
+          "total_sections": 318
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of compliance sections recorded across the three snapshots (September 2019, April 2020, June 2019)."
+    },
+    {
+      "id": "f06f979a",
+      "question": "How many Community Safety Partnerships appear in both the 2023 bsc safety boundaries and the 2021 buc csp boundaries?",
+      "keywords": [
+        "2023",
+        "bsc",
+        "safety",
+        "buc",
+        "csp"
       ],
       "relevant_table_ids": [
         "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
@@ -905,1116 +1233,358 @@
         "Table_0": "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
         "Table_1": "a3de500c-22f9-4e49-af3d-aff5e5138a4f___ad49c5be-50f2-43f8-a7ff-f2c3a027f2ba"
       },
-      "reference_code": "area_2023 = Table_0['Shape__Area'].sum()\narea_2021 = Table_1['Shape__Area'].sum()\narea_diff = area_2023 - area_2021",
+      "reference_code": "union_df = pd.concat([\n    Table_0[['CSP23CD']].assign(CSP21CD=pd.NA),\n    Table_1[['CSP21CD']].assign(CSP23CD=pd.NA)\n], ignore_index=True)\nunion_df['CSP_CD'] = union_df['CSP23CD'].combine_first(union_df['CSP21CD'])\nunion_df['is_2023'] = union_df['CSP23CD'].notna().astype(int)\nunion_df['is_2021'] = union_df['CSP21CD'].notna().astype(int)\nagg_df = (\n    union_df\n    .groupby('CSP_CD', as_index=False)\n    .agg({'is_2023': 'max', 'is_2021': 'max'})\n    .rename(columns={'is_2023': 'is_2023_agg', 'is_2021': 'is_2021_agg'})\n)\nboth_df = agg_df[(agg_df['is_2023_agg'] == 1) & (agg_df['is_2021_agg'] == 1)]\nboth_count = both_df.shape[0]",
       "reference_result": [
         {
-          "result": -201109322.712677
+          "result": 314
         }
       ],
       "expected_result_type": "number",
-      "expected_result_description": "A single number representing the difference in square metres between the total area of Community Safety Partnerships in December 2023 and December 2021."
+      "expected_result_description": "The number of Community Safety Partnerships that are present in both the 2023 BSC safety boundaries and the 2021 BUC CSP boundaries."
     },
     {
-      "id": "930a575f",
-      "question": "What are the top five habitat‑location combinations by point count and their average latitude in the 1990 National River Authority (NRA) Teich Estuary survey?",
+      "id": "a8e35ba7",
+      "question": "What is the area of the Belfast Travel to Work Area as defined on 31 December 2001 according to the BFC travel TTWA data?",
       "keywords": [
-        "what",
-        "top",
-        "five",
-        "habitat",
-        "location",
-        "combinations",
-        "point",
-        "count",
-        "average",
-        "latitude"
+        "bfc",
+        "travel",
+        "ttwa"
       ],
       "relevant_table_ids": [
-        "01150622-1ffd-44ee-b1ac-2b96c0565814___44e5f220-2a63-47ea-8f2d-8f165d209f1d"
+        "767e3909-035c-401e-bf58-7d82902a456b___e4bd4b6c-9f84-40b7-b2f6-19d85db4ecc8"
       ],
       "table_aliases": {
-        "Table_0": "01150622-1ffd-44ee-b1ac-2b96c0565814___44e5f220-2a63-47ea-8f2d-8f165d209f1d"
+        "Table_0": "767e3909-035c-401e-bf58-7d82902a456b___e4bd4b6c-9f84-40b7-b2f6-19d85db4ecc8"
       },
-      "reference_code": "result = (\n    Table_0\n    .groupby(['HabitatCode', 'LocationName'])\n    .agg(point_count=('RecordKey', 'size'), avg_latitude=('Latitude', 'mean'))\n    .reset_index()\n    .sort_values(by='point_count', ascending=False)\n    .head(5)\n)",
+      "reference_code": "belfast_area = Table_0[Table_0['ttwa01nm'] == 'Belfast']['Shape__Area'].sum()",
       "reference_result": [
         {
-          "HabitatCode": "IGS.Lcon",
-          "LocationName": "Offshore of the Salty (Teign Estuary)",
-          "point_count": 1,
-          "avg_latitude": 50.5443611099
-        },
-        {
-          "HabitatCode": "IMS.FaMS",
-          "LocationName": "W of Coombe Cellars (Teign Estuary)",
-          "point_count": 1,
-          "avg_latitude": 50.5400425788
-        },
-        {
-          "HabitatCode": "LMS.MacAre",
-          "LocationName": "Flow Point, Bishopsteignton (Teign Estuary)",
-          "point_count": 1,
-          "avg_latitude": 50.5447627502
-        },
-        {
-          "HabitatCode": "LMU.HedMac.Are",
-          "LocationName": "Coombe Cellars Inn, Elmfield (Teign Estuary)",
-          "point_count": 1,
-          "avg_latitude": 50.5410357185
-        },
-        {
-          "HabitatCode": "LMU.NVC SM8",
-          "LocationName": "Passage House Inn, Kingsteignton (Teign Estuary)",
-          "point_count": 1,
-          "avg_latitude": 50.5397192341
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with five rows, each showing a HabitatCode, a LocationName, the total point count for that combination, and the average latitude of the points, sorted by point count descending."
-    },
-    {
-      "id": "26f656fa",
-      "question": "How many houses were sold each year and what was the median price in Mid Ulster between 2010 and 2020?",
-      "keywords": [
-        "sales",
-        "median",
-        "price",
-        "2010",
-        "2020",
-        "mid",
-        "ulster"
-      ],
-      "relevant_table_ids": [
-        "f6415561-6d89-4f3e-81c3-4d755483245f___537ded5f-dfad-44e5-891b-74dd33220317"
-      ],
-      "table_aliases": {
-        "Table_0": "f6415561-6d89-4f3e-81c3-4d755483245f___537ded5f-dfad-44e5-891b-74dd33220317"
-      },
-      "reference_code": "result = (\n    Table_0[(Table_0['SaleYr'] >= 2010) & (Table_0['SaleYr'] <= 2020)]\n    .groupby('SaleYr')\n    .agg(\n        total_sales=('LGD_VerifiedSales', 'sum'),\n        median_price=('Reporting_MedianPrice', 'median')\n    )\n    .reset_index()\n)",
-      "reference_result": [
-        {
-          "SaleYr": 2010,
-          "total_sales": 570,
-          "median_price": 116000.0
-        },
-        {
-          "SaleYr": 2011,
-          "total_sales": 624,
-          "median_price": 104950.0
-        },
-        {
-          "SaleYr": 2012,
-          "total_sales": 720,
-          "median_price": 95000.0
-        },
-        {
-          "SaleYr": 2013,
-          "total_sales": 828,
-          "median_price": 95000.0
-        },
-        {
-          "SaleYr": 2014,
-          "total_sales": 1037,
-          "median_price": 104950.0
-        },
-        {
-          "SaleYr": 2015,
-          "total_sales": 1154,
-          "median_price": 114950.0
-        },
-        {
-          "SaleYr": 2016,
-          "total_sales": 1254,
-          "median_price": 122000.0
-        },
-        {
-          "SaleYr": 2017,
-          "total_sales": 1265,
-          "median_price": 124950.0
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "One row per year from 2010 to 2020, showing the total number of verified house sales and the median sale price (in pounds) for that year."
-    },
-    {
-      "id": "9a833599",
-      "question": "How many Local Authority Districts in England and Wales are classified as Rural in the 2021 Rural‑Urban Classification (RUC21) for 2024?",
-      "keywords": [
-        "Local",
-        "Authority",
-        "Districts",
-        "England",
-        "Wales",
-        "Rural",
-        "2021",
-        "RUC21",
-        "2024"
-      ],
-      "relevant_table_ids": [
-        "8daa9988-f4e6-40e3-82df-58bb0ae947a3___1e1245e8-b205-40bb-b63e-d6f7bff22590"
-      ],
-      "table_aliases": {
-        "Table_0": "8daa9988-f4e6-40e3-82df-58bb0ae947a3___1e1245e8-b205-40bb-b63e-d6f7bff22590"
-      },
-      "reference_code": "result = Table_0[Table_0['Urban_rural_flag'] == 'Rural'].shape[0]",
-      "reference_result": [
-        {
-          "result": 87
+          "result": 2690533263.42851
         }
       ],
       "expected_result_type": "number",
-      "expected_result_description": "The total number of Local Authority Districts in England and Wales that are flagged as Rural in the 2021 Rural‑Urban Classification (RUC21) for 2024."
+      "expected_result_description": "The total area of the Belfast Travel to Work Area in square metres as defined on 31 December 2001."
     },
     {
-      "id": "23d71b7f",
-      "question": "What is the total amount of payments over £25,000 made by the National Gallery across June 2022, June 2023 and May 2023?",
+      "id": "8abe5cd6",
+      "question": "Which lough showed the largest increase in the proportion of shellfish samples that were positive for any biotoxin from 2021 to 2026?",
       "keywords": [
-        "total",
-        "payments",
-        "National",
-        "Gallery",
-        "June",
-        "2022",
-        "2023",
-        "May"
-      ],
-      "relevant_table_ids": [
-        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
-        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___fad37d84-29ef-45cf-a53c-a792f62e229f",
-        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___40483359-c0ed-42d5-8e93-4a61afc63784"
-      ],
-      "table_aliases": {
-        "Table_0": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
-        "Table_1": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___fad37d84-29ef-45cf-a53c-a792f62e229f",
-        "Table_2": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___40483359-c0ed-42d5-8e93-4a61afc63784"
-      },
-      "reference_code": "Table_0['Amount'] = pd.to_numeric(Table_0['Amount'].str.replace(',', ''), errors='coerce')\nTable_1['Amount'] = pd.to_numeric(Table_1['Amount'].str.replace(',', ''), errors='coerce')\nTable_2['Amount'] = pd.to_numeric(Table_2['Amount'].str.replace(',', ''), errors='coerce')\ntotal_0 = Table_0['Amount'].sum()\ntotal_1 = Table_1['Amount'].sum()\ntotal_2 = Table_2['Amount'].sum()\ntotal_amount = total_0 + total_1 + total_2",
-      "reference_result": [
-        {
-          "result": 11570718.13
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The summed amount (in pounds) of all National Gallery payments over £25,000 recorded in June 2022, June 2023 and May 2023."
-    },
-    {
-      "id": "5ac7e1b1",
-      "question": "Which ward in Cambridgeshire had the highest number of allocations without planning permission in 2017, and what was that number?",
-      "keywords": [
-        "ward",
-        "Cambridgeshire",
-        "highest",
-        "allocations",
-        "planning",
-        "permission",
-        "2017"
-      ],
-      "relevant_table_ids": [
-        "7dffd0de-1151-429a-b919-d1282d385285___d7776787-e4de-4e9a-90d1-6d8dfb37ef33"
-      ],
-      "table_aliases": {
-        "Table_0": "7dffd0de-1151-429a-b919-d1282d385285___d7776787-e4de-4e9a-90d1-6d8dfb37ef33"
-      },
-      "reference_code": "Table_0['Sum of ALLOCATIONS WITH NO PLANNING PERMISSION'] = pd.to_numeric(Table_0['Sum of ALLOCATIONS WITH NO PLANNING PERMISSION'], errors='coerce')\nresult = (\n    Table_0\n    .sort_values(by='Sum of ALLOCATIONS WITH NO PLANNING PERMISSION', ascending=False)\n    .head(1)\n    [['Ward/Parish', 'Sum of ALLOCATIONS WITH NO PLANNING PERMISSION']]\n)",
-      "reference_result": [
-        {
-          "Ward/Parish": "Abbey",
-          "Sum of ALLOCATIONS WITH NO PLANNING PERMISSION": 780.0
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A one‑row table showing the ward name that had the greatest number of allocations without planning permission in 2017 and the corresponding count."
-    },
-    {
-      "id": "9cf487d3",
-      "question": "What is the total land area of all English counties in the May 2023 dataset?",
-      "keywords": [
-        "total",
-        "land",
-        "area",
-        "English",
-        "counties"
-      ],
-      "relevant_table_ids": [
-        "d8dd754d-82b6-499a-b5bf-ef29c135260b___b5e9dcdb-09f3-4e44-800c-8ded04550bed"
-      ],
-      "table_aliases": {
-        "Table_0": "d8dd754d-82b6-499a-b5bf-ef29c135260b___b5e9dcdb-09f3-4e44-800c-8ded04550bed"
-      },
-      "reference_code": "total_area = Table_0['Shape__Area'].sum()",
-      "reference_result": [
-        {
-          "result": 63664217881.877106
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The combined land area of all 21 English counties, expressed in square metres as a single total value."
-    },
-    {
-      "id": "5448237a",
-      "question": "What was the average invoice amount per transaction for TfGM in Q1 2024/25 compared to Q2 2023/24?",
-      "keywords": [
-        "TfGM",
-        "average",
-        "invoice",
-        "amount",
-        "transaction",
-        "2024/25",
-        "2023/24",
-        "quarter"
-      ],
-      "relevant_table_ids": [
-        "04684038-f9a9-46be-a9fb-86f1455084ed___97120ca1-edb2-46eb-9b90-70c8eab4f617",
-        "04684038-f9a9-46be-a9fb-86f1455084ed___67b9ebee-5429-4699-8629-d73f5ce9cc98"
-      ],
-      "table_aliases": {
-        "Table_0": "04684038-f9a9-46be-a9fb-86f1455084ed___97120ca1-edb2-46eb-9b90-70c8eab4f617",
-        "Table_1": "04684038-f9a9-46be-a9fb-86f1455084ed___67b9ebee-5429-4699-8629-d73f5ce9cc98"
-      },
-      "reference_code": "WITH unified AS (\n  SELECT\n    \"Body Name\",\n    CASE\n      WHEN \"Net Amount\" LIKE '(%' THEN -TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(\"Net Amount\",'(',''),')',''),',',''), ' ', '') AS DOUBLE)\n      ELSE TRY_CAST(REPLACE(REPLACE(\"Net Amount\",',',''), ' ', '') AS DOUBLE)\n    END AS \"Net Amount\",\n    \"Supplier Name\",\n    \"Expense Type\",\n    \"Service Area\",\n    \"Invoice Payment Date\",\n    \"Transaction Number\"\n  FROM \"Table_0\"\n  UNION ALL\n  SELECT\n    \"Body Name\",\n    CASE\n      WHEN \"Net Amount\" LIKE '(%' THEN -TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(\"Net Amount\",'(',''),')',''),',',''), ' ', '') AS DOUBLE)\n      ELSE TRY_CAST(REPLACE(REPLACE(\"Net Amount\",',',''), ' ', '') AS DOUBLE)\n    END AS \"Net Amount\",\n    \"Supplier Name\",\n    \"Expense Type\",\n    \"Service Area\",\n    \"Invoice Payment Date\",\n    \"Transaction Number\"\n  FROM \"Table_1\"\n),\nwith_quarter AS (\n  SELECT\n    *,\n    CASE\n      WHEN EXTRACT(MONTH FROM TRY_CAST(STRPTIME(\"Invoice Payment Date\", '%d/%m/%Y') AS DATE)) BETWEEN 4 AND 6\n           AND EXTRACT(YEAR FROM TRY_CAST(STRPTIME(\"Invoice Payment Date\", '%d/%m/%Y') AS DATE)) = 2024\n        THEN '2024Q1'\n      WHEN EXTRACT(MONTH FROM TRY_CAST(STRPTIME(\"Invoice Payment Date\", '%d/%m/%Y') AS DATE)) BETWEEN 7 AND 9\n           AND EXTRACT(YEAR FROM TRY_CAST(STRPTIME(\"Invoice Payment Date\", '%d/%m/%Y') AS DATE)) = 2023\n        THEN '2023Q2'\n      ELSE NULL\n    END AS \"Quarter\"\n  FROM unified\n)\nSELECT\n  \"Quarter\",\n  SUM(\"Net Amount\") / COUNT(\"Transaction Number\") AS \"avg_amount\"\nFROM with_quarter\nWHERE \"Quarter\" IS NOT NULL\nGROUP BY \"Quarter\"\nORDER BY \"Quarter\";",
-      "reference_result": [
-        {
-          "Quarter": "2023Q2",
-          "avg_amount": 21811.191163926
-        },
-        {
-          "Quarter": "2024Q1",
-          "avg_amount": 34365.3232888577
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "One row per quarter (Q1 2024/25 and Q2 2023/24) showing the average invoice amount per transaction in pounds."
-    },
-    {
-      "id": "d00447ab",
-      "question": "Which senior civil servants appear in both the Department for Transport senior organogram (as of 29 April 2022) and the Cabinet Office senior organogram (as of 31 December 2024), and what are their salary costs of reports in each department?",
-      "keywords": [
-        "senior",
-        "civil",
-        "servant",
-        "DfT",
-        "Cabinet",
-        "salary",
-        "reports",
-        "2022",
-        "2024"
-      ],
-      "relevant_table_ids": [
-        "17d5c23d-f431-48e8-802a-b987431c8d92___1bf61f91-49af-4003-9587-dbf2cbe9a21d",
-        "ff76be1f-4f37-4bef-beb7-32b259413be1___7004dad6-1f97-4a3b-899b-b5a53c4ebd88"
-      ],
-      "table_aliases": {
-        "Table_0": "17d5c23d-f431-48e8-802a-b987431c8d92___1bf61f91-49af-4003-9587-dbf2cbe9a21d",
-        "Table_1": "ff76be1f-4f37-4bef-beb7-32b259413be1___7004dad6-1f97-4a3b-899b-b5a53c4ebd88"
-      },
-      "reference_code": "SELECT\n    t0.\"Name\" AS \"Name\",\n    t0.\"Salary Cost of Reports (£)\" AS \"DfT_Salary\",\n    t1.\"Salary Cost of Reports (£)\" AS \"CO_Salary\"\nFROM\n    \"Table_0\" AS t0\nINNER JOIN\n    \"Table_1\" AS t1\nON LOWER(t0.\"Name\") = LOWER(t1.\"Name\");",
-      "reference_result": [
-        {
-          "Name": "Lynda Rawsthorne",
-          "DfT_Salary": 3440882.0,
-          "CO_Salary": 0
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "One row per senior civil servant who appears in both organograms, showing their salary cost of reports in the Department for Transport and in the Cabinet Office (values in pounds)."
-    },
-    {
-      "id": "defa4a59",
-      "question": "Which Community Safety Partnerships cover the most local authority districts, and how many districts do the top five have as of April 2025?",
-      "keywords": [
-        "Community",
-        "Safety",
-        "Partnership",
-        "districts",
-        "top",
-        "five"
-      ],
-      "relevant_table_ids": [
-        "1878dff0-fede-48f3-b011-3ca826714469___e8cc60d8-f3bb-4a29-ad58-821247d88d95"
-      ],
-      "table_aliases": {
-        "Table_0": "1878dff0-fede-48f3-b011-3ca826714469___e8cc60d8-f3bb-4a29-ad58-821247d88d95"
-      },
-      "reference_code": "Table_0.groupby('CSP25NM') .agg(district_count=('LAD25CD', 'nunique')) .nlargest(5, 'district_count') .reset_index()",
-      "reference_result": [
-        {
-          "CSP25NM": "North Hampshire",
-          "district_count": 3
-        },
-        {
-          "CSP25NM": "North Worcestershire",
-          "district_count": 3
-        },
-        {
-          "CSP25NM": "South Devon and Dartmoor",
-          "district_count": 3
-        },
-        {
-          "CSP25NM": "South Nottinghamshire",
-          "district_count": 3
-        },
-        {
-          "CSP25NM": "South Worcester",
-          "district_count": 3
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with up to five rows, each showing a Community Safety Partnership name and the number of distinct local authority districts it covers, sorted from highest to lowest district count."
-    },
-    {
-      "id": "efd8bd11",
-      "question": "In the hydrological drinking water protected areas, which water treatment works group covers the largest total catchment area, and what is the average number of hydrometric stations for its catchments?",
-      "keywords": [
-        "hydrological",
-        "water",
-        "treatment",
-        "works",
-        "group",
-        "largest",
-        "total",
-        "catchment",
-        "area",
-        "average"
-      ],
-      "relevant_table_ids": [
-        "03a37711-bc60-4adc-ae02-a3800c646b24___3b9484f3-63c8-4e7f-8759-2274c4ae571e"
-      ],
-      "table_aliases": {
-        "Table_0": "03a37711-bc60-4adc-ae02-a3800c646b24___3b9484f3-63c8-4e7f-8759-2274c4ae571e"
-      },
-      "reference_code": "result = (\n    Table_0\n    .groupby('WTW_Group', as_index=False)\n    .agg(total_area=('Area_Sq_Km', 'sum'), avg_hydrometri=('Hydrometri', 'mean'))\n    .sort_values('total_area', ascending=False)\n    .head(1)\n)",
-      "reference_result": [
-        {
-          "WTW_Group": 3,
-          "total_area": 5423.74326462,
-          "avg_hydrometri": 177.625
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "One row showing the WTW_Group with the largest total catchment area and the average number of hydrometric stations for its catchments."
-    },
-    {
-      "id": "6c44ce7b",
-      "question": "What are the ten location‑habitat combinations with the highest number of records in the 1991 Morecambe Bay littoral survey, and how many distinct samples does each combination contain?",
-      "keywords": [
-        "location",
-        "habitat",
-        "combination",
-        "records",
-        "samples",
-        "1991",
-        "Morecambe",
-        "Bay",
-        "littoral",
-        "survey"
-      ],
-      "relevant_table_ids": [
-        "cf9e157f-e5f4-4b98-8987-febdf1f0e5be___f284dd81-4ac2-4874-b7cc-b0da8758f872"
-      ],
-      "table_aliases": {
-        "Table_0": "cf9e157f-e5f4-4b98-8987-febdf1f0e5be___f284dd81-4ac2-4874-b7cc-b0da8758f872"
-      },
-      "reference_code": "result = (\n    Table_0\n    .groupby(['LocationName', 'HabitatCode'], as_index=False)\n    .agg(record_cnt=('RecordKey', 'count'), sample_cnt=('SampleKey', 'nunique'))\n    .sort_values(by='record_cnt', ascending=False)\n    .head(10)\n)",
-      "reference_result": [
-        {
-          "LocationName": "Cartmel Wharf (Morecambe Bay)",
-          "HabitatCode": "LMS.MacAre",
-          "record_cnt": 4,
-          "sample_cnt": 4
-        },
-        {
-          "LocationName": "Cartmel Wharf (Morecambe Bay)",
-          "HabitatCode": "LGS.AP.P",
-          "record_cnt": 3,
-          "sample_cnt": 3
-        },
-        {
-          "LocationName": "Cartmel Wharf (Morecambe Bay)",
-          "HabitatCode": "LS.LSa.MuSa.BatCare",
-          "record_cnt": 3,
-          "sample_cnt": 3
-        },
-        {
-          "LocationName": "Milnethorpe Sands (Kent Estuary)",
-          "HabitatCode": "LS.LSa.MuSa.BatCare",
-          "record_cnt": 3,
-          "sample_cnt": 3
-        },
-        {
-          "LocationName": "Milnethorpe Sands (Kent Estuary)",
-          "HabitatCode": "LMS.BatCor",
-          "record_cnt": 3,
-          "sample_cnt": 3
-        },
-        {
-          "LocationName": "Morecambe breakwater (Morecambe Bay)",
-          "HabitatCode": "LS.LBR.LMus.Myt",
-          "record_cnt": 2,
-          "sample_cnt": 2
-        },
-        {
-          "LocationName": "Humphrey Head (Morecambe Bay)",
-          "HabitatCode": "LMS.BatCor",
-          "record_cnt": 2,
-          "sample_cnt": 2
-        },
-        {
-          "LocationName": "Cartmel Wharf (Morecambe Bay)",
-          "HabitatCode": "LMS.BatCor",
-          "record_cnt": 2,
-          "sample_cnt": 2
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table of ten rows, each showing LocationName, HabitatCode, the total record count (record_cnt) and the number of distinct samples (sample_cnt) for the most recorded location‑habitat pairs."
-    },
-    {
-      "id": "acfa6570",
-      "question": "Based on the spatial ward boundaries for Tunbridge Wells Borough, how many wards are in each size category defined by a ward’s area-to-perimeter ratio?",
-      "keywords": [
-        "spatial",
-        "Tunbridge",
-        "Wells",
-        "Borough",
-        "ward",
-        "area",
-        "perimeter",
-        "size",
-        "category",
-        "ratio"
-      ],
-      "relevant_table_ids": [
-        "fce867ac-db4c-4cd4-b334-dfc99881d000___121b3f85-2e2f-48e1-a4e7-1bfb1e70242f"
-      ],
-      "table_aliases": {
-        "Table_0": "fce867ac-db4c-4cd4-b334-dfc99881d000___121b3f85-2e2f-48e1-a4e7-1bfb1e70242f"
-      },
-      "reference_code": "import numpy as np\nTable_0 = Table_0.assign(AreaPerLength=Table_0['SHAPESTArea'] / Table_0['SHAPESTLength'])\nTable_0 = Table_0.assign(APLSizeCategory=pd.cut(Table_0['AreaPerLength'],\n                                                bins=[-np.inf, 1000, 2000, np.inf],\n                                                labels=['Low', 'Medium', 'High']))\nresult = (\n    Table_0\n    .groupby('APLSizeCategory')\n    .size()\n    .reset_index(name='ward_count')\n    .sort_values('ward_count', ascending=False)\n)",
-      "reference_result": [
-        {
-          "APLSizeCategory": "Low",
-          "ward_count": 11
-        },
-        {
-          "APLSizeCategory": "Medium",
-          "ward_count": 3
-        },
-        {
-          "APLSizeCategory": "High",
-          "ward_count": 0
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table listing each area‑to‑perimeter size category (Low, Medium, High) and the count of wards that fall into that category, sorted by count descending."
-    },
-    {
-      "id": "73701810",
-      "question": "How many constituencies start with each letter and what is their average area in the December 2021 Westminster boundaries?",
-      "keywords": [
-        "constituencies",
-        "letter",
-        "average",
-        "area",
-        "count"
-      ],
-      "relevant_table_ids": [
-        "b3f2b467-cbd4-466a-9814-15678f78f4c3___17a77b8e-3280-42e0-8640-e23200a4d417"
-      ],
-      "table_aliases": {
-        "Table_0": "b3f2b467-cbd4-466a-9814-15678f78f4c3___17a77b8e-3280-42e0-8640-e23200a4d417"
-      },
-      "reference_code": "result = (\n    Table_0\n    .assign(first_letter=Table_0['PCON21NM'].str[0])\n    .groupby('first_letter', as_index=False)\n    .agg(constituency_count=('first_letter', 'count'),\n         avg_area=('Shape__Area', 'mean'))\n)",
-      "reference_result": [
-        {
-          "first_letter": "A",
-          "constituency_count": 19,
-          "avg_area": 753142532.895155
-        },
-        {
-          "first_letter": "B",
-          "constituency_count": 84,
-          "avg_area": 283197242.6266646
-        },
-        {
-          "first_letter": "C",
-          "constituency_count": 58,
-          "avg_area": 419710912.5957483
-        },
-        {
-          "first_letter": "D",
-          "constituency_count": 24,
-          "avg_area": 644401277.5462748
-        },
-        {
-          "first_letter": "E",
-          "constituency_count": 36,
-          "avg_area": 211238491.22521383
-        },
-        {
-          "first_letter": "F",
-          "constituency_count": 11,
-          "avg_area": 430371523.09357363
-        },
-        {
-          "first_letter": "G",
-          "constituency_count": 23,
-          "avg_area": 211768118.69554034
-        },
-        {
-          "first_letter": "H",
-          "constituency_count": 39,
-          "avg_area": 211549122.038891
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "One row per initial letter of constituency name, showing the number of constituencies beginning with that letter and their average land area in square metres."
-    },
-    {
-      "id": "cee7adbd",
-      "question": "What is the total number of full‑time equivalent staff posts when combining the Office of Rail and Road junior organograms for 2021 and 2022, the Department for Transport junior organogram for 2020, and the Transport Focus junior organogram for 2023?",
-      "keywords": [
-        "Office",
-        "Rail",
-        "Road",
-        "organogram",
-        "2021",
-        "2022",
-        "Department",
-        "Transport",
-        "2020",
-        "Focus"
-      ],
-      "relevant_table_ids": [
-        "7c0a079f-1988-4326-ba52-71394d4f7f12___b175821f-0181-4c63-bd82-6c4d37df94cc",
-        "7c0a079f-1988-4326-ba52-71394d4f7f12___c5b8a6a1-84a3-4e10-8c8f-60f3a0ac1d7e",
-        "17d5c23d-f431-48e8-802a-b987431c8d92___30902e27-0c5a-4c30-b9b2-913822d8127a",
-        "861efe6c-fd5d-49fa-953a-04a498baf56b___605076f2-60ca-4475-9684-65a77dec4f9a"
-      ],
-      "table_aliases": {
-        "Table_0": "7c0a079f-1988-4326-ba52-71394d4f7f12___b175821f-0181-4c63-bd82-6c4d37df94cc",
-        "Table_1": "7c0a079f-1988-4326-ba52-71394d4f7f12___c5b8a6a1-84a3-4e10-8c8f-60f3a0ac1d7e",
-        "Table_2": "17d5c23d-f431-48e8-802a-b987431c8d92___30902e27-0c5a-4c30-b9b2-913822d8127a",
-        "Table_3": "861efe6c-fd5d-49fa-953a-04a498baf56b___605076f2-60ca-4475-9684-65a77dec4f9a"
-      },
-      "reference_code": "import pandas as pd\n_df1 = Table_1.copy()\n_df1 = _df1.replace({'Number of Posts in FTE': {'<5': pd.NA}})\n_df1 = _df1.dropna(subset=['Number of Posts in FTE'])\n_df1['Number of Posts in FTE'] = pd.to_numeric(_df1['Number of Posts in FTE'], errors='coerce')\ntotal_fte_1 = _df1['Number of Posts in FTE'].sum()\ntotal_fte_0 = Table_0['Number of Posts in FTE'].sum()\ntotal_fte_2 = Table_2['Number of Posts in FTE'].sum()\n_df3 = Table_3.copy()\n_df3 = _df3.replace({'Number of Posts in FTE': {'<5': pd.NA}})\n_df3 = _df3.dropna(subset=['Number of Posts in FTE'])\n_df3['Number of Posts in FTE'] = pd.to_numeric(_df3['Number of Posts in FTE'], errors='coerce')\ntotal_fte_3 = _df3['Number of Posts in FTE'].sum()\ntotal_fte_all = total_fte_0 + total_fte_1 + total_fte_2 + total_fte_3\ntotal_fte_all",
-      "reference_result": [
-        {
-          "result": 2934.25
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "A single number representing the sum of full‑time equivalent staff posts across the four organogram snapshots (2021 ORDN, 2022 ORDN, 2020 DfT, 2023 Transport Focus)."
-    },
-    {
-      "id": "dee287f7",
-      "question": "What was the total amount of payments over £25,000 made by the National Gallery across June 2022, May 2023 and July 2023?",
-      "keywords": [
-        "total",
-        "payments",
-        "National Gallery",
-        "June",
-        "May",
-        "July",
-        "2022",
-        "2023"
-      ],
-      "relevant_table_ids": [
-        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
-        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___39c5d215-1aa4-4db7-bdab-658bd275a36c",
-        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___40483359-c0ed-42d5-8e93-4a61afc63784"
-      ],
-      "table_aliases": {
-        "Table_0": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
-        "Table_1": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___39c5d215-1aa4-4db7-bdab-658bd275a36c",
-        "Table_2": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___40483359-c0ed-42d5-8e93-4a61afc63784"
-      },
-      "reference_code": "df = pd.concat([Table_0, Table_1, Table_2], ignore_index=True)\ndf['Amount'] = pd.to_numeric(df['Amount'].str.replace(',', ''), errors='coerce')\ntotal_amount = df['Amount'].sum()",
-      "reference_result": [
-        {
-          "result": 11108763.48
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The summed amount (in pounds) of all National Gallery payments over £25,000 recorded in June 2022, May 2023 and July 2023."
-    },
-    {
-      "id": "f7b241b8",
-      "question": "What is the total land area of all English counties combined as of May 2023?",
-      "keywords": [
-        "total",
-        "land",
-        "area",
-        "counties",
-        "England"
-      ],
-      "relevant_table_ids": [
-        "d8dd754d-82b6-499a-b5bf-ef29c135260b___b5e9dcdb-09f3-4e44-800c-8ded04550bed"
-      ],
-      "table_aliases": {
-        "Table_0": "d8dd754d-82b6-499a-b5bf-ef29c135260b___b5e9dcdb-09f3-4e44-800c-8ded04550bed"
-      },
-      "reference_code": "SELECT SUM(\"Shape__Area\") AS total_area\nFROM Table_0;",
-      "reference_result": [
-        {
-          "total_area": 63664217881.8771
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "A single numeric value representing the combined land area (in square metres) of all 21 English counties as of May 2023."
-    },
-    {
-      "id": "0a4ef0e9",
-      "question": "Which Community Safety Partnerships had the biggest increase in land area between the December 2022 and December 2023 boundaries, and what was the increase amount?",
-      "keywords": [
-        "Community",
-        "Safety",
-        "Partnerships",
-        "area",
-        "increase",
-        "2022",
-        "2023"
-      ],
-      "relevant_table_ids": [
-        "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
-        "f5688594-2344-477d-953c-b17d449a2a83___7d82a1ef-fa24-44a6-9f68-405efe70cc34"
-      ],
-      "table_aliases": {
-        "Table_0": "05af53dc-891a-4598-8d8b-7f9c70fa6df3___9591a8f3-e83f-4fc9-8c0c-1b2e92a5f5bc",
-        "Table_1": "f5688594-2344-477d-953c-b17d449a2a83___7d82a1ef-fa24-44a6-9f68-405efe70cc34"
-      },
-      "reference_code": "WITH combined AS (\n  SELECT\n    \"CSP23CD\",\n    \"CSP23NM\",\n    NULL AS \"CSP22CD\",\n    NULL AS \"CSP22NM\",\n    \"Shape__Area\"\n  FROM \"Table_0\"\n  UNION ALL\n  SELECT\n    NULL,\n    NULL,\n    \"CSP22CD\",\n    \"CSP22NM\",\n    \"Shape__Area\"\n  FROM \"Table_1\"\n),\nflagged AS (\n  SELECT\n    *,\n    CASE WHEN \"Shape__Area\" > 1200000000 THEN TRUE ELSE FALSE END AS \"large_area_flag\",\n    COALESCE(\"CSP23CD\", \"CSP22CD\") AS \"csp_code\",\n    COALESCE(\"CSP23NM\", \"CSP22NM\") AS \"csp_name\"\n  FROM combined\n),\naggregated AS (\n  SELECT\n    \"csp_code\",\n    \"csp_name\",\n    MAX(\"Shape__Area\") AS \"max_area\",\n    MIN(\"Shape__Area\") AS \"min_area\",\n    COUNT(*) AS \"row_count\"\n  FROM flagged\n  GROUP BY \"csp_code\", \"csp_name\"\n),\nwith_increase AS (\n  SELECT\n    \"csp_code\",\n    \"csp_name\",\n    \"max_area\",\n    \"min_area\",\n    (\"max_area\" - \"min_area\") AS \"area_increase\"\n  FROM aggregated\n),\nranked AS (\n  SELECT\n    \"csp_name\",\n    \"max_area\",\n    \"min_area\",\n    \"area_increase\",\n    DENSE_RANK() OVER (ORDER BY \"area_increase\" DESC) AS \"rank\"\n  FROM with_increase\n)\nSELECT\n  \"csp_name\",\n  \"max_area\",\n  \"min_area\",\n  \"area_increase\",\n  \"rank\"\nFROM ranked\nORDER BY \"rank\"\nLIMIT 5;",
-      "reference_result": [
-        {
-          "csp_name": "Lancaster",
-          "max_area": 575297453.853119,
-          "min_area": 566753970.242645,
-          "area_increase": 8543483.61047399,
-          "rank": 1
-        },
-        {
-          "csp_name": "East Riding of Yorkshire",
-          "max_area": 2411643552.50003,
-          "min_area": 2404951567.5988,
-          "area_increase": 6691984.901229858,
-          "rank": 2
-        },
-        {
-          "csp_name": "North Lincolnshire",
-          "max_area": 851910877.522644,
-          "min_area": 846531048.649643,
-          "area_increase": 5379828.873001099,
-          "rank": 3
-        },
-        {
-          "csp_name": "Cheshire West and Chester",
-          "max_area": 919945930.773163,
-          "min_area": 915012261.227325,
-          "area_increase": 4933669.545837998,
-          "rank": 4
-        },
-        {
-          "csp_name": "Suffolk Coastal",
-          "max_area": 894462286.662872,
-          "min_area": 890835313.236374,
-          "area_increase": 3626973.4264979362,
-          "rank": 5
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "Five rows showing each Community Safety Partnership name, its 2022 area, its 2023 area, the absolute increase in land area, and its rank by increase."
-    },
-    {
-      "id": "ac1ee68e",
-      "question": "Which library had the highest average attendance per event in Cambridgeshire in 2019?",
-      "keywords": [
-        "which",
-        "library",
-        "highest",
-        "average",
-        "attendance",
-        "event",
-        "2019"
-      ],
-      "relevant_table_ids": [
-        "f61e6cf5-e689-446a-a7e1-4ff9ae1a13c7___b912e477-cbd4-48c7-8e6d-a4b2a70e863d"
-      ],
-      "table_aliases": {
-        "Table_0": "f61e6cf5-e689-446a-a7e1-4ff9ae1a13c7___b912e477-cbd4-48c7-8e6d-a4b2a70e863d"
-      },
-      "reference_code": "result = (\n    Table_0.groupby('Library')['Attendees']\n    .mean()\n    .reset_index(name='avg_attendance')\n    .nlargest(1, 'avg_attendance')\n    ['Library']\n    .iloc[0]\n)",
-      "reference_result": [
-        {
-          "result": "Arbury Court"
-        }
-      ],
-      "expected_result_type": "text",
-      "expected_result_description": "Name of the library that achieved the highest average number of attendees per event in 2019."
-    },
-    {
-      "id": "f7b9a1d7",
-      "question": "Do suppliers that received large building‑area payments from the National Gallery in June 2022 also tend to receive large building‑area payments in May 2023?",
-      "keywords": [
-        "correlate",
-        "building",
-        "payments",
-        "supplier",
-        "nationalgallery",
-        "june",
-        "may",
-        "large"
-      ],
-      "relevant_table_ids": [
-        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
-        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___40483359-c0ed-42d5-8e93-4a61afc63784"
-      ],
-      "table_aliases": {
-        "Table_0": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
-        "Table_1": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___40483359-c0ed-42d5-8e93-4a61afc63784"
-      },
-      "reference_code": "Table_0['Amount'] = pd.to_numeric(Table_0['Amount'].astype(str).str.replace(',', ''), errors='coerce')\nTable_1['Amount'] = pd.to_numeric(Table_1['Amount'].astype(str).str.replace(',', ''), errors='coerce')\nTable_0['Date'] = pd.to_datetime(Table_0['Date'], dayfirst=True, errors='coerce')\nTable_1['Date'] = pd.to_datetime(Table_1['Date'], dayfirst=True, errors='coerce')\njune_sum = (\n    Table_0\n    .loc[lambda df: (df['Expense area'] == 'Buildings') &\n                   (df['Amount'] > 25000) &\n                   (df['Date'].dt.month == 6) &\n                   (df['Date'].dt.year == 2022)]\n    .groupby('Supplier', as_index=False)['Amount']\n    .sum()\n    .rename(columns={'Amount': 'sum_amount_0'})\n)\nmay_sum = (\n    Table_1\n    .loc[lambda df: (df['Expense area'] == 'Buildings') &\n                   (df['Amount'] > 25000) &\n                   (df['Date'].dt.month == 5) &\n                   (df['Date'].dt.year == 2023)]\n    .groupby('Supplier', as_index=False)['Amount']\n    .sum()\n    .rename(columns={'Amount': 'sum_amount_1'})\n)\nmerged = (\n    pd.merge(june_sum, may_sum, how='left', on='Supplier')\n    .assign(sum_amount_1=lambda df: df['sum_amount_1'].fillna(0))\n)\ncorr_coeff = merged[['sum_amount_0', 'sum_amount_1']].corr(method='pearson').iloc[0, 1]",
-      "reference_result": [
-        {
-          "result": 0.9509292223
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "Pearson correlation coefficient (‑1 to 1) indicating how closely each supplier’s total large building‑area payments in June 2022 align with their totals in May 2023."
-    },
-    {
-      "id": "f5081d72",
-      "question": "Looking at the Sub‑Integrated Care Board boundaries from the April 2026 snapshot, what is the total boundary area for each ICB code prefix and how many boards share each prefix?",
-      "keywords": [
-        "total",
-        "boundary",
-        "area",
-        "prefix",
-        "boards",
-        "ICB",
-        "code",
-        "April",
-        "2026"
-      ],
-      "relevant_table_ids": [
-        "701aaaf6-d40e-435e-9ab9-ac757b6e0858___37b36de7-f3b0-44d3-957c-aea99236bf74"
-      ],
-      "table_aliases": {
-        "Table_0": "701aaaf6-d40e-435e-9ab9-ac757b6e0858___37b36de7-f3b0-44d3-957c-aea99236bf74"
-      },
-      "reference_code": "result = (\n    Table_0.assign(ICB_prefix=Table_0['SICBL26CD'].str.slice(0, 2))\n    .groupby('ICB_prefix')\n    .agg(total_area=('Shape__Area', 'sum'), board_count=('FID', 'count'))\n    .reset_index()\n)",
-      "reference_result": [
-        {
-          "ICB_prefix": "E3",
-          "total_area": 130464534932.79852,
-          "board_count": 106
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with one row per ICB code prefix, showing the summed boundary area (square metres) of all boards in that prefix and the number of boards sharing the prefix."
-    },
-    {
-      "id": "f9a8962e",
-      "question": "How much did Transport for Greater Manchester spend on concessionary reimbursement invoices over £500 in Q1 2024/25, Q4 2024/25, and Q4 2020/21?",
-      "keywords": [
-        "TfGM",
-        "concessionary",
-        "reimbursement",
-        "spending",
-        "invoice",
-        "£500",
-        "Q1",
-        "Q4",
-        "2024",
-        "2025"
-      ],
-      "relevant_table_ids": [
-        "04684038-f9a9-46be-a9fb-86f1455084ed___97120ca1-edb2-46eb-9b90-70c8eab4f617",
-        "04684038-f9a9-46be-a9fb-86f1455084ed___b6949511-cde2-4af0-a977-7d4c895228a5",
-        "04684038-f9a9-46be-a9fb-86f1455084ed___027bcf63-7e2c-4aa9-be54-d6fbb9b4bf76"
-      ],
-      "table_aliases": {
-        "Table_0": "04684038-f9a9-46be-a9fb-86f1455084ed___97120ca1-edb2-46eb-9b90-70c8eab4f617",
-        "Table_1": "04684038-f9a9-46be-a9fb-86f1455084ed___b6949511-cde2-4af0-a977-7d4c895228a5",
-        "Table_2": "04684038-f9a9-46be-a9fb-86f1455084ed___027bcf63-7e2c-4aa9-be54-d6fbb9b4bf76"
-      },
-      "reference_code": "import pandas as pd\ncombined = pd.concat([Table_0, Table_1, Table_2], ignore_index=True)\ncombined['Net Amount'] = (\n    combined['Net Amount']\n    .astype(str)\n    .str.replace(r'[\\,\\(\\)]', '', regex=True)\n    .replace({'': pd.NA})\n)\ncombined['Net Amount'] = pd.to_numeric(combined['Net Amount'], errors='coerce')\nfiltered = combined[(combined['Expense Type'] == 'Concessionary Reimbursement') & (combined['Net Amount'] > 500)]\ntotal_spend = filtered['Net Amount'].sum()",
-      "reference_result": [
-        {
-          "result": 19509436.35
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The total amount in pounds that Transport for Greater Manchester spent on concessionary reimbursement invoices over £500 across Q1 2024/25, Q4 2024/25, and Q4 2020/21."
-    },
-    {
-      "id": "0b0c8b9d",
-      "question": "What are the names of the top five Department for Transport units with the highest average salary cost per full‑time employee, using the senior staff data from April 2022 and June 2020?",
-      "keywords": [
-        "names",
-        "top",
-        "five",
-        "Department",
-        "Transport",
-        "units",
-        "highest",
-        "average",
-        "salary",
-        "cost"
-      ],
-      "relevant_table_ids": [
-        "17d5c23d-f431-48e8-802a-b987431c8d92___1bf61f91-49af-4003-9587-dbf2cbe9a21d",
-        "17d5c23d-f431-48e8-802a-b987431c8d92___8424904a-b37c-48e7-9d69-323015e68996"
-      ],
-      "table_aliases": {
-        "Table_0": "17d5c23d-f431-48e8-802a-b987431c8d92___1bf61f91-49af-4003-9587-dbf2cbe9a21d",
-        "Table_1": "17d5c23d-f431-48e8-802a-b987431c8d92___8424904a-b37c-48e7-9d69-323015e68996"
-      },
-      "reference_code": "result = (\n    pd.concat([\n        Table_0[['Unit', 'Salary Cost of Reports (£)', 'FTE']],\n        Table_1[['Unit', 'Salary Cost of Reports (£)', 'FTE']]\n    ], ignore_index=True)\n    .groupby('Unit', as_index=False)\n    .agg({'Salary Cost of Reports (£)': 'sum', 'FTE': 'sum'})\n    .assign(avg_cost_per_fte=lambda df: df['Salary Cost of Reports (£)'] / df['FTE'])\n    .sort_values('avg_cost_per_fte', ascending=False)\n    .head(5)\n)",
-      "reference_result": [
-        {
-          "Unit": "Decarbonisation, Technology and Strategy",
-          "Salary Cost of Reports (£)": 218755883.0,
-          "FTE": 27.45,
-          "avg_cost_per_fte": 7969248.925318762
-        },
-        {
-          "Unit": "Aviation, Maritime and Security",
-          "Salary Cost of Reports (£)": 176583640.0,
-          "FTE": 32.82,
-          "avg_cost_per_fte": 5380366.849482023
-        },
-        {
-          "Unit": "Rail Strategy and Services Group",
-          "Salary Cost of Reports (£)": 116387112.0,
-          "FTE": 44.24,
-          "avg_cost_per_fte": 2630811.754068716
-        },
-        {
-          "Unit": "AAIB",
-          "Salary Cost of Reports (£)": 2336865.0,
-          "FTE": 1.0,
-          "avg_cost_per_fte": 2336865.0
-        },
-        {
-          "Unit": "Corporate Delivery Group",
-          "Salary Cost of Reports (£)": 82452700.0,
-          "FTE": 37.06,
-          "avg_cost_per_fte": 2224843.49703184
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "A table with one row per Unit showing the average salary cost per full‑time employee, sorted descending, limited to the top five units."
-    },
-    {
-      "id": "46e9bd33",
-      "question": "What is the total land area of all English parishes according to the December 2021 boundaries?",
-      "keywords": [
-        "total",
-        "land",
-        "area",
-        "English",
-        "parishes"
-      ],
-      "relevant_table_ids": [
-        "9c1beb48-eb8e-4fa3-a8ba-0da954fd23ff___d1994ff4-61dc-43b2-b8f1-8df1fc27d313"
-      ],
-      "table_aliases": {
-        "Table_0": "9c1beb48-eb8e-4fa3-a8ba-0da954fd23ff___d1994ff4-61dc-43b2-b8f1-8df1fc27d313"
-      },
-      "reference_code": "total_area = Table_0[Table_0['PAR21CD'].str.startswith('E')]['Shape__Area'].sum()",
-      "reference_result": [
-        {
-          "result": 119265067703.73184
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The total land area in square metres of all parishes whose code begins with 'E' (England) as of the December 2021 boundary release."
-    },
-    {
-      "id": "29356e5c",
-      "question": "What is the average area of priority woodland polygons that have a recorded zero hectare area versus those with a positive area?",
-      "keywords": [
-        "average",
-        "area",
-        "zero",
-        "hectare",
-        "priority",
-        "woodland",
-        "polygons"
-      ],
-      "relevant_table_ids": [
-        "1eaac7d3-70ff-473d-be12-759bbf99423c___3e23c862-3c95-486a-afe0-32c6fb84262e"
-      ],
-      "table_aliases": {
-        "Table_0": "1eaac7d3-70ff-473d-be12-759bbf99423c___3e23c862-3c95-486a-afe0-32c6fb84262e"
-      },
-      "reference_code": "result = (\n    Table_0\n    .assign(zero_area_flag=Table_0['Area_Hectares'] == 0.0)\n    .groupby('zero_area_flag', as_index=False)['Area_Hectares']\n    .mean()\n    .rename(columns={'Area_Hectares': 'avg_area'})\n    .sort_values(by='zero_area_flag', ascending=False)\n)",
-      "reference_result": [
-        {
-          "zero_area_flag": true,
-          "avg_area": 0.0
-        },
-        {
-          "zero_area_flag": false,
-          "avg_area": 3.1812817904
-        }
-      ],
-      "expected_result_type": "table",
-      "expected_result_description": "Two rows: one where zero_area_flag is True showing an average area of 0 hectares, and one where it is False showing the average positive area, both expressed in hectares."
-    },
-    {
-      "id": "a6efd074",
-      "question": "According to the Department for Transport's senior civil servant organogram snapshot from 31 Oct 2025, what is the total salary cost of reports for senior posts in London?",
-      "keywords": [
-        "salary",
-        "London",
-        "Department",
-        "Transport",
-        "organogram",
-        "2025"
-      ],
-      "relevant_table_ids": [
-        "17d5c23d-f431-48e8-802a-b987431c8d92___61798f2b-1d4b-4dd4-bd48-a0349551f43f"
-      ],
-      "table_aliases": {
-        "Table_0": "17d5c23d-f431-48e8-802a-b987431c8d92___61798f2b-1d4b-4dd4-bd48-a0349551f43f"
-      },
-      "reference_code": "total_salary_london = Table_0.loc[Table_0['Office Region'] == 'London', 'Salary Cost of Reports (£)'].sum()",
-      "reference_result": [
-        {
-          "0": 156226125
-        }
-      ],
-      "expected_result_type": "number",
-      "expected_result_description": "The total salary cost of reports (in pounds) for all senior Department for Transport posts located in London, based on the 31 Oct 2025 organogram snapshot."
-    },
-    {
-      "id": "607222cf",
-      "question": "Which lough shows the strongest positive link between PSP toxin levels and E. coli counts in mussel samples from 2026, and how strong is that link?",
-      "keywords": [
-        "mussels",
-        "PSP",
-        "Ecoli",
-        "link",
-        "lough",
-        "2026"
+        "2026",
+        "biotoxin"
       ],
       "relevant_table_ids": [
         "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
-        "a8cffab7-30fb-480b-8c40-ae6309253a76___cc1fa879-5af2-4e91-a86b-a58ad4c9676e"
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___2d98fe62-4498-4e5b-836b-bb1e837d9b15"
       ],
       "table_aliases": {
         "Table_0": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
-        "Table_1": "a8cffab7-30fb-480b-8c40-ae6309253a76___cc1fa879-5af2-4e91-a86b-a58ad4c9676e"
+        "Table_1": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___2d98fe62-4498-4e5b-836b-bb1e837d9b15"
       },
-      "reference_code": "import pandas as pd\nmerged = (\n    Table_0.merge(\n        Table_1,\n        left_on='ShellfishSpecies',\n        right_on='Species',\n        how='inner',\n        suffixes=('_0', '_1')\n    )\n)\nmask = (\n    (merged['ShellfishSpecies'].str.lower() == 'mussels') &\n    (pd.to_datetime(merged['DateOfSampling'], errors='coerce').dt.year == 2026) &\n    (pd.to_datetime(merged['SampleDate'], dayfirst=True, errors='coerce').dt.year == 2026)\n)\nmerged = merged[mask]\nmerged['PSP 800 micrograms /kg'] = pd.to_numeric(merged['PSP 800 micrograms /kg'], errors='coerce')\nmerged['EColi'] = pd.to_numeric(merged['EColi'], errors='coerce')\nmerged = merged.dropna(subset=['PSP 800 micrograms /kg', 'EColi'])\ncorr_df = (\n    merged\n    .groupby('Lough_0')\n    .apply(lambda g: pd.Series({'corr_coef': g['PSP 800 micrograms /kg'].corr(g['EColi'])}))\n    .reset_index()\n    .rename(columns={'Lough_0': 'Lough'})\n)\ncorr_df = corr_df[corr_df['corr_coef'] > 0]\nresult = (\n    corr_df\n    .sort_values('corr_coef', ascending=False)\n    .head(1)\n    [['Lough', 'corr_coef']]\n)",
+      "reference_code": "Table_0['positive_any_2026'] = (\n    Table_0[['DSP-OA+PTX160micrograms/kilograms',\n             'DSP-AZA160micrograms/kilograms',\n             'DSP-YTX3.75milligram/kilogram',\n             'PSP 800 micrograms /kg',\n             'ASP20micrograms/gram']]\n    .fillna('NEG')\n    .ne('NEG')\n    .any(axis=1)\n)\nagg_2026 = (\n    Table_0.groupby('Lough')\n    .agg(total_2026=('Lough', 'size'),\n         positive_2026=('positive_any_2026', 'sum'))\n    .reset_index()\n)\nagg_2026['prop_2026'] = agg_2026['positive_2026'] / agg_2026['total_2026']\nTable_1['positive_any_2021'] = (\n    Table_1[['DSP-OA+PTX160micrograms/kilograms',\n             'DSP-AZA160micrograms/kilograms',\n             'DSP-YTX3.75milligram/kilogram',\n             'PSP80micrograms/100grams',\n             'ASP20micrograms/grams']]\n    .fillna('NEG')\n    .ne('NEG')\n    .any(axis=1)\n)\nagg_2021 = (\n    Table_1.groupby('Lough')\n    .agg(total_2021=('Lough', 'size'),\n         positive_2021=('positive_any_2021', 'sum'))\n    .reset_index()\n)\nagg_2021['prop_2021'] = agg_2021['positive_2021'] / agg_2021['total_2021']\nresult = (\n    agg_2026.merge(agg_2021, on='Lough', how='inner')\n    .assign(increase_prop=lambda df: df['prop_2026'] - df['prop_2021'])\n    .sort_values('increase_prop', ascending=False)\n    .head(1)[['Lough', 'increase_prop']]\n)",
       "reference_result": [
+        {
+          "Lough": "Lough Foyle",
+          "increase_prop": 0.1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the Lough name that experienced the greatest increase in the proportion of shellfish samples testing positive for any biotoxin between 2021 and 2026, and the magnitude of that increase."
+    },
+    {
+      "id": "3e49ab5c",
+      "question": "In the Bathonian interval, what is the average polygon area and the number of polygons for each map feature type?",
+      "keywords": [
+        "bathonian"
+      ],
+      "relevant_table_ids": [
+        "9c611f22-ecd0-4c17-8097-52b611c6e990___d72c05fe-6d33-494c-8f68-c08d912eb468"
+      ],
+      "table_aliases": {
+        "Table_0": "9c611f22-ecd0-4c17-8097-52b611c6e990___d72c05fe-6d33-494c-8f68-c08d912eb468"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['Stage'] == 'Bathonian']\n    .groupby('Map feature')\n    .agg(\n        avg_area=('Shape__Area', 'mean'),\n        polygon_count=('OBJECTID', 'count')\n    )\n    .reset_index()\n)",
+      "reference_result": [
+        {
+          "Map feature": "Carbonates",
+          "avg_area": 0.6569537412,
+          "polygon_count": 4
+        },
+        {
+          "Map feature": "Fluvio-lacustrine sandstones",
+          "avg_area": 0.8430203835,
+          "polygon_count": 6
+        },
+        {
+          "Map feature": "Intrusive and extrusive volcanics",
+          "avg_area": 0.2160655311,
+          "polygon_count": 1
+        },
+        {
+          "Map feature": "Marine sediments",
+          "avg_area": 4.0121729841,
+          "polygon_count": 6
+        },
+        {
+          "Map feature": "Shelf sandstones",
+          "avg_area": 0.7193443768,
+          "polygon_count": 3
+        },
+        {
+          "Map feature": "Thin or absent",
+          "avg_area": 92.2093069553,
+          "polygon_count": 1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per map feature type showing the average polygon area (Shape__Area) and the total number of polygons in the Bathonian interval."
+    },
+    {
+      "id": "1a4d3750",
+      "question": "Across the biotoxin monitoring results from 2021, 2022, 2023 and 2026, which three loughs showed the greatest increase in the number of open mussel samples, and what were the counts of open samples for each lough in each year?",
+      "keywords": [
+        "2026",
+        "biotoxin",
+        "2022",
+        "2023"
+      ],
+      "relevant_table_ids": [
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___45dda33c-5269-4944-8f2a-36622aff5f76",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___2d98fe62-4498-4e5b-836b-bb1e837d9b15",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___29e57dc6-0a7c-4e4e-9e1f-0e556330eaaa"
+      ],
+      "table_aliases": {
+        "Table_0": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
+        "Table_1": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___45dda33c-5269-4944-8f2a-36622aff5f76",
+        "Table_2": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___2d98fe62-4498-4e5b-836b-bb1e837d9b15",
+        "Table_3": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___29e57dc6-0a7c-4e4e-9e1f-0e556330eaaa"
+      },
+      "reference_code": "Table_2_renamed = Table_2.rename(columns={'CurrentStatus': 'Current Status'})\n_df0 = Table_0[(Table_0['ShellfishSpecies'] == 'Mussels') & (Table_0['Current Status'] == 'OPEN')]\ncount_2026 = _df0.groupby('Lough').size().reset_index(name='count_2026')\n_df1 = Table_1[(Table_1['ShellfishSpecies'] == 'Mussels') & (Table_1['Current Status'] == 'OPEN')]\ncount_2022 = _df1.groupby('Lough').size().reset_index(name='count_2022')\n_df2 = Table_2_renamed[(Table_2_renamed['ShellfishSpecies'] == 'Mussels') & (Table_2_renamed['Current Status'] == 'OPEN')]\ncount_2021 = _df2.groupby('Lough').size().reset_index(name='count_2021')\n_df3 = Table_3[(Table_3['ShellfishSpecies'] == 'Mussels') & (Table_3['Current Status'] == 'Open')]\ncount_2023 = _df3.groupby('Lough').size().reset_index(name='count_2023')\nmerged = pd.merge(count_2021, count_2022, on='Lough', how='outer')\nmerged = pd.merge(merged, count_2023, on='Lough', how='outer')\nmerged = pd.merge(merged, count_2026, on='Lough', how='outer')\nmerged['increase'] = merged['count_2026'].fillna(0) - merged['count_2021'].fillna(0)\nresult = merged.sort_values('increase', ascending=False).head(3)\nresult = result[['Lough', 'count_2021', 'count_2022', 'count_2023', 'count_2026', 'increase']]",
+      "reference_result": [
+        {
+          "Lough": "Lough Foyle",
+          "count_2021": 2,
+          "count_2022": null,
+          "count_2023": null,
+          "count_2026": null,
+          "increase": -2.0
+        },
         {
           "Lough": "Carlingford",
-          "corr_coef": 3.126463627e-17
+          "count_2021": 26,
+          "count_2022": 102.0,
+          "count_2023": 102.0,
+          "count_2026": 16.0,
+          "increase": -10.0
+        },
+        {
+          "Lough": "Dundrum",
+          "count_2021": 35,
+          "count_2022": null,
+          "count_2023": null,
+          "count_2026": null,
+          "increase": -35.0
         }
       ],
       "expected_result_type": "table",
-      "expected_result_description": "One row with the lough name and the positive correlation value between PSP toxin levels (µg/kg) and E. coli counts (CFU) for mussel samples collected in 2026, showing the strongest link."
+      "expected_result_description": "A table with three rows – the three loughs that had the largest increase in open mussel sample counts from 2021 to 2026 – showing for each lough the counts of open mussel samples in 2021, 2022, 2023 and 2026 and the computed increase."
     },
     {
-      "id": "671f13ad",
-      "question": "How many local authority districts are in each government region as of December 2017, and does the region correspond to London?",
+      "id": "7543bd28",
+      "question": "Which three habitats showed the biggest increase in recorded points between 21 July 1996 and 27 August 1996, and what were the point counts on those dates, in the 1996 MNCR west Anglesey sublittoral survey?",
       "keywords": [
-        "districts",
-        "region",
-        "2017",
-        "count",
-        "London"
+        "1996",
+        "anglesey"
       ],
       "relevant_table_ids": [
-        "d040bbae-42e2-4c20-a0c6-bb428534496a___11fd14cf-a998-417b-b9b8-9f0845eb7d47"
+        "c4dc32df-e79c-424d-b3d8-a2fc6c9714b1___321b62ba-01cd-4d58-a6fd-40979c3a0e78"
       ],
       "table_aliases": {
-        "Table_0": "d040bbae-42e2-4c20-a0c6-bb428534496a___11fd14cf-a998-417b-b9b8-9f0845eb7d47"
+        "Table_0": "c4dc32df-e79c-424d-b3d8-a2fc6c9714b1___321b62ba-01cd-4d58-a6fd-40979c3a0e78"
       },
-      "reference_code": "result = (\n    Table_0.groupby('RGN17NM')\n    .size()\n    .reset_index(name='district_count')\n    .assign(is_london=lambda df: df['RGN17NM'] == 'London')\n)",
+      "reference_code": "df = Table_0.copy()\ndf['StartDate'] = pd.to_datetime(df['StartDate'])\nfiltered = df[(df['StartDate'] >= pd.Timestamp('1996-07-21')) & (df['StartDate'] <= pd.Timestamp('1996-08-27'))]\nearliest_date = filtered['StartDate'].min()\nlatest_date = filtered['StartDate'].max()\nearly_counts = (\n    filtered[filtered['StartDate'] == earliest_date]\n    .groupby('HabitatDescription')\n    .agg(early_count=('RecordKey', 'count'))\n    .reset_index()\n)\nlate_counts = (\n    filtered[filtered['StartDate'] == latest_date]\n    .groupby('HabitatDescription')\n    .agg(late_count=('RecordKey', 'count'))\n    .reset_index()\n)\nmerged = (\n    early_counts\n    .merge(late_counts, on='HabitatDescription', how='outer')\n    .fillna(0)\n)\nmerged['increase'] = merged['late_count'] - merged['early_count']\nresult = (\n    merged\n    .sort_values('increase', ascending=False)\n    .head(3)\n    [['HabitatDescription', 'early_count', 'late_count', 'increase']]\n)",
       "reference_result": [
         {
-          "RGN17NM": "East Midlands",
-          "district_count": 40,
-          "is_london": false
+          "HabitatDescription": "Musculus discors beds on moderately exposed circalittoral rock",
+          "early_count": 0.0,
+          "late_count": 4.0,
+          "increase": 4.0
         },
         {
-          "RGN17NM": "East of England",
-          "district_count": 47,
-          "is_london": false
+          "HabitatDescription": "Alaria esculenta and Laminaria digitata on exposed sublittoral fringe bedrock",
+          "early_count": 0.0,
+          "late_count": 2.0,
+          "increase": 2.0
         },
         {
-          "RGN17NM": "London",
-          "district_count": 33,
-          "is_london": true
-        },
-        {
-          "RGN17NM": "North East",
-          "district_count": 12,
-          "is_london": false
-        },
-        {
-          "RGN17NM": "North West",
-          "district_count": 39,
-          "is_london": false
-        },
-        {
-          "RGN17NM": "South East",
-          "district_count": 67,
-          "is_london": false
-        },
-        {
-          "RGN17NM": "South West",
-          "district_count": 37,
-          "is_london": false
-        },
-        {
-          "RGN17NM": "West Midlands",
-          "district_count": 30,
-          "is_london": false
+          "HabitatDescription": "Laminaria hyperborea forest with dense foliose red seaweeds on exposed upper infralittoral rock",
+          "early_count": 0.0,
+          "late_count": 2.0,
+          "increase": 2.0
         }
       ],
       "expected_result_type": "table",
-      "expected_result_description": "One row per government region (RGN17NM) showing the total number of local authority districts (district_count) and a boolean flag (is_london) indicating whether the region is London."
+      "expected_result_description": "Three rows, each showing a habitat description, the point count on 21 July 1996, the point count on 27 August 1996, and the increase between those dates, ordered by greatest increase."
     },
     {
-      "id": "48470766",
-      "question": "In the Environment Agency's Drinking Water Safeguard Zones data covering 1 April 2012 to 31 March 2022, how many attribute categories are about pesticides, algae or nutrients, or something else?",
+      "id": "a312ab4c",
+      "question": "How many compliance sections appear in both the September 2019 and March 2019 FSA lists, and what share of the September 2019 sections does that represent?",
       "keywords": [
-        "how",
-        "many",
-        "attribute",
-        "categories",
-        "pesticides",
-        "algae",
-        "nutrients",
-        "other",
-        "drinking",
-        "water"
+        "sections",
+        "september"
       ],
       "relevant_table_ids": [
-        "6ac22521-2e77-4dc8-ba90-6bb55d2ea3b8___45968054-e5d0-4925-a6d4-ba77fc145d28"
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "cf0adf86-5936-46f0-8d5f-73049b135d76___9ac55517-a24e-446b-a5df-32b3709128fb"
       ],
       "table_aliases": {
-        "Table_0": "6ac22521-2e77-4dc8-ba90-6bb55d2ea3b8___45968054-e5d0-4925-a6d4-ba77fc145d28"
+        "Table_0": "cf0adf86-5936-46f0-8d5f-73049b135d76___f02131a5-136b-46ed-b643-cb1c50a1b743",
+        "Table_1": "cf0adf86-5936-46f0-8d5f-73049b135d76___9ac55517-a24e-446b-a5df-32b3709128fb"
       },
-      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['Category'] != '']\n    .assign(category_group='Other')\n    .assign(category_group=lambda d: d['category_group'].mask(\n        d['Category'].str.contains('Pesticides', case=False, na=False),\n        'Pesticides'\n    ))\n    .assign(category_group=lambda d: d['category_group'].mask(\n        d['Category'].str.lower().str.contains('algae|nutrient', na=False),\n        'Algae/Nutrients'\n    ))\n    .groupby('category_group', as_index=False)\n    .agg(group_count=('Category', 'size'))\n)",
+      "reference_code": "common_df = Table_0.merge(Table_1, on='QuestionNo', how='inner')\ncommon_count = len(common_df)\nsep_count = len(Table_0)\nshare_sep = common_count / sep_count if sep_count != 0 else pd.NA\nresult = pd.DataFrame({'common_count': [common_count], 'share_sep': [share_sep]})",
       "reference_result": [
         {
-          "category_group": "Algae/Nutrients",
-          "group_count": 10
-        },
-        {
-          "category_group": "Other",
-          "group_count": 24
-        },
-        {
-          "category_group": "Pesticides",
-          "group_count": 37
+          "common_count": 112,
+          "share_sep": 1.0
         }
       ],
       "expected_result_type": "table",
-      "expected_result_description": "A table with three rows – one for each bucket ('Pesticides', 'Algae/Nutrients', 'Other') – showing the number of attribute records (group_count) that belong to each bucket."
+      "expected_result_description": "A single‑row table with column 'common_count' (the number of sections present in both September and March 2019 lists) and column 'share_sep' (the proportion of September sections that are common, expressed as a decimal)."
+    },
+    {
+      "id": "914ca97c",
+      "question": "What was the percentage change in total monthly payments over £25,000 made by the National Gallery from June 2022 to August 2022 for each spending area, and which spending area had the biggest increase?",
+      "keywords": [
+        "2022",
+        "june",
+        "over",
+        "august"
+      ],
+      "relevant_table_ids": [
+        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
+        "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___242cc8f2-5c60-4cca-b6df-82bedd396c1f"
+      ],
+      "table_aliases": {
+        "Table_0": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___cbf9cf59-c86e-4631-a109-e9464df64ab2",
+        "Table_1": "ad98a19c-1fcf-43a0-99b8-6370e2b3dd82___242cc8f2-5c60-4cca-b6df-82bedd396c1f"
+      },
+      "reference_code": "import pandas as pd\nTable_0['Amount'] = pd.to_numeric(Table_0['Amount'], errors='coerce')\nTable_1['Amount'] = pd.to_numeric(Table_1['Amount'], errors='coerce')\njune = Table_0[Table_0['Date'].astype(str).str.contains('06/2022', na=False)]\njune_agg = (\n    june.groupby('Expense area', as_index=False)\n    .agg(June_total=('Amount', 'sum'))\n)\naug = Table_1[Table_1['Date'].astype(str).str.contains('08/2022', na=False)]\naug_agg = (\n    aug.groupby('Expense area', as_index=False)\n    .agg(August_total=('Amount', 'sum'))\n)\nmerged = pd.merge(june_agg, aug_agg, on='Expense area', how='inner')\nmerged['pct_change'] = (merged['August_total'] - merged['June_total']) / merged['June_total'] * 100\nresult = merged.sort_values(by='pct_change', ascending=False)",
+      "reference_result": [
+        {
+          "Expense area": "Digital, Communications and Technology Directorate",
+          "June_total": 73281.0,
+          "August_total": 36640.5,
+          "pct_change": -50.0
+        },
+        {
+          "Expense area": "Buildings",
+          "June_total": 977395.6,
+          "August_total": 95291.72,
+          "pct_change": -90.2504451626
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per expense area with columns: expense area, June_total, August_total, and pct_change (percentage increase from June to August). Rows are sorted descending by pct_change, so the top row identifies the spending area with the biggest increase."
+    },
+    {
+      "id": "c3487169",
+      "question": "Which 2015 electoral ward contains the lsoa11 area identified by code E01000104?",
+      "keywords": [
+        "electoral",
+        "lsoa11"
+      ],
+      "relevant_table_ids": [
+        "50c16cae-9b1d-40e6-9e09-72df7630c243___e5b0056b-cf54-4b30-bf97-1c174aed6b98"
+      ],
+      "table_aliases": {
+        "Table_0": "50c16cae-9b1d-40e6-9e09-72df7630c243___e5b0056b-cf54-4b30-bf97-1c174aed6b98"
+      },
+      "reference_code": "Table_0.loc[Table_0['LSOA11CD'] == 'E01000104', 'WD15NM'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "Village"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the 2015 electoral ward that contains the LSOA with code E01000104."
+    },
+    {
+      "id": "1c02e99c",
+      "question": "What are the average contribution score and total area of braid network cells with cell numbers between 30 and 40?",
+      "keywords": [
+        "braid"
+      ],
+      "relevant_table_ids": [
+        "32c49352-dc5e-4f57-9cd0-79ff29e84080___f96e567b-bf4f-4a6b-b7d1-ffa817731d85"
+      ],
+      "table_aliases": {
+        "Table_0": "32c49352-dc5e-4f57-9cd0-79ff29e84080___f96e567b-bf4f-4a6b-b7d1-ffa817731d85"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[lambda df: (df['ID'] >= 30) & (df['ID'] <= 40), ['GRIDCODE', 'Shape__Area']]\n    .agg(avg_contribution_score=('GRIDCODE', 'mean'), total_area=('Shape__Area', 'sum'))\n)",
+      "reference_result": [
+        {
+          "GRIDCODE": 59.2,
+          "Shape__Area": null
+        },
+        {
+          "GRIDCODE": null,
+          "Shape__Area": 200.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with two columns: the average contribution score (mean GRIDCODE) and the total area (sum Shape__Area) for all cells whose ID is between 30 and 40 inclusive."
+    },
+    {
+      "id": "f7ab31d9",
+      "question": "How many species records were collected on 20 June 1991 at the calf of man survey?",
+      "keywords": [
+        "calf"
+      ],
+      "relevant_table_ids": [
+        "1966c02e-b235-4665-8d0e-03ab1cc800b6___c39a13b4-3ddc-441a-bb50-f15cda093e53"
+      ],
+      "table_aliases": {
+        "Table_0": "1966c02e-b235-4665-8d0e-03ab1cc800b6___c39a13b4-3ddc-441a-bb50-f15cda093e53"
+      },
+      "reference_code": "record_count = Table_0[Table_0['StartDate'] == '1991-06-20'].shape[0]",
+      "reference_result": [
+        {
+          "result": 552
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of species records collected on 20 June 1991 during the Calf of Man survey."
+    },
+    {
+      "id": "209c9f01",
+      "question": "Which lough showed the biggest jump in average OA‑PTX biotoxin level between any two consecutive monitoring years from 2021, 2023, 2025 and 2026, and how large was that jump?",
+      "keywords": [
+        "2026",
+        "biotoxin",
+        "2025",
+        "2023"
+      ],
+      "relevant_table_ids": [
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___87cabe0a-b4bf-4bd8-9e16-1f4f650d9517",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___2d98fe62-4498-4e5b-836b-bb1e837d9b15",
+        "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___29e57dc6-0a7c-4e4e-9e1f-0e556330eaaa"
+      ],
+      "table_aliases": {
+        "Table_0": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___b388f004-4e00-44b5-9e6e-05e388f44d03",
+        "Table_1": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___87cabe0a-b4bf-4bd8-9e16-1f4f650d9517",
+        "Table_2": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___2d98fe62-4498-4e5b-836b-bb1e837d9b15",
+        "Table_3": "482e50cf-9a20-490d-aaf3-c4cc1e65f9f9___29e57dc6-0a7c-4e4e-9e1f-0e556330eaaa"
+      },
+      "reference_code": "df = pd.concat([Table_0, Table_1, Table_2, Table_3], ignore_index=True)\ndf['DSP-OA+PTX160micrograms/kilograms'] = pd.to_numeric(df['DSP-OA+PTX160micrograms/kilograms'], errors='coerce')\ndf['Year'] = pd.to_datetime(df['DateOfSampling'], errors='coerce').dt.year\nagg = (\n    df.groupby(['Lough', 'Year'], as_index=False)\n      .agg(avg_OA_PTX=('DSP-OA+PTX160micrograms/kilograms', 'mean'))\n)\nagg = agg.sort_values(['Lough', 'Year'], ascending=True)\nagg['prev_avg_OA_PTX'] = agg.groupby('Lough')['avg_OA_PTX'].shift(1)\nagg['prev_Year'] = agg.groupby('Lough')['Year'].shift(1)\nagg['year_diff'] = agg['Year'] - agg['prev_Year']\nagg = agg[agg['year_diff'].isin([1, 2])]\nagg['Jump'] = (agg['avg_OA_PTX'] - agg['prev_avg_OA_PTX']).abs()\nagg = agg.sort_values('Jump', ascending=False)\nresult = agg[['Lough', 'Jump']].head(1)",
+      "reference_result": [
+        {
+          "Lough": "Dundrum",
+          "Jump": 28.9481481481
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with columns Lough (the lough that experienced the largest year‑to‑year increase in average OA‑PTX level) and Jump (the magnitude of that increase)."
     }
   ]
 }

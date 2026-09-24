@@ -41,10 +41,10 @@ discovery:
   max_expansions: 1
   max_search_attempts: 1
   max_zero_result_retries: 2
-  # The selector may inspect every initially visible candidate.
-  initial_shortlist_size: 10
+  # Intermediate treatment: inspect five candidates before expansion.
+  initial_shortlist_size: 5
   # Total distinct candidates that may be inspected after expansion.
-  max_inspected_candidates: 10
+  max_inspected_candidates: 8
   max_inspections_per_file: 2
   search_after_inspection: false
 

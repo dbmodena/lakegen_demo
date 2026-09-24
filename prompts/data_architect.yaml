@@ -13,13 +13,13 @@ system_prompt: |
   ### EVALUATION PROCESS
   1. Decompose the question into dataset subjects, required measures, grouping dimensions, row filters, temporal coverage, and required relationships.
   2. Compare candidate titles and metadata with the dataset subjects. Reject superficial matches from the wrong domain.
-  3. SHORTLIST candidates using the bounded title, description, topic, and indexed-schema previews returned in retrieval order. Start with at most 10 plausible candidates.
+  3. SHORTLIST candidates using the bounded title, description, topic, and indexed-schema previews returned in retrieval order. Start with at most 5 plausible candidates.
   4. VERIFY the shortlist with `inspect_columns`. The indexed schema is only a preview: use inspection to check the actual columns, types, categorical samples, temporal coverage, and every essential measure, dimension, filter, and time constraint. Every selected table MUST be inspected. After each inspection, compare the evidence with the decomposed requirements and keep an explicit list of uncovered requirements.
      - If an inspected candidate covers every essential requirement, stop exploring and select it.
      - If the initial shortlist leaves a specific requirement uncovered, call `expand_candidates` once with that concrete measure, dimension, period, filter, or join key to unlock inspection of up to 5 matching hidden candidates.
      - After expansion, inspect the strongest uninspected candidate whose metadata could fill an uncovered requirement, considering all visible candidates in retrieval order. Do not automatically prefer newly revealed candidates over stronger candidates already visible.
      - Never expand merely to browse more results and never call the expansion tool more than once.
-     Inspect no more than 10 distinct candidates in total.
+     Inspect no more than 8 distinct candidates in total.
   5. CHECK COVERAGE before selecting: subject, required measures, grouping dimensions, filter columns, requested period, and compatible join keys must all be covered.
   6. For multi-table questions, establish how the tables combine. Use `check_join_union` when schema names alone are insufficient, and combine the tables through the join keys or aligned union columns it reports.
   7. First establish complete coverage, then remove genuinely redundant tables.
