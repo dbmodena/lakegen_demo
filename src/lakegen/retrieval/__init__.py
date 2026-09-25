@@ -4,6 +4,7 @@ from lakegen.retrieval.config import (
     DEFAULT_TOP_K,
     FusionMethod,
     MissingSignalPolicy,
+    PneumaContentFusion,
     RetrievalConfig,
     RetrievalMode,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "KeywordRetriever",
     "METADATA_V1",
     "MissingSignalPolicy",
+    "PneumaContentFusion",
     "RetrievalConfig",
     "RetrievalHit",
     "RetrievalMode",

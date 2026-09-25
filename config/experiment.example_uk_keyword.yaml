@@ -140,6 +140,16 @@ retrieval:
   # 1.0 ranks purely by cell/column matches. `alpha` above cannot serve here --
   # it is forwarded to Pneuma's own internal hybrid search.
   pneuma_content_weight: 0.5
+  # How content search merges into Pneuma's ranking:
+  #   - weighted: pneuma_content_weight x content + the rest x Pneuma's rank,
+  #     over a top_k * candidate_multiplier Pneuma pool (the paper's "combine")
+  #   - fill: the reference code -- Pneuma's top_k keeps its order and tables
+  #     matching an entity only fill the slots left; ignores the weight above
+  pneuma_content_fusion: weighted
+  # Chat model that extracts entities from the question with the reference
+  # code's prompt when the caller gives none (the retrieval benchmark). The
+  # agent's own entities are always used as given. null extracts nothing.
+  pneuma_entity_model: null
   # How the content search scores one entity in one table, before the
   # log(1 + raw) damping: raw = table_name_weight x a match in the table's
   # catalog title + column_name_weight x matching column names + cell_weight x

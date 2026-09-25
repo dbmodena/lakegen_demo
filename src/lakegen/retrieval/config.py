@@ -114,6 +114,17 @@ class FusionMethod(StrEnum):
     RRF = "rrf"
 
 
+class PneumaContentFusion(StrEnum):
+    """How ``pneuma_seeker`` merges content search into Pneuma's ranking."""
+
+    # pneuma_content_weight x content + the rest x Pneuma's 1/rank, over a
+    # candidate_multiplier-wide Pneuma pool: the paper's "combine".
+    WEIGHTED = "weighted"
+    # The reference code: Pneuma's top-k keeps its order, and content-ranked
+    # tables only fill the slots its deduplication left.
+    FILL = "fill"
+
+
 @dataclass(frozen=True)
 class RetrievalConfig:
     """Reproducible retrieval settings for a LakeGen experiment."""
@@ -145,6 +156,13 @@ class RetrievalConfig:
     # ``grep_max_files`` cut with grep, but reads every row and every column of
     # a file: the per-file ``grep_*`` row and column caps do not apply to it.
     pneuma_content_weight: float = 0.5
+    # ``fill`` ignores pneuma_content_weight: nothing is weighted.
+    pneuma_content_fusion: PneumaContentFusion = PneumaContentFusion.WEIGHTED
+    # Pneuma-Seeker: the chat model that extracts entities from the question, with
+    # the reference code's prompt, when the caller passes none at all (the
+    # benchmark). An agent's entities, even an empty list, are used as given.
+    # None extracts nothing.
+    pneuma_entity_model: str | None = None
     pneuma_enumerate_tables: bool = True
     # Pneuma-Seeker content search, per entity and table: a raw score of
     # table_name_weight x a match in the table's catalog title
@@ -154,6 +172,13 @@ class RetrievalConfig:
     pneuma_table_name_weight: float = 3.0
     pneuma_column_name_weight: float = 2.0
     pneuma_cell_weight: float = 1.0
+    # Plain ``pneuma`` only: weight of a DuckDB value scan of the tables Pneuma
+    # returned, against Pneuma's own ranking (Pneuma-Seeker's content search, but
+    # within Pneuma's pool rather than the whole lake). The agent's entities, else
+    # its keywords, are matched word-bounded in every column cast to text, within
+    # the duckdb_max_columns_per_file / duckdb_max_scan_rows_per_file bounds. 0
+    # (the default) scans nothing and leaves ``pneuma`` exactly as it was.
+    pneuma_value_scan_weight: float = 0.0
     duckdb_max_files: int = 250
     duckdb_max_columns_per_file: int = 40
     duckdb_sample_rows: int = 3
@@ -199,6 +224,11 @@ class RetrievalConfig:
             MissingSignalPolicy(self.missing_signal_policy),
         )
         object.__setattr__(self, "fusion_method", FusionMethod(self.fusion_method))
+        object.__setattr__(
+            self,
+            "pneuma_content_fusion",
+            PneumaContentFusion(self.pneuma_content_fusion),
+        )
         if self.top_k <= 0:
             raise ValueError("top_k must be greater than zero")
         if not 0.0 <= self.alpha <= 1.0:
@@ -211,6 +241,8 @@ class RetrievalConfig:
             raise ValueError("pneuma_timeout_seconds must be greater than zero")
         if not 0.0 <= self.pneuma_content_weight <= 1.0:
             raise ValueError("pneuma_content_weight must be between 0 and 1")
+        if not 0.0 <= self.pneuma_value_scan_weight <= 1.0:
+            raise ValueError("pneuma_value_scan_weight must be between 0 and 1")
         pneuma_weights = (
             "pneuma_table_name_weight",
             "pneuma_column_name_weight",
@@ -265,6 +297,10 @@ class RetrievalConfig:
             object.__setattr__(self, "lexical_query_fields", query_fields or None)
         if self.rerank_model is not None:
             object.__setattr__(self, "rerank_model", self.rerank_model.strip() or None)
+        if self.pneuma_entity_model is not None:
+            object.__setattr__(
+                self, "pneuma_entity_model", self.pneuma_entity_model.strip() or None
+            )
         if self.rerank_depth <= 0:
             raise ValueError("rerank_depth must be greater than zero")
 
@@ -344,6 +380,10 @@ class RetrievalConfig:
             pneuma_content_weight=float(
                 os.environ.get("LAKEGEN_PNEUMA_CONTENT_WEIGHT", "0.5")
             ),
+            pneuma_content_fusion=PneumaContentFusion(
+                os.environ.get("LAKEGEN_PNEUMA_CONTENT_FUSION", "weighted")
+            ),
+            pneuma_entity_model=os.environ.get("LAKEGEN_PNEUMA_ENTITY_MODEL"),
             pneuma_enumerate_tables=os.environ.get(
                 "LAKEGEN_PNEUMA_ENUMERATE_TABLES", "1"
             ).strip().casefold() not in ("0", "false", "no"),
@@ -355,6 +395,9 @@ class RetrievalConfig:
             ),
             pneuma_cell_weight=float(
                 os.environ.get("LAKEGEN_PNEUMA_CELL_WEIGHT", "1.0")
+            ),
+            pneuma_value_scan_weight=float(
+                os.environ.get("LAKEGEN_PNEUMA_VALUE_SCAN_WEIGHT", "0.0")
             ),
             duckdb_max_files=int(os.environ.get("LAKEGEN_DUCKDB_MAX_FILES", "250")),
             duckdb_max_columns_per_file=int(

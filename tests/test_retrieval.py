@@ -1674,3 +1674,77 @@ def test_rerank_candidate_text_leaves_out_duckdb_search_bookkeeping():
         "Title: Cash Management\nPublisher: Food Standards Agency\n"
         "Description: Monthly receipts.\nColumns: InvoiceMonth, GovernmentCash"
     )
+
+
+def _pneuma_pool(tmp_path):
+    """Three tables Pneuma ranks a, b, c; only c holds the searched values."""
+    from pathlib import Path
+
+    import pandas as pd
+
+    pd.DataFrame({"department": ["Arts", "Finance"], "year": [2019, 2020]}).to_parquet(tmp_path / "a.parquet")
+    pd.DataFrame({"place": ["Leeds"], "note": ["Department of art"]}).to_parquet(tmp_path / "b.parquet")
+    pd.DataFrame({"catchment": ["Belfast Lough", "Belfast Lough", "Lagan"], "year": [2007, 2007, 2008]}).to_parquet(tmp_path / "c.parquet")
+    paths = [str(tmp_path / f"{name}.parquet") for name in "abc"]
+    client = FakePneuma({"status": "SUCCESS", "data": [{"query": "q", "retrieved_tables": paths}]})
+    documents = {path: {"resource_id": Path(path).stem, "title": Path(path).stem.upper(), "description": "D."} for path in paths}
+    return client, documents.get
+
+
+def test_pneuma_value_scan_reranks_pneumas_own_pool_by_cell_values(tmp_path):
+    client, resolver = _pneuma_pool(tmp_path)
+    config = RetrievalConfig(mode="pneuma", top_k=3, pneuma_value_scan_weight=0.5)
+
+    hits = PneumaRetriever(config, resolver, client=client).retrieve(
+        "Belfast in 2007?", top_k=3, keywords=["belfast", "2007"]
+    )
+
+    # c matches both words (the year in an integer column too): value 1.0, Pneuma 0.0.
+    assert [hit.document["resource_id"] for hit in hits] == ["a", "c", "b"]
+    assert hits[1].score == pytest.approx(0.5)
+    evidence = hits[1].document["pneuma_evidence"]
+    assert evidence["term_rows"] == {"belfast": 2, "2007": 2}
+    assert evidence["pneuma_rank"] == 3
+    assert hits[1].document["description"] == "D. Contains the searched values: belfast, 2007."
+    # Pneuma's pool is queried exactly as the plain path queries it.
+    assert [call[2] for call in client.calls] == [3]
+
+
+def test_pneuma_value_scan_matches_whole_words_and_weight_one_ranks_by_values(tmp_path):
+    client, resolver = _pneuma_pool(tmp_path)
+    config = RetrievalConfig(mode="pneuma", top_k=3, pneuma_value_scan_weight=1.0)
+
+    hits = PneumaRetriever(config, resolver, client=client).retrieve(
+        "Which art department?", top_k=3, keywords=["art"]
+    )
+
+    # "art" matches b's "Department of art" but not a's "Arts"/"department".
+    assert [hit.document["resource_id"] for hit in hits][0] == "b"
+    assert hits[0].document["pneuma_evidence"]["term_rows"] == {"art": 1}
+    assert "term_rows" in hits[1].document["pneuma_evidence"]
+    assert hits[1].document["pneuma_evidence"]["term_rows"] == {}
+
+
+def test_pneuma_value_scan_off_or_without_terms_is_plain_pneuma(tmp_path):
+    client, resolver = _pneuma_pool(tmp_path)
+    for config, keywords in (
+        (RetrievalConfig(mode="pneuma", top_k=3), ["belfast"]),
+        (RetrievalConfig(mode="pneuma", top_k=3, pneuma_value_scan_weight=0.5), []),
+    ):
+        hits = PneumaRetriever(config, resolver, client=client).retrieve("q", top_k=3, keywords=keywords)
+        assert [hit.document["resource_id"] for hit in hits] == ["a", "b", "c"]
+        assert [hit.score for hit in hits] == [1.0, 0.5, pytest.approx(1 / 3)]
+        assert all("pneuma_evidence" not in hit.document for hit in hits)
+    with pytest.raises(ValueError, match="pneuma_value_scan_weight"):
+        RetrievalConfig(pneuma_value_scan_weight=1.5)
+
+
+def test_count_matching_rows_reads_parquet_and_csv_and_reports_unreadable(tmp_path):
+    from lakegen.retrieval.duckdb_agentic import count_matching_rows
+    from lakegen.retrieval.pneuma import _entity_pattern
+
+    (tmp_path / "t.csv").write_text("city;year\nNew York;2007\nNEW-YORK;2008\nYork;2007\n")
+    patterns = [_entity_pattern("New York"), _entity_pattern("2007")]
+    assert count_matching_rows(tmp_path / "t.csv", patterns, max_rows=100, max_columns=40) == [2, 2]
+    assert count_matching_rows(tmp_path / "t.csv", patterns, max_rows=1, max_columns=40) == [1, 1]
+    assert count_matching_rows(tmp_path / "missing.parquet", patterns, max_rows=10, max_columns=40) is None

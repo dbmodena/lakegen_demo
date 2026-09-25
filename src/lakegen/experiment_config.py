@@ -16,6 +16,7 @@ from lakegen.retrieval import (
     DEFAULT_TOP_K,
     FusionMethod,
     MissingSignalPolicy,
+    PneumaContentFusion,
     RetrievalConfig,
     RetrievalMode,
 )
@@ -91,10 +92,13 @@ class RetrievalExperimentConfig(FrozenModel):
     pneuma_base_url: str = Field(default="http://localhost:8767", min_length=1)
     pneuma_timeout_seconds: float = Field(default=120.0, gt=0)
     pneuma_content_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    pneuma_content_fusion: PneumaContentFusion = PneumaContentFusion.WEIGHTED
+    pneuma_entity_model: str | None = None
     pneuma_enumerate_tables: bool = True
     pneuma_table_name_weight: float = Field(default=3.0, ge=0.0)
     pneuma_column_name_weight: float = Field(default=2.0, ge=0.0)
     pneuma_cell_weight: float = Field(default=1.0, ge=0.0)
+    pneuma_value_scan_weight: float = Field(default=0.0, ge=0.0, le=1.0)
     duckdb_max_files: int = Field(default=250, gt=0)
     duckdb_max_columns_per_file: int = Field(default=40, gt=0)
     duckdb_sample_rows: int = Field(default=3, gt=0)

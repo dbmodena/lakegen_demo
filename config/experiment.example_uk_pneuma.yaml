@@ -126,6 +126,16 @@ retrieval:
   # 1.0 ranks purely by cell/column matches. `alpha` above cannot serve here --
   # it is forwarded to Pneuma's own internal hybrid search.
   pneuma_content_weight: 0.5
+  # How content search merges into Pneuma's ranking:
+  #   - weighted: pneuma_content_weight x content + the rest x Pneuma's rank,
+  #     over a top_k * candidate_multiplier Pneuma pool (the paper's "combine")
+  #   - fill: the reference code -- Pneuma's top_k keeps its order and tables
+  #     matching an entity only fill the slots left; ignores the weight above
+  pneuma_content_fusion: weighted
+  # Chat model that extracts entities from the question with the reference
+  # code's prompt when the caller gives none (the retrieval benchmark). The
+  # agent's own entities are always used as given. null extracts nothing.
+  pneuma_entity_model: null
   # How the content search scores one entity in one table, before the
   # log(1 + raw) damping: raw = table_name_weight x a match in the table's
   # catalog title + column_name_weight x matching column names + cell_weight x
@@ -134,6 +144,14 @@ retrieval:
   pneuma_table_name_weight: 3.0
   pneuma_column_name_weight: 2.0
   pneuma_cell_weight: 1.0
+
+  # Plain pneuma only: rerank the tables Pneuma returned with a DuckDB scan of
+  # their cell values (Pneuma-Seeker's content search, but within Pneuma's own
+  # pool instead of the whole lake; no extra Pneuma cost, ~0.2 s per query).
+  # The agent's entities, else its keywords, are matched as whole words in
+  # every column; value evidence is weighted against Pneuma's ranking by this
+  # weight. 0 turns it off and keeps plain pneuma exactly as it was.
+  pneuma_value_scan_weight: 0.0
 
   # Pull in tables whose identifiers form a family with a retrieved table, e.g.
   # water_body_testing_2020 -> water_body_testing_\d{4}. Set false to reproduce

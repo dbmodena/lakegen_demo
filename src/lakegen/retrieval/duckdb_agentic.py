@@ -94,6 +94,45 @@ def _identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
+def count_matching_rows(
+    path: Path, patterns: Sequence[str], *, max_rows: int, max_columns: int
+) -> list[int] | None:
+    """How many rows of one table match each regex, or None if it cannot be read.
+
+    The table's first ``max_columns`` columns, every type cast to text, are
+    joined into one row text, and each pattern (RE2 syntax, as DuckDB's
+    ``regexp_matches`` takes it) is counted over the first ``max_rows`` rows. The
+    patterns are bound as parameters, so none of them is ever SQL.
+    """
+    source = str(path).replace("'", "''")
+    reader = (
+        f"read_parquet('{source}')"
+        if path.suffix.casefold() in (".parquet", ".pq")
+        else f"read_csv_auto('{source}', all_varchar=true, ignore_errors=true)"
+    )
+    con = duckdb.connect(":memory:")
+    try:
+        columns = [row[0] for row in con.execute(f"DESCRIBE SELECT * FROM {reader}").fetchall()]
+        columns = columns[:max_columns]
+        if not columns or not patterns:
+            return [0] * len(patterns)
+        selected = ", ".join(_identifier(name) for name in columns)
+        text = "concat_ws(' ', " + ", ".join(
+            f"coalesce(cast({_identifier(name)} as varchar), '')" for name in columns
+        ) + ")"
+        counts = ", ".join("count_if(regexp_matches(__row_text, ?))" for _ in patterns)
+        row = con.execute(
+            f"WITH source AS (SELECT {selected} FROM {reader} LIMIT {int(max_rows)}), "
+            f"rows AS (SELECT {text} AS __row_text FROM source) SELECT {counts} FROM rows",
+            list(patterns),
+        ).fetchone()
+        return [int(value or 0) for value in row]
+    except duckdb.Error:
+        return None
+    finally:
+        con.close()
+
+
 def _search_projection(columns: Sequence[str]) -> str:
     """Build one bounded row text, avoiding terms × columns SQL expansion."""
     values = ", ".join(

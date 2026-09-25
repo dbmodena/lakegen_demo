@@ -26,6 +26,7 @@ from lakegen.retrieval.models import (
 )
 from lakegen.retrieval.pneuma import (
     DocumentResolver,
+    EntityExtractor,
     PneumaClient,
     PneumaRetriever,
     SolrPneumaDocumentResolver,
@@ -494,6 +495,7 @@ class TableRetrievalService:
         missing_score_resolver: MissingScoreResolver | None = None,
         pneuma_client: PneumaClient | None = None,
         pneuma_document_resolver: DocumentResolver | None = None,
+        pneuma_entity_extractor: EntityExtractor | None = None,
         table_dir: str | None = None,
         reranker: Reranker | None = None,
     ) -> None:
@@ -536,6 +538,7 @@ class TableRetrievalService:
                 pneuma_document_resolver or SolrPneumaDocumentResolver(solr),
                 client=pneuma_client,
                 table_dir=table_dir,
+                entity_extractor=pneuma_entity_extractor,
             )
             if config.mode.is_pneuma
             and (table_dir is not None or config.mode is RetrievalMode.PNEUMA)
@@ -611,6 +614,7 @@ class TableRetrievalService:
                     question,
                     top_k=requested_k,
                     entities=entities,
+                    keywords=keywords,
                 )
             elif self.config.mode == RetrievalMode.DUCKDB_AGENTIC:
                 assert self.duckdb_agentic is not None

@@ -43,10 +43,13 @@ Deviations, all visible in the results rather than hidden:
   ``1/rank``. A confident first place and a marginal one are indistinguishable
   here, so ``pneuma_content_weight`` has to be swept rather than transplanted
   from the paper.
-* **Fusion is a weighted sum.** The paper combines the two scores; the reference
-  code instead keeps Pneuma's top-k and lets content-ranked tables fill only the
-  slots left over. The weighted sum is the paper's reading, and it lets a table
-  Pneuma ranked 30th surface on content alone.
+* **Fusion is a weighted sum by default.** The paper combines the two scores;
+  the reference code instead keeps Pneuma's top-k and lets content-ranked tables
+  fill only the slots its deduplication left over. The weighted sum is the
+  paper's reading, and it lets a table Pneuma ranked 30th surface on content
+  alone; ``pneuma_content_fusion: fill`` selects the reference merge, except
+  that only tables matching an entity fill a slot (the reference pads with
+  zero-score tables in name order).
 * **Cells, not occurrences.** The reference code counts every regex occurrence
   in text columns; the shared scanner counts matching cells in every column
   cast to text. Both read every row: the grep modality's per-file row and
@@ -59,28 +62,44 @@ Deviations, all visible in the results rather than hidden:
   Conductor. Retrieval here is a single call, so enumeration runs automatically
   from the fused ranking instead.
 
-The entities are not extracted by a new LLM call. Under this mode the discovery
-prompts ask for them with the reference code's extraction rules -- specific,
-named, canonical strings written as the question writes them, never general
-concepts -- in ``RetrievalIntent.entities`` or the search tool's ``entities``.
+Under this mode the discovery prompts ask the agent for the entities with the
+reference code's extraction rules -- specific, named, canonical strings written
+as the question writes them, never general concepts -- in
+``RetrievalIntent.entities`` or the search tool's ``entities``. A caller that
+passes no entities at all, such as the retrieval benchmark, gets them from
+``pneuma_entity_model`` instead: one chat call per question with the reference
+code's own prompt (:data:`ENTITY_EXTRACTION_PROMPT`), as its retriever makes.
+
+The reference retriever's Pneuma is its hybrid search alone, with the LLM
+relevance judge switched off (``RerankingMode.NONE``). The Pneuma service here
+always judges, so even ``fill`` with extracted entities is not the reference
+retriever exactly.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 import json
 import math
 from pathlib import Path
 import re
+import time
 from typing import Any, Protocol
 
 import pyarrow.parquet as pq
 import requests
 
 from lakegen import cell_scan
-from lakegen.retrieval.config import RetrievalConfig, RetrievalMode
+from lakegen.retrieval.config import (
+    PneumaContentFusion,
+    RetrievalConfig,
+    RetrievalMode,
+)
+from lakegen.retrieval.duckdb_agentic import count_matching_rows
 from lakegen.retrieval.models import RetrievalHit, document_key, min_max_normalize
+from lakegen.retrieval.rerank import _oci_client
 
 # Every column is cast to text in isolated worker processes, one column and one
 # bounded chunk at a time. This keeps Pneuma-Seeker's content scan independent
@@ -188,6 +207,91 @@ class HttpPneumaClient:
             raise RuntimeError(
                 f"Pneuma service unavailable at {self.query_url}: {exc}"
             ) from exc
+
+
+# The reference code's entity-extraction system prompt, verbatim
+# (PneumaRetriever.__get_entity_extraction_sys_prompt); the question is the user
+# message.
+ENTITY_EXTRACTION_PROMPT = """You are an information extraction system.
+
+Your task is to analyze a natural-language query and extract **explicitly mentioned, concrete entities** that are suitable for direct lookup in a structured dataset.
+
+**Extraction rules:**
+
+* Only extract entities that are **specific, named, and canonical**, such as identifiers, symbols, or codes that would typically appear verbatim in a database.
+* Do **not** extract general concepts or categories.
+* If the query does **not** contain any extractable entities under these rules, return an empty list ({"entities": []}).
+
+**Output requirements:**
+
+* Output **only** a JSON object.
+* The JSON object must contain a single key `"entities"` whose value is a list of strings.
+* Each string must exactly match how the entity appears in the query.
+* Preserve original casing and punctuation.
+* Do not include duplicates.
+* Do not include any explanation, comments, formatting, or additional text outside the JSON object.
+
+**Output format:**
+{"entities": [...]}"""
+
+
+class EntityExtractor(Protocol):
+    def entities(self, question: str) -> list[str]:
+        """The entities the question names, as written; may be empty."""
+
+
+def _parse_entities(text: str) -> list[str]:
+    """The ``entities`` list of a model's JSON reply, strings only."""
+    match = re.search(r"\{.*\}", text, re.S)
+    decoded = json.loads(match.group(0) if match else text)
+    values = decoded.get("entities") if isinstance(decoded, dict) else None
+    if not isinstance(values, list):
+        raise ValueError(f"no entities list in {text[:200]!r}")
+    return [value for value in values if isinstance(value, str) and value.strip()]
+
+
+@lru_cache(maxsize=512)
+def _oci_entities(model_id: str, question: str) -> tuple[str, ...]:
+    from oci.generative_ai_inference import models
+
+    client, compartment = _oci_client()
+    response = client.chat(
+        models.ChatDetails(
+            compartment_id=compartment,
+            serving_mode=models.OnDemandServingMode(model_id=model_id),
+            chat_request=models.GenericChatRequest(
+                messages=[
+                    models.SystemMessage(
+                        content=[models.TextContent(text=ENTITY_EXTRACTION_PROMPT)]
+                    ),
+                    models.UserMessage(content=[models.TextContent(text=question)]),
+                ],
+                # Room for a reasoning model's thinking before the JSON.
+                max_tokens=4096,
+                temperature=0.0,
+                response_format=models.JsonObjectResponseFormat(),
+            ),
+        )
+    )
+    message = response.data.chat_response.choices[0].message
+    text = "".join(
+        getattr(part, "text", None) or "" for part in message.content or ()
+    )
+    return tuple(_parse_entities(text))
+
+
+class OCIEntityExtractor:
+    """The reference code's entity extraction, one OCI chat call per question.
+
+    Answers are cached per process, so a question retrieved twice is extracted
+    once.
+    """
+
+    def __init__(self, model_id: str) -> None:
+        self.model_id = model_id
+
+    def entities(self, question: str) -> list[str]:
+        return list(_oci_entities(self.model_id, question))
 
 
 def _table_ids(payload: str | dict[str, Any]) -> list[str]:
@@ -393,12 +497,27 @@ class PneumaRetriever:
         *,
         client: PneumaClient | None = None,
         table_dir: str | Path | None = None,
+        entity_extractor: EntityExtractor | None = None,
     ) -> None:
         self.config = config
         self.resolver = resolver
         self.client = client or create_pneuma_client(config)
         self.content_search = config.mode is RetrievalMode.PNEUMA_SEEKER
+        # Pneuma-Seeker only: entities for callers that pass none (see
+        # pneuma_entity_model).
+        self.entity_extractor: EntityExtractor | None = None
+        if self.content_search and config.pneuma_entity_model:
+            self.entity_extractor = entity_extractor or OCIEntityExtractor(
+                config.pneuma_entity_model
+            )
+        # Plain pneuma's optional value scan of its own pool (see
+        # pneuma_value_scan_weight); weight 0 keeps the plain path untouched.
+        self.value_scan = (
+            config.mode is RetrievalMode.PNEUMA and config.pneuma_value_scan_weight > 0
+        )
         self.table_dir: Path | None = None
+        if self.value_scan and table_dir is not None:
+            self.table_dir = Path(table_dir).resolve()
         if self.content_search:
             if table_dir is None:
                 raise ValueError("pneuma_seeker retrieval requires a local table_dir")
@@ -623,6 +742,120 @@ class PneumaRetriever:
             scores[stem] = _Content(mean * coverage, cells, named, titled)
         return scores, unscannable
 
+    # ------------------------------------------------------------ value scan
+
+    def _table_path(self, table_id: str) -> Path | None:
+        """The local file behind a Pneuma table ID (a path in this index)."""
+        path = Path(table_id)
+        if path.is_file():
+            return path
+        if self.table_dir is not None and (self.table_dir / path.name).is_file():
+            return self.table_dir / path.name
+        return None
+
+    def _value_scanned(
+        self, ordered: Sequence[tuple[str, dict[str, Any]]], terms: Sequence[str]
+    ) -> list[RetrievalHit]:
+        """Pneuma's own tables, reranked with a DuckDB scan of their values.
+
+        Pneuma-Seeker's content search restricted to the pool Pneuma returned,
+        so Pneuma's cost is unchanged. Each term is matched word-bounded, as the
+        Seeker does, in every column cast to text; rows are counted within the
+        duckdb_* bounds. Per term the count is damped by ``log1p`` and divided
+        by its maximum over the pool; a table's value score is the mean over the
+        terms times the fraction it matched, and is fused with Pneuma's rank
+        score (1/rank, min-max over the pool) by ``pneuma_value_scan_weight``.
+        A table whose file cannot be found or read scores 0 on values.
+        """
+        patterns = [_entity_pattern(term) for term in terms]
+        started = time.monotonic()
+        rows: list[list[int] | None] = []
+        for table_id, _document in ordered:
+            path = self._table_path(table_id)
+            rows.append(
+                count_matching_rows(
+                    path,
+                    patterns,
+                    max_rows=self.config.duckdb_max_scan_rows_per_file,
+                    max_columns=self.config.duckdb_max_columns_per_file,
+                )
+                if path is not None
+                else None
+            )
+        scan_seconds = time.monotonic() - started
+        damped = [
+            [math.log1p(count) for count in counts] if counts else [0.0] * len(terms)
+            for counts in rows
+        ]
+        peaks = [max((values[i] for values in damped), default=0.0) for i in range(len(terms))]
+        value_scores = []
+        for values in damped:
+            normalized = [value / peak if peak else 0.0 for value, peak in zip(values, peaks)]
+            mean = sum(normalized) / len(terms)
+            coverage = sum(1 for value in normalized if value > 0) / len(terms)
+            value_scores.append(mean * coverage)
+        pneuma_scores = min_max_normalize(
+            {index: 1.0 / (index + 1) for index in range(len(ordered))}
+        )
+        weight = self.config.pneuma_value_scan_weight
+        fused = [
+            weight * value_scores[index] + (1.0 - weight) * pneuma_scores.get(index, 0.0)
+            for index in range(len(ordered))
+        ]
+        value_rank = {
+            index: rank
+            for rank, index in enumerate(
+                sorted(
+                    (index for index in range(len(ordered)) if value_scores[index]),
+                    key=lambda index: (-value_scores[index], index),
+                ),
+                1,
+            )
+        }
+        hits: list[RetrievalHit] = []
+        for rank, index in enumerate(
+            sorted(range(len(ordered)), key=lambda index: (-fused[index], index)), 1
+        ):
+            table_id, source_document = ordered[index]
+            # The resolver hands out shared, cached dicts.
+            document = dict(source_document)
+            counts = rows[index]
+            term_rows = {
+                term: count for term, count in zip(terms, counts or []) if count
+            }
+            if term_rows:
+                description = str(document.get("description") or "").strip()
+                document["description"] = (
+                    (description + " " if description else "")
+                    + "Contains the searched values: "
+                    + ", ".join(term_rows)
+                    + "."
+                )
+            document["pneuma_evidence"] = {
+                "value_scan_terms": list(terms),
+                "term_rows": term_rows,
+                "value_score": value_scores[index],
+                "normalized_pneuma_score": pneuma_scores.get(index, 0.0),
+                "value_scan_weight": weight,
+                "pneuma_rank": index + 1,
+                "scanned": counts is not None,
+                "pool_scan_seconds": round(scan_seconds, 6),
+            }
+            hits.append(
+                RetrievalHit(
+                    document=document,
+                    score=fused[index],
+                    rank=rank,
+                    lexical_score=value_scores[index],
+                    semantic_score=1.0 / (index + 1),
+                    normalized_lexical_score=value_scores[index],
+                    normalized_semantic_score=pneuma_scores.get(index, 0.0),
+                    lexical_rank=value_rank.get(index),
+                    semantic_rank=index + 1,
+                )
+            )
+        return hits
+
     # --------------------------------------------------------------- assembly
 
     def _enumerate(
@@ -674,21 +907,44 @@ class PneumaRetriever:
         *,
         top_k: int,
         entities: Sequence[str] | None = None,
+        keywords: Sequence[str] | None = None,
     ) -> list[RetrievalHit]:
         if not self.content_search:
+            ordered = self._pneuma_candidates(question, top_k)
+            terms = _scan_terms(entities or keywords) if self.value_scan else []
+            if terms:
+                return self._value_scanned(ordered, terms)
             hits: list[RetrievalHit] = []
-            for rank, (_table_id, document) in enumerate(
-                self._pneuma_candidates(question, top_k), 1
-            ):
+            for rank, (_table_id, document) in enumerate(ordered, 1):
                 # Pneuma 0.0.4 exposes ordered table IDs but not final scores.
                 hits.append(
                     RetrievalHit(document=document, score=1.0 / rank, rank=rank)
                 )
             return hits
 
-        # A wider Pneuma pool than the caller asked for: content search reranks
-        # within it, so a table at Pneuma rank 30 can still surface.
-        limit = max(top_k, top_k * self.config.candidate_multiplier)
+        fill = self.config.pneuma_content_fusion is PneumaContentFusion.FILL
+        extraction: dict[str, Any] | None = None
+        if entities is None and self.entity_extractor is not None:
+            started = time.monotonic()
+            error = None
+            try:
+                entities = self.entity_extractor.entities(question)
+            except Exception as exc:
+                # No entities means no content search, which is Pneuma's own
+                # ranking: a degraded answer, not a failed search.
+                entities, error = [], f"{type(exc).__name__}: {exc}"
+            extraction = {
+                "model": self.config.pneuma_entity_model,
+                "entities": list(entities),
+                "seconds": time.monotonic() - started,
+                "error": error,
+            }
+        # The weighted sum reranks a wider Pneuma pool than the caller asked
+        # for, so a table at Pneuma rank 30 can still surface. The reference
+        # fill asks Pneuma for exactly top_k, as its code does.
+        limit = (
+            top_k if fill else max(top_k, top_k * self.config.candidate_multiplier)
+        )
         ordered = self._pneuma_candidates(question, limit)
         terms = _scan_terms(entities)
 
@@ -710,7 +966,8 @@ class PneumaRetriever:
         # equal to plain ``pneuma``, as a boundary should be. The footer listing
         # survives only because enumeration, which needs no entity, still uses it.
         weight = self.config.pneuma_content_weight if terms else 0.0
-        scans_content = weight > 0.0
+        # Fill weights nothing, so any entity is enough to search for.
+        scans_content = bool(terms) if fill else weight > 0.0
         lake = (
             self._lake()
             if scans_content or self.config.pneuma_enumerate_tables
@@ -790,21 +1047,40 @@ class PneumaRetriever:
                 + (1.0 - weight) * candidate.normalized_pneuma
             )
 
-        no_rank = limit + 1
-        def order(candidate: _Candidate) -> tuple[Any, ...]:
-            return (
-                -candidate.score,
-                candidate.enumerated_from is not None,
-                candidate.pneuma_rank or no_rank,
-                candidate.content_rank or no_rank,
-                candidate.key,
-            )
+        if fill:
+            # The reference merge: Pneuma's tables in Pneuma's order, then the
+            # content matches it did not return, strongest first -- only
+            # tables that matched an entity, where the reference would pad with
+            # zero-score tables in name order. Enumerated siblings come last.
+            ranked = [
+                *sorted(
+                    (c for c in candidates.values() if c.pneuma_rank),
+                    key=lambda c: c.pneuma_rank or 0,
+                ),
+                *(candidates[key] for key in content_order
+                  if not candidates[key].pneuma_rank),
+            ]
+            if self.config.pneuma_enumerate_tables and lake:
+                ranked += self._enumerate(ranked, lake, top_k)
+            for position, candidate in enumerate(ranked, 1):
+                candidate.score = 1.0 / position
+        else:
+            no_rank = limit + 1
 
-        ranked = sorted(candidates.values(), key=order)
-        if self.config.pneuma_enumerate_tables and lake:
-            siblings = self._enumerate(ranked, lake, top_k)
-            if siblings:
-                ranked = sorted([*ranked, *siblings], key=order)
+            def order(candidate: _Candidate) -> tuple[Any, ...]:
+                return (
+                    -candidate.score,
+                    candidate.enumerated_from is not None,
+                    candidate.pneuma_rank or no_rank,
+                    candidate.content_rank or no_rank,
+                    candidate.key,
+                )
+
+            ranked = sorted(candidates.values(), key=order)
+            if self.config.pneuma_enumerate_tables and lake:
+                siblings = self._enumerate(ranked, lake, top_k)
+                if siblings:
+                    ranked = sorted([*ranked, *siblings], key=order)
 
         hits = []
         for rank, candidate in enumerate(ranked[:top_k], 1):
@@ -830,11 +1106,13 @@ class PneumaRetriever:
                 )
             document["pneuma_evidence"] = {
                 "scan_terms": list(terms),
+                "entity_extraction": extraction,
                 "matched_terms": found,
                 "content_score": candidate.content_score,
                 "normalized_content_score": candidate.normalized_content,
                 "normalized_pneuma_score": candidate.normalized_pneuma,
-                "content_weight": weight,
+                "content_fusion": self.config.pneuma_content_fusion.value,
+                "content_weight": None if fill else weight,
                 "table_name_weight": self.config.pneuma_table_name_weight,
                 "column_name_weight": self.config.pneuma_column_name_weight,
                 "cell_weight": self.config.pneuma_cell_weight,

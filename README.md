@@ -286,11 +286,23 @@ skipped rather than performed and multiplied away. In particular,
 `pneuma_content_weight: 0` makes `pneuma_seeker` exactly equal to `pneuma`.
 
 - `pneuma`: uses a separately prepared Pneuma index and service.
+  `pneuma_value_scan_weight` (default `0`, off) adds an optional value scan:
+  the tables Pneuma returned are scanned with DuckDB for the agent's entities
+  (else its keywords), matched as whole words in every column cast to text
+  within the `duckdb_max_columns_per_file` / `duckdb_max_scan_rows_per_file`
+  bounds, and reranked by value evidence weighted against Pneuma's order. It
+  is Pneuma-Seeker's content search restricted to Pneuma's own pool. On the
+  100-question UK benchmark it was neutral (weights 0.1-0.25) to slightly
+  harmful (0.5), since sibling tables in a pool usually share the same
+  values; it costs about 0.2 s per query.
 - `pneuma_seeker`: Pneuma augmented as in the *Pneuma-Seeker* paper (§5.3),
   "Pneuma + content search + table enumeration". The content search follows
   the paper's reference implementation. Under this mode the discovery prompts
   ask for entities with its extraction rules (specific, named, canonical strings
-  written as the question writes them, never general concepts), and each entity
+  written as the question writes them, never general concepts); a caller that
+  passes none at all, such as the retrieval benchmark, can have them extracted
+  per question with the reference's own prompt by setting `pneuma_entity_model`
+  (default `null`, off). Each entity
   is scanned for across the local Parquet with its case-insensitive,
   word-bounded regex: `art` does not match `Department`, and `New York` matches
   `NEW-YORK`. Per entity and table, `pneuma_table_name_weight` x a match in the
@@ -305,12 +317,18 @@ skipped rather than performed and multiplied away. In particular,
   enumerated, which is what plain top-k retrieval cannot do. Knowing
   deviations: Pneuma's service returns ranks but no scores, so the fusion uses
   `1/rank`; the fusion is the paper's weighted combination, where the reference
-  code only fills the top-k slots Pneuma leaves over; matching cells are counted
+  code only fills the top-k slots Pneuma leaves over (`pneuma_content_fusion:
+  fill` selects that merge, with only entity-matching tables filling a slot);
+  matching cells are counted
   rather than regex occurrences; a table's name is its catalog title, matched
   once per table, because the lakes name files by opaque id; and enumeration
   runs automatically rather than as an agent action.
   Set `pneuma_enumerate_tables: false` to reproduce the paper's middle ablation
-  arm. The cell scan reads every row and every column of every file, one column
+  arm. `config/experiment.example_uk_pneuma_seeker.yaml` configures the
+  reference retriever itself: k=10, a 5x Pneuma pool, alpha 0.5, `fill`,
+  extracted entities, and no automatic enumeration. It still differs in one
+  respect the service decides: our Pneuma always runs its LLM relevance judge,
+  which the reference leaves off. The cell scan reads every row and every column of every file, one column
   and one chunk of rows at a time so a worker's memory stays bounded; only
   `grep_max_files` can cut it short. Note
   that both shipped cores name tables by opaque id

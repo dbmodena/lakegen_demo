@@ -1,13 +1,22 @@
+# Pneuma-Seeker's retrieval module as its reference code runs it
+# (TheDataStation/pneuma-seeker, branch task-improve-answer-quality,
+# PneumaRetriever.retrieve): Pneuma's hybrid search with k=10, a 5x pool and
+# alpha 0.5; entities extracted per question with its prompt; content search
+# filling only the slots Pneuma leaves; no automatic enumeration (in the
+# reference it is a separate tool the agent calls). Two differences remain:
+# the Pneuma service here always runs its LLM relevance judge, which the
+# reference leaves off, and only tables matching an entity fill a slot.
+
 # Free-form experiment identifier. It is stored in manifests and logs so runs
 # can be distinguished and reproduced. It must not be empty.
-experiment_id: thesis-baseline-004
+experiment_id: uk-pneuma-seeker-reference
 
 # Experiment seed (integer >= 0), recorded to make runs comparable.
 seed: 0
 
 # Solr core, i.e. the dataset portal to query.
 # Supported alternatives: nyc | uk
-core: nyc
+core: uk
 
 # LLM used during discovery, code generation, and answer generation.
 # Supported alternatives:
@@ -43,19 +52,6 @@ discovery:
   max_inspected_candidates: 8
   max_inspections_per_file: 2
   search_after_inspection: false
-  # What one search call runs (keyword mode): single | decompose_preview |
-  # cascade. cascade: the model ranks AND word sets by importance; they run one
-  # at a time, skipping any set with a banned subset, until one finds a table.
-  # Hybrid mode runs decompose_preview as configured, and single otherwise.
-  keyword_search: cascade
-  # cascade only: how many ranked AND word sets the model proposes per table.
-  keyword_cascade_size: 5
-  # Context management (unified agent): state_board appends one short,
-  # system-kept summary of the round to the newest tool result;
-  # compact_history shortens results later calls superseded. Both false
-  # reproduces the previous behaviour.
-  state_board: true
-  compact_history: true
 
 retrieval:
   # Strategy used to retrieve candidate tables:
@@ -69,20 +65,22 @@ retrieval:
   #   - hybrid_duckdb_semantic (shown as "hybrid (duckdb + semantic)"): fuses
   #     the duckdb_agentic ranking with semantic KNN by fusion_method (alpha =
   #     DuckDB weight when weighted); needs the local Parquet.
-  mode: hybrid
+  mode: pneuma_seeker
 
-  # Ranked retrieval pool size. The selector initially sees 10 and can reveal
-  # the rest adaptively in blocks of 5. Must be > 0.
-  top_k: 20
+  # Ranked retrieval pool size. The reference retrieves k=10. Must be > 0.
+  top_k: 10
 
   # Weight of the lexical component in hybrid fusion, from 0.0 to 1.0:
   #   1.0 = BM25 only; 0.0 = semantic search only; 0.5 = equal weights.
   # It does not affect keyword/semantic modes and RRF ignores it.
-  alpha: 0.25
+  # For Pneuma modes it is forwarded to Pneuma's own BM25 + vector fusion;
+  # the reference hardcodes 0.5.
+  alpha: 0.5
 
   # In hybrid mode, each branch retrieves top_k * candidate_multiplier results
   # before fusion. Larger values increase coverage, cost, and latency.
   # Must be an integer > 0 (with these values: 10 * 5 = 50 per branch).
+  # Pneuma pools k * candidate_multiplier documents: the reference's k * 5.
   candidate_multiplier: 5
 
   # Version of the indexed representation. Semantic search filters documents by
@@ -144,11 +142,11 @@ retrieval:
   #     over a top_k * candidate_multiplier Pneuma pool (the paper's "combine")
   #   - fill: the reference code -- Pneuma's top_k keeps its order and tables
   #     matching an entity only fill the slots left; ignores the weight above
-  pneuma_content_fusion: weighted
+  pneuma_content_fusion: fill
   # Chat model that extracts entities from the question with the reference
   # code's prompt when the caller gives none (the retrieval benchmark). The
   # agent's own entities are always used as given. null extracts nothing.
-  pneuma_entity_model: null
+  pneuma_entity_model: openai.gpt-oss-120b
   # How the content search scores one entity in one table, before the
   # log(1 + raw) damping: raw = table_name_weight x a match in the table's
   # catalog title + column_name_weight x matching column names + cell_weight x
@@ -158,10 +156,18 @@ retrieval:
   pneuma_column_name_weight: 2.0
   pneuma_cell_weight: 1.0
 
+  # Plain pneuma only: rerank the tables Pneuma returned with a DuckDB scan of
+  # their cell values (Pneuma-Seeker's content search, but within Pneuma's own
+  # pool instead of the whole lake; no extra Pneuma cost, ~0.2 s per query).
+  # The agent's entities, else its keywords, are matched as whole words in
+  # every column; value evidence is weighted against Pneuma's ranking by this
+  # weight. 0 turns it off and keeps plain pneuma exactly as it was.
+  pneuma_value_scan_weight: 0.0
+
   # Pull in tables whose identifiers form a family with a retrieved table, e.g.
   # water_body_testing_2020 -> water_body_testing_\d{4}. Set false to reproduce
   # the paper's "Pneuma + content search" ablation arm.
-  pneuma_enumerate_tables: true
+  pneuma_enumerate_tables: false
 
   # The content scan uses scan_workers and reads every row and column.
 
@@ -190,10 +196,10 @@ retrieval:
 benchmark:
   # Questions and gold tables for the retriever-only benchmark, run with
   # `python -m lakegen.retrieval.benchmark --config <this file>`. Either a
-  # curated case file (benchmark/100q_nyc.json) or a generated-queries file
+  # curated case file (benchmark/50q_uk.json) or a generated-queries file
   # (generated_queries_semantic.json), whose successful queries all become
   # cases. The interactive and batch workflows ignore it. null = no default.
-  path: /home/n185972/gits/orqa/data/orqa/socrata/nyc/candidates_discovery/generated_queries_semantic.json
+  path: benchmark/50q_uk.json
 
 # Automatic reviewers for the different phases. Every field is boolean, but
 # only false is currently supported; validation rejects any enabled reviewer.
