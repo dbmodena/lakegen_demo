@@ -239,6 +239,20 @@ def test_code_analysis_is_gold_blind_and_comparison_omits_result_types():
     assert "result_type" not in comparison["requirement_checks"]
 
 
+def test_serialization_shape_requirement_is_never_essential():
+    from lakegen.semantic_code_judge import _requirements
+
+    requirements = _requirements({"requirements": [{
+        "id": "R1",
+        "type": "output",
+        "evidence_scope": "output",
+        "description": "Return a single-row table with named columns.",
+        "essential": True,
+    }]})
+
+    assert requirements[0]["essential"] is False
+
+
 def test_verified_status_without_evidence_is_changed_to_unknown():
     responses = pipeline_responses()
     proposed_payload = json.loads(responses[2])

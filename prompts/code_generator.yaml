@@ -90,14 +90,42 @@ agentic_system_prompt: |
   dataset-edition evidence may come from metadata, and joins require entity keys.
 
   The verified coder brief is the grounded evidence contract, not necessarily
-  a complete recipe. Tables, exact runtime columns, explicit question filters,
-  and evidenced join keys are immutable. Compare the brief with the complete
+  a complete recipe. {% if brief_advisory is defined and brief_advisory %}Tables and evidenced join keys are
+  fixed. Column choices, row filters and the null policy in the brief are
+  proposals to verify against the question and the data evidence: when the
+  full-file value profile, column semantics or samples show that a proposed
+  column is not the one the question names (for example a district column when
+  the question names a town), or that a filter is already satisfied by every
+  row (a snapshot/edition stamp), follow the evidence instead. Drop nulls only
+  from the columns a computation actually uses, and never let a null policy
+  change the population of a share, total or count the question defines.
+  {% else %}Tables, exact runtime columns, explicit question filters,
+  and evidenced join keys are immutable. {% endif %}Compare the brief with the complete
   question and complete missing computational steps such as final reductions,
   ratios, correlations, ordering, limits, and output shaping. Never stop at an
-  intermediate grouped result when the question requests a derived or scalar
-  answer. Call run_analysis with the code only; completion is inferred from the
+  intermediate grouped result when the question requests a further derived
+  quantity. Call run_analysis with the code only; completion is inferred from the
   executed program. Do not print a second analysis manifest. Never include
   benchmark, reference, expected-answer, evaluator, or gold data.
+  A year in an edition-specific identifier or schema label (for example the
+  `21` in `PFA21CD`) is provenance, not a row value. Never filter an identifier
+  column for that year unless the verified brief explicitly contains that
+  row-level filter.
+
+  Before writing code, compile the brief into a short execution pipeline in
+  dependency order (keep it internal; do not print it): load each source,
+  clean typed measures, apply source-level filters, aggregate each source,
+  combine or join the prepared frames, compute final derived measures, then
+  order/limit/shape the result. Implement those stages in that order. Give each
+  intermediate dataframe or scalar one descriptive variable name, define it
+  exactly once before first use, and reuse that exact name downstream. Never
+  refer to a placeholder, renamed variable, or intermediate that is absent from
+  the emitted program. For multi-table work, finish each table's preparation
+  before combining them; do not interleave unrelated transformations. Before
+  calling run_analysis, perform a final static pass over the code: every name
+  used by a later stage must be produced by an earlier stage, and the final
+  printed object must descend from the requested final computation rather than
+  an intermediate groupby.
 
 agentic_initial_prompt: |
   QUESTION: "{{ question }}"
@@ -124,8 +152,11 @@ agentic_correction_prompt: |
 
   {{ tables_info }}
 
-  Apply all structured repair evidence, then call run_analysis. Finalization is
-  automatic. Never return code in chat. Use reject_data only for proven missing data.
+  Apply all structured repair evidence, then call run_analysis. Preserve the
+  dependency-ordered pipeline, and verify that every referenced intermediate is
+  defined earlier under the exact same name. Remove stale variables left by a
+  rewrite instead of inventing assignments for them. Finalization is automatic.
+  Never return code in chat. Use reject_data only for proven missing data.
 
 initial_prompt: |
   QUESTION: "{{ question }}"

@@ -316,6 +316,57 @@ def _normalize_semantic_plan(
     return normalized
 
 
+def _resolve_partition_table_aliases(
+    plan: dict[str, object], selected_tables: list[str],
+    table_roles: dict[str, str], schema_by_table: dict[str, set[str]],
+    combination_strategy: str,
+) -> dict[str, object]:
+    """Resolve only aliases proven unambiguous by this confirmed selection."""
+    normalized = dict(plan)
+    role_targets: dict[str, list[str]] = {}
+    for table, role in table_roles.items():
+        if table in selected_tables and str(role).strip():
+            role_targets.setdefault(str(role).strip().casefold(), []).append(table)
+
+    for field in ("filters", "temporal_filters", "dimensions", "measures"):
+        resolved: list[object] = []
+        for raw in normalized.get(field, []):
+            if not isinstance(raw, dict):
+                resolved.append(raw)
+                continue
+            item = dict(raw)
+            alias = str(item.get("table") or "").strip()
+            role_matches = role_targets.get(alias.casefold(), [])
+            if len(role_matches) == 1:
+                item["table"] = role_matches[0]
+                resolved.append(item)
+                continue
+            if alias.casefold() != "any" or combination_strategy != "concat_partitions":
+                resolved.append(item)
+                continue
+            columns = item.get("columns")
+            if columns is None:
+                columns = [item.get("column")] if item.get("column") else []
+            names = {str(column) for column in columns}
+            common = bool(names) and all(
+                names <= schema_by_table.get(table, set())
+                for table in selected_tables
+            )
+            if not common:
+                resolved.append(item)
+                continue
+            if field in {"filters", "temporal_filters"}:
+                resolved.extend({**item, "table": table} for table in selected_tables)
+            else:
+                # This binding is evaluated over the concatenated frame. One
+                # concrete source proves the shared column without duplicating
+                # the requested output for every partition.
+                item["table"] = selected_tables[0]
+                resolved.append(item)
+        normalized[field] = resolved
+    return normalized
+
+
 def _normalize_requirement_coverage(
     requirement_coverage: dict[str, object], selected_tables: list[str]
 ) -> dict[str, object]:
@@ -1886,6 +1937,10 @@ class Phase12ToolsManager:
                     raise ValueError(
                         f"Selection blocked: cannot validate schema for {table}: {exc}"
                     ) from exc
+            semantic_plan = _resolve_partition_table_aliases(
+                semantic_plan, normalized_tables, table_roles,
+                schema_by_table, combination_strategy,
+            )
             invalid_bindings: list[str] = []
             bindings = [
                 *semantic_plan["filters"],
@@ -2093,6 +2148,48 @@ class Phase12ToolsManager:
         essential requirements. Inspected candidates carry over to the next
         attempt unless banned in ban_tables.
         """
+        normalized_reason = " ".join(str(reasoning).casefold().split())
+        text_dtype_claim = any(
+            marker in normalized_reason
+            for marker in ("string", "text", "object dtype", "object-typed")
+        )
+        numeric_operation_claim = any(
+            marker in normalized_reason
+            for marker in (
+                "numeric", "sum", "summed", "average", "averaged",
+                "aggregate", "aggregation", "convert", "conversion",
+            )
+        )
+        type_only_rejection = any(
+            marker in normalized_reason
+            for marker in (
+                "cannot", "can't", "not supported", "unsupported",
+                "not possible", "unable",
+            )
+        )
+        runtime_unparseable_claim = (
+            any(marker in normalized_reason for marker in (
+                "sample values", "sampled values", "observed values",
+                "runtime values",
+            ))
+            and any(marker in normalized_reason for marker in (
+                "unparseable", "cannot be parsed", "no numeric values",
+                "no parseable values",
+            ))
+        )
+        if (
+            text_dtype_claim
+            and numeric_operation_claim
+            and type_only_rejection
+            and not runtime_unparseable_claim
+        ):
+            raise ValueError(
+                "Selection rejection blocked: a numeric or monetary measure stored "
+                "as text is convertible by the Coder and is not evidence that the "
+                "dataset is insufficient. Confirm the table when the required column "
+                "exists, unless inspected runtime values specifically prove that the "
+                "measure cannot be parsed."
+            )
         inspected = self.state.inspected_candidates()
         by_fold = {table.casefold(): table for table in inspected}
         unjustified = [
@@ -2258,7 +2355,6 @@ class Phase12ToolsManager:
             "dimensions": dimensions,
             "measures": list(requirements.get("measures", []))
             if isinstance(requirements.get("measures"), list) else [],
-            "result_type": str(requirements.get("result_type") or "auto"),
             "ordering": requirements.get("ordering"),
             "limit": requirements.get("limit"),
             "joins": joins,

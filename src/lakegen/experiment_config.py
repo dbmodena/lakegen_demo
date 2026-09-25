@@ -63,6 +63,16 @@ class CoderContextLevel(StrEnum):
     MINIMAL = "minimal"
 
 
+class RevisionExperimentMode(StrEnum):
+    CURRENT = "current"
+    NO_SEMANTIC_REVISION = "no_semantic_revision"
+
+
+class CoderBriefMode(StrEnum):
+    STRICT = "strict"
+    ADVISORY = "advisory"
+
+
 class RetrievalExperimentConfig(FrozenModel):
     mode: RetrievalMode = RetrievalMode.KEYWORD
     top_k: int = Field(default=DEFAULT_TOP_K, gt=0)
@@ -246,6 +256,12 @@ class ExperimentConfig(FrozenModel):
     max_revision_rounds: int = Field(default=3, ge=0)
     coder_context_level: CoderContextLevel = CoderContextLevel.FULL
     automatic_test_coder: bool = False
+    # Experimental ablation: accept the first inspected result with semantic
+    # coverage warnings, while preserving technical execution retries.
+    revision_experiment_mode: RevisionExperimentMode = RevisionExperimentMode.CURRENT
+    # Experimental: `advisory` lets full-file data evidence override the
+    # brief's column choices, row filters and null policy.
+    coder_brief_mode: CoderBriefMode = CoderBriefMode.ADVISORY
     require_semantic_plan: bool = True
     semantic_code_judge_enabled: bool = True
     semantic_code_judge_model: str = DEFAULT_MODEL
@@ -272,6 +288,15 @@ class ExperimentConfig(FrozenModel):
             )
         if self.max_revision_rounds != 3:
             raise ValueError("only max_revision_rounds=3 currently preserves the workflow")
+        if self.revision_experiment_mode == RevisionExperimentMode.NO_SEMANTIC_REVISION:
+            if self.automatic_test_coder:
+                raise ValueError(
+                    "no_semantic_revision requires automatic_test_coder=false"
+                )
+            if self.coder_context_level != CoderContextLevel.FULL:
+                raise ValueError(
+                    "no_semantic_revision currently supports coder_context_level=full only"
+                )
         if self.gates.plan or self.gates.result:
             raise ValueError("plan and result gates are not implemented")
         if not self.gates.keywords or not self.gates.datasets:

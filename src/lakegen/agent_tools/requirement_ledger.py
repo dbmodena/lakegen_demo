@@ -353,8 +353,7 @@ def build_requirement_ledger(
         requirements.get("output_columns"), list
     ) else []:
         add("output", value, "computational")
-    for key, kind in (("ordering", "ordering"), ("limit", "limit"),
-                      ("result_type", "output")):
+    for key, kind in (("ordering", "ordering"), ("limit", "limit")):
         value = requirements.get(key)
         if value not in (None, "", [], "auto"):
             add(kind, value, "computational")
@@ -477,27 +476,16 @@ def build_requirement_ledger(
                     item["evidence"] = {"table": table, "columns": columns}
                     break
 
-    lowered = question.casefold()
-    declared = str(requirements.get("result_type") or "auto").casefold()
-    table_cues = bool(re.search(r"\b(?:for each|each borough|each district|which\s+(?:three|five|\d+)|top\s+\d+)\b", lowered))
-    scalar_cues = bool(re.search(r"\b(?:correlat|ratio|how many|what (?:is|was) the (?:average|total|number))", lowered)) and not table_cues
-    shape = ("scalar" if declared == "number" else "table" if declared == "table"
-             else "scalar" if scalar_cues else "table" if table_cues else "unknown")
     derived = any(item["kind"] == "derived_operation" for item in ledger)
     for item in ledger:
         if item["status"] != "computational" and "computation" not in item:
             continue
         if item["kind"] == "dimension":
-            item["role"] = "intermediate" if shape == "scalar" else "final"
+            item["role"] = "intermediate" if derived else "final"
         elif item["kind"] == "measure":
             item["role"] = "intermediate" if derived else "final"
         elif item["kind"] in {"derived_operation", "output"}:
             item["role"] = "final"
-    if shape != "unknown":
-        output = add("output", f"final {shape} answer", "computational")
-        if output is not None:
-            output.update(role="final", shape=shape)
-
     order = {"bound": 0, "unresolved": 1, "computational": 2}
     ordered = sorted(ledger, key=lambda item: order[str(item["status"])])
     if len(ordered) <= 10:

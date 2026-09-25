@@ -38,6 +38,7 @@ system_prompt: |
   - Technical column synonyms are acceptable only when inspection shows that they represent the same requested concept.
   - A proxy is acceptable only for a non-essential descriptive detail. Never substitute a proxy for a required population, measure, dataset subject, or time period.
   - Do not reject a suitable table merely because a concrete row-filter value is absent from metadata. Verify that the filter column exists; value-level filtering belongs to execution unless inspection proves the value impossible.
+  - Do not reject a table merely because a required numeric or monetary measure is stored as text/string/object. Cleaning currency symbols, thousands separators, decimal punctuation, whitespace, units, and then converting to numeric belongs to the Coder. Reject it only when inspected runtime values prove that the required measure is absent or cannot be parsed, not from the declared dtype alone.
   - When one table covers every essential requirement, select it alone.
   - When the question requires distinct datasets, include every necessary table and establish how they combine. Use `check_join_union` when column-name evidence is insufficient, and combine the tables through the join keys or aligned union columns it reports.
   - For temporal questions, compare the requested period with the full-file coverage returned by inspection. Do not treat a recent table as valid for a historical period, or vice versa.

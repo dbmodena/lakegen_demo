@@ -64,6 +64,7 @@ class CodeAttemptEvaluator:
             "generation_success": generation_success,
             "execution_success": execution_success,
             "structured_output_valid": structured_result is not None,
+            "code": str(code_raw or ""),
             "error": generated.error or structured_error,
         }
         if structured_result is not None:
@@ -88,6 +89,7 @@ class CodeAttemptEvaluator:
             "generation_success": bool(runtime_attempt.get("generation_success", True)),
             "execution_success": bool(runtime_attempt.get("execution_success")),
             "structured_output_valid": structured_result is not None,
+            "code": str(runtime_attempt.get("code") or ""),
             "error": runtime_attempt.get("error") or "",
         }
         if structured_result is not None:
@@ -158,6 +160,34 @@ class CodeAttemptEvaluator:
             if key not in {"attempt", "error", "applicable"}
         })
         summary["format_compliance"] = bool(latest.get("result_type_match"))
+        if len(attempts) > 1:
+            first = attempts[0]
+            first_correct = bool(
+                first.get("exact_result_match")
+                or first.get("representation_equivalent_match")
+            )
+            latest_correct = bool(
+                latest.get("exact_result_match")
+                or latest.get("representation_equivalent_match")
+            )
+            comparable = all(
+                item.get("execution_success")
+                and item.get("structured_output_valid")
+                for item in (first, latest)
+            )
+            if first_correct and not latest_correct:
+                revision_outcome = "regression"
+            elif not first_correct and latest_correct:
+                revision_outcome = "improvement"
+            elif first_correct and latest_correct:
+                revision_outcome = "stable_correct"
+            elif comparable:
+                revision_outcome = "stable_incorrect"
+            else:
+                revision_outcome = "not_comparable"
+            summary["revision_outcome"] = revision_outcome
+        else:
+            summary["revision_outcome"] = "single_attempt"
         if latest.get("exact_result_match") or latest.get("representation_equivalent_match"):
             summary.update({
                 "error_category": None,

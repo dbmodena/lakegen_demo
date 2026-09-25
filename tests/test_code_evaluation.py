@@ -2,6 +2,7 @@ from lakegen.code_evaluation import (
     EVALUATION_MARKER,
     evaluate_code_result,
     extract_evaluation_payload,
+    lenient_result_match,
     summarize_code_evaluations,
 )
 
@@ -104,6 +105,8 @@ def test_table_single_cell_scalar_is_equivalent_but_not_exact_shape():
     assert evaluation["result_type_match"] is False
     assert evaluation["exact_result_match"] is False
     assert evaluation["representation_equivalent_match"] is True
+    assert "result_type" not in evaluation["requirement_checks"]
+    assert evaluation["requirement_pass_rate"] == 1.0
 
 
 def test_list_accepts_column_oriented_mapping_as_equivalent_representation():
@@ -241,13 +244,12 @@ def test_contract_declares_order_keys_columns_and_limit():
 
     assert evaluation["key_columns"] == ["borough"]
     assert evaluation["requirement_checks"] == {
-        "result_type": True,
         "required_columns": True,
         "row_count": True,
         "ordering": False,
         "limit": True,
     }
-    assert evaluation["requirement_pass_rate"] == 0.8
+    assert evaluation["requirement_pass_rate"] == 0.75
     assert evaluation["representation_equivalent_match"] is False
 
 
@@ -433,3 +435,25 @@ def test_batch_summary_reports_evidence_judge_diagnostics():
     assert summary["semantic_judge_failed_requirement_count"] == 1
     assert summary["semantic_judge_unknown_requirement_count"] == 1
     assert summary["semantic_judge_blocking_objection_count"] == 1
+
+
+def test_lenient_match_accepts_renamed_columns_and_percentage_scale():
+    reference = [{"cat": "A", "n": 3, "share": 0.75}, {"cat": "B", "n": 1, "share": 0.25}]
+    actual = [{"category": "B", "count": 1, "pct": 25.0}, {"category": "A", "count": 3, "pct": 75.0}]
+
+    assert lenient_result_match("table", reference, actual)
+
+
+def test_lenient_match_unwraps_tables_and_scalars_in_small_dicts():
+    reference = [{"cat": "A", "n": 3}]
+    assert lenient_result_match("table", reference, {"rows": [{"c": "A", "k": 3}], "top": "A"})
+    assert lenient_result_match("number", [{"result": 0.98}], {"status": 1, "share": 0.98})
+    assert lenient_result_match("text", [{"result": "Northern England"}], {"lad": "Hartlepool", "scn": "northern england"})
+
+
+def test_lenient_match_rejects_extra_rows_missing_columns_and_wrong_values():
+    reference = [{"cat": "A", "n": 3, "rank": 1}]
+    assert not lenient_result_match("table", reference, [{"cat": "A", "n": 3, "rank": 1}, {"cat": "B", "n": 1, "rank": 2}])
+    assert not lenient_result_match("table", reference, [{"cat": "A", "n": 3}])
+    assert not lenient_result_match("number", [{"result": 853}], 345)
+    assert not lenient_result_match("number", [{"result": 5}], list(range(20)))

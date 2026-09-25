@@ -1,13 +1,16 @@
 requirements: |
-  Extract an atomic checklist of only the outcomes explicitly required by the
-  question and expected-result description. Split genuinely independent filters,
+  Extract an atomic checklist of only the semantic outcomes explicitly required by
+  the question. Split genuinely independent filters,
   periods, scope, grouping, measures, aggregation, ordering, limits, units, and
   completeness requirements. Do not invent implementation steps, source-authority
   requirements, exact output labels, zero-valued categories, sorting before a top-1
   result, or filters already guaranteed by the named input snapshot. A method is a
   requirement only when the question explicitly requires that method. Mark optional
   presentation details non-essential and report ambiguities instead of resolving them
-  by creating requirements.
+  by creating requirements. Never make scalar/table/list/JSON/DataFrame shape,
+  single-row wrapping, or exact column labels an essential requirement. Preserve a
+  content requirement when a representation actually omits one of the values the
+  question requests.
   Classify each requirement by evidence scope: source_identity when a named dataset,
   edition, organisation, period, geography, or feature type identifies the selected
   source; row_operation when rows from a broader source must be filtered;
@@ -27,7 +30,6 @@ requirements: |
   {"requirements":[{"id":"R1","type":"filter|scope|grouping|measure|aggregation|ordering|limit|unit|completeness|other","evidence_scope":"source_identity|row_operation|computation|output","description":"...","essential":true}],"ambiguities":["..."]}
 
   QUESTION: {{ question }}
-  EXPECTED RESULT DESCRIPTION: {{ expected_description }}
   SELECTED TABLES: {{ selected_tables }}
   SELECTED TABLE METADATA: {{ selected_metadata }}
 

@@ -13,6 +13,7 @@ RevisionAction = Literal[
 _TECHNICAL_ERRORS = {
     "column_resolution_error",
     "diagnostic_output",
+    "dataset_edition_row_filter",
     "forbidden_import",
     "join_error",
     "manifest_invalid",

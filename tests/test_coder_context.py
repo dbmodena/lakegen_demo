@@ -54,10 +54,10 @@ def test_coder_context_is_explicit_allowlist_and_drops_benchmark_secret():
 
 def test_output_shape_is_question_derived_only():
     assert infer_output_shape("Show the top 3 boroughs by count") == {
-        "result_type": "table", "ordered": True, "row_limit": 3,
+        "ordered": True, "row_limit": 3,
         "source": "derived_from_question",
     }
-    assert infer_output_shape("How many records are there?")["result_type"] == "number"
+    assert "result_type" not in infer_output_shape("How many records are there?")
 
 
 def test_coder_context_preserves_requirement_ledger_evidence():
@@ -98,8 +98,10 @@ def test_coder_context_preserves_explicit_requirements_for_fallback():
         question="Count completed records by borough", selected_tables=["runtime.csv"],
         table_metadata={}, selection_plan={"requirements": requirements},
     )
+    # result_type is no longer a coder requirement: output shape is diagnostic.
     assert context.selection_plan["requirements"] == {
-        key: value for key, value in requirements.items() if key != "reference_result"
+        key: value for key, value in requirements.items()
+        if key not in {"reference_result", "result_type"}
     }
     assert SECRET not in json.dumps(context.__dict__)
 

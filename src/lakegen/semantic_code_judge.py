@@ -29,6 +29,11 @@ _EVIDENCE_SOURCES = {
     "generated_code", "code_analysis", "result_comparison", "metadata",
     "gold_comparison",
 }
+_PRESENTATION_TERMS = (
+    "result type", "serialization", "scalar", "json", "dataframe",
+    "single-row table", "one-row table", "table format", "list format",
+    "column label", "column name", "named column",
+)
 
 
 def _bounded_json(value: Any, *, max_chars: int = 8_000) -> str:
@@ -143,12 +148,17 @@ def _requirements(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
         evidence_scope = str(item.get("evidence_scope") or "").casefold()
         if evidence_scope not in _EVIDENCE_SCOPES:
             evidence_scope = "computation"
+        essential = item.get("essential") is not False
+        if evidence_scope == "output" and any(
+            term in description.casefold() for term in _PRESENTATION_TERMS
+        ):
+            essential = False
         result.append({
             "id": identifier,
             "type": str(item.get("type") or "other").strip(),
             "evidence_scope": evidence_scope,
             "description": description,
-            "essential": item.get("essential") is not False,
+            "essential": essential,
         })
     return result
 
@@ -236,7 +246,11 @@ def judge_semantic_code_result(
             requirements_payload, stage_responses = _chat_json(
                 llm, prompt_manager.render(
                     "code_semantic_judge", "requirements",
-                    question=question, expected_description=expected_description,
+                    question=question,
+                    # Gold descriptions frequently prescribe benchmark-specific
+                    # table/scalar shapes. Semantic requirements come from the
+                    # user question; shape remains a separate diagnostic metric.
+                    expected_description="",
                     selected_tables=_bounded_json(list(selected_tables)),
                     selected_metadata=_bounded_json(selected_metadata),
                 ), "requirement extraction",

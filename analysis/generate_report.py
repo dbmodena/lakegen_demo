@@ -554,7 +554,16 @@ def write_csv(path: Path, job: dict[str, Any]) -> None:
     ):
         for name, value in performance.get(group, {}).items():
             rows.append(("performance", group, name, value))
-    for context, values in metrics.get("code", {}).items():
+    code_metrics = metrics.get("code", {})
+    contextual_code = any(context in code_metrics for context in CONTEXT_ORDER)
+    code_groups = (
+        ((context, code_metrics[context]) for context in CONTEXT_ORDER if context in code_metrics)
+        if contextual_code
+        else (("configured", code_metrics),)
+    )
+    for context, values in code_groups:
+        if not isinstance(values, dict):
+            continue
         for name, value in values.items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 rows.append(("code", context, name, value))

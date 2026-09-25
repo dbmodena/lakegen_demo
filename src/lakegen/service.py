@@ -20,6 +20,7 @@ from lakegen.core.resources import (
     log_retrieval_decision,
     make_retrieval_run_observer,
 )
+from lakegen.core.table_io import read_table
 from lakegen.phases import (
     phase1_generate_keywords,
     phase2_select_tables,
@@ -498,12 +499,18 @@ def run_question(
             "semantic_correctness": disposition,
             "supported_correct": disposition == "alternative_correct",
             "semantic_pass_at_1": (
-                disposition == "alternative_correct"
-                and int(evaluation.get("attempt_count") or 0) == 1
+                bool(evaluation.get("semantic_pass_at_1"))
+                or (
+                    disposition == "alternative_correct"
+                    and int(evaluation.get("attempt_count") or 0) == 1
+                )
             ),
             "semantic_success_within_3": (
-                disposition == "alternative_correct"
-                and 0 < int(evaluation.get("attempt_count") or 0) <= 3
+                bool(evaluation.get("semantic_success_within_3"))
+                or (
+                    disposition == "alternative_correct"
+                    and 0 < int(evaluation.get("attempt_count") or 0) <= 3
+                )
             ),
             "semantic_judge_used": True,
             "semantic_judge_model": experiment.semantic_code_judge_model,
@@ -1200,6 +1207,12 @@ def run_question(
                         selection_plan=dict(selection_state.selection_plan),
                         source_field_names=list((log_context or {}).keys()),
                         require_semantic_plan=experiment.require_semantic_plan,
+                        allow_semantic_revision=(
+                            experiment.revision_experiment_mode.value == "current"
+                        ),
+                        brief_advisory=(
+                            experiment.coder_brief_mode.value == "advisory"
+                        ),
                     )
                     phase_invocation_counts["code"] += 1
                     _record_semantic_plan_telemetry(

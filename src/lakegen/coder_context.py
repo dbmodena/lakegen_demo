@@ -22,10 +22,10 @@ _LEDGER_ITEM_FIELDS = frozenset({
 })
 _REQUIREMENT_FIELDS = frozenset({
     "grouping", "measures", "filters", "temporal_filters", "ordering", "limit",
-    "joins", "result_type", "output_columns", "null_policy",
+    "joins", "output_columns", "null_policy",
 })
 _CODER_BRIEF_FIELDS = frozenset({
-    "tables", "selected_columns", "task", "filters", "operations", "result_type",
+    "tables", "selected_columns", "task", "filters", "operations",
     "temporal_filters", "dimensions", "measures", "output_columns", "null_policy",
     "table_roles", "ordering", "limit", "joins", "combination_strategy",
     "normalization_errors",
@@ -84,17 +84,14 @@ def _disallowed_field_names(value: Any) -> set[str]:
 
 
 def infer_output_shape(question: str) -> dict[str, Any]:
-    """Derive only generic result shape from the question, never from gold."""
+    """Derive ordering and limit cues without predicting a result type."""
     lowered = question.casefold()
     limit = None
     match = re.search(r"\btop\s+(\d+)\b", lowered)
     if match:
         limit = int(match.group(1))
-    grouped = bool(re.search(r"\b(?:by|per|for each|each)\b", lowered))
     ranked = bool(re.search(r"\b(?:top|bottom|highest|lowest|most|least)\b", lowered))
-    scalar = bool(re.search(r"^(?:how many|what is the (?:total|average|mean|sum))\b", lowered)) and not grouped
     return {
-        "result_type": "number" if scalar else "table",
         "ordered": ranked,
         "row_limit": limit,
         "source": "derived_from_question",

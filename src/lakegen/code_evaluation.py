@@ -23,17 +23,17 @@ _ORDER_NOT_REQUIRED = re.compile(
 )
 
 
-def evaluation_output_instruction(expected_result_type: str) -> str:
-    """Return the benchmark-only structured-output contract for the coder."""
+def evaluation_output_instruction() -> str:
+    """Require complete structured output without prescribing its shape."""
 
     return (
         "\n\n[FUNCTIONAL EVALUATION OUTPUT — REQUIRED]\n"
-        f"The expected result type is `{expected_result_type}`. This run is part of "
-        "an end-to-end API experiment. Compute the answer normally, but preserve the "
+        "This run is part of an end-to-end API experiment. Compute the answer "
+        "normally, but preserve the "
         "COMPLETE, untruncated answer in a JSON-serializable value named "
-        "`evaluation_value`. For a table use "
-        "`dataframe.to_dict(orient='records')`; for a number use the scalar; for a "
-        "list use the complete list. Convert NumPy scalar values with `.item()` when "
+        "`evaluation_value`. Include every quantity and identifying field the "
+        "question asks for. Convert a DataFrame with "
+        "`dataframe.to_dict(orient='records')` and NumPy scalar values with `.item()` when "
         "needed. Your final and only print must be exactly equivalent to:\n"
         f"`print('{EVALUATION_MARKER}' + json.dumps(evaluation_value, default=str))`\n"
         "Import `json`. Do not truncate, summarize, round, or hardcode "
@@ -328,8 +328,10 @@ def _requirement_checks(
             *(measures if isinstance(measures, list) else []),
         ]
     required_columns = [str(column) for column in required] or list(expected_columns)
+    # Serialization shape is diagnostic (`result_type_match`), not a semantic
+    # requirement. Content that is lost because columns/rows are absent remains
+    # covered by the checks below.
     checks = {
-        "result_type": type_match,
         "required_columns": all(column in mapped_columns for column in required_columns),
         "row_count": expected_count == actual_count,
     }
@@ -341,7 +343,191 @@ def _requirement_checks(
     return checks
 
 
+_LENIENT_SCALES = (1.0, 100.0, 0.01)
+_LENIENT_MAX_SCALAR_LEAVES = 8
+
+
+def _scaled_equal(expected: Any, actual: Any, scale: float) -> bool:
+    if scale == 1.0:
+        return _values_equal(expected, actual)
+    expected_number, actual_number = _numeric(expected), _numeric(actual)
+    if expected_number is None or actual_number is None:
+        return False
+    return math.isclose(
+        expected_number * scale, actual_number,
+        rel_tol=_FLOAT_REL_TOL, abs_tol=_FLOAT_ABS_TOL,
+    )
+
+
+def _text_equal(expected: Any, actual: Any) -> bool:
+    if _values_equal(expected, actual):
+        return True
+    if isinstance(expected, str) and isinstance(actual, str):
+        return expected.strip().casefold() == actual.strip().casefold()
+    return False
+
+
+def _scalar_leaves(value: Any) -> list[Any]:
+    if isinstance(value, Mapping):
+        return [leaf for item in value.values() for leaf in _scalar_leaves(item)]
+    if isinstance(value, (list, tuple)):
+        return [leaf for item in value for leaf in _scalar_leaves(item)]
+    return [value]
+
+
+def _lenient_row_candidates(value: Any) -> list[list[dict[str, Any]]]:
+    """Record-shaped views of a result, including tables nested in a wrapper."""
+
+    views: list[list[dict[str, Any]]] = []
+    rows = _records(value, [])
+    if rows:
+        views.append(rows)
+    if isinstance(value, Mapping):
+        for item in value.values():
+            if isinstance(item, (list, Mapping)):
+                views.extend(_lenient_row_candidates(item))
+    return views
+
+
+def _lenient_table_match(
+    reference_rows: Sequence[Mapping[str, Any]],
+    actual_rows: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Same rows and every reference column present, up to names and x100 scale."""
+
+    if len(reference_rows) != len(actual_rows):
+        return False
+    expected_columns = list(reference_rows[0])
+    actual_columns = list(dict.fromkeys(c for row in actual_rows for c in row))
+    options: dict[str, list[tuple[str, float]]] = {}
+    for expected_column in expected_columns:
+        expected_values = [row.get(expected_column) for row in reference_rows]
+        options[expected_column] = [
+            (actual_column, scale)
+            for actual_column in actual_columns
+            for scale in _LENIENT_SCALES
+            if _multiset_match(
+                expected_values, [row.get(actual_column) for row in actual_rows], scale
+            )
+        ]
+        if not options[expected_column]:
+            return False
+
+    def rows_align(mapping: Mapping[str, tuple[str, float]]) -> bool:
+        unmatched = set(range(len(actual_rows)))
+        for expected_row in reference_rows:
+            match = next((
+                index for index in sorted(unmatched)
+                if all(
+                    _cell_match(expected_row.get(column), actual_rows[index].get(actual), scale)
+                    for column, (actual, scale) in mapping.items()
+                )
+            ), None)
+            if match is None:
+                return False
+            unmatched.remove(match)
+        return True
+
+    def search(index: int, mapping: dict[str, tuple[str, float]], used: set[str]) -> bool:
+        if index == len(expected_columns):
+            return rows_align(mapping)
+        column = expected_columns[index]
+        for actual_column, scale in options[column]:
+            if actual_column in used:
+                continue
+            mapping[column] = (actual_column, scale)
+            used.add(actual_column)
+            if search(index + 1, mapping, used):
+                return True
+            used.remove(actual_column)
+            mapping.pop(column)
+        return False
+
+    return search(0, {}, set())
+
+
+def _cell_match(expected: Any, actual: Any, scale: float) -> bool:
+    return _scaled_equal(expected, actual, scale) or (
+        scale == 1.0 and _text_equal(expected, actual)
+    )
+
+
+def _multiset_match(expected: Sequence[Any], actual: Sequence[Any], scale: float) -> bool:
+    unmatched = set(range(len(actual)))
+    for value in expected:
+        match = next(
+            (i for i in sorted(unmatched) if _cell_match(value, actual[i], scale)), None
+        )
+        if match is None:
+            return False
+        unmatched.remove(match)
+    return True
+
+
+def lenient_result_match(
+    expected_result_type: str, reference_result: Any, actual_result: Any
+) -> bool:
+    """Content-level match that ignores serialization, labels and % scaling.
+
+    Diagnostic companion to the strict metrics: a table must contain every
+    reference column (extra columns allowed) with the same row set; a single
+    reference value may appear among a small result's scalar leaves.
+    """
+
+    if actual_result is None:
+        return False
+    reference_rows = _records(reference_result, [])
+    single_reference = (
+        str(expected_result_type).casefold() in {"number", "text"}
+        or (
+            reference_rows is not None
+            and len(reference_rows) == 1
+            and len(reference_rows[0]) == 1
+        )
+    )
+    if single_reference:
+        expected_value, _ = _single_value(reference_result)
+        if isinstance(expected_value, (Mapping, list)):
+            return False
+        leaves = _scalar_leaves(actual_result)
+        if len(leaves) > _LENIENT_MAX_SCALAR_LEAVES:
+            return False
+        return any(
+            _cell_match(expected_value, leaf, scale)
+            for leaf in leaves for scale in _LENIENT_SCALES
+        )
+    if not reference_rows:
+        return False
+    return any(
+        _lenient_table_match(reference_rows, rows)
+        for rows in _lenient_row_candidates(actual_result)
+    )
+
+
 def evaluate_code_result(
+    *,
+    expected_result_type: str,
+    reference_result: Any,
+    actual_result: Any,
+    expected_description: str = "",
+    evaluation_contract: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compare a structured generated result with the benchmark reference."""
+
+    evaluation = _evaluate_code_result_strict(
+        expected_result_type=expected_result_type,
+        reference_result=reference_result,
+        actual_result=actual_result,
+        expected_description=expected_description,
+        evaluation_contract=evaluation_contract,
+    )
+    evaluation["lenient_result_match"] = lenient_result_match(
+        expected_result_type, reference_result, actual_result
+    )
+    return evaluation
+
+
+def _evaluate_code_result_strict(
     *,
     expected_result_type: str,
     reference_result: Any,
@@ -410,7 +596,7 @@ def evaluate_code_result(
             else None
         )
         type_match = scalar_shaped and actual_number is not None
-        requirement_checks = {"result_type": type_match, "numeric_value": numeric_match}
+        requirement_checks = {"numeric_value": numeric_match}
         return {
             "applicable": True,
             "expected_result_type": result_type,
@@ -756,6 +942,10 @@ def summarize_code_evaluations(
         return "correct" if item.get("exact_result_match") else "incorrect"
 
     dispositions = Counter(disposition(item) for item in applicable)
+    revision_outcomes = Counter(
+        str(item.get("revision_outcome") or "not_recorded")
+        for item in applicable
+    )
     supported_count = sum(
         bool(item.get("supported_correct", item.get("exact_result_match")))
         for item in applicable
@@ -798,6 +988,7 @@ def summarize_code_evaluations(
         "representation_equivalent_match_rate": rate(
             "representation_equivalent_match"
         ),
+        "lenient_result_match_rate": rate("lenient_result_match"),
         "supported_result_rate": round(supported_count / count, 6) if count else 0.0,
         "ambiguous_result_rate": round(
             dispositions.get("completed_with_warnings", 0) / count, 6
@@ -840,6 +1031,27 @@ def summarize_code_evaluations(
         },
         "error_categories": dict(sorted(errors.items())),
         "evaluation_dispositions": dict(sorted(dispositions.items())),
+        "revision_outcomes": dict(sorted(revision_outcomes.items())),
+        "revision_regression_rate": (
+            round(
+                revision_outcomes.get("regression", 0)
+                / sum(
+                    revision_outcomes.get(outcome, 0)
+                    for outcome in (
+                        "regression", "improvement", "stable_correct",
+                        "stable_incorrect",
+                    )
+                ),
+                6,
+            )
+            if sum(
+                revision_outcomes.get(outcome, 0)
+                for outcome in (
+                    "regression", "improvement", "stable_correct",
+                    "stable_incorrect",
+                )
+            ) else None
+        ),
         "semantic_judge_case_count": sum(
             bool(item.get("semantic_judge_used")) for item in applicable
         ),

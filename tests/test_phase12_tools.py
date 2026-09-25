@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 import pandas as pd
@@ -6,7 +7,7 @@ import pandas as pd
 from lakegen.agent_tools import tools_p12
 from lakegen.agent_tools.tools_p12 import (
     P12State, Phase12ToolsManager, _normalize_semantic_plan,
-    compile_semantic_plan_draft,
+    _resolve_partition_table_aliases, compile_semantic_plan_draft,
 )
 
 
@@ -23,6 +24,44 @@ def test_inspected_candidates_accepts_structured_recovery_candidates():
     }
 
     assert state.inspected_candidates() == ["events.parquet"]
+
+
+def test_partition_aliases_resolve_roles_and_common_any_bindings():
+    plan = {
+        "filters": [{"table": "any", "column": "status"}],
+        "dimensions": [{"table": "any", "column": "lough"}],
+        "measures": [
+            {"table": "year_2021", "columns": ["value"]},
+            {"table": "year_2022", "columns": ["value"]},
+        ],
+    }
+    selected = ["2021.parquet", "2022.parquet"]
+
+    resolved = _resolve_partition_table_aliases(
+        plan, selected,
+        {"2021.parquet": "year_2021", "2022.parquet": "year_2022"},
+        {
+            "2021.parquet": {"status", "lough", "value"},
+            "2022.parquet": {"status", "lough", "value"},
+        },
+        "concat_partitions",
+    )
+
+    assert [item["table"] for item in resolved["filters"]] == selected
+    assert resolved["dimensions"][0]["table"] == "2021.parquet"
+    assert [item["table"] for item in resolved["measures"]] == selected
+
+
+def test_partition_any_alias_stays_invalid_when_column_is_not_common():
+    plan = {"filters": [{"table": "any", "column": "status"}]}
+
+    resolved = _resolve_partition_table_aliases(
+        plan, ["a.parquet", "b.parquet"], {},
+        {"a.parquet": {"status"}, "b.parquet": {"other"}},
+        "concat_partitions",
+    )
+
+    assert resolved["filters"][0]["table"] == "any"
 from lakegen.agent_tools import tools_p2
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.keyword_memory import format_question_retrieval_memory
@@ -152,12 +191,7 @@ def test_selection_builds_shared_requirement_ledger_without_blocking_computation
         and item["role"] == "intermediate"
         for item in ledger
     )
-    assert any(
-        item["kind"] == "output"
-        and item.get("shape") == "scalar"
-        and item.get("role") == "final"
-        for item in ledger
-    )
+    assert not any(item.get("shape") == "scalar" for item in ledger)
 
 
 def test_requirement_ledger_merges_bound_computation_and_avoids_inferred_gaps(tmp_path):
@@ -190,7 +224,7 @@ def test_requirement_ledger_merges_bound_computation_and_avoids_inferred_gaps(tm
     assert measure_items[0]["computation"] == "partnered_plaza_count count PlazaName"
 
 
-def test_requirement_ledger_marks_per_group_as_intermediate_for_scalar_average(tmp_path):
+def test_requirement_ledger_does_not_infer_scalar_answer_from_average_wording(tmp_path):
     manager = Phase12ToolsManager(
         P12State(), object(), [], tmp_path,
         question="What was the average number of transaction records per block?",
@@ -200,10 +234,8 @@ def test_requirement_ledger_marks_per_group_as_intermediate_for_scalar_average(t
         [], None,
     )
 
-    assert next(item for item in ledger if item["kind"] == "dimension")["role"] == "intermediate"
-    output = next(item for item in ledger if item["kind"] == "output")
-    assert output["role"] == "final"
-    assert output["shape"] == "scalar"
+    assert next(item for item in ledger if item["kind"] == "dimension")["role"] == "final"
+    assert not any(item["kind"] == "output" and item.get("shape") for item in ledger)
 
 
 def _hit(resource_id, rank, columns):
@@ -417,6 +449,22 @@ def test_reject_unified_selection_rejects_unjustified_ban_tables(tmp_path):
             "a.parquet does not contain the required organisation",
             "search for the correct organisation",
             ban_tables={"a.parquet": "bad"},
+        )
+
+
+def test_reject_unified_selection_blocks_text_numeric_dtype_rejection(tmp_path):
+    state = P12State()
+    state.all_candidates = ["payments.parquet"]
+    state.inspection_cache = {
+        "payments.parquet": "Columns: Amount (string), Supplier (string)"
+    }
+    manager = Phase12ToolsManager(state, object(), state.all_candidates, tmp_path)
+
+    with pytest.raises(ValueError, match="convertible by the Coder"):
+        manager.reject_unified_selection(
+            "Amount is a string and cannot be summed without numeric conversion, "
+            "which is not supported in selection.",
+            "Find a numeric Amount column.",
         )
 
 
@@ -1091,7 +1139,7 @@ def test_selection_only_is_followed_by_compiled_draft(tmp_path):
             "filters": [], "ordering": "row_count descending", "limit": 3,
         },
         "filters": [], "operations": ["count rows"],
-        "result_type": "auto", "ordering": "row_count descending",
+        "ordering": "row_count descending",
         "limit": 3, "joins": [], "normalization_errors": [],
         "temporal_filters": [], "dimensions": [{
             "table": "events.parquet", "column": "borough", "output": "borough",
@@ -1750,9 +1798,12 @@ def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_pat
 
     assert len(manager.visible_candidates()) == 10
     assert manager.inspect_columns("table-11.parquet").startswith("Error:")
-    for index in range(1, 4):
+    shortlist = manager.INITIAL_SHORTLIST_SIZE
+    for index in range(1, shortlist + 1):
         assert manager.inspect_columns(f"table-{index}.parquet").startswith("Schema")
-    assert manager.inspect_columns("table-4.parquet").startswith("Inspection blocked")
+    assert manager.inspect_columns(
+        f"table-{shortlist + 1}.parquet"
+    ).startswith("Inspection blocked")
     first_expansion = manager.expand_candidates("table")
     assert "Guided expansion" in first_expansion
     assert "5 ranked candidates remain hidden" in first_expansion

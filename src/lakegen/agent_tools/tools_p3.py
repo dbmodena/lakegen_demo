@@ -19,7 +19,7 @@ import pandas as pd
 
 from lakegen.column_resolution import generated_column_names
 from lakegen.revision_policy import classify_revision, technical_repair_eligible
-from lakegen.data_quality import profile_table_quality
+from lakegen.data_quality import profile_table_quality, snapshot_stamp_years
 from lakegen.agent_tools.tools_p2 import MIN_BAN_JUSTIFICATION_CHARS
 
 from lakegen.core.table_io import read_table, table_load_command
@@ -174,8 +174,7 @@ class P3State:
     def has_unusable_result(self) -> bool:
         return any(warning.startswith((
             "diagnostic_output:", "contract_result_all_non_finite:",
-            "contract_result_non_finite_numeric_value",
-            "final_contract_requires_one_numeric_value",
+            "contract_result_non_finite_numeric_value", "empty_result:",
             "final_contract_correlation_requires_one_numeric_value",
         )) for warning in self.coverage_warnings)
 
@@ -191,11 +190,11 @@ class P3State:
             and self.lifecycle == CoderLifecycle.READY_TO_FINISH
         )
 
-    def ready_for_degraded_finalization(self) -> bool:
+    def ready_for_degraded_finalization(self, *, allow_unusable: bool = False) -> bool:
         """Return whether a computed result can be preserved with advisories."""
         return (
             not self.finished
-            and not self.has_unusable_result()
+            and (allow_unusable or not self.has_unusable_result())
             and self.error is None
             and self.structured_result is not None
             and self.result_version > 0
@@ -226,6 +225,8 @@ class Phase3ToolsManager:
         extract_payload: Callable[[str], tuple[str, object | None, str | None]],
         require_semantic_plan: bool = True,
         require_analysis_manifest: bool = False,
+        allow_semantic_revision: bool = True,
+        brief_advisory: bool = False,
     ):
         self.state = state
         self.tables = tables
@@ -240,6 +241,9 @@ class Phase3ToolsManager:
         self.extract_payload = extract_payload
         self.require_semantic_plan = require_semantic_plan
         self.require_analysis_manifest = require_analysis_manifest
+        self.allow_semantic_revision = allow_semantic_revision
+        self.brief_advisory = brief_advisory
+        self._snapshot_years_cache: set[str] | None = None
         self.original_coder_brief_status = (
             "provided" if isinstance(self.selection_plan.get("coder_brief"), dict)
             and bool(self.selection_plan.get("coder_brief")) else
@@ -276,11 +280,6 @@ class Phase3ToolsManager:
                     "Choose the exact columns needed by the question from the runtime schema."
                 )
             self._infer_unique_join(coder_brief)
-            if (
-                evaluation_result_type
-                and str(coder_brief.get("result_type") or "auto") == "auto"
-            ):
-                coder_brief["result_type"] = evaluation_result_type
             self.selection_plan["coder_brief"] = coder_brief
         if not isinstance(self.selection_plan.get("requirement_ledger"), list):
             self.selection_plan["requirement_ledger"] = (
@@ -336,7 +335,6 @@ class Phase3ToolsManager:
             "limit": requirements.get("limit"),
             "output_columns": [], "null_policy": "",
             "table_roles": dict(self.selection_plan.get("table_roles") or {}),
-            "result_type": self.evaluation_result_type or "auto",
             "normalization_errors": [],
             "source": "runtime_fallback",
             "task": copy.deepcopy(requirements),
@@ -388,31 +386,11 @@ class Phase3ToolsManager:
                     "kind": key, "request": readable(value),
                     "status": "computational", "evidence": [],
                 })
-        lowered = self.question.casefold()
-        table_cues = bool(re.search(
-            r"\b(?:for each|each borough|each district|which\s+(?:three|five|\d+)|top\s+\d+)\b",
-            lowered,
-        ))
-        scalar_cues = bool(re.search(
-            r"\b(?:correlat|ratio|how many|what (?:is|was) the (?:average|total|number))",
-            lowered,
-        )) and not table_cues
-        shape = (
-            "scalar" if self.evaluation_result_type == "number" else
-            "table" if self.evaluation_result_type == "table" else
-            "scalar" if scalar_cues else "table" if table_cues else "unknown"
-        )
         for item in ledger:
             if item["kind"] == "dimension":
-                item["role"] = "intermediate" if shape == "scalar" else "final"
+                item["role"] = "final"
             elif item["kind"] == "measure":
                 item["role"] = "final"
-        if shape != "unknown":
-            ledger.append({
-                "kind": "output", "request": f"final {shape} answer",
-                "status": "computational", "evidence": [],
-                "role": "final", "shape": shape,
-            })
         return ledger[:10]
 
     def coder_plan_view(self) -> dict[str, Any]:
@@ -478,12 +456,6 @@ class Phase3ToolsManager:
                 "Identify an evidence-backed numerator and denominator and compute the "
                 "requested ratio."
             )
-        result_type = str(brief.get("result_type") or self.evaluation_result_type or "auto")
-        if result_type == "number" and grouping:
-            obligations.append(
-                "The final output must be one scalar number; grouping may be used only as "
-                "an intermediate step followed by the reduction requested by the question."
-            )
         if re.search(r"\btop\s+\d+\b", question):
             obligations.append(
                 "Apply the requested ranking and top-N limit even if ordering or limit is "
@@ -498,9 +470,14 @@ class Phase3ToolsManager:
         return {
             "mode": "soft_computational_completion",
             "immutable_evidence": [
+                "selected tables", "observed join keys and inspected values",
+            ] if self.brief_advisory else [
                 "selected tables", "runtime column names", "explicit question filters",
                 "observed join keys and inspected values",
             ],
+            **({"verify_against_data": [
+                "brief column choices", "brief row filters", "brief null policy",
+            ]} if self.brief_advisory else {}),
             "coder_may_add_or_refine": [
                 "derived computations", "final aggregations", "ratios", "correlations",
                 "ordering", "limits", "output formatting",
@@ -526,7 +503,6 @@ class Phase3ToolsManager:
             operations.append("geographic_center")
         return {
             "mode": "soft_semantic_shape",
-            "result_type": self.evaluation_result_type or contract.get("result_type", "auto"),
             "dimensions": list(contract.get("group_by", [])),
             "measure_count": len(contract.get("measures", [])),
             "derived_operations": operations,
@@ -567,7 +543,6 @@ class Phase3ToolsManager:
         exact_rows = contract.get("limit") or self._expected_top_n(self.question)
         return {
             "required_years": requested_years,
-            "result_type": self.evaluation_result_type or contract.get("result_type", "auto"),
             "required_columns": list(contract.get("output_columns", [])),
             "exact_row_count": exact_rows,
             "ordering": contract.get("ordering"),
@@ -834,7 +809,6 @@ class Phase3ToolsManager:
             "output_columns": list(plan.get("output_columns", [])),
             "null_policy": str(plan.get("null_policy") or ""),
             "table_roles": dict(plan.get("table_roles") or {}),
-            "result_type": str(plan.get("result_type") or "auto"),
             "normalization_errors": [],
         }
 
@@ -852,7 +826,7 @@ class Phase3ToolsManager:
         contract.update({
             "tables": list(brief.get("tables", [])),
             "columns": dict(brief.get("selected_columns", {})),
-            "result_type": brief.get("result_type", "auto"),
+            "result_type": "auto",
             "source": "validated_coder_brief",
         })
         return contract
@@ -864,6 +838,7 @@ class Phase3ToolsManager:
             "generation_success": True,
             "execution_success": self.state.error is None and self.state.raw_result is not None,
             "structured_output_valid": self.state.structured_result is not None,
+            "code": self.state.clean_code,
             "structured_result": copy.deepcopy(self.state.structured_result),
             "error": self.state.error or self.state.structured_result_error,
             "execution_error": copy.deepcopy(self.state.execution_error),
@@ -1332,7 +1307,56 @@ class Phase3ToolsManager:
             question,
             flags=re.IGNORECASE,
         ))
+        edition_years.update(re.findall(
+            r"\b(?:according\s+to|using|from)\s+(?:the\s+)?"
+            r"(?:[A-Za-z]+\s+)?((?:19|20)\d{2})\b[^?.]{0,60}"
+            r"\b(?:boundar(?:y|ies)|snapshot|organogram|list|report)\b",
+            question,
+            flags=re.IGNORECASE,
+        ))
         return years - edition_years
+
+    def _validate_dataset_edition_filter(self, code: str) -> dict[str, Any] | None:
+        """Block treating an edition year embedded in an ID label as row data."""
+        all_years = set(re.findall(r"\b(?:19|20)\d{2}\b", self.question))
+        edition_years = all_years - self._requested_filter_years(self.question)
+        if not edition_years or self._requested_filter_years(self.question):
+            return None
+        identifier_columns = [
+            column for column in self._all_columns()
+            if re.search(r"(?:cd|code|id)$", column, re.IGNORECASE)
+            and any(year[-2:] in column for year in edition_years)
+        ]
+        offending: list[str] = []
+        for column in identifier_columns:
+            for year in edition_years:
+                short_year = re.escape(year[-2:])
+                column_pattern = re.escape(column)
+                patterns = (
+                    rf"\[['\"]{column_pattern}['\"]\][^\n]{{0,120}}"
+                    rf"\.str\.contains\(\s*['\"]{short_year}['\"]",
+                    rf"\[['\"]{column_pattern}['\"]\][^\n]{{0,100}}"
+                    rf"==\s*['\"]?(?:{re.escape(year)}|{short_year})['\"]?",
+                )
+                if any(re.search(pattern, code) for pattern in patterns):
+                    offending.append(column)
+        if not offending:
+            return None
+        return {
+            "stage": "preflight",
+            "category": "dataset_edition_row_filter",
+            "message": (
+                "Generated code treats a dataset-edition year as a row-level "
+                "filter on an identifier column."
+            ),
+            "columns": sorted(set(offending)),
+            "edition_years": sorted(edition_years),
+            "retryable": True,
+            "repair_hint": (
+                "Remove the identifier-column year filter. The year identifies "
+                "the selected dataset edition; compute over all rows."
+            ),
+        }
 
     @staticmethod
     def _expected_top_n(question: str) -> int | None:
@@ -1462,6 +1486,46 @@ class Phase3ToolsManager:
                     hints.append({"renamed_from": old_node.value, "renamed_to": new_node.value})
         return hints
 
+    @staticmethod
+    def _auto_repair_renamed_column(code: str, error: str) -> str | None:
+        """Patch the one failing line that uses a label after renaming it.
+
+        Only fires for an unambiguous literal ``rename(columns={old: new})``
+        that precedes the failing line; the model repeatedly failed to apply
+        this one-token fix even when told exactly what to change.
+        """
+
+        if "KeyError" not in error:
+            return None
+        key = re.search(r"KeyError(?: for column)?:?\s*['\"]([^'\"\n]+)['\"]", error)
+        line = re.search(r"Failing line (\d+):", error)
+        if not key or not line:
+            return None
+        old = key.group(1)
+        lines = code.splitlines()
+        index = int(line.group(1)) - 1
+        if not 0 <= index < len(lines):
+            return None
+        renamed = {
+            match.group(3)
+            for text in lines[:index] if "rename(" in text
+            for match in re.finditer(
+                rf"(['\"]){re.escape(old)}\1\s*:\s*(['\"])([^'\"]+)\2", text
+            )
+        }
+        if len(renamed) != 1:
+            return None
+        new = next(iter(renamed))
+        patched = re.sub(
+            rf"\[(['\"]){re.escape(old)}\1\]",
+            lambda match: f"[{match.group(1)}{new}{match.group(1)}]",
+            lines[index],
+        )
+        if patched == lines[index]:
+            return None
+        lines[index] = patched
+        return "\n".join(lines)
+
     def _enrich_column_error(self, error: dict[str, Any]) -> None:
         column = error.get("column")
         if not column:
@@ -1486,6 +1550,9 @@ class Phase3ToolsManager:
         rename_hints = self._rename_hints(str(column).strip())
         if rename_hints:
             error["rename_hints"] = rename_hints
+            # The source-schema match is exactly the stale label; listing it as
+            # the closest column contradicts the rename evidence.
+            error["closest_columns"] = [item["renamed_to"] for item in rename_hints]
             replacements = ", ".join(
                 f"{item['renamed_from']} -> {item['renamed_to']}"
                 for item in rename_hints
@@ -1978,6 +2045,14 @@ class Phase3ToolsManager:
                 "ok": False, "attempt": self.state.run_count,
                 "execution_consumed": False, "error": path_error,
             })
+        edition_filter_error = self._validate_dataset_edition_filter(code)
+        if edition_filter_error:
+            self.state.error = edition_filter_error["message"]
+            self.state.execution_error = edition_filter_error
+            return json.dumps({
+                "ok": False, "attempt": self.state.run_count,
+                "execution_consumed": False, "error": edition_filter_error,
+            })
         resolved, preflight_error = self.resolve_code(code, self.tables, self.csv_dir)
         self.state.clean_code = resolved
         self.state.contract_code_warnings = self._validate_contract_code(resolved)
@@ -2010,6 +2085,16 @@ class Phase3ToolsManager:
         self.state.run_count += 1
         raw_result, error, clean_code = self.execute_code(resolved, run_dir=self.run_dir)
         self.state.clean_code = clean_code
+        if error is not None:
+            patched = self._auto_repair_renamed_column(clean_code, error)
+            if patched is not None:
+                retry_result, retry_error, retry_code = self.execute_code(
+                    patched, run_dir=self.run_dir
+                )
+                if retry_error is None:
+                    raw_result, error, clean_code = retry_result, None, retry_code
+                    self.state.clean_code = clean_code
+                    self.state.result_adaptations.append("auto_repair_renamed_column")
         if error is not None:
             self.state.error = error
             self.state.raw_result = None
@@ -2106,7 +2191,7 @@ class Phase3ToolsManager:
                     "ok": False, "attempt": self.state.run_count,
                     "error": self.state.execution_error,
                 }, ensure_ascii=False)
-        if raw_result is not None and self.evaluation_result_type:
+        if raw_result is not None:
             display, structured, payload_error = self.extract_payload(raw_result)
             structured, adaptations = self._adapt_structured_result(structured)
             self.state.raw_result = display
@@ -2270,16 +2355,19 @@ class Phase3ToolsManager:
     ) -> list[str]:
         if adaptations:
             return []
-        expected = self.evaluation_result_type or self.state.analysis_contract.get("result_type")
         notes = ["result already matched a supported runtime representation"]
-        if expected == "number" and not isinstance(value, (int, float)):
-            notes = ["scalar unwrapping was ambiguous or unsafe"]
-        elif expected == "table" and not isinstance(value, (list, dict)):
-            notes = ["table normalization was not applicable"]
         ordering = str(self.state.analysis_contract.get("ordering") or "").strip().casefold()
         if ordering and ordering not in {"none", "n/a", "not applicable"}:
             notes.append("ordering field was absent, non-numeric, or ambiguous")
         return notes
+
+    def _snapshot_years(self) -> set[str]:
+        if self._snapshot_years_cache is None:
+            self._snapshot_years_cache = set().union(*(
+                snapshot_stamp_years(self.csv_dir / table.strip())
+                for table in self.tables
+            )) if self.tables else set()
+        return self._snapshot_years_cache
 
     def _validate_contract_code(self, code: str) -> list[str]:
         contract = self.state.analysis_contract
@@ -2305,7 +2393,11 @@ class Phase3ToolsManager:
             r"\b(?:19|20)\d{2}\b",
             json.dumps(contract.get("filters", []), ensure_ascii=False, default=str),
         ))
+        snapshot_years = self._snapshot_years() if contract_years else set()
         for year in contract_years:
+            if year in snapshot_years:
+                # Every row of a selected table is stamped with this date.
+                continue
             if not self._code_represents_year(code, year, contract_years):
                 warnings.append(f"contract_filter_missing_in_code: year {year}")
         if contract.get("distinct_counts") and not any(
@@ -2467,21 +2559,7 @@ class Phase3ToolsManager:
     def _adapt_structured_result(self, value: Any) -> tuple[Any, list[str]]:
         """Apply only lossless or contract-explicit output normalizations."""
         adaptations: list[str] = []
-        expected = self.evaluation_result_type or self.state.analysis_contract.get("result_type")
-        if expected == "number":
-            candidate = value
-            if isinstance(candidate, list) and len(candidate) == 1:
-                candidate = candidate[0]
-            if isinstance(candidate, dict) and len(candidate) == 1:
-                candidate = next(iter(candidate.values()))
-            if isinstance(candidate, list) and len(candidate) == 1:
-                candidate = candidate[0]
-            if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
-                if candidate is not value:
-                    adaptations.append("unwrapped_single_scalar")
-                value = candidate
-
-        if expected == "table" and isinstance(value, dict) and value:
+        if isinstance(value, dict) and value:
             if all(isinstance(item, list) for item in value.values()):
                 lengths = {len(item) for item in value.values()}
                 if len(lengths) == 1:
@@ -2741,10 +2819,6 @@ class Phase3ToolsManager:
             facts["boroughs_present"] = present
             if len(present) < 5:
                 warnings.append(f"coverage_shortfall: expected 5 boroughs, found {len(present)}")
-        if self.evaluation_result_type == "number":
-            requirements.append("return one scalar numeric result")
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                warnings.append("output_type_mismatch: expected one scalar number")
         return requirements, warnings, facts
 
     def inspect_result(self) -> str:
@@ -2836,9 +2910,33 @@ class Phase3ToolsManager:
             if warning.startswith(blocking_prefixes)
         ]
 
+    @staticmethod
+    def _is_empty_result(value: Any) -> bool:
+        """True only for explicit empty containers; None means no payload."""
+        if isinstance(value, (list, tuple)):
+            return all(
+                isinstance(item, (list, tuple, dict))
+                and Phase3ToolsManager._is_empty_result(item)
+                for item in value
+            )
+        if isinstance(value, dict):
+            return not value or all(
+                isinstance(item, (list, tuple, dict)) and Phase3ToolsManager._is_empty_result(item)
+                for item in value.values()
+            )
+        return False
+
     def _validate_contract_result(self, value: Any) -> list[str]:
         contract = self.state.analysis_contract
         warnings: list[str] = []
+        if self._is_empty_result(value):
+            # A filter or dropna that removed every row yields `[]`, which
+            # still reads as a non-empty answer string downstream.
+            warnings.append(
+                "empty_result: the program produced no rows or values; check "
+                "filters, joins and dropna on columns the answer does not need"
+            )
+            return warnings
         limit = contract.get("limit")
         count = self._semantic_item_count(value)
         if limit is not None and count is not None and count != limit:
@@ -2955,16 +3053,27 @@ class Phase3ToolsManager:
             candidate = next(iter(candidate.values()))
 
         warnings: list[str] = []
-        if final_contract["result_type"] == "number":
-            if not isinstance(candidate, (int, float)) or isinstance(candidate, bool):
-                warnings.append("final_contract_requires_one_numeric_value")
-            elif not math.isfinite(float(candidate)):
-                warnings.append("contract_result_non_finite_numeric_value")
         result_fields = self._result_field_names(value)
         if any(field in self.tables for field in result_fields) and not re.search(
             r"\b(?:schema|columns|available years)\b", self.question, re.IGNORECASE
         ):
             warnings.append("diagnostic_output: table profiles are not the requested analysis")
+        diagnostic_fields = {
+            "available_years", "available_columns", "columns", "dtypes", "schema",
+            "sample_values", "unique_values", "value_counts_preview",
+        }
+        normalized_fields = {
+            re.sub(r"[^a-z0-9]+", "_", str(field).casefold()).strip("_")
+            for field in result_fields
+        }
+        if normalized_fields & diagnostic_fields and not re.search(
+            r"\b(?:schema|columns|available years|data types|sample values)\b",
+            self.question, re.IGNORECASE,
+        ):
+            warnings.append(
+                "diagnostic_output: metadata fields "
+                f"{sorted(normalized_fields & diagnostic_fields)} are not the requested analysis"
+            )
         if "correlation" in operations:
             if not isinstance(candidate, (int, float)) or isinstance(candidate, bool):
                 warnings.append("final_contract_correlation_requires_one_numeric_value")
@@ -3102,9 +3211,13 @@ class Phase3ToolsManager:
             "semantic_self_review": "deterministic_contract_checks",
         })
 
-    def recover_degraded_finish(self, reason: str) -> None:
+    def recover_degraded_finish(
+        self, reason: str, *, allow_unusable: bool = False
+    ) -> None:
         """Preserve an inspected structured result without declaring it correct."""
-        if not self.state.ready_for_degraded_finalization():
+        if not self.state.ready_for_degraded_finalization(
+            allow_unusable=allow_unusable
+        ):
             raise ValueError("Degraded recovery requires the latest inspected structured result.")
         self.state.finished = True
         self.state.lifecycle = CoderLifecycle.FINISHED
@@ -3273,6 +3386,24 @@ class Phase3ToolsManager:
             return json.dumps({
                 "status": "completed", "warnings": [],
                 "adaptations": self.state.result_adaptations,
+            }, ensure_ascii=False)
+        if not self.allow_semantic_revision and self.state.ready_for_degraded_finalization(
+            allow_unusable=True
+        ):
+            self.state.revision_decisions.append({
+                "action": "CONTINUE",
+                "reason": "semantic_revision_disabled_by_experiment",
+                "retryable": False,
+            })
+            self.recover_degraded_finish(
+                "Experimental ablation preserved the first inspected result "
+                "without a semantic revision.",
+                allow_unusable=True,
+            )
+            return json.dumps({
+                "status": "completed_with_warnings",
+                "warnings": self.state.coverage_warnings,
+                "revision_experiment_mode": "no_semantic_revision",
             }, ensure_ascii=False)
         if self.state.run_count >= self.state.max_runs and self.state.best_result_snapshot:
             self._restore_best_result()

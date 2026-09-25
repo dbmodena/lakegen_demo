@@ -267,6 +267,40 @@ def _rejected_tables_reason(code_raw: str) -> str:
     return "Tables rejected by model."
 
 
+def _keyerror_repair_hint(code: str, col_name: str, detail: str) -> str:
+    """Point a KeyError at the intermediate frame, not only the source schema.
+
+    A column present in the source file can still be missing at the failing
+    line because an earlier rename/selection/aggregation removed it; telling
+    the model to "use the schema name" then makes it repeat the same bug.
+    """
+
+    column = col_name.strip().strip("'\"")
+    parts = [
+        "The column is missing from the dataframe AT THE FAILING LINE. It may "
+        "exist in the source file but have been renamed, dropped, selected away, "
+        "or turned into the index by an earlier step. Fix the reference using "
+        "the columns the intermediate dataframe actually has at that point."
+    ]
+    offset = (_CARTESIAN_GUARD_PREAMBLE + "\n\n").count("\n")
+    line_numbers = [
+        int(number) for number in re.findall(r'script\.py", line (\d+)', detail)
+    ]
+    code_lines = code.splitlines()
+    if line_numbers and 0 < line_numbers[-1] - offset <= len(code_lines):
+        failing = code_lines[line_numbers[-1] - offset - 1].strip()
+        parts.append(f"Failing line {line_numbers[-1] - offset}: `{failing}`.")
+    renamed = sorted(set(re.findall(
+        rf"['\"]{re.escape(column)}['\"]\s*:\s*['\"]([^'\"]+)['\"]", code
+    )))
+    if column and renamed:
+        parts.append(
+            f"An earlier rename maps '{column}' to {renamed}; after that rename "
+            f"use the new name, or reference '{column}' only before renaming."
+        )
+    return " ".join(parts)
+
+
 def _execute_code(code_raw: str, run_dir: Path | None = None):
     code = _extract_code(code_raw)
 
@@ -307,9 +341,8 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
             col_name = match.group(1).strip() if match else "Unknown"
             error_msg = (
                 f"FATAL ERROR: KeyError for column {col_name}. "
-                "You tried to use a column that does NOT exist in the dataframe. "
-                "Look strictly at the AVAILABLE TABLES schema provided above, and use the EXACT column name found there. "
-                f"\n\nFull Traceback:\n{detail[-500:]}"
+                + _keyerror_repair_hint(code, col_name, detail)
+                + f"\n\nFull Traceback:\n{detail[-500:]}"
             )
         elif "FileNotFoundError:" in detail:
             error_msg = (
@@ -367,6 +400,53 @@ def _exact_column_labels(frame) -> list[str]:
     """Render the executable table schema without substituting Solr aliases."""
 
     return [f"{column}({frame[column].dtype})" for column in frame.columns]
+
+
+def _temporal_value_profile(
+    filepath: Path, temporal_columns: list[str], *, max_listed: int = 12
+) -> list[str]:
+    """Full-file distinct values of low-cardinality temporal columns.
+
+    A column holding one value for every row is a snapshot/edition stamp:
+    "as of <that date>" is then already satisfied by the whole file, and
+    re-deriving it from another date column silently drops valid rows.
+    """
+
+    if not temporal_columns:
+        return []
+    try:
+        frame = read_table(filepath, columns=temporal_columns[:12])
+    except Exception:
+        return []
+    lines: list[str] = []
+    for column in frame.columns:
+        values = frame[column].dropna()
+        distinct = values.astype(str).unique()
+        null_count = len(frame) - len(values)
+        if len(distinct) == 1 and null_count:
+            lines.append(
+                f"     - {column}: only non-null value is {distinct[0]!r}, "
+                f"{null_count}/{len(frame)} rows null (presence flag: the value "
+                "marks the rows that have the attribute)"
+            )
+        elif len(distinct) == 1:
+            date_like = bool(re.search(r"(?:19|20)\d{2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/](?:19|20)\d{2}", distinct[0]))
+            lines.append(
+                f"     - {column}: every row = {distinct[0]!r}"
+                + (
+                    " (snapshot/edition date stamp; a question 'as of' this "
+                    "date is satisfied by all rows and needs no row filter)"
+                    if date_like else " (constant; not a discriminating filter)"
+                )
+            )
+        elif 1 < len(distinct) <= max_listed:
+            lines.append(
+                f"     - {column}: {len(distinct)} distinct values "
+                f"{sorted(distinct.tolist())}"
+            )
+    if lines:
+        lines.insert(0, "   Full-file value profile:")
+    return lines
 
 
 def _build_coder_tables_info(
@@ -469,11 +549,22 @@ def _build_coder_tables_info(
         if context_level == CoderContextLevel.SCHEMA_ONLY:
             continue
 
+        sample_constant = [
+            str(column) for column in df.columns
+            if len(df) and df[column].nunique(dropna=True) == 1
+        ]
+        info_lines.extend(_temporal_value_profile(
+            filepath, list(dict.fromkeys([*temporal_candidates, *sample_constant]))
+        ))
+
         quality_findings = profile_table_quality(df)
         if quality_findings:
             info_lines.append(
                 "   Data quality (literal evidence from the sampled rows above — "
-                "clean using exactly these observed tokens, never invent others):"
+                "clean using exactly these observed tokens, never invent others; "
+                "treat a possible missing-value code as missing only when metadata "
+                "or its implausibility against the column range supports it, "
+                "otherwise keep it as a real value):"
             )
             for column, evidence in quality_findings.items():
                 parts = []
@@ -485,6 +576,17 @@ def _build_coder_tables_info(
                         for token, count in evidence["sentinel_tokens_observed"].items()
                     )
                     parts.append(f"sentinel tokens observed: {tokens}")
+                if evidence.get("possible_missing_codes"):
+                    codes = ", ".join(
+                        f"{code!r}x{count}"
+                        for code, count in evidence["possible_missing_codes"].items()
+                    )
+                    context = (
+                        f" (column median {evidence['numeric_median']:g}, "
+                        f"max {evidence['numeric_max']:g})"
+                        if "numeric_median" in evidence else ""
+                    )
+                    parts.append(f"possible missing-value codes: {codes}{context}")
                 if evidence.get("numeric_format_examples"):
                     parts.append(
                         "numeric formatting noise, e.g. "
@@ -556,9 +658,7 @@ def phase3_generate_code(
         "random_state parameters). Do not add a seed to deterministic operations. "
         "Do not use another fixed seed.\n"
     )
-    user_prompt += evaluation_output_instruction(
-        str(coder_context.output_shape["result_type"])
-    )
+    user_prompt += evaluation_output_instruction()
 
     # --- Optional TabPFN intent routing and task-specific hint injection ---
     tabpfn_intent = _detect_tabpfn_intent(query)
@@ -792,6 +892,8 @@ def phase3_generate_and_execute(
     selection_plan: dict[str, object] | None = None,
     source_field_names: list[str] | None = None,
     require_semantic_plan: bool = True,
+    allow_semantic_revision: bool = True,
+    brief_advisory: bool = False,
 ) -> Phase3Result:
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
@@ -814,7 +916,9 @@ def phase3_generate_and_execute(
     tables_info = _build_coder_tables_info(
         tables, Path(csv_dir), context_level, solr_meta
     )
-    system_prompt = pm.render("code_generator", "agentic_system_prompt") + (
+    system_prompt = pm.render(
+        "code_generator", "agentic_system_prompt", brief_advisory=brief_advisory
+    ) + (
         "\n\nYou are a bounded coding agent. A semantic plan is authoritative only "
         "after deterministic runtime validation reports it locked. An invalid or "
         "insufficiently evidenced plan must be resolved using inspect_data or "
@@ -852,6 +956,12 @@ def phase3_generate_and_execute(
         "Do not import sys; it is unnecessary and forbidden by the execution sandbox. "
         "Do not merely describe code in chat."
     )
+    if not allow_semantic_revision:
+        system_prompt += (
+            " For this experimental arm, semantic coverage warnings are terminal: "
+            "preserve the inspected result and do not revise code because of those "
+            "warnings. Technical execution and preflight errors remain actionable."
+        )
     if retries == 0:
         user_prompt = pm.render(
             "code_generator", "agentic_initial_prompt", question=query,
@@ -864,7 +974,7 @@ def phase3_generate_and_execute(
             arch_reasoning="", tables_info=tables_info,
         )
     user_prompt += (
-        "\n\nQUESTION-DERIVED OUTPUT SHAPE (non-gold):\n"
+        "\n\nQUESTION-DERIVED ORDERING/LIMIT CUES (non-gold):\n"
         + json.dumps(coder_context.output_shape, ensure_ascii=False, sort_keys=True)
     )
     user_prompt += (
@@ -873,8 +983,7 @@ def phase3_generate_and_execute(
         "Before finishing, inspect the actual output and check filters, measures, "
         "group coverage, ordering/limits, and output shape."
     )
-    coder_result_type = str(coder_context.output_shape["result_type"])
-    user_prompt += evaluation_output_instruction(coder_result_type)
+    user_prompt += evaluation_output_instruction()
     if force_execution:
         user_prompt += (
             "\nThe selected tables must be used for the best possible executable "
@@ -890,7 +999,7 @@ def phase3_generate_and_execute(
         tables=tables,
         csv_dir=Path(csv_dir),
         run_dir=run_dir,
-        evaluation_result_type=coder_result_type,
+        evaluation_result_type=None,
         question=query,
         table_metadata={
             table: solr_meta.get(table, solr_meta.get(Path(table).stem, {}))
@@ -901,6 +1010,8 @@ def phase3_generate_and_execute(
         execute_code=_execute_code,
         extract_payload=extract_evaluation_payload,
         require_semantic_plan=require_semantic_plan,
+        allow_semantic_revision=allow_semantic_revision,
+        brief_advisory=brief_advisory,
         # The coder brief is the sole semantic contract. Runtime code/result
         # inspection supplies independent evidence without a duplicate model-
         # authored manifest.
@@ -947,8 +1058,14 @@ def phase3_generate_and_execute(
     )
     user_prompt += (
         "\n\nPLAN COMPLETION RULE:\n"
-        "Treat selected tables, exact runtime columns, explicit question filters, and "
-        "evidenced join keys as immutable. The computational part of the brief may be "
+        + (
+            "Treat selected tables and evidenced join keys as fixed; verify the brief's "
+            "column choices, row filters and null policy against the data evidence. "
+            if brief_advisory else
+            "Treat selected tables, exact runtime columns, explicit question filters, and "
+            "evidenced join keys as immutable. "
+        )
+        + "The computational part of the brief may be "
         "incomplete. Compare it with the complete question and add or refine any required "
         "final aggregation, derived calculation, ratio, correlation, ordering, limit, or "
         "output shaping. Do not stop at an intermediate grouped result. Call "

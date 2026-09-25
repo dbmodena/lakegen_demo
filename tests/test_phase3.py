@@ -128,6 +128,8 @@ def _agentic_tools(tmp_path, *, execute=None, question="", table_metadata=None):
     ({"table.csv": ["2020", "2021"]}, "table", "Show enrollment by school"),
     ({"available_years": [2020], "count": 3}, "number", "How many schools?"),
     ([{"district": "A", "renamed_average": float("nan")}], "table", "Show average values by district"),
+    ([], "number", "What is the area of the Belfast TTWA?"),
+    ({"rows": [], "top": {}}, "table", "Which district is largest?"),
 ])
 def test_unusable_outputs_cannot_be_finalized_after_retries(tmp_path, payload, kind, question):
     state, manager = _agentic_tools(
@@ -655,7 +657,7 @@ def test_filter_without_columns_becomes_runtime_obligation_not_index_error(tmp_p
 
     assert state.architect_contract_locked is True
     assert state.plan_validation["status"] == "executable_with_obligations"
-    assert state.analysis_contract["result_type"] == "number"
+    assert state.analysis_contract["result_type"] == "auto"
     assert state.analysis_contract["measures"] == ["mean value as mean_value"]
     assert manager.coder_plan_view()["runtime_obligations"][0]["category"] == "missing_binding_columns"
 
@@ -723,12 +725,12 @@ def test_unique_schema_and_sample_overlap_infers_join(tmp_path):
     assert manager.coder_plan_view()["runtime_checklist"]["joins"]
 
 
-def test_result_adapter_unwraps_single_scalar(tmp_path):
+def test_result_adapter_preserves_single_row_without_expected_type(tmp_path):
     state, manager = _agentic_tools(tmp_path)
     manager.evaluation_result_type = "number"
     value, adaptations = manager._adapt_structured_result([{"average": 5.5}])
-    assert value == 5.5
-    assert adaptations == ["unwrapped_single_scalar"]
+    assert value == [{"average": 5.5}]
+    assert adaptations == []
 
 
 def test_plan_view_separates_missing_selection_brief_from_runtime_fallback(tmp_path):
@@ -780,7 +782,7 @@ def test_minimal_discovery_fallback_allows_runtime_completion(tmp_path):
     )
 
 
-def test_plan_completion_policy_requires_final_correlation_and_scalar_reduction(tmp_path):
+def test_plan_completion_policy_requires_final_correlation_without_shape_mandate(tmp_path):
     (tmp_path / "closings.csv").write_text(
         "Year,Closing Count\n2020,10\n2021,12\n", encoding="utf-8"
     )
@@ -808,7 +810,8 @@ def test_plan_completion_policy_requires_final_correlation_and_scalar_reduction(
 
     policy = manager.coder_plan_view()["plan_completion_policy"]
     assert any("requested correlation" in item for item in policy["obligations"])
-    assert any("one scalar number" in item for item in policy["obligations"])
+    # Output shape is no longer prescribed: no scalar-only obligation.
+    assert not any("one scalar number" in item for item in policy["obligations"])
     final_contract = manager.coder_plan_view()["final_result_contract"]
     assert final_contract["derived_operations"] == ["correlation"]
     assert final_contract["mode"] == "soft_semantic_shape"
@@ -903,6 +906,34 @@ def test_analysis_contract_treats_dataset_edition_year_as_provenance(tmp_path):
 
     assert payload["ok"] is True
     assert manager._requested_filter_years(manager.question) == set()
+
+
+def test_december_boundaries_year_is_dataset_edition_and_id_filter_is_blocked(tmp_path):
+    table = tmp_path / "table.csv"
+    pd.DataFrame({
+        "PFA21CD": ["E23000021", "E23000035"],
+        "PFA21NM": ["Leicestershire", "Devon & Cornwall"],
+        "Shape__Length": [342682.0, 2317115.0],
+    }).to_csv(table, index=False)
+    state, manager = _agentic_tools(
+        tmp_path,
+        question=(
+            "Which police force area has the longest perimeter according to "
+            "the December 2021 boundaries?"
+        ),
+    )
+    assert manager._requested_filter_years(manager.question) == set()
+
+    response = json.loads(manager.run_analysis(
+        "import pandas as pd\n"
+        "df = pd.read_csv('table.csv')\n"
+        "df = df[df['PFA21CD'].astype(str).str.contains('21')]\n"
+        "print(df['Shape__Length'].max())"
+    ))
+
+    assert response["status"] == "revision_required"
+    assert response["all_problems"][0]["category"] == "dataset_edition_row_filter"
+    assert state.run_count == 0
 
 
 def test_contract_code_warnings_are_non_blocking_advisories(tmp_path):
@@ -2358,3 +2389,95 @@ def test_inspect_table_exposes_requested_column_metadata_and_ambiguity(tmp_path)
     assert payload["resource_metadata"]["title"] == "Projects"
     assert payload["requested_column_profiles"]["sip_year"]["metadata_description"] == "Official program year."
     assert payload["semantic_ambiguities"]["temporal_columns"] == ["sip_year", "end_date"]
+
+
+def test_keyerror_message_points_at_stale_label_after_rename():
+    from lakegen.phases.phase3 import _execute_code
+
+    code = (
+        "import pandas as pd\n"
+        "df = pd.DataFrame({'Entity': ['A'], 'Amount': [1]})\n"
+        "top = df.rename(columns={'Entity': 'entity'})\n"
+        "print(top['Entity'].iloc[0])\n"
+    )
+    _out, error, _code = _execute_code(code)
+
+    assert "AT THE FAILING LINE" in error
+    assert "Failing line 4: `print(top['Entity'].iloc[0])`" in error
+    assert "maps 'Entity' to ['entity']" in error
+    assert "use the EXACT column name" not in error
+
+
+def test_full_file_profile_marks_snapshot_stamps_and_presence_flags(tmp_path):
+    from lakegen.phases.phase3 import _temporal_value_profile
+
+    path = tmp_path / "t.parquet"
+    pd.DataFrame({
+        "Dataset_Da": ["2023/05/16 00:00:00+00"] * 4,
+        "DEFECT": ["OpenDefect", None, None, "OpenDefect"],
+        "Unit": ["SL"] * 4,
+    }).to_parquet(path)
+
+    text = "\n".join(_temporal_value_profile(path, ["Dataset_Da", "DEFECT", "Unit"]))
+
+    assert "Dataset_Da: every row = '2023/05/16 00:00:00+00' (snapshot/edition date stamp" in text
+    assert "DEFECT: only non-null value is 'OpenDefect', 2/4 rows null (presence flag" in text
+    assert "Unit: every row = 'SL' (constant" in text
+
+
+def test_numeric_codes_reported_only_when_outside_column_range():
+    from lakegen.data_quality import profile_column_quality
+
+    assert profile_column_quality(pd.Series([10, 50, 999, 2000, 1500000, 70, 30])) is None
+    flagged = profile_column_quality(pd.Series([3, 5, 8, 2, 4, -1, -1, 6, 7]))
+    assert flagged["possible_missing_codes"] == {"-1": 2}
+
+
+def test_snapshot_stamp_years_detects_constant_date_columns(tmp_path):
+    from lakegen.data_quality import snapshot_stamp_years
+
+    path = tmp_path / "t.parquet"
+    pd.DataFrame({
+        "Dataset_Da": ["2023/05/16 00:00:00+00"] * 3,
+        "date_licen": ["2001/01/02", None, "2019/03/04"],
+    }).to_parquet(path)
+
+    assert snapshot_stamp_years(path) == {"2023"}
+
+
+def test_advisory_brief_prompt_is_opt_in():
+    from prompts.prompt_manager import PromptManager
+
+    pm = PromptManager()
+    strict = pm.render("code_generator", "agentic_system_prompt")
+    advisory = pm.render("code_generator", "agentic_system_prompt", brief_advisory=True)
+
+    assert "exact runtime columns, explicit question filters" in strict
+    assert "proposals to verify" not in strict
+    assert "proposals to verify against the question and the data evidence" in advisory
+
+
+def test_auto_repair_patches_only_the_failing_post_rename_reference():
+    from lakegen.phases.phase3 import _execute_code
+
+    code = (
+        "import pandas as pd\n"
+        "df = pd.DataFrame({'Entity': ['A', 'B'], 'Amount': [1, 5]})\n"
+        "agg = df.groupby('Entity', as_index=False)['Amount'].sum()\n"
+        "agg = agg.rename(columns={'Entity': 'entity'})\n"
+        "row = agg.iloc[agg['Amount'].idxmax()]\n"
+        "print(row['Entity'])\n"
+    )
+    _out, error, clean = _execute_code(code)
+    patched = Phase3ToolsManager._auto_repair_renamed_column(clean, error)
+
+    assert patched is not None
+    assert "print(row['entity'])" in patched
+    assert "groupby('Entity'" in patched
+    out, retry_error, _ = _execute_code(patched)
+    assert retry_error is None and out == "B"
+
+
+def test_auto_repair_declines_without_rename_evidence():
+    error = "FATAL ERROR: KeyError for column 'X'. Failing line 2: `y = df['X']`."
+    assert Phase3ToolsManager._auto_repair_renamed_column("df = 1\ny = df['X']", error) is None

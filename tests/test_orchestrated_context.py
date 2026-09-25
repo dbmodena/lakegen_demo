@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.experiment_config import DiscoveryArchitecture
+from lakegen.experiment_config import DiscoveryArchitecture, DiscoveryConfig
 from lakegen.orchestrated_context import (
     PreparedCandidate,
     PreparedDiscoveryContext,
@@ -233,11 +233,18 @@ def test_agent_facing_context_has_one_mode_neutral_schema_and_telemetry_keeps_si
     assert contexts[0] == contexts[1] == contexts[2]
 
 
+_ARCHITECT_BUDGETS = {
+    "initial_shortlist_size": DiscoveryConfig().initial_shortlist_size,
+    "max_inspected_candidates": DiscoveryConfig().max_inspected_candidates,
+}
+
+
 def test_rendered_discovery_prompts_are_mode_neutral():
     prompt_manager = PromptManager()
     rendered = [
         prompt_manager.render(
-            "unified_architect", "system_prompt", portal_name="NYC", hint=""
+            "unified_architect", "system_prompt", portal_name="NYC", hint="",
+            **_ARCHITECT_BUDGETS,
         ),
         prompt_manager.render(
             "unified_architect", "user_prompt", question="Count road incidents"
@@ -264,6 +271,9 @@ def test_value_search_prompts_ask_for_cell_values_without_naming_the_retriever()
     prompt_manager = PromptManager()
 
     def render(name, **extra):
+        if name == "unified_architect":
+            # Production always supplies the discovery budgets.
+            extra = {**_ARCHITECT_BUDGETS, **extra}
         return prompt_manager.render(name, "system_prompt", **extra)
 
     topic_architect = render("unified_architect", portal_name="NYC", hint="")
@@ -303,6 +313,9 @@ def test_verbatim_entity_prompts_ask_for_entities_as_the_question_writes_them():
     prompt_manager = PromptManager()
 
     def render(name, **extra):
+        if name == "unified_architect":
+            # Production always supplies the discovery budgets.
+            extra = {**_ARCHITECT_BUDGETS, **extra}
         return prompt_manager.render(name, "system_prompt", **extra)
 
     plain_intent = render("retrieval_intent")
