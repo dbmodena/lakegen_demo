@@ -53,6 +53,8 @@ class RetrievalHit:
     normalized_semantic_score: float = 0.0
     lexical_rank: int | None = None
     semantic_rank: int | None = None
+    # Set when a second-stage reranker scored this hit (see retrieval.rerank).
+    rerank_score: float | None = None
 
     @property
     def key(self) -> str:
@@ -94,6 +96,12 @@ class RetrievalRun:
     execution_attempt: int | None = None
     experiment_id: str | None = None
     retrieval_attempt: int | None = None
+    # The reranker applied to the top rerank_depth hits, if any; a reranker
+    # that failed leaves the retrieval order and its error here.
+    rerank_model: str | None = None
+    rerank_depth: int | None = None
+    rerank_seconds: float | None = None
+    rerank_error: str = ""
     hits: list[RetrievalHit] = field(default_factory=list)
 
     def to_log_dict(self) -> dict[str, Any]:

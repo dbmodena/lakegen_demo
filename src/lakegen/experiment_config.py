@@ -11,6 +11,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lakegen.retrieval import (
+    DEFAULT_RERANK_DEPTH,
+    DEFAULT_RERANK_MODEL,
     DEFAULT_TOP_K,
     FusionMethod,
     MissingSignalPolicy,
@@ -98,6 +100,10 @@ class RetrievalExperimentConfig(FrozenModel):
     scan_workers: int = Field(default=16, gt=0)
     grep_value_weight: float = Field(default=1.0, ge=0.0)
     grep_metadata_weight: float = Field(default=1.0, ge=0.0)
+    # Production retrieval reranks by default (see RetrievalConfig.rerank_model);
+    # null turns it off.
+    rerank_model: str | None = DEFAULT_RERANK_MODEL
+    rerank_depth: int = Field(default=DEFAULT_RERANK_DEPTH, gt=0)
 
     @classmethod
     def from_runtime(cls, value: RetrievalConfig) -> "RetrievalExperimentConfig":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+import logging
 import math
 import time
 from typing import Any
@@ -29,6 +30,9 @@ from lakegen.retrieval.pneuma import (
     PneumaRetriever,
     SolrPneumaDocumentResolver,
 )
+from lakegen.retrieval.rerank import OCICohereReranker, Reranker, rerank_hits
+
+logger = logging.getLogger(__name__)
 
 
 MissingScoreResolver = Callable[
@@ -491,10 +495,15 @@ class TableRetrievalService:
         pneuma_client: PneumaClient | None = None,
         pneuma_document_resolver: DocumentResolver | None = None,
         table_dir: str | None = None,
+        reranker: Reranker | None = None,
     ) -> None:
         self.solr = solr
         self.config = config
         self.observer = observer
+        # The second stage, for the modes RetrievalMode.reranked names.
+        self.reranker: Reranker | None = None
+        if config.rerank_model and config.mode.reranked:
+            self.reranker = reranker or OCICohereReranker(config.rerank_model)
         # What the lexical branch matched in the latest hybrid retrieve(), or
         # None when it did not report one. Fused hits cannot show this.
         self.last_lexical_hit_count: int | None = None
@@ -629,16 +638,41 @@ class TableRetrievalService:
                 self.observer(run)
             raise
 
+        hits, rerank = self._rerank(question, hits)
         run = self._run_record(
             question=question,
             keywords=keywords,
             requested_k=requested_k,
             hits=hits,
             duration_seconds=time.monotonic() - started,
+            rerank=rerank,
         )
         if self.observer is not None:
             self.observer(run)
         return hits
+
+    def _rerank(
+        self, question: str, hits: list[RetrievalHit]
+    ) -> tuple[list[RetrievalHit], dict[str, Any] | None]:
+        """Reorder the top ``rerank_depth`` hits, and what to record about it.
+
+        A reranker that fails leaves the retrieval order: the search itself
+        succeeded, and an outage of the second stage must not take it down.
+        """
+        if self.reranker is None or not hits:
+            return hits, None
+        record: dict[str, Any] = {
+            "rerank_model": self.config.rerank_model,
+            "rerank_depth": self.config.rerank_depth,
+        }
+        started = time.monotonic()
+        try:
+            hits = rerank_hits(question, hits, self.reranker, depth=self.config.rerank_depth)
+        except Exception as exc:
+            record["rerank_error"] = f"{type(exc).__name__}: {exc}"
+            logger.warning("Reranking failed; keeping the retrieval order: %s", exc)
+        record["rerank_seconds"] = round(time.monotonic() - started, 6)
+        return hits, record
 
     def lexical_match_count(self, keywords: Sequence[str]) -> int:
         """How many tables contain every keyword; a diagnostic, not a retrieval run."""
@@ -654,6 +688,7 @@ class TableRetrievalService:
         status: str = "succeeded",
         error: str = "",
         duration_seconds: float,
+        rerank: dict[str, Any] | None = None,
     ) -> RetrievalRun:
         fuses = self.config.mode in (
             RetrievalMode.HYBRID,
@@ -685,5 +720,6 @@ class TableRetrievalService:
                 if fuses and self.config.fusion_method == FusionMethod.RRF
                 else None
             ),
+            **(rerank or {}),
             hits=hits,
         )

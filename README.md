@@ -266,6 +266,18 @@ the effective value. Example YAML files are loaded only when supplied.
   there. Each DuckDB hit is resolved to the catalog document of its Parquet
   file before fusion. It needs the vector index and the local Parquet
   directory. `hybrid` is a separate mode and is unchanged.
+
+`keyword`, `semantic` and `hybrid` results then go through a second-stage
+reranker (`rerank_model`, default `cohere.rerank-v4.0-fast` on OCI): it
+reorders the top `rerank_depth` (20) tables and leaves the rest in retrieval
+order, adding about 0.1 s per search. On the 100-question UK benchmark it
+raised Recall@10 and Hit@1 for all three (`experiments/rerank_lab`); deeper
+pools were not better. If the reranker fails, the retrieval order is kept
+and the error is recorded on the retrieval run. `rerank_model: null` (or an
+empty `LAKEGEN_RERANK_MODEL`) turns it off. The DuckDB and Pneuma modes are
+not reranked. It is on by default in the experiment configuration and the
+environment settings, so `--config` benchmark runs rerank too;
+`RetrievalConfig()` built in code does not.
 `pneuma_seeker`'s content stage is weighted by `pneuma_content_weight`, with its
 title, column-name and cell evidence weighted by `pneuma_table_name_weight`,
 `pneuma_column_name_weight` and `pneuma_cell_weight`. A family

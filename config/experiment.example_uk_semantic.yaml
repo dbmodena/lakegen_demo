@@ -109,6 +109,14 @@ retrieval:
   # It applies only when fusion_method is rrf and must be an integer > 0.
   rrf_k: 60
 
+  # Second-stage reranker for keyword, semantic and hybrid: Cohere rerank on
+  # OCI reorders the top rerank_depth tables (the rest keep retrieval order).
+  # About 0.1 s per search; deeper pools were not better. null turns it off.
+  # The DuckDB and Pneuma modes are not reranked. Env: LAKEGEN_RERANK_MODEL
+  # (empty = off) and LAKEGEN_RERANK_DEPTH.
+  rerank_model: cohere.rerank-v4.0-fast
+  rerank_depth: 20
+
   # Original Pneuma backend settings. They are used only with mode: pneuma.
   # The independent service must already contain a generated Pneuma index.
   # NYC and UK are routed automatically to their dedicated Pneuma services.

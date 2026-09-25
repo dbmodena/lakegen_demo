@@ -1,4 +1,6 @@
 from lakegen.retrieval.config import (
+    DEFAULT_RERANK_DEPTH,
+    DEFAULT_RERANK_MODEL,
     DEFAULT_TOP_K,
     FusionMethod,
     MissingSignalPolicy,
@@ -34,6 +36,8 @@ from lakegen.retrieval.retrievers import (
 )
 
 __all__ = [
+    "DEFAULT_RERANK_DEPTH",
+    "DEFAULT_RERANK_MODEL",
     "DEFAULT_TOP_K",
     "HybridRetriever",
     "FusionMethod",

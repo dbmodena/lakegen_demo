@@ -8,6 +8,10 @@ from enum import StrEnum
 import os
 
 DEFAULT_TOP_K = 20
+# Second-stage reranker of production retrieval (retrieval.rerank); see
+# RetrievalConfig.rerank_model.
+DEFAULT_RERANK_MODEL = "cohere.rerank-v4.0-fast"
+DEFAULT_RERANK_DEPTH = 20
 PNEUMA_PORTAL_ROUTES = {
     "nyc": ("http://localhost:8765", "lakegen-cohere-v4-1024"),
     "uk": ("http://localhost:8766", "lakegen-cohere-v4-1024"),
@@ -40,6 +44,16 @@ class RetrievalMode(StrEnum):
             RetrievalMode.HYBRID,
             RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
         )
+
+    @property
+    def reranked(self) -> bool:
+        """True for the modes a configured second-stage reranker reorders.
+
+        Cohere reranking was measured on keyword, semantic and hybrid
+        (experiments/rerank_lab). The DuckDB modes are not reranked yet, and the
+        Pneuma modes rank with their own LLM judge.
+        """
+        return self in (RetrievalMode.KEYWORD, RetrievalMode.SEMANTIC, RetrievalMode.HYBRID)
 
     @property
     def is_pneuma(self) -> bool:
@@ -170,6 +184,12 @@ class RetrievalConfig:
     # matched. Both at 0 would score every table 0, so that is rejected.
     grep_value_weight: float = 1.0
     grep_metadata_weight: float = 1.0
+    # Second-stage reranker for the modes RetrievalMode.reranked names: it
+    # reorders the top rerank_depth hits and leaves the rest in retrieval order.
+    # None (the default here) turns it off; the production configurations,
+    # from_env and the experiment configuration, default to DEFAULT_RERANK_MODEL.
+    rerank_model: str | None = None
+    rerank_depth: int = DEFAULT_RERANK_DEPTH
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", RetrievalMode(self.mode))
@@ -243,6 +263,10 @@ class RetrievalConfig:
         if self.lexical_query_fields is not None:
             query_fields = self.lexical_query_fields.strip()
             object.__setattr__(self, "lexical_query_fields", query_fields or None)
+        if self.rerank_model is not None:
+            object.__setattr__(self, "rerank_model", self.rerank_model.strip() or None)
+        if self.rerank_depth <= 0:
+            raise ValueError("rerank_depth must be greater than zero")
 
     @property
     def branch_candidate_count(self) -> int:
@@ -370,5 +394,10 @@ class RetrievalConfig:
             ),
             grep_probe_rows_per_file=int(
                 os.environ.get("LAKEGEN_GREP_PROBE_ROWS_PER_FILE", "1000")
+            ),
+            # An empty LAKEGEN_RERANK_MODEL turns reranking off.
+            rerank_model=os.environ.get("LAKEGEN_RERANK_MODEL", DEFAULT_RERANK_MODEL),
+            rerank_depth=int(
+                os.environ.get("LAKEGEN_RERANK_DEPTH", str(DEFAULT_RERANK_DEPTH))
             ),
         )

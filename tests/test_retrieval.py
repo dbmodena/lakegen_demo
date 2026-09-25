@@ -1557,3 +1557,120 @@ def test_benchmark_scores_hits_under_the_local_file_they_map_to(tmp_path):
     keyword = report["experiments"]["keyword"]
     assert keyword["cases"][0]["ranking"] == ["DS___gold"]
     assert keyword["mean_metrics"]["Hit@1"] == 1.0
+
+
+class ReversingReranker:
+    """Scores candidates in reverse retrieval order, recording what it was shown."""
+
+    def __init__(self):
+        self.calls = []
+
+    def scores(self, question, documents):
+        self.calls.append((question, list(documents)))
+        return [float(index) for index in range(len(documents))]
+
+
+class FailingReranker:
+    def scores(self, question, documents):
+        raise RuntimeError("rerank service unavailable")
+
+
+def _keyword_docs(count):
+    return [
+        {"resource_id": f"t{index}", "title": f"Table {index}", "score": float(10 - index)}
+        for index in range(1, count + 1)
+    ]
+
+
+def test_reranker_reorders_only_the_top_depth_and_records_it_on_the_run():
+    from lakegen.retrieval import TableRetrievalService
+
+    reranker = ReversingReranker()
+    runs = []
+    service = TableRetrievalService(
+        FakeSolr(select_docs=_keyword_docs(4)),
+        RetrievalConfig(mode=RetrievalMode.KEYWORD, rerank_model="test-rerank", rerank_depth=3),
+        reranker=reranker,
+        observer=runs.append,
+    )
+
+    hits = service.retrieve(question="Which table?", keywords=["table"], top_k=4)
+
+    assert [hit.document["resource_id"] for hit in hits] == ["t3", "t2", "t1", "t4"]
+    assert [hit.rank for hit in hits] == [1, 2, 3, 4]
+    # Branch ranks are the retriever's own; the reranker only adds its score.
+    assert [hit.lexical_rank for hit in hits] == [3, 2, 1, 4]
+    assert [hit.rerank_score for hit in hits] == [2.0, 1.0, 0.0, None]
+    question, documents = reranker.calls[0]
+    assert question == "Which table?" and documents[0] == "Title: Table 1"
+    assert (runs[0].rerank_model, runs[0].rerank_depth, runs[0].rerank_error) == (
+        "test-rerank", 3, ""
+    )
+    assert runs[0].rerank_seconds is not None
+
+
+def test_a_failing_reranker_keeps_the_retrieval_order_and_the_search_succeeds():
+    from lakegen.retrieval import TableRetrievalService
+
+    runs = []
+    service = TableRetrievalService(
+        FakeSolr(select_docs=_keyword_docs(3)),
+        RetrievalConfig(mode=RetrievalMode.KEYWORD, rerank_model="test-rerank"),
+        reranker=FailingReranker(),
+        observer=runs.append,
+    )
+
+    hits = service.retrieve(question="Which table?", keywords=["table"], top_k=3)
+
+    assert [hit.document["resource_id"] for hit in hits] == ["t1", "t2", "t3"]
+    assert runs[0].status == "succeeded"
+    assert "rerank service unavailable" in runs[0].rerank_error
+
+
+def test_only_keyword_semantic_and_hybrid_are_reranked():
+    from lakegen.retrieval import TableRetrievalService
+
+    assert [mode for mode in RetrievalMode if mode.reranked] == [
+        RetrievalMode.KEYWORD, RetrievalMode.SEMANTIC, RetrievalMode.HYBRID
+    ]
+    # No model, no reranking, whatever the mode.
+    service = TableRetrievalService(
+        FakeSolr(select_docs=_keyword_docs(2)),
+        RetrievalConfig(mode=RetrievalMode.KEYWORD),
+        reranker=ReversingReranker(),
+    )
+    assert service.reranker is None
+    hits = service.retrieve(question="q", keywords=["x"], top_k=2)
+    assert [hit.rerank_score for hit in hits] == [None, None]
+
+
+def test_production_configurations_rerank_with_cohere_unless_turned_off(monkeypatch):
+    from lakegen.experiment_config import RetrievalExperimentConfig
+    from lakegen.retrieval import DEFAULT_RERANK_MODEL
+
+    assert DEFAULT_RERANK_MODEL == "cohere.rerank-v4.0-fast"
+    assert RetrievalConfig().rerank_model is None
+    assert RetrievalExperimentConfig().to_runtime().rerank_model == DEFAULT_RERANK_MODEL
+    monkeypatch.delenv("LAKEGEN_RERANK_MODEL", raising=False)
+    assert RetrievalConfig.from_env().rerank_model == DEFAULT_RERANK_MODEL
+    assert RetrievalConfig.from_env().rerank_depth == 20
+    monkeypatch.setenv("LAKEGEN_RERANK_MODEL", "")
+    assert RetrievalConfig.from_env().rerank_model is None
+    with pytest.raises(ValueError, match="rerank_depth"):
+        RetrievalConfig(rerank_depth=0)
+
+
+def test_rerank_candidate_text_leaves_out_duckdb_search_bookkeeping():
+    from lakegen.retrieval.rerank import candidate_text
+
+    text = candidate_text({
+        "title": "Cash Management",
+        "publisher": "Food Standards Agency",
+        "description": "Monthly receipts. DuckDB keyword evidence: 2 primary terms, 1 found in values; 12 total rows.",
+        "columns": [{"name": "InvoiceMonth"}, {"name": "GovernmentCash"}],
+    })
+
+    assert text == (
+        "Title: Cash Management\nPublisher: Food Standards Agency\n"
+        "Description: Monthly receipts.\nColumns: InvoiceMonth, GovernmentCash"
+    )
