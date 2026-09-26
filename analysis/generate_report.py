@@ -25,6 +25,7 @@ CODE_RATES = (
     "result_type_match_rate",
     "format_compliance_rate",
     "exact_result_match_rate",
+    "lenient_result_match_rate",
     "supported_result_rate",
     "pass_at_1",
     "success_within_3",
@@ -62,6 +63,7 @@ METRIC_DESCRIPTIONS = (
     ("Exact Selection", "Quota di domande in cui le tabelle selezionate coincidono esattamente con tutte e sole le gold."),
     ("Execution success", "Quota di casi applicabili in cui il codice generato viene eseguito con successo."),
     ("Exact result match", "Quota di risultati che coincidono esattamente con il risultato di riferimento."),
+    ("Lenient result match", "Confronto sul contenuto che ignora serializzazione, nomi delle colonne, maiuscole e scala percentuale (×100, ×0.01): una tabella deve avere le stesse righe e tutte le colonne attese (ammesse colonne extra); un valore singolo può comparire tra al più 8 valori del risultato."),
     ("Supported result", "Quota di risultati esatti o equivalenti e supportati dalle evidenze disponibili."),
     ("Pass@1", "Quota di casi risolti correttamente al primo tentativo di generazione."),
     ("Requirement pass rate", "Percentuale media dei requisiti della domanda soddisfatti dal risultato."),
@@ -130,8 +132,10 @@ def configuration_summary(job: dict[str, Any]) -> str:
         ("Modello", config.get("model")),
         ("Architettura discovery", config.get("discovery_architecture")),
         ("Accesso agli strumenti", config.get("tool_access")),
+        ("Memoria orchestrata", config.get("orchestrated_memory_enabled")),
         ("Contesto coder", config.get("coder_context_level")),
         ("Test automatico dei contesti coder", config.get("automatic_test_coder")),
+        ("Modalità brief coder", config.get("coder_brief_mode")),
         ("Piano semantico obbligatorio", config.get("require_semantic_plan")),
         ("Semantic code judge", config.get("semantic_code_judge_enabled")),
         ("Modello semantic judge", config.get("semantic_code_judge_model")),
@@ -143,6 +147,9 @@ def configuration_summary(job: dict[str, Any]) -> str:
         ("Top-k", retrieval.get("top_k")),
         ("Fusione", retrieval.get("fusion_method")),
         ("Alpha ibrido", retrieval.get("alpha")),
+        ("RRF k", retrieval.get("rrf_k")),
+        ("Reranker", retrieval.get("rerank_model") or ("disattivato" if "rerank_model" in retrieval else None)),
+        ("Profondità reranking", retrieval.get("rerank_depth")),
         ("Moltiplicatore candidati", retrieval.get("candidate_multiplier")),
         ("Versione rappresentazione", retrieval.get("representation_version")),
         ("Modello embedding", retrieval.get("embedding_model")),
@@ -156,6 +163,10 @@ def configuration_summary(job: dict[str, Any]) -> str:
         ("Shortlist iniziale per ispezione", discovery.get("initial_shortlist_size")),
         ("Massimi candidati ispezionabili", discovery.get("max_inspected_candidates")),
         ("Ricerca dopo ispezione", discovery.get("search_after_inspection")),
+        ("Strategia di ricerca keyword", discovery.get("keyword_search")),
+        ("Insiemi per cascade", discovery.get("keyword_cascade_size")),
+        ("State board", discovery.get("state_board")),
+        ("Compattazione history", discovery.get("compact_history")),
     ]
     control_rows = [
         (f"Gate: {name}", value) for name, value in gates.items()
@@ -520,6 +531,112 @@ def semantic_judge_summary(code: dict[str, Any]) -> str:
     )
 
 
+CONFIG_COLUMNS = (
+    "job_id", "experiment_id", "core", "model", "tool_access",
+    "retrieval_mode", "fusion_method",
+)
+
+
+def config_fields(job: dict[str, Any]) -> dict[str, Any]:
+    """Experimental factors of a job, repeated on every CSV row for aggregation."""
+    config = job.get("settings", {}).get("resolved_config", {})
+    retrieval = config.get("retrieval", {})
+    return {
+        "job_id": job.get("job_id"),
+        "experiment_id": config.get("experiment_id"),
+        "core": config.get("core"),
+        "model": config.get("model"),
+        "tool_access": config.get("tool_access"),
+        "retrieval_mode": retrieval.get("mode"),
+        "fusion_method": retrieval.get("fusion_method"),
+    }
+
+
+def _resource_id(value: Any) -> str:
+    """Same normalization as api._resource_id: gold IDs vs selected filenames."""
+    name = Path(str(value)).name
+    if Path(name).suffix.casefold() in {".csv", ".parquet", ".pq"}:
+        name = Path(name).stem
+    return name.rsplit("___", 1)[-1]
+
+
+PER_QUESTION_CODE_FIELDS = (
+    "applicable", "execution_success", "exact_result_match",
+    "lenient_result_match", "supported_correct", "pass_at_1",
+)
+
+
+def per_question_rows(
+    job: dict[str, Any],
+    questions: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """One row per question and coder context, for paired tests and bootstrap CIs."""
+    if not questions or len(questions) != len(results):
+        return []
+    factors = config_fields(job)
+    rows = []
+    for source, entry in zip(questions, results):
+        result = entry.get("result", {})
+        gold = {
+            _resource_id(value)
+            for value in source.get("log_fields", {}).get("SOURCE_RELEVANT_TABLE_IDS", [])
+        }
+        selected = {_resource_id(value) for value in result.get("tables", [])}
+        matches = len(gold & selected)
+        base = {
+            **factors,
+            "question_id": source.get("source_id") or source.get("source_path"),
+            "gold_table_count": len(gold),
+            "selection_hit": int(matches > 0),
+            "selection_recall": matches / len(gold) if gold else 0.0,
+            "exact_selection": int(bool(gold) and selected == gold),
+            "status": result.get("status"),
+            "elapsed_seconds": result.get("elapsed_seconds"),
+            "tokens_total": sum(int(v or 0) for v in result.get("tokens", {}).values()),
+        }
+        # A question blocked before the coder has no variants. The batch metrics
+        # drop it from the denominator; here it stays, with coder_ran=0 and every
+        # outcome 0, so end-to-end rates can count it as a failure.
+        automatic = bool(
+            job.get("settings", {}).get("resolved_config", {}).get("automatic_test_coder")
+        )
+        variants = result.get("coder_context_experiment", {}).get("variants", {})
+        question_evaluation = result.get("code_evaluation", {})
+        contexts = (
+            CONTEXT_ORDER if automatic
+            else (result.get("configuration", {}).get("coder_context_level", "full"),)
+        )
+        for context in contexts:
+            evaluation = (
+                variants.get(context, {}).get("code_evaluation", {})
+                if automatic else question_evaluation
+            )
+            row = {
+                **base,
+                "coder_context": context,
+                "coder_ran": int(bool(evaluation)),
+            }
+            for field in PER_QUESTION_CODE_FIELDS:
+                # Empty = the coder ran but the field was not recorded (e.g.
+                # lenient_result_match in jobs predating the metric).
+                row[field] = (
+                    "" if evaluation and field not in evaluation
+                    else int(bool(evaluation.get(field)))
+                )
+            row["applicable"] = int(bool(question_evaluation.get("applicable")))
+            row["counted_in_batch_metrics"] = int(bool(evaluation.get("applicable")))
+            rows.append(row)
+    return rows
+
+
+def write_per_question_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def write_csv(path: Path, job: dict[str, Any]) -> None:
     metrics = job["batch_metrics"]
     rows: list[tuple[str, str, str, Any]] = []
@@ -567,10 +684,12 @@ def write_csv(path: Path, job: dict[str, Any]) -> None:
         for name, value in values.items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 rows.append(("code", context, name, value))
+    factors = config_fields(job)
+    prefix = tuple(factors[column] for column in CONFIG_COLUMNS)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(("area", "group", "metric", "value"))
-        writer.writerows(rows)
+        writer.writerow((*CONFIG_COLUMNS, "area", "group", "metric", "value"))
+        writer.writerows((*prefix, *row) for row in rows)
 
 
 def write_markdown(path: Path, job: dict[str, Any]) -> None:
@@ -591,7 +710,7 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
     ]
     lines.extend(f"| {name} | {description} |" for name, description in METRIC_DESCRIPTIONS)
     lines.extend(["", "## Retrieval", "", "| Metrica | Valore |", "|---|---:|"])
-    lines.extend(f"| {key} | {float(retrieval[key]):.3f} |" for key in RETRIEVAL_ORDER if key in retrieval)
+    lines.extend(f"| {key} | {pct(retrieval[key])} |" for key in RETRIEVAL_ORDER if key in retrieval)
     selection = table.get("mean_selection_metrics", {})
     lines.extend(["", "## Selezione finale dell'agente", "", "| Metrica | Valore |", "|---|---:|"])
     lines.extend(f"| {key} | {pct(selection[key])} |" for key in ("SelectionHit", "SelectionRecall", "SelectionPrecision", "ExactSelection") if key in selection)
@@ -637,13 +756,18 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
                 f"{int(performance.get('coder_token_totals_by_context', {}).get(key, 0)):,} |"
             )
         lines.extend(["", "Nota: con `automatic_test_coder` attivo, P3 comprende le varianti full, schema_only e minimal; l'eventuale residuo condiviso/non attribuito copre lavoro P3 non associato a una variante salvata."])
-    lines.extend(["", "## Esecuzione codice", "", "| Contesto | Execution | Exact match | Pass@1 | Numeric coverage | MSE | RMSE | MSRE | RMSRE |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
+    def rate_metric(values: dict[str, Any], key: str) -> str:
+        value = values.get(key)
+        return pct(value) if value is not None else "—"
+    lines.extend(["", "## Esecuzione codice", "", "| Contesto | Execution | Exact match | Lenient match | Pass@1 | Numeric coverage | MSE | RMSE | MSRE | RMSRE |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for context in CONTEXT_ORDER:
         values = job["batch_metrics"].get("code", {}).get(context)
         if values:
             lines.append(
-                f"| {context} | {pct(values['execution_success_rate'])} | "
-                f"{pct(values['exact_result_match_rate'])} | {pct(values['pass_at_1'])} | "
+                f"| {context} | {rate_metric(values, 'execution_success_rate')} | "
+                f"{rate_metric(values, 'exact_result_match_rate')} | "
+                f"{rate_metric(values, 'lenient_result_match_rate')} | "
+                f"{rate_metric(values, 'pass_at_1')} | "
                 f"{pct(values['numeric_comparable_rate']) if values.get('numeric_comparable_rate') is not None else '—'} | "
                 f"{numeric_metric(values, 'mean_numeric_squared_error')} | "
                 f"{numeric_metric(values, 'root_mean_numeric_squared_error')} | "
@@ -681,8 +805,33 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def load_job(job_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Read a job JSON plus its sibling questions.json and results.jsonl, if present."""
+    job = json.loads(job_path.read_text(encoding="utf-8"))
+    stem = str(job.get("job_id", job_path.stem))
+    questions: list[dict[str, Any]] = []
+    questions_path = job_path.with_name(f"{stem}.questions.json")
+    if questions_path.is_file():
+        loaded = json.loads(questions_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, list):
+            questions = loaded
+    results: list[dict[str, Any]] = []
+    results_path = job_path.with_name(f"{stem}.results.jsonl")
+    if results_path.is_file():
+        results = [
+            json.loads(line)
+            for line in results_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    return job, questions, results
+
+
 def generate(
-    job: dict[str, Any], output_dir: Path, *, questions: list[dict[str, Any]] | None = None
+    job: dict[str, Any],
+    output_dir: Path,
+    *,
+    questions: list[dict[str, Any]] | None = None,
+    results: list[dict[str, Any]] | None = None,
 ) -> None:
     if job.get("status") != "completed" or not job.get("batch_metrics"):
         raise ValueError("Il job deve essere completato e contenere batch_metrics")
@@ -745,6 +894,9 @@ th,td{{padding:10px;text-align:left;border-bottom:1px solid var(--line)}}th{{col
     (output_dir / "report.html").write_text(document, encoding="utf-8")
     write_csv(output_dir / "metrics.csv", job)
     write_markdown(output_dir / "summary.md", job)
+    question_rows = per_question_rows(job, questions, results or [])
+    if question_rows:
+        write_per_question_csv(output_dir / "per_question.csv", question_rows)
 
 
 def main() -> None:
@@ -757,21 +909,17 @@ def main() -> None:
     job_path = candidate if candidate.is_file() else args.jobs_dir / f"{args.job_id}.json"
     if not job_path.is_file():
         parser.error(f"job non trovato: {job_path}")
-    job = json.loads(job_path.read_text(encoding="utf-8"))
-    questions_path = job_path.with_name(f"{job.get('job_id', job_path.stem)}.questions.json")
-    questions: list[dict[str, Any]] = []
-    if questions_path.is_file():
-        candidate_questions = json.loads(questions_path.read_text(encoding="utf-8"))
-        if isinstance(candidate_questions, list):
-            questions = candidate_questions
+    job, questions, results = load_job(job_path)
     output = args.output or Path("reports") / str(job["job_id"])
     try:
-        generate(job, output, questions=questions)
+        generate(job, output, questions=questions, results=results)
     except ValueError as exc:
         parser.error(str(exc))
     print(f"Report HTML: {output / 'report.html'}")
     print(f"Metriche CSV: {output / 'metrics.csv'}")
     print(f"Riepilogo: {output / 'summary.md'}")
+    if (output / "per_question.csv").is_file():
+        print(f"Esiti per domanda: {output / 'per_question.csv'}")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,28 @@ from lakegen.phases.logging import (
 )
 
 
+def _coerce_tool_input(tool: Any, tool_input: Any) -> Any:
+    """Convert the model's arguments to the types the tool declares.
+
+    Llama 3.3 on OCI sends numbers as strings (``{"candidate_number": "1"}``),
+    which tools then compare with ints and fail. The tool's own argument
+    schema coerces them; only the keys the model sent are replaced, so no
+    default is added. Input the schema rejects is passed through unchanged,
+    for the tool to report its own error.
+    """
+    schema = getattr(getattr(tool, "metadata", None), "fn_schema", None)
+    if schema is None or not isinstance(tool_input, dict):
+        return tool_input
+    try:
+        validated = schema.model_validate(tool_input).model_dump()
+    except Exception:
+        return tool_input
+    return {
+        key: validated[key] if key in validated else value
+        for key, value in tool_input.items()
+    }
+
+
 class _ToolPruningFunctionAgent(FunctionAgent):
     """A FunctionAgent that offers the model only the tools still worth calling.
 
@@ -46,6 +68,9 @@ class _ToolPruningFunctionAgent(FunctionAgent):
             scratchpad = await ctx.store.get(self.scratchpad_key, default=[])
             await ctx.store.set(self.scratchpad_key, self.context_editor(list(scratchpad)))
         return await super().take_step(ctx, llm_input, tools, memory)
+
+    async def _call_tool(self, ctx, tool, tool_input):
+        return await super()._call_tool(ctx, tool, _coerce_tool_input(tool, tool_input))
 
 
 def run_agent_workflow(

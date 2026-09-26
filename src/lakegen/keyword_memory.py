@@ -97,6 +97,12 @@ def persist_keyword_memory(
         temporary.replace(path)
 
 
+def keyword_memory_file(directory: Path, experiment_id: str) -> Path:
+    """Memory file of one experiment; the id is reduced to a safe file name."""
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(experiment_id)).strip("._") or "default"
+    return directory / f"{name}.json"
+
+
 def question_memory_key(question: str) -> str:
     """Return a stable, privacy-preserving key for one normalized question."""
     normalized = " ".join(str(question).casefold().split())

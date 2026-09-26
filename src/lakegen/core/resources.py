@@ -148,10 +148,48 @@ def _parse_tool_call_input(raw_input: Any) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+class _Delegate:
+    def __init__(self, target: Any) -> None:
+        self._target = target
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._target, name)
+
+
+class _SkipDoneStreamData(_Delegate):
+    def events(self):
+        for event in self._target.events():
+            if str(getattr(event, "data", "")).strip() != "[DONE]":
+                yield event
+
+
+class _SkipDoneResponse(_Delegate):
+    @property
+    def data(self) -> Any:
+        data = self._target.data
+        return _SkipDoneStreamData(data) if hasattr(data, "events") else data
+
+
+class _SkipDoneClient(_Delegate):
+    """OCI client whose streams drop the ``[DONE]`` sentinel.
+
+    Meta models on OCI end every stream with a ``data: [DONE]`` event, which
+    the LlamaIndex integration passes to json.loads and crashes on; GPT-OSS
+    streams do not send it.
+    """
+
+    def chat(self, *args: Any, **kwargs: Any) -> Any:
+        return _SkipDoneResponse(self._target.chat(*args, **kwargs))
+
+
 class _LakeGenOCIGenAI(OCIGenAI):
     """Compatibility fixes for OCI tool calls and async LlamaIndex agents."""
 
     _token_usage_total: int = PrivateAttr(default=0)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._client = _SkipDoneClient(self._client)
 
     @property
     def token_usage_total(self) -> int:

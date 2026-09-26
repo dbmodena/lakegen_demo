@@ -58,6 +58,7 @@ from lakegen.phases.orchestrated_discovery import (
 from lakegen.manifest import ExperimentManifest, create_manifest, persist_manifest
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
+    keyword_memory_file,
     load_keyword_memory,
     load_question_retrieval_memory,
     persist_keyword_memory,
@@ -374,7 +375,9 @@ def run_question(
     # Unified lexical memory belongs to the whole question, not one selection
     # round. A fresh P12State is still needed for inspection budgets, but zero-
     # result knowledge must survive coder/selection retries.
-    keyword_memory_path = BASE_DIR / ".lakegen_keyword_memory.json"
+    # One file per experiment, so configurations never learn from each other's
+    # searches over the same questions.
+    keyword_memory_path = keyword_memory_file(BASE_DIR / "memory", experiment.experiment_id)
     keyword_memory_scope = "|".join((
         runtime.solr_core,
         runtime.retrieval.mode.value,
