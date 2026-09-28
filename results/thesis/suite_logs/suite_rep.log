@@ -1,0 +1,16 @@
+[2026-09-27 10:12:54] in attesa della fine delle orchestrate...
+[2026-09-27 10:13:23] in attesa della fine delle orchestrate...
+[2026-09-27 11:06:46] 4 batch da eseguire, al massimo 4 insieme
+[2026-09-27 11:06:46] nyc_dense_llama_agentic_rep2#stage1: inviato come a9ab3874b9a84c13bb4ee757f8035e49 (100 domande)
+[2026-09-27 11:06:46] uk_bm25_llama_agentic_rep2#stage1: inviato come acee860521744f4f9696d7947a1488b8 (100 domande)
+[2026-09-27 11:06:46] nyc_dense_gptoss_agentic_rep2#stage1: inviato come 067688a31b6f41318b2ea835ecc2ba39 (100 domande)
+[2026-09-27 11:06:46] uk_bm25_gptoss_agentic_rep2#stage1: inviato come 1b870680be064104b3fcde4a34589ae9 (100 domande)
+[2026-09-27 11:06:46] in corso: nyc_dense_gptoss_agentic_rep2#stage1, nyc_dense_llama_agentic_rep2#stage1, uk_bm25_gptoss_agentic_rep2#stage1, uk_bm25_llama_agentic_rep2#stage1; in coda: 0; completati: 0
+[2026-09-27 15:47:53] nyc_dense_gptoss_agentic_rep2#stage1: completato (100/100, 19 domande con errore)
+[2026-09-27 15:47:53] in corso: nyc_dense_llama_agentic_rep2#stage1, uk_bm25_gptoss_agentic_rep2#stage1, uk_bm25_llama_agentic_rep2#stage1; in coda: 0; completati: 1
+[2026-09-27 16:45:25] uk_bm25_llama_agentic_rep2#stage1: completato (100/100, 29 domande con errore)
+[2026-09-27 16:45:25] in corso: nyc_dense_llama_agentic_rep2#stage1, uk_bm25_gptoss_agentic_rep2#stage1; in coda: 0; completati: 2
+[2026-09-27 17:27:55] uk_bm25_gptoss_agentic_rep2#stage1: completato (100/100, 16 domande con errore)
+[2026-09-27 17:27:55] in corso: nyc_dense_llama_agentic_rep2#stage1; in coda: 0; completati: 3
+[2026-09-27 18:45:26] nyc_dense_llama_agentic_rep2#stage1: completato (100/100, 24 domande con errore)
+[2026-09-27 18:45:26] Fine: 4 completati, 0 falliti

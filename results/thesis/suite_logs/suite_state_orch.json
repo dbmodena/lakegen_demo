@@ -1,0 +1,18 @@
+{
+  "nyc_bm25_llama_orchestrated#stage1": "a072598955384b6cbcc9ab08a17a431c",
+  "nyc_dense_llama_orchestrated#stage1": "3f89d75538174833bccfb04bb507e92d",
+  "nyc_hybrid_llama_orchestrated#stage1": "8f75bac8d6ed4f0084f9cbf853daf3e8",
+  "nyc_rrf_llama_orchestrated#stage1": "1220358954b946c7b6b9cd65e8acc2f9",
+  "uk_bm25_llama_orchestrated#stage1": "72c780fd797746e3a8a27511ddadba1f",
+  "uk_dense_llama_orchestrated#stage1": "c05e40218fb34fab8c8a29ea101a454e",
+  "uk_hybrid_llama_orchestrated#stage1": "9ae4613c943247439d79b14b2cca31c3",
+  "uk_rrf_llama_orchestrated#stage1": "54ce6506380047a0a4ca992f290c39a0",
+  "nyc_bm25_gptoss_orchestrated#stage1": "26cd59bda70b4a6492541518c5eed377",
+  "nyc_dense_gptoss_orchestrated#stage1": "ed35b22deb7f46e1886d97a608df4678",
+  "nyc_hybrid_gptoss_orchestrated#stage1": "b4848f30c425436c98d6df7fb071d2d3",
+  "nyc_rrf_gptoss_orchestrated#stage1": "a35adaf62d47493dab841966ec1f11a0",
+  "uk_bm25_gptoss_orchestrated#stage1": "288c1944f81d43bead81bcba30c2a610",
+  "uk_dense_gptoss_orchestrated#stage1": "2058636e98ef4455af0f7ff3959434f7",
+  "uk_hybrid_gptoss_orchestrated#stage1": "0022c0af502645dd84f44f5a18f34ce3",
+  "uk_rrf_gptoss_orchestrated#stage1": "a1f4f7e45e564b00b176ac4120686591"
+}

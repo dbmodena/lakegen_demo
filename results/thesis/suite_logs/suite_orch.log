@@ -1,0 +1,86 @@
+[2026-09-27 09:30:58] 16 batch da eseguire, al massimo 8 insieme
+[2026-09-27 09:30:58] nyc_bm25_llama_orchestrated#stage1: inviato come 32e44c65752845cfaa62d98ffbdbedcd (100 domande)
+[2026-09-27 09:30:58] nyc_dense_llama_orchestrated#stage1: inviato come d6aa48f55eb74c65bd7002af998a3624 (100 domande)
+[2026-09-27 09:30:58] nyc_hybrid_llama_orchestrated#stage1: inviato come 8f8d172c1083497c9c46adccba7c6a7f (100 domande)
+[2026-09-27 09:30:58] nyc_rrf_llama_orchestrated#stage1: inviato come 7e05cad1b8284bdcbd7625399c8f4b78 (100 domande)
+[2026-09-27 09:30:58] uk_bm25_llama_orchestrated#stage1: inviato come f84a25550aa0455f918756aac4fd7f64 (100 domande)
+[2026-09-27 09:30:58] uk_dense_llama_orchestrated#stage1: inviato come 661c55beac484fbcb28d9d12d56863b6 (100 domande)
+[2026-09-27 09:30:58] uk_hybrid_llama_orchestrated#stage1: inviato come 03f15587f610433ea2cb9a75b3a58119 (100 domande)
+[2026-09-27 09:30:58] uk_rrf_llama_orchestrated#stage1: inviato come 5ab8a9a2786f417a92521bbb9871bcac (100 domande)
+[2026-09-27 09:30:58] in corso: nyc_bm25_llama_orchestrated#stage1, nyc_dense_llama_orchestrated#stage1, nyc_hybrid_llama_orchestrated#stage1, nyc_rrf_llama_orchestrated#stage1, uk_bm25_llama_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1, uk_rrf_llama_orchestrated#stage1; in coda: 8; completati: 0
+Traceback (most recent call last):
+  File "/home/gabriele.martinelli/LakeGen/lakegen_demo/scripts/run_thesis_suite.py", line 207, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/gabriele.martinelli/LakeGen/lakegen_demo/scripts/run_thesis_suite.py", line 198, in main
+    time.sleep(POLL_SECONDS)
+    ~~~~~~~~~~^^^^^^^^^^^^^^
+KeyboardInterrupt
+[2026-09-27 09:43:21] 16 batch da eseguire, al massimo 8 insieme
+[2026-09-27 09:43:21] nyc_bm25_llama_orchestrated#stage1: inviato come 358090193af24de4b9a3e2449175bd44 (100 domande)
+[2026-09-27 09:43:21] nyc_dense_llama_orchestrated#stage1: inviato come 8f5a0a365f2349b18f58fa9280a92f0d (100 domande)
+[2026-09-27 09:43:21] nyc_hybrid_llama_orchestrated#stage1: inviato come 92088f701a97472d93b4e4aea3794185 (100 domande)
+[2026-09-27 09:43:21] nyc_rrf_llama_orchestrated#stage1: inviato come 81cea53db630407baf9960a1c0681c28 (100 domande)
+[2026-09-27 09:43:21] uk_bm25_llama_orchestrated#stage1: inviato come f08102d4c5fb4ee99814415e7f2c28df (100 domande)
+[2026-09-27 09:43:21] uk_dense_llama_orchestrated#stage1: inviato come e18ee4abcce24d3ea5a5441e7d9254ed (100 domande)
+[2026-09-27 09:43:21] uk_hybrid_llama_orchestrated#stage1: inviato come fdb387b499ef457795e71ba45197c0ff (100 domande)
+[2026-09-27 09:43:21] uk_rrf_llama_orchestrated#stage1: inviato come 694fd75f0e644b0fa4198daca269c5af (100 domande)
+[2026-09-27 09:43:21] in corso: nyc_bm25_llama_orchestrated#stage1, nyc_dense_llama_orchestrated#stage1, nyc_hybrid_llama_orchestrated#stage1, nyc_rrf_llama_orchestrated#stage1, uk_bm25_llama_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1, uk_rrf_llama_orchestrated#stage1; in coda: 8; completati: 0
+Traceback (most recent call last):
+  File "/home/gabriele.martinelli/LakeGen/lakegen_demo/scripts/run_thesis_suite.py", line 207, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/gabriele.martinelli/LakeGen/lakegen_demo/scripts/run_thesis_suite.py", line 198, in main
+    time.sleep(POLL_SECONDS)
+    ~~~~~~~~~~^^^^^^^^^^^^^^
+KeyboardInterrupt
+[2026-09-27 10:06:33] 16 batch da eseguire, al massimo 8 insieme
+[2026-09-27 10:06:33] nyc_bm25_llama_orchestrated#stage1: inviato come a072598955384b6cbcc9ab08a17a431c (100 domande)
+[2026-09-27 10:06:33] nyc_dense_llama_orchestrated#stage1: inviato come 3f89d75538174833bccfb04bb507e92d (100 domande)
+[2026-09-27 10:06:33] nyc_hybrid_llama_orchestrated#stage1: inviato come 8f75bac8d6ed4f0084f9cbf853daf3e8 (100 domande)
+[2026-09-27 10:06:33] nyc_rrf_llama_orchestrated#stage1: inviato come 1220358954b946c7b6b9cd65e8acc2f9 (100 domande)
+[2026-09-27 10:06:33] uk_bm25_llama_orchestrated#stage1: inviato come 72c780fd797746e3a8a27511ddadba1f (100 domande)
+[2026-09-27 10:06:33] uk_dense_llama_orchestrated#stage1: inviato come c05e40218fb34fab8c8a29ea101a454e (100 domande)
+[2026-09-27 10:06:33] uk_hybrid_llama_orchestrated#stage1: inviato come 9ae4613c943247439d79b14b2cca31c3 (100 domande)
+[2026-09-27 10:06:33] uk_rrf_llama_orchestrated#stage1: inviato come 54ce6506380047a0a4ca992f290c39a0 (100 domande)
+[2026-09-27 10:06:33] in corso: nyc_bm25_llama_orchestrated#stage1, nyc_dense_llama_orchestrated#stage1, nyc_hybrid_llama_orchestrated#stage1, nyc_rrf_llama_orchestrated#stage1, uk_bm25_llama_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1, uk_rrf_llama_orchestrated#stage1; in coda: 8; completati: 0
+[2026-09-27 15:13:52] nyc_bm25_llama_orchestrated#stage1: completato (100/100, 38 domande con errore)
+[2026-09-27 15:13:52] nyc_bm25_gptoss_orchestrated#stage1: inviato come 26cd59bda70b4a6492541518c5eed377 (100 domande)
+[2026-09-27 15:13:52] in corso: nyc_bm25_gptoss_orchestrated#stage1, nyc_dense_llama_orchestrated#stage1, nyc_hybrid_llama_orchestrated#stage1, nyc_rrf_llama_orchestrated#stage1, uk_bm25_llama_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1, uk_rrf_llama_orchestrated#stage1; in coda: 7; completati: 1
+[2026-09-27 15:24:22] uk_bm25_llama_orchestrated#stage1: completato (100/100, 45 domande con errore)
+[2026-09-27 15:24:22] nyc_dense_gptoss_orchestrated#stage1: inviato come ed35b22deb7f46e1886d97a608df4678 (100 domande)
+[2026-09-27 15:24:22] in corso: nyc_bm25_gptoss_orchestrated#stage1, nyc_dense_gptoss_orchestrated#stage1, nyc_dense_llama_orchestrated#stage1, nyc_hybrid_llama_orchestrated#stage1, nyc_rrf_llama_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1, uk_rrf_llama_orchestrated#stage1; in coda: 6; completati: 2
+[2026-09-27 16:48:57] nyc_hybrid_llama_orchestrated#stage1: completato (100/100, 22 domande con errore)
+[2026-09-27 16:48:57] nyc_hybrid_gptoss_orchestrated#stage1: inviato come b4848f30c425436c98d6df7fb071d2d3 (100 domande)
+[2026-09-27 16:48:57] in corso: nyc_bm25_gptoss_orchestrated#stage1, nyc_dense_gptoss_orchestrated#stage1, nyc_dense_llama_orchestrated#stage1, nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_llama_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1, uk_rrf_llama_orchestrated#stage1; in coda: 5; completati: 3
+[2026-09-27 16:54:28] nyc_dense_llama_orchestrated#stage1: completato (100/100, 28 domande con errore)
+[2026-09-27 16:54:28] nyc_rrf_gptoss_orchestrated#stage1: inviato come a35adaf62d47493dab841966ec1f11a0 (100 domande)
+[2026-09-27 16:54:28] in corso: nyc_bm25_gptoss_orchestrated#stage1, nyc_dense_gptoss_orchestrated#stage1, nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_gptoss_orchestrated#stage1, nyc_rrf_llama_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1, uk_rrf_llama_orchestrated#stage1; in coda: 4; completati: 4
+[2026-09-27 17:05:28] uk_rrf_llama_orchestrated#stage1: completato (100/100, 22 domande con errore)
+[2026-09-27 17:05:28] uk_bm25_gptoss_orchestrated#stage1: inviato come 288c1944f81d43bead81bcba30c2a610 (100 domande)
+[2026-09-27 17:05:28] in corso: nyc_bm25_gptoss_orchestrated#stage1, nyc_dense_gptoss_orchestrated#stage1, nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_gptoss_orchestrated#stage1, nyc_rrf_llama_orchestrated#stage1, uk_bm25_gptoss_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1; in coda: 3; completati: 5
+[2026-09-27 17:12:59] nyc_rrf_llama_orchestrated#stage1: completato (100/100, 20 domande con errore)
+[2026-09-27 17:12:59] uk_dense_gptoss_orchestrated#stage1: inviato come 2058636e98ef4455af0f7ff3959434f7 (100 domande)
+[2026-09-27 17:12:59] in corso: nyc_bm25_gptoss_orchestrated#stage1, nyc_dense_gptoss_orchestrated#stage1, nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_gptoss_orchestrated#stage1, uk_bm25_gptoss_orchestrated#stage1, uk_dense_gptoss_orchestrated#stage1, uk_dense_llama_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1; in coda: 2; completati: 6
+[2026-09-27 17:27:00] uk_dense_llama_orchestrated#stage1: completato (100/100, 21 domande con errore)
+[2026-09-27 17:27:00] uk_hybrid_gptoss_orchestrated#stage1: inviato come 0022c0af502645dd84f44f5a18f34ce3 (100 domande)
+[2026-09-27 17:27:00] in corso: nyc_bm25_gptoss_orchestrated#stage1, nyc_dense_gptoss_orchestrated#stage1, nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_gptoss_orchestrated#stage1, uk_bm25_gptoss_orchestrated#stage1, uk_dense_gptoss_orchestrated#stage1, uk_hybrid_gptoss_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1; in coda: 1; completati: 7
+[2026-09-27 18:14:32] nyc_bm25_gptoss_orchestrated#stage1: completato (100/100, 30 domande con errore)
+[2026-09-27 18:14:32] uk_rrf_gptoss_orchestrated#stage1: inviato come a1f4f7e45e564b00b176ac4120686591 (100 domande)
+[2026-09-27 18:14:32] in corso: nyc_dense_gptoss_orchestrated#stage1, nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_gptoss_orchestrated#stage1, uk_bm25_gptoss_orchestrated#stage1, uk_dense_gptoss_orchestrated#stage1, uk_hybrid_gptoss_orchestrated#stage1, uk_hybrid_llama_orchestrated#stage1, uk_rrf_gptoss_orchestrated#stage1; in coda: 0; completati: 8
+[2026-09-27 19:11:06] uk_hybrid_llama_orchestrated#stage1: completato (100/100, 24 domande con errore)
+[2026-09-27 19:11:06] in corso: nyc_dense_gptoss_orchestrated#stage1, nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_gptoss_orchestrated#stage1, uk_bm25_gptoss_orchestrated#stage1, uk_dense_gptoss_orchestrated#stage1, uk_hybrid_gptoss_orchestrated#stage1, uk_rrf_gptoss_orchestrated#stage1; in coda: 0; completati: 9
+[2026-09-27 19:20:37] nyc_dense_gptoss_orchestrated#stage1: completato (100/100, 3 domande con errore)
+[2026-09-27 19:20:37] in corso: nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_gptoss_orchestrated#stage1, uk_bm25_gptoss_orchestrated#stage1, uk_dense_gptoss_orchestrated#stage1, uk_hybrid_gptoss_orchestrated#stage1, uk_rrf_gptoss_orchestrated#stage1; in coda: 0; completati: 10
+[2026-09-27 19:46:38] uk_bm25_gptoss_orchestrated#stage1: completato (100/100, 48 domande con errore)
+[2026-09-27 19:46:38] in corso: nyc_hybrid_gptoss_orchestrated#stage1, nyc_rrf_gptoss_orchestrated#stage1, uk_dense_gptoss_orchestrated#stage1, uk_hybrid_gptoss_orchestrated#stage1, uk_rrf_gptoss_orchestrated#stage1; in coda: 0; completati: 11
+[2026-09-27 20:46:10] nyc_rrf_gptoss_orchestrated#stage1: completato (100/100, 5 domande con errore)
+[2026-09-27 20:46:10] in corso: nyc_hybrid_gptoss_orchestrated#stage1, uk_dense_gptoss_orchestrated#stage1, uk_hybrid_gptoss_orchestrated#stage1, uk_rrf_gptoss_orchestrated#stage1; in coda: 0; completati: 12
+[2026-09-27 20:47:40] nyc_hybrid_gptoss_orchestrated#stage1: completato (100/100, 2 domande con errore)
+[2026-09-27 20:47:40] in corso: uk_dense_gptoss_orchestrated#stage1, uk_hybrid_gptoss_orchestrated#stage1, uk_rrf_gptoss_orchestrated#stage1; in coda: 0; completati: 13
+[2026-09-27 21:02:41] uk_dense_gptoss_orchestrated#stage1: completato (100/100, 20 domande con errore)
+[2026-09-27 21:02:41] in corso: uk_hybrid_gptoss_orchestrated#stage1, uk_rrf_gptoss_orchestrated#stage1; in coda: 0; completati: 14
+[2026-09-27 21:33:41] uk_hybrid_gptoss_orchestrated#stage1: completato (100/100, 14 domande con errore)
+[2026-09-27 21:33:41] in corso: uk_rrf_gptoss_orchestrated#stage1; in coda: 0; completati: 15
+[2026-09-27 22:13:12] uk_rrf_gptoss_orchestrated#stage1: completato (100/100, 12 domande con errore)
+[2026-09-27 22:13:12] Fine: 16 completati, 0 falliti
