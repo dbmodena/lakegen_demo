@@ -87,7 +87,7 @@ Per 4 configurazioni (migliore per modello e portale): metrica nella run
 originale e nella ripetizione, differenza in punti percentuali, quota di domande
 con lo stesso esito (`agreement`), domande corrette solo in una delle due run.
 
-### `logs/`
+### `suite_logs/`
 Log delle tre esecuzioni (`suite*.log`: invio e completamento dei batch) e file
 di stato con gli id dei job sul server.
 
