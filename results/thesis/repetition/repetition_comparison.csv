@@ -1,0 +1,17 @@
+config,metric,questions,original,repetition,difference_pp,agreement,only_original,only_repetition
+nyc_dense_gptoss_agentic,exact_selection,100,0.6,0.62,2.0,0.88,5,7
+nyc_dense_gptoss_agentic,exact_result_match,100,0.27,0.23,-4.0,0.86,9,5
+nyc_dense_gptoss_agentic,lenient_result_match,100,0.37,0.35,-2.0,0.9,6,4
+nyc_dense_gptoss_agentic,supported_correct,100,0.29,0.25,-4.0,0.88,8,4
+nyc_dense_llama_agentic,exact_selection,100,0.25,0.23,-2.0,0.9,6,4
+nyc_dense_llama_agentic,exact_result_match,100,0.21,0.25,4.0,0.96,0,4
+nyc_dense_llama_agentic,lenient_result_match,100,0.26,0.31,5.0,0.91,2,7
+nyc_dense_llama_agentic,supported_correct,100,0.21,0.25,4.0,0.96,0,4
+uk_bm25_gptoss_agentic,exact_selection,100,0.46,0.47,1.0,0.85,7,8
+uk_bm25_gptoss_agentic,exact_result_match,100,0.2,0.25,5.0,0.85,5,10
+uk_bm25_gptoss_agentic,lenient_result_match,100,0.35,0.36,1.0,0.81,9,10
+uk_bm25_gptoss_agentic,supported_correct,100,0.26,0.27,1.0,0.85,7,8
+uk_bm25_llama_agentic,exact_selection,100,0.38,0.38,0.0,0.96,2,2
+uk_bm25_llama_agentic,exact_result_match,100,0.19,0.17,-2.0,0.92,5,3
+uk_bm25_llama_agentic,lenient_result_match,100,0.26,0.23,-3.0,0.89,7,4
+uk_bm25_llama_agentic,supported_correct,100,0.21,0.19,-2.0,0.92,5,3

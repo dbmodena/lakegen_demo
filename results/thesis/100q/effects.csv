@@ -1,0 +1,141 @@
+core,factor,comparison,outcome,mean,ci_low,ci_high,questions
+nyc,retrieval,BM25,exact_selection,0.4325,0.36,0.5075,100
+nyc,retrieval,BM25,exact_result_match,0.1975,0.14,0.2575,100
+nyc,retrieval,BM25,lenient_result_match,0.27,0.2075,0.34,100
+nyc,retrieval,BM25,supported_correct,0.2025,0.145,0.2625,100
+nyc,retrieval,Denso,exact_selection,0.53,0.4575,0.6025,100
+nyc,retrieval,Denso,exact_result_match,0.26,0.195,0.3325,100
+nyc,retrieval,Denso,lenient_result_match,0.34,0.265,0.42,100
+nyc,retrieval,Denso,supported_correct,0.265,0.1975,0.3375,100
+nyc,retrieval,Ibrido,exact_selection,0.56,0.4875,0.6325,100
+nyc,retrieval,Ibrido,exact_result_match,0.2575,0.1925,0.3275,100
+nyc,retrieval,Ibrido,lenient_result_match,0.3525,0.2775,0.4325,100
+nyc,retrieval,Ibrido,supported_correct,0.2625,0.195,0.335,100
+nyc,retrieval,RRF,exact_selection,0.5375,0.4675,0.6075,100
+nyc,retrieval,RRF,exact_result_match,0.2525,0.1925,0.32,100
+nyc,retrieval,RRF,lenient_result_match,0.3675,0.295,0.445,100
+nyc,retrieval,RRF,supported_correct,0.255,0.195,0.3225,100
+nyc,retrieval,BM25 - Denso,exact_selection,-0.0975,-0.155,-0.035,100
+nyc,retrieval,BM25 - Denso,exact_result_match,-0.0625,-0.1075,-0.015,100
+nyc,retrieval,BM25 - Denso,lenient_result_match,-0.07,-0.12,-0.0175,100
+nyc,retrieval,BM25 - Denso,supported_correct,-0.0625,-0.11,-0.015,100
+nyc,retrieval,BM25 - Ibrido,exact_selection,-0.1275,-0.1775,-0.075,100
+nyc,retrieval,BM25 - Ibrido,exact_result_match,-0.06,-0.1025,-0.02,100
+nyc,retrieval,BM25 - Ibrido,lenient_result_match,-0.0825,-0.13,-0.0375,100
+nyc,retrieval,BM25 - Ibrido,supported_correct,-0.06,-0.1,-0.02,100
+nyc,retrieval,BM25 - RRF,exact_selection,-0.105,-0.1575,-0.05,100
+nyc,retrieval,BM25 - RRF,exact_result_match,-0.055,-0.095,-0.015,100
+nyc,retrieval,BM25 - RRF,lenient_result_match,-0.0975,-0.145,-0.0525,100
+nyc,retrieval,BM25 - RRF,supported_correct,-0.0525,-0.095,-0.0125,100
+nyc,retrieval,Denso - Ibrido,exact_selection,-0.03,-0.07,0.0075,100
+nyc,retrieval,Denso - Ibrido,exact_result_match,0.0025,-0.0325,0.035,100
+nyc,retrieval,Denso - Ibrido,lenient_result_match,-0.0125,-0.05,0.0225,100
+nyc,retrieval,Denso - Ibrido,supported_correct,0.0025,-0.0325,0.035,100
+nyc,retrieval,Denso - RRF,exact_selection,-0.0075,-0.045,0.0275,100
+nyc,retrieval,Denso - RRF,exact_result_match,0.0075,-0.0275,0.0425,100
+nyc,retrieval,Denso - RRF,lenient_result_match,-0.0275,-0.0625,0.005,100
+nyc,retrieval,Denso - RRF,supported_correct,0.01,-0.025,0.045,100
+nyc,retrieval,Ibrido - RRF,exact_selection,0.0225,-0.005,0.05,100
+nyc,retrieval,Ibrido - RRF,exact_result_match,0.005,-0.025,0.035,100
+nyc,retrieval,Ibrido - RRF,lenient_result_match,-0.015,-0.0475,0.0125,100
+nyc,retrieval,Ibrido - RRF,supported_correct,0.0075,-0.025,0.0375,100
+nyc,model,GPT-OSS 120B,exact_selection,0.61375,0.53625,0.685,100
+nyc,model,GPT-OSS 120B,exact_result_match,0.275,0.2075,0.3475,100
+nyc,model,GPT-OSS 120B,lenient_result_match,0.375,0.29875,0.45875,100
+nyc,model,GPT-OSS 120B,supported_correct,0.28,0.2125,0.355,100
+nyc,model,Llama 3.3 70B,exact_selection,0.41625,0.34875,0.48375,100
+nyc,model,Llama 3.3 70B,exact_result_match,0.20875,0.15,0.2725,100
+nyc,model,Llama 3.3 70B,lenient_result_match,0.29,0.22125,0.36125,100
+nyc,model,Llama 3.3 70B,supported_correct,0.2125,0.15375,0.275,100
+nyc,model,GPT-OSS 120B - Llama 3.3 70B,exact_selection,0.1975,0.14625,0.2425,100
+nyc,model,GPT-OSS 120B - Llama 3.3 70B,exact_result_match,0.06625,0.0125,0.12,100
+nyc,model,GPT-OSS 120B - Llama 3.3 70B,lenient_result_match,0.085,0.03125,0.14,100
+nyc,model,GPT-OSS 120B - Llama 3.3 70B,supported_correct,0.0675,0.01375,0.1225,100
+nyc,access,Agentica,exact_selection,0.41,0.345,0.475,100
+nyc,access,Agentica,exact_result_match,0.20125,0.1475,0.25625,100
+nyc,access,Agentica,lenient_result_match,0.28875,0.22375,0.3575,100
+nyc,access,Agentica,supported_correct,0.20875,0.1525,0.2675,100
+nyc,access,Orchestrata,exact_selection,0.62,0.54125,0.6975,100
+nyc,access,Orchestrata,exact_result_match,0.2825,0.215,0.3575,100
+nyc,access,Orchestrata,lenient_result_match,0.37625,0.2975,0.46,100
+nyc,access,Orchestrata,supported_correct,0.28375,0.21625,0.35875,100
+nyc,access,Agentica - Orchestrata,exact_selection,-0.21,-0.2675,-0.155,100
+nyc,access,Agentica - Orchestrata,exact_result_match,-0.08125,-0.1225,-0.0425,100
+nyc,access,Agentica - Orchestrata,lenient_result_match,-0.0875,-0.13375,-0.04375,100
+nyc,access,Agentica - Orchestrata,supported_correct,-0.075,-0.11625,-0.03375,100
+nyc,coder_context,full - schema_only,exact_result_match,0.009375,-0.010625,0.02875,100
+nyc,coder_context,full - schema_only,lenient_result_match,0.024375,-0.000625,0.049375,100
+nyc,coder_context,full - schema_only,supported_correct,0.01,-0.01125,0.03,100
+nyc,coder_context,full - minimal,exact_result_match,0.056875,0.03125,0.084375,100
+nyc,coder_context,full - minimal,lenient_result_match,0.084375,0.0525,0.118125,100
+nyc,coder_context,full - minimal,supported_correct,0.05625,0.03,0.08375,100
+uk,retrieval,BM25,exact_selection,0.345,0.2825,0.4125,100
+uk,retrieval,BM25,exact_result_match,0.155,0.105,0.21,100
+uk,retrieval,BM25,lenient_result_match,0.2625,0.2,0.3275,100
+uk,retrieval,BM25,supported_correct,0.185,0.13,0.2475,100
+uk,retrieval,Denso,exact_selection,0.3525,0.285,0.4225,100
+uk,retrieval,Denso,exact_result_match,0.185,0.13,0.245,100
+uk,retrieval,Denso,lenient_result_match,0.2925,0.2225,0.365,100
+uk,retrieval,Denso,supported_correct,0.2,0.1425,0.2675,100
+uk,retrieval,Ibrido,exact_selection,0.3875,0.32,0.4575,100
+uk,retrieval,Ibrido,exact_result_match,0.2,0.14,0.265,100
+uk,retrieval,Ibrido,lenient_result_match,0.3,0.2325,0.3725,100
+uk,retrieval,Ibrido,supported_correct,0.225,0.1625,0.2925,100
+uk,retrieval,RRF,exact_selection,0.39,0.3225,0.4575,100
+uk,retrieval,RRF,exact_result_match,0.1975,0.1425,0.2575,100
+uk,retrieval,RRF,lenient_result_match,0.315,0.245,0.3875,100
+uk,retrieval,RRF,supported_correct,0.22,0.16,0.2825,100
+uk,retrieval,BM25 - Denso,exact_selection,-0.0075,-0.0725,0.0575,100
+uk,retrieval,BM25 - Denso,exact_result_match,-0.03,-0.0775,0.0225,100
+uk,retrieval,BM25 - Denso,lenient_result_match,-0.03,-0.0875,0.0275,100
+uk,retrieval,BM25 - Denso,supported_correct,-0.015,-0.0675,0.0425,100
+uk,retrieval,BM25 - Ibrido,exact_selection,-0.0425,-0.1,0.0125,100
+uk,retrieval,BM25 - Ibrido,exact_result_match,-0.045,-0.0875,-0.005,100
+uk,retrieval,BM25 - Ibrido,lenient_result_match,-0.0375,-0.085,0.0125,100
+uk,retrieval,BM25 - Ibrido,supported_correct,-0.04,-0.085,0.005,100
+uk,retrieval,BM25 - RRF,exact_selection,-0.045,-0.095,0.0025,100
+uk,retrieval,BM25 - RRF,exact_result_match,-0.0425,-0.08,-0.0075,100
+uk,retrieval,BM25 - RRF,lenient_result_match,-0.0525,-0.0975,-0.01,100
+uk,retrieval,BM25 - RRF,supported_correct,-0.035,-0.075,0.0025,100
+uk,retrieval,Denso - Ibrido,exact_selection,-0.035,-0.08,0.0075,100
+uk,retrieval,Denso - Ibrido,exact_result_match,-0.015,-0.055,0.02,100
+uk,retrieval,Denso - Ibrido,lenient_result_match,-0.0075,-0.05,0.0325,100
+uk,retrieval,Denso - Ibrido,supported_correct,-0.025,-0.065,0.01,100
+uk,retrieval,Denso - RRF,exact_selection,-0.0375,-0.09,0.0125,100
+uk,retrieval,Denso - RRF,exact_result_match,-0.0125,-0.05,0.0225,100
+uk,retrieval,Denso - RRF,lenient_result_match,-0.0225,-0.0675,0.0175,100
+uk,retrieval,Denso - RRF,supported_correct,-0.02,-0.06,0.02,100
+uk,retrieval,Ibrido - RRF,exact_selection,-0.0025,-0.035,0.03,100
+uk,retrieval,Ibrido - RRF,exact_result_match,0.0025,-0.0275,0.035,100
+uk,retrieval,Ibrido - RRF,lenient_result_match,-0.015,-0.0525,0.025,100
+uk,retrieval,Ibrido - RRF,supported_correct,0.005,-0.0275,0.04,100
+uk,model,GPT-OSS 120B,exact_selection,0.44125,0.3725,0.51125,100
+uk,model,GPT-OSS 120B,exact_result_match,0.1825,0.12875,0.2425,100
+uk,model,GPT-OSS 120B,lenient_result_match,0.3325,0.26125,0.40375,100
+uk,model,GPT-OSS 120B,supported_correct,0.2225,0.165,0.2875,100
+uk,model,Llama 3.3 70B,exact_selection,0.29625,0.23875,0.355,100
+uk,model,Llama 3.3 70B,exact_result_match,0.18625,0.1325,0.2475,100
+uk,model,Llama 3.3 70B,lenient_result_match,0.2525,0.19,0.32125,100
+uk,model,Llama 3.3 70B,supported_correct,0.1925,0.13625,0.25625,100
+uk,model,GPT-OSS 120B - Llama 3.3 70B,exact_selection,0.145,0.0975,0.19125,100
+uk,model,GPT-OSS 120B - Llama 3.3 70B,exact_result_match,-0.00375,-0.05,0.0475,100
+uk,model,GPT-OSS 120B - Llama 3.3 70B,lenient_result_match,0.08,0.03,0.13375,100
+uk,model,GPT-OSS 120B - Llama 3.3 70B,supported_correct,0.03,-0.015,0.0775,100
+uk,access,Agentica,exact_selection,0.305,0.24875,0.36375,100
+uk,access,Agentica,exact_result_match,0.1675,0.11625,0.225,100
+uk,access,Agentica,lenient_result_match,0.2725,0.21,0.3375,100
+uk,access,Agentica,supported_correct,0.18875,0.1375,0.24875,100
+uk,access,Orchestrata,exact_selection,0.4325,0.3575,0.51125,100
+uk,access,Orchestrata,exact_result_match,0.20125,0.145,0.26,100
+uk,access,Orchestrata,lenient_result_match,0.3125,0.245,0.38125,100
+uk,access,Orchestrata,supported_correct,0.22625,0.16625,0.29,100
+uk,access,Agentica - Orchestrata,exact_selection,-0.1275,-0.1825,-0.0725,100
+uk,access,Agentica - Orchestrata,exact_result_match,-0.03375,-0.07125,0.00625,100
+uk,access,Agentica - Orchestrata,lenient_result_match,-0.04,-0.0825,0.005,100
+uk,access,Agentica - Orchestrata,supported_correct,-0.0375,-0.07625,0.0025,100
+uk,coder_context,full - schema_only,exact_result_match,0.0225,0.00125,0.041875,100
+uk,coder_context,full - schema_only,lenient_result_match,0.023125,0.0025,0.043125,100
+uk,coder_context,full - schema_only,supported_correct,0.030625,0.01125,0.04875,100
+uk,coder_context,full - minimal,exact_result_match,0.049375,0.025625,0.075625,100
+uk,coder_context,full - minimal,lenient_result_match,0.0575,0.03125,0.086875,100
+uk,coder_context,full - minimal,supported_correct,0.053125,0.030625,0.078125,100
