@@ -2998,11 +2998,15 @@ class Phase3ToolsManager:
             if field in group_fields:
                 continue
             numeric = [
-                float(row[field]) for row in value
+                row[field] for row in value
                 if field in row and isinstance(row[field], (int, float))
                 and not isinstance(row[field], bool)
             ]
-            if numeric and not any(math.isfinite(number) for number in numeric):
+            # An int is always finite; converting a huge one (an id, a code)
+            # to float would raise OverflowError and fail the whole question.
+            if numeric and not any(
+                isinstance(number, int) or math.isfinite(number) for number in numeric
+            ):
                 warnings.append(f"contract_result_all_non_finite: {field}")
 
         ordering = str(contract.get("ordering") or "none").casefold()
@@ -3022,7 +3026,8 @@ class Phase3ToolsManager:
                     numeric_candidates.append(field)
             if len(numeric_candidates) == 1:
                 field = numeric_candidates[0]
-                numbers = [float(row[field]) for row in value]
+                # Compared as they are: float() overflows on huge ints.
+                numbers = [row[field] for row in value]
                 descending = any(term in ordering for term in (
                     "desc", "highest", "largest", "most", "top"
                 ))
@@ -3077,7 +3082,9 @@ class Phase3ToolsManager:
         if "correlation" in operations:
             if not isinstance(candidate, (int, float)) or isinstance(candidate, bool):
                 warnings.append("final_contract_correlation_requires_one_numeric_value")
-            elif not math.isfinite(float(candidate)) or not -1.0 <= float(candidate) <= 1.0:
+            # NaN and ±inf fail the range check too; no float() so a huge
+            # int is reported as out of range instead of raising.
+            elif not -1.0 <= candidate <= 1.0:
                 warnings.append("final_contract_correlation_out_of_range")
 
         if "geographic_center" in operations:
@@ -3086,7 +3093,7 @@ class Phase3ToolsManager:
                 warnings.append("final_contract_geographic_center_requires_coordinate_pair")
             else:
                 numeric = {
-                    str(key).casefold(): float(item)
+                    str(key).casefold(): item
                     for key, item in row.items()
                     if isinstance(item, (int, float)) and not isinstance(item, bool)
                 }

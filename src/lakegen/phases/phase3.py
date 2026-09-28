@@ -81,6 +81,23 @@ _ERROR_PATTERNS = [
 ]
 
 
+# Address-space cap for each generated script. A many-to-many join the guard
+# below misses can otherwise grow until the kernel OOM-kills it, starving the
+# shared host (and any concurrent question) first. Over the cap the script
+# gets a MemoryError instead. 12 GB is ~10x what the largest lake table needs.
+_CODE_MEMORY_LIMIT_BYTES = int(
+    float(os.environ.get("LAKEGEN_CODE_MEMORY_LIMIT_GB", "12")) * (1 << 30)
+)
+
+
+def _limit_generated_code_memory() -> None:
+    import resource
+
+    resource.setrlimit(
+        resource.RLIMIT_AS, (_CODE_MEMORY_LIMIT_BYTES, _CODE_MEMORY_LIMIT_BYTES)
+    )
+
+
 # Prepended to every executed script. It never runs user code, only wraps
 # pandas' merge entry points so a many-to-many join on non-unique keys (the
 # "massive Cartesian product" failure mode already banned for geo joins in
@@ -326,6 +343,7 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
             capture_output=True,
             text=True,
             timeout=180, # Increased from 15s to 180s to allow TabPFN to run and download weights
+            preexec_fn=_limit_generated_code_memory,
         )
         if result.returncode == 0:
             stdout_lower = result.stdout.lower()

@@ -215,7 +215,7 @@ def test_agent_facing_context_has_one_mode_neutral_schema_and_telemetry_keeps_si
             "position", "dataset", "metadata"
         }
         assert set(agent_payload["candidates"][0]["metadata"]) == {
-            "title", "description", "tags", "columns"
+            "title", "publisher", "description", "tags", "columns"
         }
         serialized_agent = context.agent_json()
         for hidden in (

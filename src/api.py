@@ -61,7 +61,12 @@ DEFAULT_CORE = SOLR_CORE_OPTIONS[0]
 MAX_BATCH_QUESTIONS = 10_000
 MAX_CONFIG_UPLOAD_BYTES = 1_000_000
 MAX_QUESTIONS_UPLOAD_BYTES = 25_000_000
-JOB_DIR = BASE_DIR / ".lakegen_jobs"
+# A second API instance needs its own job directory: at startup an API resumes
+# every queued/running job it finds there, so two instances sharing one would
+# both run the same batches.
+JOB_DIR = Path(os.environ.get("LAKEGEN_JOB_DIR") or BASE_DIR / ".lakegen_jobs")
+if not JOB_DIR.is_absolute():
+    JOB_DIR = BASE_DIR / JOB_DIR
 BENCHMARK_DIR = BASE_DIR / "benchmark"
 # Use Uvicorn's configured application logger so batch progress is visible in
 # the same terminal as the HTTP access log when the API is run with Uvicorn.

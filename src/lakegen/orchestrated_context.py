@@ -71,6 +71,10 @@ class PreparedDiscoveryContext(BaseModel):
                 "dataset": item.dataset,
                 "metadata": {
                     "title": metadata.get("title", ""),
+                    # The agentic search results show the publisher too; without
+                    # it a resource titled "2019-20" cannot be told apart from
+                    # the same file of another council.
+                    "publisher": metadata.get("publisher", ""),
                     "description": metadata.get("description", ""),
                     "tags": list(metadata.get("tags", []) or []),
                     "columns": columns,

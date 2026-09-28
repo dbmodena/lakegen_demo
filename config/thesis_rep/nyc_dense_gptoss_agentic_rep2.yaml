@@ -1,6 +1,6 @@
 # Free-form experiment identifier. It is stored in manifests and logs so runs
 # can be distinguished and reproduced. It must not be empty.
-experiment_id: nyc_bm25_gptoss_agentic
+experiment_id: nyc_dense_gptoss_agentic_rep2
 
 # Experiment seed (integer >= 0), recorded to make runs comparable.
 seed: 0
@@ -69,7 +69,7 @@ retrieval:
   #   - hybrid_duckdb_semantic (shown as "hybrid (duckdb + semantic)"): fuses
   #     the duckdb_agentic ranking with semantic KNN by fusion_method (alpha =
   #     DuckDB weight when weighted); needs the local Parquet.
-  mode: keyword
+  mode: semantic
 
   # Ranked retrieval pool size. The selector initially sees 10 and can reveal
   # the rest adaptively in blocks of 5. Must be > 0.

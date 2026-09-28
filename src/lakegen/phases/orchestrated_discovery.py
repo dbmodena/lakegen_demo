@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from llama_index.core import Settings
@@ -112,8 +113,17 @@ def parse_orchestrated_selection(
     if not isinstance(payload["reasoning"], str):
         raise OrchestratedSelectorError("FINAL_PAYLOAD 'reasoning' must be a string")
     allowed = set(candidates)
+    # Llama writes candidate names without their file extension
+    # ("abc___def" for "abc___def.parquet"). Map an extension-less name to its
+    # candidate when exactly one candidate has that stem; unknown names are
+    # still dropped, so nothing outside the candidate list can be selected.
+    by_stem: dict[str, list[str]] = {}
+    for candidate in candidates:
+        by_stem.setdefault(Path(candidate).stem, []).append(candidate)
     selected = []
     for name in table_names:
+        if name not in allowed and len(by_stem.get(name, [])) == 1:
+            name = by_stem[name][0]
         if name and name in allowed and name not in selected:
             selected.append(name)
     return selected, payload["reasoning"].strip()

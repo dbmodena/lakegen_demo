@@ -183,7 +183,7 @@ benchmark:
   # curated case file (benchmark/100q_nyc.json) or a generated-queries file
   # (generated_queries_semantic.json), whose successful queries all become
   # cases. The interactive and batch workflows ignore it. null = no default.
-  path: benchmark/500q_nyc.json
+  path: benchmark/381q_nyc.json
 
 # Automatic reviewers for the different phases. Every field is boolean, but
 # only false is currently supported; validation rejects any enabled reviewer.

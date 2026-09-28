@@ -1,13 +1,13 @@
 # Free-form experiment identifier. It is stored in manifests and logs so runs
 # can be distinguished and reproduced. It must not be empty.
-experiment_id: nyc_bm25_gptoss_agentic
+experiment_id: uk_bm25_gptoss_agentic_rep2
 
 # Experiment seed (integer >= 0), recorded to make runs comparable.
 seed: 0
 
 # Solr core, i.e. the dataset portal to query.
 # Supported alternatives: nyc | uk
-core: nyc
+core: uk
 
 # LLM used during discovery, code generation, and answer generation.
 # Supported alternatives:
@@ -183,7 +183,7 @@ benchmark:
   # curated case file (benchmark/100q_nyc.json) or a generated-queries file
   # (generated_queries_semantic.json), whose successful queries all become
   # cases. The interactive and batch workflows ignore it. null = no default.
-  path: benchmark/381q_nyc.json
+  path: benchmark/414q_uk.json
 
 # Automatic reviewers for the different phases. Every field is boolean, but
 # only false is currently supported; validation rejects any enabled reviewer.

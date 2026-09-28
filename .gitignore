@@ -39,6 +39,7 @@ scripts/*
 # This is a supported operational client, rather than a machine-local helper.
 !scripts/submit_parallel_batches.py
 !scripts/run_thesis_suite.py
+!scripts/thesis_progress.py
 
 # Pneuma local runtime, virtual environment, and generated indexes.
 .pneuma/
@@ -88,3 +89,5 @@ scripts/monitor_jobs.sh
 memory/
 .lakegen_jobs_failed_*/
 .lakegen_jobs_aborted_*/
+.lakegen_jobs_orch/
+.lakegen_jobs_rep/

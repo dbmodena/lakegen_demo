@@ -58,7 +58,7 @@ OUTCOMES = (
 RUN_METRICS = ("Recall@10", "Hit@5", "MRR")
 
 
-def find_runs(jobs_dir: Path, experiment_ids: Iterable[str]) -> dict[str, list[Path]]:
+def find_runs(jobs_dirs: Iterable[Path], experiment_ids: Iterable[str]) -> dict[str, list[Path]]:
     """Every completed job of each wanted experiment id, oldest first.
 
     A configuration run in stages (scripts/run_thesis_suite.py) has one job per
@@ -68,7 +68,7 @@ def find_runs(jobs_dir: Path, experiment_ids: Iterable[str]) -> dict[str, list[P
 
     wanted = set(experiment_ids)
     found: dict[str, list[tuple[str, Path]]] = {}
-    for path in jobs_dir.glob("*.json"):
+    for path in (path for jobs_dir in jobs_dirs for path in jobs_dir.glob("*.json")):
         if path.name.endswith(".questions.json"):
             continue
         try:
@@ -367,9 +367,12 @@ def benchmark_scopes(config_path: Path) -> list[tuple[str, set[str]]]:
     ids = [str(case["id"]) for case in benchmark.get("cases", [])]
     stages = benchmark.get("sample_metadata", {}).get("stages") or [len(ids)]
     scopes, end = [], 0
-    for size in stages:
+    for number, size in enumerate(stages, start=1):
         end += size
-        scopes.append((f"{end}q", set(ids[:end])))
+        # The last stage is the whole benchmark: "full" groups both cores even
+        # when their benchmarks differ in size.
+        name = "full" if number == len(stages) and number > 1 else f"{end}q"
+        scopes.append((name, set(ids[:end])))
     return scopes
 
 
@@ -418,7 +421,9 @@ def write_report(
     runs: dict[str, dict[str, Any]] = {}
     incomplete: list[str] = []
     for experiment_id, (run_rows, jobs) in sorted(loaded.items()):
-        wanted = scope.get(experiment_id)
+        if experiment_id not in scope:
+            continue
+        wanted = scope[experiment_id]
         kept = [row for row in run_rows if wanted is None or str(row["question_id"]) in wanted]
         if not kept:
             continue
@@ -499,7 +504,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-dir", type=Path, default=Path("config/thesis"),
                         help="Cartella dei config; il nome di ogni file è l'experiment_id")
-    parser.add_argument("--jobs-dir", type=Path, default=Path(".lakegen_jobs"))
+    parser.add_argument("--jobs-dir", type=Path, nargs="+",
+                        default=[Path(".lakegen_jobs"), Path(".lakegen_jobs_orch"), Path(".lakegen_jobs_rep")],
+                        help="Cartelle dei job (una per istanza API)")
     parser.add_argument("--output", type=Path, default=Path("reports/thesis"))
     parser.add_argument("--bootstrap", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=0)
