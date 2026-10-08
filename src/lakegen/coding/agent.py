@@ -315,7 +315,6 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
     fp = coding_dir / "script.py"
     fp.write_text(_CARTESIAN_GUARD_PREAMBLE + "\n\n" + code, encoding="utf-8")
 
-    workflow_exhausted = False
     try:
         result = subprocess.run(
             [sys.executable, str(fp)],

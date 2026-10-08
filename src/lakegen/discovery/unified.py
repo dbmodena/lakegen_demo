@@ -157,7 +157,7 @@ def _conservative_draft_from_requirements(
             return None
         grouping.append([column, column])
     measures: list[list[object]] = []
-    for index, raw in enumerate(
+    for raw in (
         requirements.get("measures", []) if isinstance(requirements.get("measures"), list) else []
     ):
         text = str(raw).strip()

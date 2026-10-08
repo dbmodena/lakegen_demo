@@ -143,9 +143,6 @@ class PlanGroundingMixin:
     def _plan_completion_policy(self) -> dict[str, Any]:
         """Describe what the coder may complete without weakening grounded evidence."""
         brief = self.selection_plan.get("coder_brief") or {}
-        dimensions = brief.get("dimensions", [])
-        task = brief.get("task") if isinstance(brief.get("task"), dict) else {}
-        grouping = [*dimensions, *task.get("grouping", [])]
         question = self.question.casefold()
         obligations = [
             "Compare the complete question with the brief before writing code and add "

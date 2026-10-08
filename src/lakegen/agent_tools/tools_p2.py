@@ -433,7 +433,7 @@ def _check_join_union(table_dir: Path, file_name_1: str, file_name_2: str) -> st
 
 _EXPANSION_STOPWORDS = {
     "a", "an", "and", "by", "for", "from", "in", "of", "or", "the", "to",
-    "con", "da", "del", "della", "di", "e", "il", "in", "la", "per", "un",
+    "con", "da", "del", "della", "di", "e", "il", "la", "per", "un",
     "una",
 }
 

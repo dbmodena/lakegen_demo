@@ -135,17 +135,6 @@ def read_profile(path: str | Path) -> TableProfile | None:
         return None
 
 
-def detect_csv_separator(path: str | Path) -> str:
-    try:
-        with Path(path).open("r", encoding="utf-8", errors="ignore") as csv_file:
-            first_line = csv_file.readline()
-        if first_line.count(";") > first_line.count(","):
-            return ";"
-    except OSError:
-        pass
-    return ","
-
-
 def read_table_sample(
     path: str | Path,
     max_rows: int,
