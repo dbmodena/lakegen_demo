@@ -22,13 +22,11 @@ import chainlit as cl
 # The phases, resources and sinks the engine calls (PipelineDeps.from_module
 # reads them from this module when a run starts).
 from lakegen.core.logger import save_experiment_log  # noqa: F401
-from lakegen.core.resources import (  # noqa: F401
-    get_all_table_files,
-    get_llm,
-    get_prompt_manager,
-    get_solr,
-    log_retrieval_decision,
-)
+from lakegen.lakes import get_all_table_files  # noqa: F401
+from lakegen.llm import get_llm  # noqa: F401
+from lakegen.prompts import get_prompt_manager  # noqa: F401
+from lakegen.retrieval.factory import get_solr  # noqa: F401
+from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
 from lakegen.interfaces.chainlit.driver import ChainlitDriver
 from lakegen.manifest import persist_manifest  # noqa: F401
 from lakegen.orchestrated_context import prepare_discovery_context  # noqa: F401

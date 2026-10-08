@@ -64,10 +64,12 @@ def pytest_unconfigure(config: pytest.Config) -> None:
 @pytest.fixture(autouse=True)
 def _hermetic_state(tmp_path, monkeypatch):
     monkeypatch.setenv("LAKEGEN_STATE_DIR", str(tmp_path / "state"))
-    resources = sys.modules.get("lakegen.core.resources")
-    if resources is not None:
-        resources.get_solr.cache_clear()
-        resources.get_retrieval_run_logger.cache_clear()
+    factory = sys.modules.get("lakegen.retrieval.factory")
+    if factory is not None:
+        factory.get_solr.cache_clear()
+    run_log = sys.modules.get("lakegen.retrieval.run_log")
+    if run_log is not None:
+        run_log.get_retrieval_run_logger.cache_clear()
     groq = sys.modules.get("lakegen.core.groq_offload")
     if groq is not None:
         monkeypatch.setattr(groq, "_offload", None)

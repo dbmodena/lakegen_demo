@@ -23,7 +23,6 @@ from typing import Any
 from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.core import paths
 from lakegen.core.config import BASE_DIR
-from lakegen.core.resources import capture_retrieval_runs, make_retrieval_run_observer
 from lakegen.domain.evaluation import EvaluationContext
 from lakegen.errors import WorkflowCancelled, WorkflowTimedOut
 from lakegen.experiment_config import DiscoveryArchitecture
@@ -71,6 +70,7 @@ from lakegen.pipeline.stages import (
 )
 from lakegen.pipeline.state import RunState
 from lakegen.reproducibility import initialize_reproducibility
+from lakegen.retrieval.run_log import capture_retrieval_runs, make_retrieval_run_observer
 from lakegen.service_models import QueryResult
 
 logger = logging.getLogger(__name__)

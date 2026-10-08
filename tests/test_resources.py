@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from lakegen.core import resources
+from lakegen.retrieval import factory as retrieval_factory
+from lakegen.retrieval import run_log
 from lakegen.core.token_usage import extract_total_tokens
 from lakegen.llm import factory, tool_calls
 from lakegen.llm.providers import oci as oci_llm
@@ -68,32 +69,32 @@ def test_oci_runtime_config_requires_compartment(monkeypatch, tmp_path):
 
 
 def test_get_solr_honors_configurable_base_url(monkeypatch):
-    resources.get_solr.cache_clear()
+    retrieval_factory.get_solr.cache_clear()
     monkeypatch.setenv("SOLR_BASE_URL", "http://127.0.0.1:8993/solr")
 
-    client = resources.get_solr("nyc")
+    client = retrieval_factory.get_solr("nyc")
 
     assert client.base_url == "http://127.0.0.1:8993/solr"
-    resources.get_solr.cache_clear()
+    retrieval_factory.get_solr.cache_clear()
 
 
 def test_get_solr_serves_a_portal_from_the_configured_core(monkeypatch):
-    resources.get_solr.cache_clear()
+    retrieval_factory.get_solr.cache_clear()
     monkeypatch.setenv("LAKEGEN_SOLR_CORE_UK", "uk_fixed")
 
-    assert resources.get_solr("uk").core == "uk_fixed"
-    assert resources.get_solr("nyc").core == "nyc"
-    resources.get_solr.cache_clear()
+    assert retrieval_factory.get_solr("uk").core == "uk_fixed"
+    assert retrieval_factory.get_solr("nyc").core == "nyc"
+    retrieval_factory.get_solr.cache_clear()
 
 
 def test_get_solr_uses_the_portal_name_without_an_override(monkeypatch):
-    resources.get_solr.cache_clear()
+    retrieval_factory.get_solr.cache_clear()
     monkeypatch.delenv("LAKEGEN_SOLR_CORE_UK", raising=False)
     monkeypatch.setenv("LAKEGEN_SOLR_CORE_NYC", "  ")
 
-    assert resources.get_solr("uk").core == "uk"
-    assert resources.get_solr("nyc").core == "nyc"
-    resources.get_solr.cache_clear()
+    assert retrieval_factory.get_solr("uk").core == "uk"
+    assert retrieval_factory.get_solr("nyc").core == "nyc"
+    retrieval_factory.get_solr.cache_clear()
 
 
 def test_get_llm_builds_oci_client(monkeypatch):
@@ -280,12 +281,12 @@ def test_retrieval_runs_are_logged_and_captured_for_the_api_csv(monkeypatch):
                 }
             }
 
-    monkeypatch.setattr(resources, "get_retrieval_run_logger", lambda: persisted.append)
-    service = resources.get_table_retrieval_service(
+    monkeypatch.setattr(run_log, "get_retrieval_run_logger", lambda: persisted.append)
+    service = retrieval_factory.get_table_retrieval_service(
         FakeSolr(), RetrievalConfig(mode=RetrievalMode.KEYWORD)
     )
 
-    with resources.capture_retrieval_runs(
+    with run_log.capture_retrieval_runs(
         {"JOB_ID": "job-1", "SOURCE_PATH": "$.questions[0]", "SOURCE_ID": 7}
     ) as captured:
         service.retrieve(question="Where are the parks?", keywords=["parks"])

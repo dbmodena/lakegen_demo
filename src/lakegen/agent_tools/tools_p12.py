@@ -34,7 +34,7 @@ from lakegen.agent_tools.requirement_ledger import (
 )
 from lakegen.retrieval.solr_client import LocalSolrClient
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc, format_candidate_context
-from lakegen.core.resources import get_table_retrieval_service
+from lakegen.retrieval.factory import get_table_retrieval_service
 from lakegen.core.table_io import read_table
 from lakegen.retrieval import (
     EmbeddingGenerationError,

@@ -14,7 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from lakegen.core.resources import get_table_retrieval_service
+from lakegen.retrieval.factory import get_table_retrieval_service
 from lakegen.core.types import SolrMetadata
 from lakegen.phases.utils import match_local_csv, solr_metadata_from_doc
 from lakegen.retrieval import RetrievalConfig

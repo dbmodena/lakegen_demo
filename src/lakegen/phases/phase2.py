@@ -40,7 +40,7 @@ from lakegen.phases.utils import (
     parse_table_selector_response,
     solr_metadata_from_doc,
 )
-from lakegen.core.resources import get_table_retrieval_service
+from lakegen.retrieval.factory import get_table_retrieval_service
 from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector
 from lakegen.experiment_config import DiscoveryConfig

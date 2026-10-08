@@ -2288,7 +2288,7 @@ def test_context_management_off_reproduces_the_previous_behaviour(monkeypatch, t
 
 
 def test_unified_prompt_mentions_the_state_board_only_when_it_is_on():
-    from lakegen.core.resources import get_prompt_manager
+    from lakegen.prompts import get_prompt_manager
 
     def render(**flags):
         return get_prompt_manager().render(

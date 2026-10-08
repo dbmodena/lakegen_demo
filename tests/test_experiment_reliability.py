@@ -126,7 +126,7 @@ def test_agentic_retrieval_telemetry_keeps_hits_scores_and_job_context(
     _mock_successful_tail(monkeypatch)
     persisted_runs = []
     monkeypatch.setattr(
-        "lakegen.core.resources.get_retrieval_run_logger",
+        "lakegen.retrieval.run_log.get_retrieval_run_logger",
         lambda: persisted_runs.append,
     )
 
