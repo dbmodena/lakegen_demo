@@ -21,6 +21,7 @@ from lakegen.config.registry import ModelSpec, get_model, models_by_provider
 from lakegen.config.settings import Settings, get_settings
 from lakegen.core import groq_offload
 from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
+from lakegen.llm.providers import register
 from lakegen.llm.tool_calls import (
     STREAM_END,
     finalized_stream_tool_calls,
@@ -298,21 +299,25 @@ def oci_runtime_config() -> tuple[Path, str, str, str]:
     return config_file, profile, compartment_id, service_endpoint
 
 
-def build(spec: ModelSpec, settings: Settings, callback_manager: CallbackManager) -> OCIGenAILLM:
-    """The OCI client of ``spec``; the account comes from the OCI config file, not from ``settings``."""
-    config_file, profile, compartment_id, service_endpoint = oci_runtime_config()
-    model_kwargs = {}
-    if spec.context_window:
-        model_kwargs["context_size"] = spec.context_window
-    return OCIGenAILLM(
-        model=spec.provider_model,
-        compartment_id=compartment_id,
-        service_endpoint=service_endpoint,
-        auth_type="API_KEY",
-        auth_profile=profile,
-        auth_file_location=str(config_file),
-        temperature=spec.temperature,
-        max_tokens=spec.max_output_tokens,
-        callback_manager=callback_manager,
-        **model_kwargs,
-    )
+@register("oci")
+class OCIProvider:
+    name = "oci"
+
+    def build(self, spec: ModelSpec, settings: Settings, callback_manager: CallbackManager) -> OCIGenAILLM:
+        """The OCI client of ``spec``; the account comes from the OCI config file, not from ``settings``."""
+        config_file, profile, compartment_id, service_endpoint = oci_runtime_config()
+        model_kwargs = {}
+        if spec.context_window:
+            model_kwargs["context_size"] = spec.context_window
+        return OCIGenAILLM(
+            model=spec.provider_model,
+            compartment_id=compartment_id,
+            service_endpoint=service_endpoint,
+            auth_type="API_KEY",
+            auth_profile=profile,
+            auth_file_location=str(config_file),
+            temperature=spec.temperature,
+            max_tokens=spec.max_output_tokens,
+            callback_manager=callback_manager,
+            **model_kwargs,
+        )

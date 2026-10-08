@@ -9,6 +9,7 @@ from llama_index.llms.openai_like import OpenAILike
 from lakegen.config.registry import ModelSpec, get_model, models_by_provider
 from lakegen.config.settings import Settings
 from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
+from lakegen.llm.providers import register
 
 OLLAMA_MODELS = models_by_provider("ollama")
 OLLAMA_CONTEXT_SIZE = get_model("ollama.gpt-oss-20b").context_window
@@ -74,17 +75,21 @@ class OllamaLLM(OpenAILike):
         return generate()
 
 
-def build(spec: ModelSpec, settings: Settings, callback_manager: CallbackManager) -> OllamaLLM:
-    base_url = settings.ollama_base_url
-    return OllamaLLM(
-        model=spec.provider_model,
-        api_base=f"{base_url.rstrip('/')}/v1",
-        api_key="ollama",
-        context_window=spec.context_window,
-        is_chat_model=True,
-        is_function_calling_model=True,
-        temperature=spec.temperature,
-        max_tokens=spec.max_output_tokens,
-        timeout=spec.timeout_seconds,
-        callback_manager=callback_manager,
-    )
+@register("ollama")
+class OllamaProvider:
+    name = "ollama"
+
+    def build(self, spec: ModelSpec, settings: Settings, callback_manager: CallbackManager) -> OllamaLLM:
+        base_url = settings.ollama_base_url
+        return OllamaLLM(
+            model=spec.provider_model,
+            api_base=f"{base_url.rstrip('/')}/v1",
+            api_key="ollama",
+            context_window=spec.context_window,
+            is_chat_model=True,
+            is_function_calling_model=True,
+            temperature=spec.temperature,
+            max_tokens=spec.max_output_tokens,
+            timeout=spec.timeout_seconds,
+            callback_manager=callback_manager,
+        )

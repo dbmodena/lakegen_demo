@@ -9,7 +9,7 @@ from llama_index.core.llms import LLM
 
 from lakegen.config.registry import ModelSpec, get_model
 from lakegen.config.settings import get_settings
-from lakegen.llm.providers import oci, ollama, together
+from lakegen.llm.providers import build_llm
 
 
 def spec_for(model: str) -> ModelSpec:
@@ -34,10 +34,4 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
     Settings.callback_manager = CallbackManager([token_counter])
     env = get_settings()
     spec = spec_for(model)
-    if spec.provider == "ollama":
-        llm = ollama.build(spec, env, Settings.callback_manager)
-    elif spec.provider == "together":
-        llm = together.build(spec, env, Settings.callback_manager)
-    else:
-        llm = oci.build(spec, env, Settings.callback_manager)
-    return llm, token_counter
+    return build_llm(spec, env, Settings.callback_manager), token_counter

@@ -15,6 +15,7 @@ from llama_index.core.callbacks import CallbackManager
 
 from lakegen.config.registry import ModelSpec, models_by_provider
 from lakegen.config.settings import Settings, get_settings
+from lakegen.llm.providers import register
 from lakegen.llm.providers.ollama import OllamaLLM
 from lakegen.llm.tool_calls import STREAM_END, keep_first_tool_call, recover_leaked_tool_call
 
@@ -227,23 +228,27 @@ class TogetherLLM(OllamaLLM):
         return generate()
 
 
-def build(spec: ModelSpec, settings: Settings, callback_manager: CallbackManager) -> TogetherLLM:
-    api_key = settings.together_api_key
-    if not api_key:
-        raise RuntimeError(f"{spec.name} needs a Together AI key: set TOGETHERAI_API_KEY")
-    return TogetherLLM(
-        model=spec.provider_model,
-        api_base=settings.together_base_url,
-        api_key=api_key,
-        context_window=spec.context_window,
-        is_chat_model=True,
-        is_function_calling_model=True,
-        # LakeGen's 0.1 by default; Together recommends 1.0 for reasoning models.
-        temperature=settings.together_temperature,
-        max_tokens=spec.max_output_tokens,
-        timeout=spec.timeout_seconds,
-        max_retries=0,  # TogetherLLM retries as Together asks
-        # Streams then end with a usage chunk, which the token accounting reads.
-        additional_kwargs={"stream_options": {"include_usage": True}},
-        callback_manager=callback_manager,
-    )
+@register("together")
+class TogetherProvider:
+    name = "together"
+
+    def build(self, spec: ModelSpec, settings: Settings, callback_manager: CallbackManager) -> TogetherLLM:
+        api_key = settings.together_api_key
+        if not api_key:
+            raise RuntimeError(f"{spec.name} needs a Together AI key: set TOGETHERAI_API_KEY")
+        return TogetherLLM(
+            model=spec.provider_model,
+            api_base=settings.together_base_url,
+            api_key=api_key,
+            context_window=spec.context_window,
+            is_chat_model=True,
+            is_function_calling_model=True,
+            # LakeGen's 0.1 by default; Together recommends 1.0 for reasoning models.
+            temperature=settings.together_temperature,
+            max_tokens=spec.max_output_tokens,
+            timeout=spec.timeout_seconds,
+            max_retries=0,  # TogetherLLM retries as Together asks
+            # Streams then end with a usage chunk, which the token accounting reads.
+            additional_kwargs={"stream_options": {"include_usage": True}},
+            callback_manager=callback_manager,
+        )

@@ -26,7 +26,6 @@ from lakegen.core import config as core_config
 
 CONFIG_DIR = core_config.BASE_DIR / "config"
 TABLE_SUFFIXES = {".parquet", ".pq", ".csv"}
-PROVIDERS = ("oci", "ollama", "together")
 
 
 @dataclass(frozen=True)
@@ -173,8 +172,6 @@ def models() -> tuple[ModelSpec, ...]:
     found = []
     for name, entry in document["models"].items():
         entry = {**defaults, **(entry or {})}
-        if entry["provider"] not in PROVIDERS:
-            raise ValueError(f"model {name!r}: unknown provider {entry['provider']!r}; known: {', '.join(PROVIDERS)}")
         found.append(ModelSpec(
             name=name,
             provider=entry["provider"],
