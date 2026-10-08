@@ -254,6 +254,225 @@ def select_from_prepared_context(
     return selected, reasoning, jev_fallback_note + "--- Divided Orchestrated Selector ---\n" + stream, tokens
 
 
+TURN_1_HEADER = "--- Unified Orchestrated Turn 1 ---\n"
+TURN_2_HEADER = "\n--- Unified Orchestrated Turn 2 ---\n"
+AGENT_NAME = "unified_orchestrated_discovery"
+
+
+class _UnifiedOrchestratedRun:
+    """Two turns of one tool-free agent: the retrieval intent, then the selection from the prepared context."""
+
+    def __init__(
+        self, *, query: str, llm: LLM, solr_client, all_files: list[str], retrieval_config: RetrievalConfig,
+        hint: str, stream_callback: StreamCallback | None, cancel_check, table_dir, portal_name: str,
+        retrieval_memory: str, failed_keyword_combinations: list[frozenset[str]] | None,
+        max_zero_result_retries: int, memory_enabled: bool,
+    ) -> None:
+        self.query, self.llm, self.solr_client, self.all_files = query, llm, solr_client, all_files
+        self.retrieval_config, self.stream_callback, self.cancel_check = retrieval_config, stream_callback, cancel_check
+        self.table_dir, self.max_zero_result_retries, self.memory_enabled = table_dir, max_zero_result_retries, memory_enabled
+        self.value_search = retrieval_config.mode.value_keywords
+        self.lexical_mode = retrieval_config.mode.value in {"keyword", "hybrid"}
+        pm = PromptManager()
+        self.system = pm.render(
+            "retrieval_intent", "system_prompt", value_search=self.value_search,
+            verbatim_entities=retrieval_config.mode.verbatim_entities,
+        )
+        self.first_user = pm.render(
+            "retrieval_intent", "user_prompt", question=query,
+            catalog=portal_name, schema="not supplied", hint=hint,
+            retrieval_memory=retrieval_memory,
+        )
+        self.hard_bans = [frozenset(item) for item in (failed_keyword_combinations or []) if item]
+        self.memory_events: list[dict[str, object]] = []
+        # What the first agent said and spent, corrections included.
+        self.request_text = ""
+        self.first_trace = ""
+        self.first_tokens = 0
+        self.request_invocations = 0
+
+    def _turn(self, user_prompt: str, *, system: str | None = None, chat_history=None) -> tuple[str, str, int]:
+        return _run_tool_free_turn(
+            llm=self.llm, system_prompt=self.system if system is None else system, user_prompt=user_prompt,
+            agent_name=AGENT_NAME, stream_callback=self.stream_callback, cancel_check=self.cancel_check,
+            **({"chat_history": chat_history} if chat_history is not None else {}),
+        )
+
+    def _first_turn(self, user_prompt: str, correction_header: str | None = None) -> RetrievalRequest:
+        """One turn of the first agent, folded into its trace and tokens."""
+        text, trace, tokens = self._turn(user_prompt)
+        self.first_trace = (self.first_trace + correction_header + trace) if correction_header else trace
+        self.first_tokens += tokens
+        self.request_invocations += 1
+        request = parse_retrieval_request(text)
+        self.request_text = text
+        return request
+
+    def intent(self) -> RetrievalRequest:
+        """The retrieval intent, corrected once when it breaks the protocol."""
+        try:
+            try:
+                return self._first_turn(self.first_user)
+            except RetrievalRequestProtocolError as first_error:
+                correction = (
+                    "Your previous retrieval intent was rejected by the protocol: "
+                    f"{first_error}. Return only one corrected RETRIEVAL_INTENT JSON "
+                    "object matching the system schema. Previous response:\n"
+                    + self.request_text
+                )
+                return self._first_turn(correction, "\n--- Protocol correction ---\n")
+        except WorkflowCancelled:
+            raise
+        except Exception as exc:
+            if isinstance(exc, RetrievalRequestProtocolError):
+                raise
+            raise RetrievalRequestProtocolError(str(exc)) from exc
+
+    def _remember_failed_keywords(self, values: list[str]) -> None:
+        failed = keyword_terms(values)
+        if not failed or any(known <= failed for known in self.hard_bans):
+            return
+        self.hard_bans[:] = [known for known in self.hard_bans if not failed < known]
+        self.hard_bans.append(failed)
+        self.hard_bans.sort(key=lambda item: (len(item), sorted(item)))
+
+    def _banned_subset(self, values: list[str]) -> frozenset[str] | None:
+        proposed = keyword_terms(values)
+        matches = [known for known in self.hard_bans if known <= proposed]
+        return min(matches, key=lambda item: (len(item), sorted(item)), default=None)
+
+    def _corrected_request(self, constraint: str) -> RetrievalRequest:
+        return self._first_turn(
+            self.first_user + "\nOrchestrator feedback: " + constraint, "\n--- Orchestrator retrieval correction ---\n",
+        )
+
+    def prepare(self, request: RetrievalRequest) -> tuple[list[str], PreparedDiscoveryContext, SolrMetadata]:
+        """The prepared context of the intent's keywords, after the corrections a known or a new zero result earns."""
+        zero_retries = 0
+        blocked_corrections = 0
+        while True:
+            keywords = request.search_terms(self.value_search)
+            if not keywords:
+                # A cell-value search has nothing to look for unless values were listed;
+                # falling back to concepts would search dataset topics against cells.
+                raise RetrievalRequestProtocolError("resolved retrieval intent lists no search_values")
+            blocked = self._banned_subset(keywords) if self.lexical_mode and self.memory_enabled else None
+            if blocked is not None:
+                blocked_corrections += 1
+                if blocked_corrections > 3:
+                    raise RetrievalRequestProtocolError(
+                        "retrieval intent repeatedly contains a known zero-result subset"
+                    )
+                request = self._corrected_request(
+                    "This strict-AND query contains the known zero-result subset "
+                    f"{{{', '.join(sorted(blocked))}}}. Return a different intent that excludes it."
+                )
+                continue
+            try:
+                prepared, metadata = prepare_discovery_context(
+                    query=self.query, keywords=keywords, solr_client=self.solr_client,
+                    all_files=self.all_files, retrieval_config=self.retrieval_config,
+                    table_dir=self.table_dir, entities=request.entities,
+                )
+                prepared.agent_json()
+            except WorkflowCancelled:
+                raise
+            except Exception as exc:
+                raise OrchestratedContextPreparationError(str(exc)) from exc
+            if prepared.candidates or not self.lexical_mode:
+                return keywords, prepared, metadata
+            if self.memory_enabled:
+                self._remember_failed_keywords(keywords)
+                self.memory_events.append({"outcome": "zero_results", "terms": list(keywords)})
+            if zero_retries >= self.max_zero_result_retries:
+                return keywords, prepared, metadata
+            zero_retries += 1
+            request = self._corrected_request(
+                "The previous strict-AND retrieval returned zero local candidates. "
+                "Return a genuinely different intent; do not reuse its terms."
+            )
+
+    def select(self, prepared: PreparedDiscoveryContext, candidates: list[str]) -> tuple[list[str], str, str, int, int]:
+        """The second turn over the prepared context: the selection, its reasoning, trace, tokens and calls."""
+        selection_system, second_user = _selector_prompts(prepared, "")
+        history = [
+            ChatMessage(role=MessageRole.USER, content=self.first_user),
+            ChatMessage(role=MessageRole.ASSISTANT, content=self.request_text),
+        ]
+        invocations = 1
+        try:
+            final_text, trace, tokens = self._turn(second_user, system=selection_system, chat_history=history)
+            try:
+                selected, reasoning = parse_orchestrated_selection(final_text, candidates)
+            except OrchestratedSelectorError as first_error:
+                correction = (
+                    "Your previous selection payload was rejected by the protocol: "
+                    f"{first_error}. Return only FINAL_PAYLOAD JSON with a 'tables' "
+                    "array containing exact dataset names from the supplied context and "
+                    "a string 'reasoning'. Previous response:\n" + final_text
+                )
+                corrected_text, corrected_trace, corrected_tokens = self._turn(
+                    correction, system=selection_system, chat_history=history,
+                )
+                selected, reasoning = parse_orchestrated_selection(corrected_text, candidates)
+                trace += "\n--- Protocol correction ---\n" + corrected_trace
+                tokens += corrected_tokens
+                invocations = 2
+        except WorkflowCancelled:
+            raise
+        except Exception as exc:
+            if isinstance(exc, OrchestratedSelectorError):
+                raise
+            raise OrchestratedSelectorError(str(exc)) from exc
+        return selected, reasoning, trace, tokens, invocations
+
+    def _first_turn_result(
+        self, reason: str, *, keywords: list[str] | None = None, metadata: SolrMetadata | None = None, **fields,
+    ) -> DiscoveryResult:
+        """A result that ends after the first turn, with the given reason."""
+        return DiscoveryResult(
+            selected_datasets=[], candidates=[], keywords=list(keywords or []), metadata=metadata or {},
+            reasoning=reason, trace=TURN_1_HEADER + self.first_trace,
+            tokens=self.first_tokens, llm_invocations=self.request_invocations, agent_count=1,
+            retry_reason=reason, **fields,
+        )
+
+    def run(self) -> DiscoveryResult:
+        request = self.intent()
+        if request.status == "unresolved":
+            reason = "UNRESOLVED_RETRIEVAL_INTENT: " + "; ".join(request.missing_evidence)
+            return self._first_turn_result(reason, retry_keywords=False)
+        keywords, prepared, metadata = self.prepare(request)
+        candidates = [item.dataset for item in prepared.candidates]
+        if not candidates:
+            return self._first_turn_result(
+                "REJECT_KEYWORDS: No datasets found in the prepared context", retry_keywords=True,
+                keywords=keywords, metadata=metadata, prepared_context=prepared,
+                failed_keyword_combinations=[sorted(item) for item in self.hard_bans],
+                retrieval_memory_events=self.memory_events,
+            )
+        selected, reasoning, second_trace, second_tokens, selector_invocations = self.select(prepared, candidates)
+        retry_reason = selector_retry_reason(selected, reasoning)
+        if retry_reason is not None and self.memory_enabled:
+            self.memory_events.append({
+                "outcome": "insufficient_coverage",
+                "terms": list(keywords),
+                "tables": list(candidates),
+                "reason": retry_reason,
+            })
+        return DiscoveryResult(
+            selected_datasets=selected, candidates=candidates, keywords=keywords,
+            metadata=metadata,
+            trace=TURN_1_HEADER + self.first_trace + TURN_2_HEADER + second_trace,
+            tokens=self.first_tokens + second_tokens,
+            llm_invocations=self.request_invocations + selector_invocations, agent_count=1,
+            retry_keywords=retry_reason is not None, retry_reason=retry_reason,
+            reasoning=retry_reason or reasoning, prepared_context=prepared,
+            failed_keyword_combinations=[sorted(item) for item in self.hard_bans],
+            retrieval_memory_events=self.memory_events,
+        )
+
+
 def run_unified_orchestrated_discovery(
     *, query: str, llm: LLM, solr_client, all_files: list[str],
     retrieval_config: RetrievalConfig, hint: str = "",
@@ -265,205 +484,10 @@ def run_unified_orchestrated_discovery(
     memory_enabled: bool = False,
 ) -> DiscoveryResult:
     """Run two turns of one logical tool-free agent with explicit chat history."""
-    pm = PromptManager()
-    value_search = retrieval_config.mode.value_keywords
-    system = pm.render(
-        "retrieval_intent", "system_prompt", value_search=value_search,
-        verbatim_entities=retrieval_config.mode.verbatim_entities,
-    )
-    first_user = pm.render(
-        "retrieval_intent", "user_prompt", question=query,
-        catalog=portal_name, schema="not supplied", hint=hint,
-        retrieval_memory=retrieval_memory,
-    )
-    request_invocations = 1
-    try:
-        request_text, first_trace, first_tokens = _run_tool_free_turn(
-            llm=llm, system_prompt=system, user_prompt=first_user,
-            agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
-            cancel_check=cancel_check,
-        )
-        try:
-            request = parse_retrieval_request(request_text)
-        except RetrievalRequestProtocolError as first_error:
-            correction = (
-                "Your previous retrieval intent was rejected by the protocol: "
-                f"{first_error}. Return only one corrected RETRIEVAL_INTENT JSON "
-                "object matching the system schema. Previous response:\n"
-                + request_text
-            )
-            corrected_text, corrected_trace, corrected_tokens = _run_tool_free_turn(
-                llm=llm, system_prompt=system, user_prompt=correction,
-                agent_name="unified_orchestrated_discovery",
-                stream_callback=stream_callback, cancel_check=cancel_check,
-            )
-            request = parse_retrieval_request(corrected_text)
-            request_text = corrected_text
-            first_trace += "\n--- Protocol correction ---\n" + corrected_trace
-            first_tokens += corrected_tokens
-            request_invocations = 2
-    except WorkflowCancelled:
-        raise
-    except Exception as exc:
-        if isinstance(exc, RetrievalRequestProtocolError):
-            raise
-        raise RetrievalRequestProtocolError(str(exc)) from exc
-    hard_bans = [frozenset(item) for item in (failed_keyword_combinations or []) if item]
-    memory_events: list[dict[str, object]] = []
-
-    def remember_failed_keywords(values: list[str]) -> None:
-        failed = keyword_terms(values)
-        if not failed or any(known <= failed for known in hard_bans):
-            return
-        hard_bans[:] = [known for known in hard_bans if not failed < known]
-        hard_bans.append(failed)
-        hard_bans.sort(key=lambda item: (len(item), sorted(item)))
-
-    def banned_subset(values: list[str]) -> frozenset[str] | None:
-        proposed = keyword_terms(values)
-        matches = [known for known in hard_bans if known <= proposed]
-        return min(matches, key=lambda item: (len(item), sorted(item)), default=None)
-
-    def corrected_request(constraint: str) -> RetrievalRequest:
-        nonlocal first_trace, first_tokens, request_invocations, request_text
-        response, trace, tokens = _run_tool_free_turn(
-            llm=llm,
-            system_prompt=system,
-            user_prompt=(first_user + "\nOrchestrator feedback: " + constraint),
-            agent_name="unified_orchestrated_discovery",
-            stream_callback=stream_callback,
-            cancel_check=cancel_check,
-        )
-        request = parse_retrieval_request(response)
-        request_text = response
-        first_trace += "\n--- Orchestrator retrieval correction ---\n" + trace
-        first_tokens += tokens
-        request_invocations += 1
-        return request
-
-    if request.status == "unresolved":
-        reason = "UNRESOLVED_RETRIEVAL_INTENT: " + "; ".join(request.missing_evidence)
-        return DiscoveryResult(
-            selected_datasets=[], candidates=[], keywords=[], metadata={},
-            reasoning=reason, trace="--- Unified Orchestrated Turn 1 ---\n" + first_trace,
-            tokens=first_tokens, llm_invocations=request_invocations, agent_count=1,
-            retry_keywords=False, retry_reason=reason,
-        )
-    lexical_mode = retrieval_config.mode.value in {"keyword", "hybrid"}
-    zero_retries = 0
-    blocked_corrections = 0
-    while True:
-        keywords = request.search_terms(value_search)
-        if not keywords:
-            # A cell-value search has nothing to look for unless values were listed;
-            # falling back to concepts would search dataset topics against cells.
-            raise RetrievalRequestProtocolError(
-                "resolved retrieval intent lists no search_values"
-            )
-        blocked = banned_subset(keywords) if lexical_mode and memory_enabled else None
-        if blocked is not None:
-            blocked_corrections += 1
-            if blocked_corrections > 3:
-                raise RetrievalRequestProtocolError(
-                    "retrieval intent repeatedly contains a known zero-result subset"
-                )
-            request = corrected_request(
-                "This strict-AND query contains the known zero-result subset "
-                f"{{{', '.join(sorted(blocked))}}}. Return a different intent that excludes it."
-            )
-            continue
-        try:
-            prepared, metadata = prepare_discovery_context(
-                query=query, keywords=keywords, solr_client=solr_client,
-                all_files=all_files, retrieval_config=retrieval_config,
-                table_dir=table_dir, entities=request.entities,
-            )
-            prepared.agent_json()
-        except WorkflowCancelled:
-            raise
-        except Exception as exc:
-            raise OrchestratedContextPreparationError(str(exc)) from exc
-        if prepared.candidates or not lexical_mode:
-            break
-        if memory_enabled:
-            remember_failed_keywords(keywords)
-            memory_events.append({"outcome": "zero_results", "terms": list(keywords)})
-        if zero_retries >= max_zero_result_retries:
-            break
-        zero_retries += 1
-        request = corrected_request(
-            "The previous strict-AND retrieval returned zero local candidates. "
-            "Return a genuinely different intent; do not reuse its terms."
-        )
-    candidates = [item.dataset for item in prepared.candidates]
-    if not candidates:
-        reason = "REJECT_KEYWORDS: No datasets found in the prepared context"
-        return DiscoveryResult(
-            selected_datasets=[], candidates=[], keywords=keywords,
-            metadata=metadata, reasoning=reason,
-            trace="--- Unified Orchestrated Turn 1 ---\n" + first_trace,
-            tokens=first_tokens, llm_invocations=request_invocations, agent_count=1,
-            retry_keywords=True, retry_reason=reason, prepared_context=prepared,
-            failed_keyword_combinations=[sorted(item) for item in hard_bans],
-            retrieval_memory_events=memory_events,
-        )
-    selection_system, second_user = _selector_prompts(prepared, "")
-    history = [
-        ChatMessage(role=MessageRole.USER, content=first_user),
-        ChatMessage(role=MessageRole.ASSISTANT, content=request_text),
-    ]
-    selector_invocations = 1
-    try:
-        final_text, second_trace, second_tokens = _run_tool_free_turn(
-            llm=llm, system_prompt=selection_system, user_prompt=second_user,
-            agent_name="unified_orchestrated_discovery", stream_callback=stream_callback,
-            cancel_check=cancel_check, chat_history=history,
-        )
-        try:
-            selected, reasoning = parse_orchestrated_selection(final_text, candidates)
-        except OrchestratedSelectorError as first_error:
-            correction = (
-                "Your previous selection payload was rejected by the protocol: "
-                f"{first_error}. Return only FINAL_PAYLOAD JSON with a 'tables' "
-                "array containing exact dataset names from the supplied context and "
-                "a string 'reasoning'. Previous response:\n" + final_text
-            )
-            corrected_text, corrected_trace, corrected_tokens = _run_tool_free_turn(
-                llm=llm, system_prompt=selection_system, user_prompt=correction,
-                agent_name="unified_orchestrated_discovery",
-                stream_callback=stream_callback, cancel_check=cancel_check,
-                chat_history=history,
-            )
-            selected, reasoning = parse_orchestrated_selection(
-                corrected_text, candidates
-            )
-            final_text = corrected_text
-            second_trace += "\n--- Protocol correction ---\n" + corrected_trace
-            second_tokens += corrected_tokens
-            selector_invocations = 2
-    except WorkflowCancelled:
-        raise
-    except Exception as exc:
-        if isinstance(exc, OrchestratedSelectorError):
-            raise
-        raise OrchestratedSelectorError(str(exc)) from exc
-    retry_reason = selector_retry_reason(selected, reasoning)
-    if retry_reason is not None and memory_enabled:
-        memory_events.append({
-            "outcome": "insufficient_coverage",
-            "terms": list(keywords),
-            "tables": list(candidates),
-            "reason": retry_reason,
-        })
-    return DiscoveryResult(
-        selected_datasets=selected, candidates=candidates, keywords=keywords,
-        metadata=metadata,
-        trace=("--- Unified Orchestrated Turn 1 ---\n" + first_trace
-               + "\n--- Unified Orchestrated Turn 2 ---\n" + second_trace),
-        tokens=first_tokens + second_tokens,
-        llm_invocations=request_invocations + selector_invocations, agent_count=1,
-        retry_keywords=retry_reason is not None, retry_reason=retry_reason,
-        reasoning=retry_reason or reasoning, prepared_context=prepared,
-        failed_keyword_combinations=[sorted(item) for item in hard_bans],
-        retrieval_memory_events=memory_events,
-    )
+    return _UnifiedOrchestratedRun(
+        query=query, llm=llm, solr_client=solr_client, all_files=all_files, retrieval_config=retrieval_config,
+        hint=hint, stream_callback=stream_callback, cancel_check=cancel_check, table_dir=table_dir,
+        portal_name=portal_name, retrieval_memory=retrieval_memory,
+        failed_keyword_combinations=failed_keyword_combinations,
+        max_zero_result_retries=max_zero_result_retries, memory_enabled=memory_enabled,
+    ).run()
