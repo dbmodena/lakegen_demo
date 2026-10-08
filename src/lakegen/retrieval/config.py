@@ -326,9 +326,6 @@ class RetrievalConfig:
     def branch_candidate_count(self) -> int:
         return self.top_k * self.candidate_multiplier
 
-    def with_mode(self, mode: RetrievalMode | str) -> "RetrievalConfig":
-        return replace(self, mode=RetrievalMode(mode))
-
     def for_portal(self, portal: str) -> "RetrievalConfig":
         """Select the independent Pneuma service belonging to a portal."""
         normalized = portal.strip().casefold()

@@ -76,7 +76,3 @@ def bootstrap_nltk_data() -> str | None:
             f"{', '.join(missing)}. Download target: {data_path}"
         )
     return None
-
-
-def load_css(path: Path) -> str:
-    return path.read_text(encoding="utf-8")

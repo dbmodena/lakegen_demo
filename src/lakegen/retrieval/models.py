@@ -60,9 +60,6 @@ class RetrievalHit:
     def key(self) -> str:
         return document_key(self.document)
 
-    def finite_score(self) -> bool:
-        return math.isfinite(self.score)
-
     def to_log_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result.pop("document", None)

@@ -790,18 +790,3 @@ class Phase2JudgeToolsManager:
             FunctionTool.from_defaults(fn=self.reject_selection, fn_schema=reject_schema, return_direct=True),
         ]
 
-
-def make_p2_judge_tools(
-    candidates: list[str],
-    csv_dir: Path,
-) -> list:
-    """
-    Build tools for the Phase 2 *judge-only* agent.
-    Does NOT include search_tables — retrieval is done programmatically
-    before the agent runs, and candidates are provided in the prompt.
-
-    Tools: inspect_columns, check_join_union (Valentine),
-           confirm_table_selection.
-    """
-    manager = Phase2JudgeToolsManager(candidates, csv_dir)
-    return manager.get_tools()

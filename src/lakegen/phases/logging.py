@@ -21,16 +21,6 @@ def format_phase2_solr_results(
     return "\n".join(lines)
 
 
-def format_cli_log_value(value: Any, max_len: int = 160) -> str:
-    if value is None:
-        return "None"
-
-    text = str(value).replace("\n", " ")
-    if len(text) > max_len:
-        text = text[: max_len - 3] + "..."
-    return repr(text)
-
-
 PHASE2_TOOL_LABELS = {
     "search_tables": "Search tables",
     "inspect_columns": "Inspect columns",

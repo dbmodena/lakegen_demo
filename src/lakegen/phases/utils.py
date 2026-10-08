@@ -3,26 +3,13 @@ import re
 from pathlib import Path
 
 from lakegen.core.catalogue import clean_catalogue_text
-from lakegen.phases.logging import format_phase2_solr_results
-from lakegen.core.types import SolrMetadata, StreamCallback
+from lakegen.core.types import SolrMetadata
 
 
 MAX_CANDIDATE_DESCRIPTION_CHARS = 320
 MAX_CANDIDATE_TAGS = 8
 MAX_CANDIDATE_COLUMNS = 12
 MAX_COLUMN_DESCRIPTION_CHARS = 100
-
-def emit_agent_activity(
-    activity_log_parts: list[str],
-    stream_callback: StreamCallback | None,
-    delta: str,
-) -> None:
-    if not delta:
-        return
-    activity_log_parts.append(delta)
-    if stream_callback is not None:
-        stream_callback(delta)
-
 
 def match_local_csv(doc: dict, all_files: list[str]) -> str | None:
     dataset_id = str(doc.get("dataset_id") or "").strip()
@@ -98,20 +85,6 @@ def solr_metadata_from_doc(doc: dict) -> dict[str, object]:
         "columns": structured_columns,
         "column_count": len(columns),
     }
-
-
-def emit_candidate_summary(
-    candidates: list[str],
-    metadata: SolrMetadata,
-    activity_log_parts: list[str],
-    stream_callback: StreamCallback | None,
-) -> None:
-    emit_agent_activity(
-        activity_log_parts,
-        stream_callback,
-        format_phase2_solr_results(candidates, metadata, "Candidate tables")
-        + "\n\n---\n\n**Agent activity log**\n",
-    )
 
 
 def _bounded_text(value: object, max_chars: int) -> str:

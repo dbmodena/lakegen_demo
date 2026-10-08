@@ -37,16 +37,6 @@ class CoderLifecycle(str, Enum):
     FINISHED = "finished"
 
 
-class FinishCodeSchema(BaseModel):
-    filters: ReviewStatus = Field(description="Verify every requested filter and time range.")
-    measures: ReviewStatus = Field(description="Verify measures, aggregation and units.")
-    grouping: ReviewStatus = Field(description="Verify requested groups and category coverage.")
-    ordering: ReviewStatus = Field(description="Verify ranking, sorting, top/bottom and limits.")
-    output_shape: ReviewStatus = Field(description="Verify that the output shape answers the question.")
-    requirement_reviews: dict[str, str] = Field(description="Map every exact requirement reported by inspect_result to concrete evidence from the result.")
-    review: str = Field(description="Brief evidence-based final review of the computed result.")
-
-
 class RejectTablesSchema(BaseModel):
     reason: str = Field(description="Why the selected tables cannot answer the question.")
     missing_requirements: list[str] = Field(description="Concrete missing columns, periods, categories, or join keys.")
@@ -62,23 +52,6 @@ class RejectTablesSchema(BaseModel):
             "A table without a concrete justification is not banned."
         ),
     )
-
-
-class PlanConflictSchema(BaseModel):
-    reason: str
-    missing_requirements: list[str]
-    inspected_evidence: str
-
-
-class AnalysisContractSchema(BaseModel):
-    filters: list[str] = Field(description="Requested filters and time ranges, using exact values from the question.")
-    measures: list[str] = Field(description="Requested measures with aggregation, units, and distinctness semantics.")
-    group_by: list[str] = Field(description="Requested grouping dimensions.")
-    distinct_counts: list[str] = Field(description="Entities that must be counted distinctly.")
-    joins: list[str] = Field(description="Required table relationships or join keys; empty when no join is needed.")
-    ordering: str = Field(description="Requested ordering direction and measure, or 'none'.")
-    limit: int | None = Field(description="Requested top/bottom N, or null.")
-    output_columns: list[str] = Field(description="Semantic columns required in the final output.")
 
 
 def classify_execution_error(message: str, *, stage: str = "execution") -> dict[str, Any]:
@@ -2956,14 +2929,14 @@ class Phase3ToolsManager:
             return warnings
 
         fields = list(dict.fromkeys(
-            str(field) for row in value for field in row
+            str(field_name) for row in value for field_name in row
         ))
 
         def matching_fields(label: str) -> list[str]:
             normalized = re.sub(r"[^a-z0-9]+", " ", label.casefold()).strip()
             if normalized in {"", "result", "requested result", "value", "requested value"}:
                 return []
-            return [field for field in fields if self._label_is_evident(label, [field])]
+            return [field_name for field_name in fields if self._label_is_evident(label, [field_name])]
 
         for required in contract.get("output_columns", []):
             if not matching_fields(str(required)) and str(required).casefold().strip() not in {
@@ -2980,7 +2953,7 @@ class Phase3ToolsManager:
             if len(matches) == 1:
                 group_fields.append(matches[0])
         if group_fields:
-            keys = [tuple(row.get(field) for field in group_fields) for row in value]
+            keys = [tuple(row.get(field_name) for field_name in group_fields) for row in value]
             if len(set(keys)) != len(keys):
                 warnings.append(
                     "contract_result_duplicate_group_keys: " + ", ".join(group_fields)
@@ -2988,41 +2961,41 @@ class Phase3ToolsManager:
 
         measure_fields: list[str] = []
         for measure in [*contract.get("measures", []), *contract.get("output_columns", [])]:
-            for field in matching_fields(str(measure)):
-                if field not in measure_fields:
-                    measure_fields.append(field)
+            for field_name in matching_fields(str(measure)):
+                if field_name not in measure_fields:
+                    measure_fields.append(field_name)
         # Output aliases need not repeat the brief's wording. Inspect every
-        # non-dimension numeric field so an all-NaN measure cannot evade checks
+        # non-dimension numeric field_name so an all-NaN measure cannot evade checks
         # simply by being renamed by the coder.
-        for field in dict.fromkeys([*measure_fields, *fields]):
-            if field in group_fields:
+        for field_name in dict.fromkeys([*measure_fields, *fields]):
+            if field_name in group_fields:
                 continue
             numeric = [
-                float(row[field]) for row in value
-                if field in row and isinstance(row[field], (int, float))
-                and not isinstance(row[field], bool)
+                float(row[field_name]) for row in value
+                if field_name in row and isinstance(row[field_name], (int, float))
+                and not isinstance(row[field_name], bool)
             ]
             if numeric and not any(math.isfinite(number) for number in numeric):
-                warnings.append(f"contract_result_all_non_finite: {field}")
+                warnings.append(f"contract_result_all_non_finite: {field_name}")
 
         ordering = str(contract.get("ordering") or "none").casefold()
         if ordering not in {"", "none", "not applicable", "n/a"}:
             ordering_matches = [
-                field for field in measure_fields
-                if self._label_is_evident(ordering, [field])
+                field_name for field_name in measure_fields
+                if self._label_is_evident(ordering, [field_name])
             ]
             candidates = ordering_matches or measure_fields
             numeric_candidates = []
-            for field in candidates:
-                values = [row.get(field) for row in value]
+            for field_name in candidates:
+                values = [row.get(field_name) for row in value]
                 if values and all(
                     isinstance(item, (int, float)) and not isinstance(item, bool)
                     for item in values
                 ):
-                    numeric_candidates.append(field)
+                    numeric_candidates.append(field_name)
             if len(numeric_candidates) == 1:
-                field = numeric_candidates[0]
-                numbers = [float(row[field]) for row in value]
+                field_name = numeric_candidates[0]
+                numbers = [float(row[field_name]) for row in value]
                 descending = any(term in ordering for term in (
                     "desc", "highest", "largest", "most", "top"
                 ))
@@ -3038,7 +3011,7 @@ class Phase3ToolsManager:
                 if not ordered:
                     direction = "descending" if descending else "ascending"
                     warnings.append(
-                        f"contract_result_order_mismatch: {field} is not {direction}"
+                        f"contract_result_order_mismatch: {field_name} is not {direction}"
                     )
         return warnings
 

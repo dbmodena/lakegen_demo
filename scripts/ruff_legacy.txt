@@ -33,10 +33,6 @@ src/lakegen/core/resources.py
 src/lakegen/core/table_io.py
 src/lakegen/core/token_usage.py
 src/lakegen/core/types.py
-src/lakegen/data_integration_tools/sloth/__init__.py
-src/lakegen/data_integration_tools/sloth/sloth.py
-src/lakegen/data_integration_tools/sloth/sloth_utils.py
-src/lakegen/data_integration_tools/sloth/variables.py
 src/lakegen/data_quality.py
 src/lakegen/experiment_config.py
 src/lakegen/__init__.py

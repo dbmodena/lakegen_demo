@@ -2639,34 +2639,3 @@ class Phase12ToolsManager:
             tool(self.confirm_unified_selection, fn_schema=ConfirmUnifiedSelectionSchema, return_direct=True),
             tool(self.reject_unified_selection, fn_schema=RejectUnifiedSelectionSchema, return_direct=True),
         ]
-
-
-def make_p12_tools(
-    state: P12State,
-    solr_client: LocalSolrClient,
-    all_files: list[str],
-    csv_dir: Path,
-    question: str = "",
-    retrieval_config: RetrievalConfig | None = None,
-    retrieval_observer: Callable[[RetrievalRun], None] | None = None,
-    discovery_config: DiscoveryConfig | None = None,
-    notice_callback: StreamCallback | None = None,
-    llm: LLM | None = None,
-):
-    """
-    Build the tools for the unified Phase 1 & 2 agent and return an ObjectRetriever.
-    The retriever will dynamically fetch the top relevant tools based on the agent's intent.
-    """
-    manager = Phase12ToolsManager(
-        state,
-        solr_client,
-        all_files,
-        csv_dir,
-        question=question,
-        retrieval_config=retrieval_config,
-        retrieval_observer=retrieval_observer,
-        discovery_config=discovery_config,
-        notice_callback=notice_callback,
-        llm=llm,
-    )
-    return manager.get_tools()
