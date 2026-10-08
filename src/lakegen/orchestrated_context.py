@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 
 from lakegen.retrieval.factory import get_table_retrieval_service
 from lakegen.core.types import SolrMetadata
-from lakegen.discovery.candidates import match_local_csv, solr_metadata_from_doc
+from lakegen.lakes.catalogue import match_local_csv, solr_metadata_from_doc
 from lakegen.retrieval import RetrievalConfig
 from lakegen.retrieval.solr_client import LocalSolrClient
 

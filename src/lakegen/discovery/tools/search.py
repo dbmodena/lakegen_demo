@@ -11,9 +11,10 @@ from typing import Callable, Sequence
 from llama_index.core.llms import ChatMessage
 
 from lakegen.core.catalogue import clean_catalogue_text
+from lakegen.discovery.candidates import format_candidate_context
 from lakegen.experiment_config import KeywordSearchStrategy
 from lakegen.keyword_terms import keyword_terms, minimal_failing_subsets, split_keywords
-from lakegen.discovery.candidates import format_candidate_context, match_local_csv, solr_metadata_from_doc
+from lakegen.lakes.catalogue import match_local_csv, solr_metadata_from_doc
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalMode,
