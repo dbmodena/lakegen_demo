@@ -458,8 +458,8 @@ def render_markdown() -> str:
         "# Environment variables",
         "",
         "Generated from `lakegen.config.settings` by `scripts/gen_config_docs.py`; do not edit by hand.",
-        "`.env` in the repository root is loaded at start-up by the API, the CLI and the UI;",
-        "variables already set in the environment win over it.",
+        "`.env` in the repository root is loaded at start-up by the API, the CLI, the UI and the",
+        "retrieval benchmark; variables already set in the environment win over it.",
         "",
     ]
     for group, title in GROUP_TITLES.items():

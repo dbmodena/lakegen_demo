@@ -15,6 +15,8 @@ import uuid
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+from dotenv import load_dotenv
+
 from lakegen.config.settings import get_settings
 from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 from lakegen.core.table_io import list_table_files
@@ -630,6 +632,9 @@ def append_benchmark_metrics_log(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # The same .env the API, the CLI and the UI load, so the benchmark queries
+    # the Solr cores and Pneuma services the other entry points use.
+    load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "input",
