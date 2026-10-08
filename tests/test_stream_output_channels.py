@@ -67,7 +67,7 @@ def test_the_terminal_still_gets_output_with_no_callback(monkeypatch, capsys):
 
 def test_the_cli_does_not_add_a_second_printing_channel():
     """The phases own the terminal, so a printing callback would double output."""
-    source = Path("src/cli.py").read_text(encoding="utf-8")
+    source = Path("src/lakegen/interfaces/cli/ask.py").read_text(encoding="utf-8")
 
     assert "_stream_to_terminal" not in source
     printing_callbacks = re.findall(

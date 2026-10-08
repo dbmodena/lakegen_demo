@@ -10,7 +10,6 @@ index_retrieval.py
 prompts/prompt_manager.py
 scripts/submit_parallel_batches.py
 src/app.py
-src/cli.py
 src/client_solr.py
 src/lakegen/__init__.py
 src/lakegen/agent_tools/column_values.py
@@ -56,6 +55,7 @@ src/lakegen/discovery/tools/selection.py
 src/lakegen/discovery/tools/state.py
 src/lakegen/experiment_config.py
 src/lakegen/interfaces/api/app.py
+src/lakegen/interfaces/cli/ask.py
 src/lakegen/keyword_memory.py
 src/lakegen/keyword_terms.py
 src/lakegen/llm/groq_offload.py

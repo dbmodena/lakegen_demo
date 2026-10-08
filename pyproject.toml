@@ -35,6 +35,9 @@ dependencies = [
     "llama-index-llms-oci-genai>=0.7.0",
 ]
 
+[project.scripts]
+lakegen = "lakegen.interfaces.cli.main:main"
+
 [build-system]
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
