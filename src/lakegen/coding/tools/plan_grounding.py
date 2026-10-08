@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -537,292 +538,9 @@ class PlanGroundingMixin:
 
     def _validate_semantic_plan_grounding(self, plan: dict[str, Any]) -> dict[str, Any]:
         """Validate architect semantics using only selected runtime tables."""
-        diagnostics: list[dict[str, Any]] = []
-        for obligation in plan.get("runtime_obligations", []):
-            diagnostics.append({
-                "requirement": "runtime plan completion",
-                "status": "unknown", "category": "runtime_plan_obligation",
-                "evidence": str(obligation),
-                "correction_required": str(obligation),
-            })
-        evidence: list[dict[str, Any]] = []
-        frames: dict[str, pd.DataFrame] = {}
-        profiled_frames: dict[str, pd.DataFrame] = {}
-        schemas: dict[str, set[str]] = {}
-        for table in self.tables:
-            try:
-                frame = read_table(self.csv_dir / table.strip(), nrows=500)
-                frames[table] = frame
-                schemas[table] = {str(column) for column in frame.columns}
-            except Exception as exc:
-                diagnostics.append({
-                    "requirement": "selected table is readable",
-                    "status": "contradicted", "table": table, "category": "table_unreadable",
-                    "evidence": str(exc), "correction_required": "inspect_table or reject_tables",
-                })
-
-        def resolve_table(binding: dict[str, Any]) -> str:
-            table = str(binding.get("table") or "")
-            return table or (self.tables[0] if len(self.tables) == 1 else "")
-
-        def profiled(table: str) -> pd.DataFrame:
-            if table not in profiled_frames:
-                profiled_frames[table] = read_table(
-                    self.csv_dir / table.strip(), nrows=100_000
-                )
-            return profiled_frames[table]
-
-        for kind in ("filters", "temporal_filters", "dimensions", "measures"):
-            for binding in plan.get(kind, []):
-                if not isinstance(binding, dict):
-                    diagnostics.append({
-                        "requirement": kind, "status": "unknown",
-                        "category": "unstructured_binding",
-                        "evidence": str(binding),
-                        "correction_required": (
-                            "Coder must resolve this requirement against the exact "
-                            "selected columns; runtime references remain gated."
-                        ),
-                    })
-                    continue
-                table = resolve_table(binding)
-                columns = binding.get("columns") or [binding.get("column")]
-                columns = [str(column) for column in columns if column]
-                if not columns:
-                    diagnostics.append({
-                        "requirement": str(binding.get("requirement") or binding.get("type") or kind),
-                        "status": "unknown", "category": "missing_binding_columns",
-                        "table": table if table in self.tables else None,
-                        "evidence": {"binding": binding},
-                        "correction_required": (
-                            "Resolve this requirement using selected columns or "
-                            "prove that it is dataset-level metadata."
-                        ),
-                    })
-                    continue
-                missing = [column for column in columns if column not in schemas.get(table, set())]
-                if table not in self.tables or missing:
-                    diagnostics.append({
-                        "requirement": kind, "status": "contradicted",
-                        "table": table if table in self.tables else None,
-                        "column": [],
-                        "category": "unknown_table_or_column",
-                        "evidence": {
-                            "selected_tables": list(self.tables),
-                            "available_columns": sorted(schemas.get(table, set())),
-                        },
-                        "correction_required": "inspect_table and revise the binding",
-                    })
-                    continue
-                observed: list[Any] = []
-                if columns and table in frames:
-                    observed = frames[table][columns[0]].dropna().drop_duplicates().head(25).tolist()
-                operator = str(binding.get("operator") or "")
-                value = str(binding.get("value") or "").strip()
-                if kind == "filters" and operator == "not_null" and re.search(
-                    r"\b(?:with|containing|contains|named|called|category|type|status)\s+[a-z][a-z-]{2,}",
-                    self.question.casefold(),
-                ):
-                    diagnostics.append({
-                        "requirement": "qualified categorical filter", "status": "contradicted",
-                        "table": table, "column": columns[0] if columns else None,
-                        "category": "semantic_filter_too_weak",
-                        "evidence": {"question": self.question, "operator": operator},
-                        "correction_required": "inspect categorical values and bind the requested category explicitly",
-                    })
-                    continue
-                if kind in {"filters", "temporal_filters"} and value:
-                    normalized = [str(item).strip().casefold() for item in observed]
-                    target = value.casefold()
-                    compatible = (
-                        any(target in item for item in normalized)
-                        if operator == "contains" else target in normalized
-                    )
-                    if operator == "range" and columns:
-                        series = pd.to_datetime(profiled(table)[columns[0]], errors="coerce")
-                        requested_years = [int(year) for year in re.findall(r"(?:19|20)\d{2}", value)]
-                        observed_years = series.dropna().dt.year
-                        compatible = bool(observed_years.size) and (
-                            not requested_years or (
-                                min(requested_years) >= int(observed_years.min())
-                                and max(requested_years) <= int(observed_years.max())
-                            )
-                        )
-                    elif not compatible:
-                        expanded_values = (
-                            profiled(table)[columns[0]].dropna().drop_duplicates().head(5000).tolist()
-                        )
-                        expanded_normalized = [str(item).strip().casefold() for item in expanded_values]
-                        compatible = (
-                            any(target in item for item in expanded_normalized)
-                            if operator == "contains" else target in expanded_normalized
-                        )
-                    if not compatible:
-                        diagnostics.append({
-                            "requirement": f"runtime filter on {columns[0]}",
-                            "status": "unknown",
-                            "table": table, "column": columns[0],
-                            "category": "filter_value_not_observed",
-                            "evidence": {
-                                "observed_values": observed,
-                                "profiled_rows": len(profiled(table)),
-                            },
-                            "correction_required": "perform targeted inspect_table profiling; absence is not proof of contradiction",
-                        })
-                        continue
-                if kind == "measures" and str(binding.get("operation")) in {"sum", "mean", "min", "max"}:
-                    if columns and not pd.api.types.is_numeric_dtype(frames[table][columns[0]]):
-                        diagnostics.append({
-                            "requirement": "numeric measure", "status": "contradicted",
-                            "table": table, "column": columns[0],
-                            "category": "measure_type_incompatible",
-                            "evidence": str(frames[table][columns[0]].dtype),
-                            "correction_required": "choose a numeric measure or prove a safe conversion",
-                        })
-                        continue
-                if kind == "measures":
-                    operation = str(binding.get("operation") or "")
-                    distinct = bool(binding.get("distinct"))
-                    if operation == "count_rows" and distinct:
-                        diagnostics.append({
-                            "requirement": "count measure", "status": "contradicted",
-                            "table": table, "column": columns,
-                            "category": "count_distinctness_conflict",
-                            "evidence": {"operation": operation, "distinct": distinct},
-                            "correction_required": "make operation and distinct semantics consistent",
-                        })
-                        continue
-                evidence.append({
-                    "requirement": f"runtime {kind} binding",
-                    "status": "verified",
-                    "table": table, "column": columns[0] if len(columns) == 1 else columns,
-                    "observed_values": observed[:12],
-                    "observed_range": None,
-                    "evidence": "verified against runtime schema/profile",
-                    "origin": "runtime_table_profile",
-                    "correction_required": "",
-                })
-
-        for join in plan.get("joins", []):
-            if not isinstance(join, dict):
-                diagnostics.append({
-                    "requirement": "join", "status": "unknown",
-                    "category": "unstructured_join",
-                    "evidence": str(join),
-                    "correction_required": "resolve against selected tables before execution",
-                })
-                continue
-            keys = join.get("keys", {})
-            tables = list(map(str, join.get("tables", [])))
-            if len(tables) < 2 or not isinstance(keys, dict) or any(table not in frames for table in tables):
-                diagnostics.append({
-                    "requirement": "join", "status": "contradicted", "category": "join_tables_or_keys_missing",
-                    "evidence": {
-                        "selected_tables": list(self.tables),
-                        "available_columns": {
-                            table: sorted(schemas.get(table, set())) for table in self.tables
-                        },
-                    },
-                    "correction_required": "inspect both tables and provide observable keys",
-                })
-                continue
-            series = []
-            invalid = False
-            for table in tables:
-                key = str(keys.get(table) or "")
-                if key not in schemas.get(table, set()):
-                    invalid = True
-                    break
-                series.append(set(frames[table][key].dropna().astype(str).str.strip().head(500)))
-            overlap = set.intersection(*series) if series and not invalid else set()
-            if not invalid and not overlap:
-                expanded_series = [
-                    set(profiled(table)[str(keys[table])].dropna().astype(str).str.strip())
-                    for table in tables
-                ]
-                overlap = set.intersection(*expanded_series) if expanded_series else set()
-            if invalid or not overlap:
-                diagnostics.append({
-                    "requirement": "join",
-                    "status": "contradicted" if invalid else "unknown",
-                    "category": "join_key_not_verifiable",
-                    "evidence": {
-                        "verified_key_columns": (
-                            keys if not invalid else {}
-                        ),
-                        "sample_overlap": list(overlap)[:10],
-                    },
-                    "correction_required": "inspect join cardinality/type/overlap; no observed overlap alone is not proof of impossibility",
-                })
-            else:
-                evidence.append({
-                    "requirement": "join selected tables", "status": "verified",
-                    "table": tables, "columns": keys, "observed_values": list(overlap)[:10],
-                    "observed_range": None,
-                    "evidence": "sample key overlap observed", "origin": "runtime_join_profile",
-                    "correction_required": "",
-                })
-
-        if plan.get("ordering"):
-            evidence.append({
-                "requirement": "result ordering", "status": "verified",
-                "table": None, "columns": [], "observed_values": [],
-                "observed_range": None, "origin": "structured_semantic_plan",
-                "evidence": "ordering direction is structurally representable",
-                "correction_required": "",
-            })
-        if plan.get("limit") is not None:
-            limit = plan.get("limit")
-            if isinstance(limit, int) and limit > 0:
-                evidence.append({
-                    "requirement": "result limit", "status": "verified",
-                    "table": None, "columns": [], "observed_values": [limit],
-                    "observed_range": None, "origin": "question_semantic_plan",
-                    "evidence": "positive integer limit is representable",
-                    "correction_required": "",
-                })
-            else:
-                diagnostics.append({
-                    "requirement": "result limit", "status": "contradicted",
-                    "category": "invalid_limit", "evidence": type(limit).__name__,
-                    "correction_required": "provide a positive integer limit or null",
-                })
-        if plan.get("null_policy"):
-            relevant_columns = list(dict.fromkeys(
-                str(column)
-                for kind in ("filters", "temporal_filters", "dimensions", "measures")
-                for binding in plan.get(kind, []) if isinstance(binding, dict)
-                for column in (binding.get("columns") or [binding.get("column")]) if column
-            ))
-            evidence.append({
-                "requirement": "null policy", "status": "verified",
-                "table": None, "columns": relevant_columns,
-                "observed_values": [], "observed_range": None,
-                "origin": "runtime_table_profile",
-                "evidence": "null counts are available through runtime profiling",
-                "correction_required": "",
-            })
-
-        blockers = [item for item in diagnostics if item.get("status") == "contradicted"]
-        warnings = [item for item in diagnostics if item.get("status") != "contradicted"]
-        status = (
-            "rejected" if blockers else
-            "executable_with_obligations" if warnings else
-            "verified"
-        )
-        return {
-            "valid": not blockers,
-            "locked": not blockers,
-            "status": status,
-            "diagnostics": blockers,
-            "warnings": warnings,
-            "evidence": evidence,
-            "required_action": (
-                "resolve_runtime_obligations" if warnings and not blockers else
-                None if not blockers else "inspect_table_or_plan_conflict"
-            ),
-            "runtime_obligations": warnings,
-        }
+        grounding = _Grounding(self.tables, self.csv_dir, self.question)
+        grounding.check(plan)
+        return grounding.verdict()
 
     @staticmethod
     def _contract_from_semantic_plan(plan: dict[str, Any]) -> dict[str, Any]:
@@ -902,4 +620,335 @@ class PlanGroundingMixin:
             "null_policy": str(plan.get("null_policy") or ""),
             "table_roles": dict(plan.get("table_roles") or {}),
             "source": "architect_semantic_plan",
+        }
+
+
+BINDING_KINDS = ("filters", "temporal_filters", "dimensions", "measures")
+QUALIFIED_FILTER = re.compile(r"\b(?:with|containing|contains|named|called|category|type|status)\s+[a-z][a-z-]{2,}")
+"""A question that qualifies a category by name: a not-null filter is too weak for it."""
+
+
+class _Grounding:
+    """The architect's plan checked against the selected tables' real schemas and values.
+
+    What contradicts the data is a diagnostic that blocks (``contradicted``);
+    what the data cannot confirm is a warning the coder must resolve
+    (``unknown``); what holds is evidence. ``check`` runs the obligations,
+    the tables, the bindings, the joins and the result shape in that order;
+    ``verdict`` is the status the coder starts from.
+    """
+
+    def __init__(self, tables: list[str], csv_dir: Path, question: str) -> None:
+        self.tables = tables
+        self.csv_dir = csv_dir
+        self.question = question
+        self.diagnostics: list[dict[str, Any]] = []
+        self.evidence: list[dict[str, Any]] = []
+        self.frames: dict[str, pd.DataFrame] = {}
+        self.schemas: dict[str, set[str]] = {}
+        self._profiled: dict[str, pd.DataFrame] = {}
+
+    # --- the steps ----------------------------------------------------------
+
+    def check(self, plan: dict[str, Any]) -> None:
+        for obligation in plan.get("runtime_obligations", []):
+            self.diagnostics.append({
+                "requirement": "runtime plan completion",
+                "status": "unknown", "category": "runtime_plan_obligation",
+                "evidence": str(obligation),
+                "correction_required": str(obligation),
+            })
+        self._read_tables()
+        for kind in BINDING_KINDS:
+            for binding in plan.get(kind, []):
+                self._check_binding(kind, binding)
+        for join in plan.get("joins", []):
+            self._check_join(join)
+        self._check_shape(plan)
+
+    def _read_tables(self) -> None:
+        for table in self.tables:
+            try:
+                frame = read_table(self.csv_dir / table.strip(), nrows=500)
+                self.frames[table] = frame
+                self.schemas[table] = {str(column) for column in frame.columns}
+            except Exception as exc:
+                self.diagnostics.append({
+                    "requirement": "selected table is readable",
+                    "status": "contradicted", "table": table, "category": "table_unreadable",
+                    "evidence": str(exc), "correction_required": "inspect_table or reject_tables",
+                })
+
+    def _table_of(self, binding: dict[str, Any]) -> str:
+        table = str(binding.get("table") or "")
+        return table or (self.tables[0] if len(self.tables) == 1 else "")
+
+    def profiled(self, table: str) -> pd.DataFrame:
+        """A larger sample of the table, read once, for the checks a small sample cannot settle."""
+        if table not in self._profiled:
+            self._profiled[table] = read_table(self.csv_dir / table.strip(), nrows=100_000)
+        return self._profiled[table]
+
+    # --- the bindings -------------------------------------------------------
+
+    def _bound(self, kind: str, binding: Any) -> tuple[str, list[str]] | None:
+        """The binding's table and columns when they exist in the selection; else the diagnostic that says why not."""
+        if not isinstance(binding, dict):
+            self.diagnostics.append({
+                "requirement": kind, "status": "unknown",
+                "category": "unstructured_binding",
+                "evidence": str(binding),
+                "correction_required": (
+                    "Coder must resolve this requirement against the exact "
+                    "selected columns; runtime references remain gated."
+                ),
+            })
+            return None
+        table = self._table_of(binding)
+        columns = [str(column) for column in (binding.get("columns") or [binding.get("column")]) if column]
+        if not columns:
+            self.diagnostics.append({
+                "requirement": str(binding.get("requirement") or binding.get("type") or kind),
+                "status": "unknown", "category": "missing_binding_columns",
+                "table": table if table in self.tables else None,
+                "evidence": {"binding": binding},
+                "correction_required": (
+                    "Resolve this requirement using selected columns or "
+                    "prove that it is dataset-level metadata."
+                ),
+            })
+            return None
+        missing = [column for column in columns if column not in self.schemas.get(table, set())]
+        if table not in self.tables or missing:
+            self.diagnostics.append({
+                "requirement": kind, "status": "contradicted",
+                "table": table if table in self.tables else None,
+                "column": [],
+                "category": "unknown_table_or_column",
+                "evidence": {
+                    "selected_tables": list(self.tables),
+                    "available_columns": sorted(self.schemas.get(table, set())),
+                },
+                "correction_required": "inspect_table and revise the binding",
+            })
+            return None
+        return table, columns
+
+    def _filter_compatible(self, table: str, column: str, operator: str, value: str, observed: list[Any]) -> bool:
+        """Whether the filter's value occurs in the column: in the sample, in a date range, or in a larger profile."""
+        normalized = [str(item).strip().casefold() for item in observed]
+        target = value.casefold()
+        compatible = any(target in item for item in normalized) if operator == "contains" else target in normalized
+        if operator == "range":
+            series = pd.to_datetime(self.profiled(table)[column], errors="coerce")
+            requested_years = [int(year) for year in re.findall(r"(?:19|20)\d{2}", value)]
+            observed_years = series.dropna().dt.year
+            return bool(observed_years.size) and (
+                not requested_years or (
+                    min(requested_years) >= int(observed_years.min())
+                    and max(requested_years) <= int(observed_years.max())
+                )
+            )
+        if compatible:
+            return True
+        expanded = self.profiled(table)[column].dropna().drop_duplicates().head(5000).tolist()
+        expanded_normalized = [str(item).strip().casefold() for item in expanded]
+        return any(target in item for item in expanded_normalized) if operator == "contains" else target in expanded_normalized
+
+    def _filter_diagnostic(self, kind: str, binding: dict[str, Any], table: str, columns: list[str], observed: list[Any]) -> bool:
+        """Whether a filter binding earned a diagnostic (too weak, or a value never observed)."""
+        operator = str(binding.get("operator") or "")
+        value = str(binding.get("value") or "").strip()
+        if kind == "filters" and operator == "not_null" and QUALIFIED_FILTER.search(self.question.casefold()):
+            self.diagnostics.append({
+                "requirement": "qualified categorical filter", "status": "contradicted",
+                "table": table, "column": columns[0] if columns else None,
+                "category": "semantic_filter_too_weak",
+                "evidence": {"question": self.question, "operator": operator},
+                "correction_required": "inspect categorical values and bind the requested category explicitly",
+            })
+            return True
+        if kind in {"filters", "temporal_filters"} and value:
+            if not self._filter_compatible(table, columns[0], operator, value, observed):
+                self.diagnostics.append({
+                    "requirement": f"runtime filter on {columns[0]}",
+                    "status": "unknown",
+                    "table": table, "column": columns[0],
+                    "category": "filter_value_not_observed",
+                    "evidence": {
+                        "observed_values": observed,
+                        "profiled_rows": len(self.profiled(table)),
+                    },
+                    "correction_required": "perform targeted inspect_table profiling; absence is not proof of contradiction",
+                })
+                return True
+        return False
+
+    def _measure_diagnostic(self, binding: dict[str, Any], table: str, columns: list[str]) -> bool:
+        """Whether a measure binding earned a diagnostic (a non-numeric column, or a distinct row count)."""
+        if str(binding.get("operation")) in {"sum", "mean", "min", "max"}:
+            if columns and not pd.api.types.is_numeric_dtype(self.frames[table][columns[0]]):
+                self.diagnostics.append({
+                    "requirement": "numeric measure", "status": "contradicted",
+                    "table": table, "column": columns[0],
+                    "category": "measure_type_incompatible",
+                    "evidence": str(self.frames[table][columns[0]].dtype),
+                    "correction_required": "choose a numeric measure or prove a safe conversion",
+                })
+                return True
+        operation = str(binding.get("operation") or "")
+        distinct = bool(binding.get("distinct"))
+        if operation == "count_rows" and distinct:
+            self.diagnostics.append({
+                "requirement": "count measure", "status": "contradicted",
+                "table": table, "column": columns,
+                "category": "count_distinctness_conflict",
+                "evidence": {"operation": operation, "distinct": distinct},
+                "correction_required": "make operation and distinct semantics consistent",
+            })
+            return True
+        return False
+
+    def _check_binding(self, kind: str, binding: Any) -> None:
+        bound = self._bound(kind, binding)
+        if bound is None:
+            return
+        table, columns = bound
+        observed: list[Any] = []
+        if columns and table in self.frames:
+            observed = self.frames[table][columns[0]].dropna().drop_duplicates().head(25).tolist()
+        if self._filter_diagnostic(kind, binding, table, columns, observed):
+            return
+        if kind == "measures" and self._measure_diagnostic(binding, table, columns):
+            return
+        self.evidence.append({
+            "requirement": f"runtime {kind} binding",
+            "status": "verified",
+            "table": table, "column": columns[0] if len(columns) == 1 else columns,
+            "observed_values": observed[:12],
+            "observed_range": None,
+            "evidence": "verified against runtime schema/profile",
+            "origin": "runtime_table_profile",
+            "correction_required": "",
+        })
+
+    # --- the joins ----------------------------------------------------------
+
+    def _check_join(self, join: Any) -> None:
+        if not isinstance(join, dict):
+            self.diagnostics.append({
+                "requirement": "join", "status": "unknown",
+                "category": "unstructured_join",
+                "evidence": str(join),
+                "correction_required": "resolve against selected tables before execution",
+            })
+            return
+        keys = join.get("keys", {})
+        tables = list(map(str, join.get("tables", [])))
+        if len(tables) < 2 or not isinstance(keys, dict) or any(table not in self.frames for table in tables):
+            self.diagnostics.append({
+                "requirement": "join", "status": "contradicted", "category": "join_tables_or_keys_missing",
+                "evidence": {
+                    "selected_tables": list(self.tables),
+                    "available_columns": {table: sorted(self.schemas.get(table, set())) for table in self.tables},
+                },
+                "correction_required": "inspect both tables and provide observable keys",
+            })
+            return
+        invalid, overlap = self._join_overlap(tables, keys)
+        if invalid or not overlap:
+            self.diagnostics.append({
+                "requirement": "join",
+                "status": "contradicted" if invalid else "unknown",
+                "category": "join_key_not_verifiable",
+                "evidence": {
+                    "verified_key_columns": keys if not invalid else {},
+                    "sample_overlap": list(overlap)[:10],
+                },
+                "correction_required": "inspect join cardinality/type/overlap; no observed overlap alone is not proof of impossibility",
+            })
+            return
+        self.evidence.append({
+            "requirement": "join selected tables", "status": "verified",
+            "table": tables, "columns": keys, "observed_values": list(overlap)[:10],
+            "observed_range": None,
+            "evidence": "sample key overlap observed", "origin": "runtime_join_profile",
+            "correction_required": "",
+        })
+
+    def _join_overlap(self, tables: list[str], keys: dict[str, Any]) -> tuple[bool, set[str]]:
+        """Whether a key is missing, and the key values the tables share (from the sample, else the profile)."""
+        series = []
+        for table in tables:
+            key = str(keys.get(table) or "")
+            if key not in self.schemas.get(table, set()):
+                return True, set()
+            series.append(set(self.frames[table][key].dropna().astype(str).str.strip().head(500)))
+        overlap = set.intersection(*series) if series else set()
+        if not overlap:
+            expanded = [
+                set(self.profiled(table)[str(keys[table])].dropna().astype(str).str.strip()) for table in tables
+            ]
+            overlap = set.intersection(*expanded) if expanded else set()
+        return False, overlap
+
+    # --- the result shape ---------------------------------------------------
+
+    def _check_shape(self, plan: dict[str, Any]) -> None:
+        if plan.get("ordering"):
+            self.evidence.append({
+                "requirement": "result ordering", "status": "verified",
+                "table": None, "columns": [], "observed_values": [],
+                "observed_range": None, "origin": "structured_semantic_plan",
+                "evidence": "ordering direction is structurally representable",
+                "correction_required": "",
+            })
+        if plan.get("limit") is not None:
+            limit = plan.get("limit")
+            if isinstance(limit, int) and limit > 0:
+                self.evidence.append({
+                    "requirement": "result limit", "status": "verified",
+                    "table": None, "columns": [], "observed_values": [limit],
+                    "observed_range": None, "origin": "question_semantic_plan",
+                    "evidence": "positive integer limit is representable",
+                    "correction_required": "",
+                })
+            else:
+                self.diagnostics.append({
+                    "requirement": "result limit", "status": "contradicted",
+                    "category": "invalid_limit", "evidence": type(limit).__name__,
+                    "correction_required": "provide a positive integer limit or null",
+                })
+        if plan.get("null_policy"):
+            relevant_columns = list(dict.fromkeys(
+                str(column)
+                for kind in BINDING_KINDS
+                for binding in plan.get(kind, []) if isinstance(binding, dict)
+                for column in (binding.get("columns") or [binding.get("column")]) if column
+            ))
+            self.evidence.append({
+                "requirement": "null policy", "status": "verified",
+                "table": None, "columns": relevant_columns,
+                "observed_values": [], "observed_range": None,
+                "origin": "runtime_table_profile",
+                "evidence": "null counts are available through runtime profiling",
+                "correction_required": "",
+            })
+
+    def verdict(self) -> dict[str, Any]:
+        blockers = [item for item in self.diagnostics if item.get("status") == "contradicted"]
+        warnings = [item for item in self.diagnostics if item.get("status") != "contradicted"]
+        status = "rejected" if blockers else "executable_with_obligations" if warnings else "verified"
+        return {
+            "valid": not blockers,
+            "locked": not blockers,
+            "status": status,
+            "diagnostics": blockers,
+            "warnings": warnings,
+            "evidence": self.evidence,
+            "required_action": (
+                "resolve_runtime_obligations" if warnings and not blockers else
+                None if not blockers else "inspect_table_or_plan_conflict"
+            ),
+            "runtime_obligations": warnings,
         }
