@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from lakegen.analysis.jobs import iter_jobs
 from lakegen.analysis.runs import load_runs
+from lakegen.config.recorded import load_recorded_config
 from lakegen.experiments import cli
 from lakegen.experiments.legacy import config_differences, index_legacy, matching_cell
 from lakegen.experiments.spec import ExperimentSpec, expand
@@ -71,6 +73,28 @@ def test_index_legacy_is_idempotent_and_keeps_the_latest_job_of_a_cell(tmp_path)
     second = index_legacy(store, [JOBS], [spec])
     assert [entry.cell_id for entry in first] == [entry.cell_id for entry in second]
     assert len(store.load_index("bench-grid")) == 2 and not store.load_index("legacy-sample")
+
+
+def test_a_varied_field_is_not_compared_and_a_job_moves_out_of_legacy_once_matched(tmp_path):
+    spec = _bench_spec_over(JOBS)
+    cells = {cell.experiment_id: cell for cell in expand(spec)}
+    job = next(iter_jobs(JOBS))
+    # The same job as if it had run on OCI throughout, with no switch recorded.
+    oci = {**job.resolved_config, "model": "openai.gpt-oss-120b", "semantic_code_judge_model": "openai.gpt-oss-120b"}
+    oci_job = replace(job, resolved_config=oci, config=load_recorded_config(oci), provider_switches=[])
+    assert matching_cell(oci_job, cells) is None
+    assert matching_cell(oci_job, cells, varied=spec.varied) is not None
+    assert matching_cell(oci_job, cells, varied=["model"]) is None  # the judge still differs
+
+    store = RunStore(tmp_path / "runs")
+    strict = spec.model_copy(update={"varied": []})
+    index_legacy(store, [JOBS], [strict])
+    assert len(store.load_index("legacy-sample")) == 0  # the fixture jobs carry switches, so they match anyway
+    store.record_job("legacy-sample", cell_id="stale", experiment_id=job.experiment_id, config=oci,
+                     job_dir=JOBS, job_id=job.job_id, submitted_at=None)
+    assert "stale" in store.load_index("legacy-sample")
+    index_legacy(store, [JOBS], [spec])
+    assert "stale" not in store.load_index("legacy-sample")
 
 
 def test_the_cli_reports_each_directory(tmp_path, capsys):

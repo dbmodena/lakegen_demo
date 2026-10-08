@@ -31,3 +31,8 @@ execution:
   workers: 6
   split: {model: openai.gpt-oss-120b, share: 1.0}
 requires: ["pneuma:{lake}"]
+# The OCI credit for gpt-oss-120b ran out while the grid ran: the model, the
+# judge and the entity model were switched to Together by hand, job by job, and
+# the last cells ran on an 80/20 Together/OCI split. Together is the intended
+# provider; what each result ran on is in the results (lakegen.analysis).
+varied: [model, semantic_code_judge_model, retrieval.pneuma_entity_model]

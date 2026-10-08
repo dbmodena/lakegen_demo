@@ -74,12 +74,16 @@ def config_differences(
     }
 
 
-def matching_cell(job: StoredJob, cells: Mapping[str, Cell]) -> Cell | None:
-    """The cell of ``cells`` (by experiment id) whose configuration the job ran, if any."""
+def matching_cell(job: StoredJob, cells: Mapping[str, Cell], *, varied: Iterable[str] = ()) -> Cell | None:
+    """The cell of ``cells`` (by experiment id) whose configuration the job ran, if any.
+
+    ``varied`` names the spec's fields that were not held fixed; a job whose
+    models were switched by hand is also compared without its model fields.
+    """
     cell = cells.get(job.experiment_id)
     if cell is None:
         return None
-    ignored = MODEL_FIELDS if job.provider_switches else ()
+    ignored = set(varied) | (set(MODEL_FIELDS) if job.provider_switches else set())
     differences = config_differences(resolve_as_submission(cell), job.resolved_config, ignored=ignored)
     return cell if not differences else None
 
@@ -111,7 +115,7 @@ def index_legacy(
         spec, cells = cells_by_dir.get(job_dir.resolve(), (None, {}))
         taken: dict[str, StoredJob] = {}
         for job in iter_jobs(job_dir):  # oldest first: a later job of a cell replaces the earlier
-            cell = matching_cell(job, cells) if spec else None
+            cell = matching_cell(job, cells, varied=spec.varied) if spec else None
             if cell is None:
                 indexed.append(_record_legacy(store, job))
                 continue
@@ -121,6 +125,9 @@ def index_legacy(
             store.write_spec(spec)
             store.record(cell, backend="api", job_dir=job.job_dir, job_id=job.job_id, submitted_at=job.created_at)
             indexed.append(IndexedJob(job=job, experiment=spec.name, cell_id=cell.cell_id, matched=True))
+        # A job matched now but recorded under the legacy experiment by an
+        # earlier pass (before the spec declared its varied fields) leaves it.
+        store.forget(legacy_experiment(job_dir), {job.job_id for job in taken.values()})
     return indexed
 
 

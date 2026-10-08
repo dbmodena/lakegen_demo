@@ -160,5 +160,13 @@ class RunStore:
             encoding="utf-8",
         )
 
+    def forget(self, experiment: str, job_ids: set[str]) -> int:
+        """Drop the index entries of ``experiment`` that point at ``job_ids``; the cell files stay."""
+        index = self.load_index(experiment)
+        kept = {cell_id: record for cell_id, record in index.items() if record.job_id not in job_ids}
+        if len(kept) != len(index):
+            self._write_index(experiment, kept)
+        return len(index) - len(kept)
+
     def submitted(self, name: str) -> set[str]:
         return {cell_id for cell_id, record in self.load_index(name).items() if record.job_id}

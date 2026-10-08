@@ -105,6 +105,11 @@ class ExperimentSpec(StrictModel):
     experiment_id: str = "{name}-{axes}"
     execution: Execution = Field(default_factory=Execution)
     requires: list[str] = Field(default_factory=list)
+    # Fields the run did not hold fixed (dotted keys): switched by hand while
+    # it ran, so the spec's value is the intended one, not what every job
+    # used. They are not compared when stored jobs are matched to cells;
+    # `lakegen.analysis.load_runs` reports what each result ran with.
+    varied: list[str] = Field(default_factory=list)
 
     @classmethod
     def load(cls, path: str | Path) -> ExperimentSpec:

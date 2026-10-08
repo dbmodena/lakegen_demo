@@ -12,9 +12,9 @@ are not compared.
 The benchmark-lake jobs are a patchwork: their model, judge and entity model
 were switched by hand, job by job, between OCI and Together as credit came
 and went, so no single spec reproduces those three fields. The bench spec
-records the intended provider, Together; the three fields are left out of
-its comparison and the switches are counted. Each result's effective block
-(the manifest) holds the truth for that question.
+records the intended provider, Together, and names the three fields as
+`varied`; they are left out of its comparison and the switches are counted.
+`lakegen.analysis.load_runs` reports what each result ran on.
 """
 
 from __future__ import annotations
@@ -31,15 +31,13 @@ from lakegen.experiments.spec import ExperimentSpec, expand
 ROOT = Path(__file__).resolve().parents[1]
 SPECS = sorted((ROOT / "experiments" / "specs").glob("*.yaml"))
 STORED = json.loads((ROOT / "tests" / "fixtures" / "configs" / "stored_job_configs.json").read_text(encoding="utf-8"))
-# spec name -> (the job directory its script wrote to, ids that are not grid cells,
-#               whether the jobs' providers were switched by hand individually)
+# spec name -> (the job directory its script wrote to, ids that are not grid cells)
 GRIDS = {
-    "qwen-grid": ("lakegen_jobs_qwen", ("qwen-llm-smoke", "qwen-jev-smoke"), False),
-    "rest-run": ("lakegen_jobs_rest", (), False),
-    "bench-grid": ("lakegen_jobs_bench", (), True),
-    "portal-grid2": ("lakegen_jobs", ("grid-", "smoke-"), False),
+    "qwen-grid": ("lakegen_jobs_qwen", ("qwen-llm-smoke", "qwen-jev-smoke")),
+    "rest-run": ("lakegen_jobs_rest", ()),
+    "bench-grid": ("lakegen_jobs_bench", ()),
+    "portal-grid2": ("lakegen_jobs", ("grid-", "smoke-")),
 }
-PROVIDER_FIELDS = {"model", "semantic_code_judge_model", "retrieval.pneuma_entity_model"}
 
 
 def _stored_jobs(job_dir: str, skipped: tuple[str, ...]) -> tuple[dict[str, list[dict[str, Any]]], int]:
@@ -60,11 +58,11 @@ def _stored_jobs(job_dir: str, skipped: tuple[str, ...]) -> tuple[dict[str, list
 @pytest.mark.parametrize("spec_path", SPECS, ids=[p.stem for p in SPECS])
 def test_spec_cells_match_the_submitted_jobs(spec_path: Path):
     spec = ExperimentSpec.load(spec_path)
-    job_dir, skipped_ids, mixed_providers = GRIDS[spec.name]
+    job_dir, skipped_ids = GRIDS[spec.name]
     stored, switched = _stored_jobs(job_dir, skipped_ids)
     cells = {cell.experiment_id: cell for cell in expand(spec)}
     assert len(cells) == len(expand(spec)), "experiment ids must be unique"
-    skipped_keys = PROVIDER_FIELDS if mixed_providers else set()
+    skipped_keys = set(spec.varied)  # the fields the spec says were not held fixed
 
     mismatches: dict[str, dict[str, tuple[Any, Any]]] = {}
     for experiment_id, configs in stored.items():
@@ -77,6 +75,6 @@ def test_spec_cells_match_the_submitted_jobs(spec_path: Path):
     never_submitted = sorted(set(cells) - set(stored))
     print(
         f"{spec.name}: {len(stored)} stored ids matched ({switched} configurations switched by hand"
-        f"{', provider fields not compared' if mixed_providers else ''}); "
+        f"{', ' + ', '.join(spec.varied) + ' not compared' if spec.varied else ''}); "
         f"{len(never_submitted)} planned cells never submitted: {never_submitted[:6]}"
     )
