@@ -84,7 +84,14 @@ else
   echo "ruff: $(echo "$NEW" | grep -c .) new and $(echo "$LEGACY" | grep -c .) legacy files clean"
 fi
 
-echo "== 3. import smoke"
+echo "== 3. import contracts"
+# The dependency rules between the packages (pyproject [tool.importlinter]).
+LINT_IMPORTS="$ROOT/.venv/bin/lint-imports"
+[ -x "$LINT_IMPORTS" ] || { echo "import-linter is missing: uv pip install --python .venv/bin/python import-linter"; exit 1; }
+PYTHONPATH="$ROOT/src" "$LINT_IMPORTS" --no-cache > /dev/null || { PYTHONPATH="$ROOT/src" "$LINT_IMPORTS" --no-cache; exit 1; }
+echo "contracts kept"
+
+echo "== 4. import smoke"
 export PYTHONPATH="$ROOT/src:$ROOT"
 "$PY" src/cli.py --help > /dev/null
 "$ROOT/.venv/bin/lakegen" --help > /dev/null

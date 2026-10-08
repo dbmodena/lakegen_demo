@@ -70,7 +70,13 @@ src = ["src", "tests"]
 extend-exclude = ["experiments", "analysis", "scripts_pneuma", "backups"]
 
 [tool.ruff.lint]
-select = ["F", "I", "B", "UP", "C901", "PLR0915"]
+select = ["F", "I", "B", "UP", "C901", "PLR0915", "TID251"]
+
+# Only the settings registry reads the environment; everything else reads it
+# through lakegen.config.settings, which names every variable once.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"os.environ".msg = "read the environment through lakegen.config.settings"
+"os.getenv".msg = "read the environment through lakegen.config.settings"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12
@@ -87,3 +93,73 @@ known-first-party = ["lakegen", "golden", "src", "prompts"]
 "src/app.py" = ["E402", "I001"]
 "src/cli.py" = ["E402", "I001"]
 "index_retrieval.py" = ["E402", "I001"]
+# The registry itself, and the three places that build a subprocess's or a
+# library's environment from the process's own.
+"src/lakegen/config/settings.py" = ["TID251"]
+"src/lakegen/core/bootstrap.py" = ["TID251"]
+"src/lakegen/cell_scan.py" = ["TID251"]
+"src/lakegen/experiments/services.py" = ["TID251"]
+
+# The dependency rules between the packages (docs/REFACTOR_PLAN.md), checked by
+# `lint-imports` in scripts/check.sh. Two imports are tolerated until their
+# code moves: the local executor runs the API's batch loop, and the experiment
+# config reads the retrieval config (which belongs under lakegen.config).
+[tool.importlinter]
+root_package = "lakegen"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Only the interfaces import the web and UI frameworks"
+type = "forbidden"
+source_modules = [
+    "lakegen.pipeline", "lakegen.discovery", "lakegen.coding", "lakegen.answer",
+    "lakegen.retrieval", "lakegen.llm", "lakegen.lakes", "lakegen.config", "lakegen.domain",
+    "lakegen.observability", "lakegen.experiments", "lakegen.analysis", "lakegen.prompts",
+    "lakegen.core", "lakegen.agents", "lakegen.agent_tools", "lakegen.service", "lakegen.runner",
+    "lakegen.interfaces.cli",
+]
+forbidden_modules = ["chainlit", "fastapi"]
+ignore_imports = ["lakegen.experiments.executors -> lakegen.interfaces.api.app"]
+
+[[tool.importlinter.contracts]]
+name = "The packages depend downwards only"
+type = "layers"
+layers = [
+    "lakegen.interfaces",
+    "lakegen.experiments",
+    "lakegen.pipeline",
+    "lakegen.coding",
+    "lakegen.discovery",
+    "lakegen.answer",
+    "lakegen.retrieval",
+    "lakegen.llm",
+    "lakegen.lakes",
+    "lakegen.config",
+    "lakegen.domain",
+]
+ignore_imports = [
+    "lakegen.experiments.executors -> lakegen.interfaces.api.app",
+    "lakegen.experiment_config -> lakegen.retrieval",
+]
+
+[[tool.importlinter.contracts]]
+name = "observability is imported by the pipeline and the interfaces only"
+type = "forbidden"
+source_modules = [
+    "lakegen.discovery", "lakegen.coding", "lakegen.answer", "lakegen.retrieval", "lakegen.llm",
+    "lakegen.lakes", "lakegen.config", "lakegen.domain", "lakegen.experiments", "lakegen.analysis",
+]
+forbidden_modules = ["lakegen.observability"]
+ignore_imports = ["lakegen.experiments.executors -> lakegen.interfaces.api.app"]
+
+[[tool.importlinter.contracts]]
+name = "The lower layers never import the pipeline, the experiments or the interfaces"
+type = "forbidden"
+source_modules = [
+    "lakegen.discovery", "lakegen.coding", "lakegen.answer", "lakegen.retrieval", "lakegen.llm",
+    "lakegen.lakes", "lakegen.config", "lakegen.domain", "lakegen.observability",
+]
+forbidden_modules = [
+    "lakegen.pipeline", "lakegen.interfaces", "lakegen.experiments", "lakegen.analysis",
+    "lakegen.service", "lakegen.ui",
+]
