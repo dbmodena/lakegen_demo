@@ -39,13 +39,13 @@ def test_batch_report_of_a_stored_job(job_id: str, golden):
     golden(f"analysis/batch_report__{job['settings']['resolved_config']['experiment_id']}", report)
 
 
-def test_the_api_wrapper_returns_the_report_summary(monkeypatch):
-    import api
+def test_the_batch_wrapper_returns_the_report_summary(monkeypatch):
+    from lakegen.experiments import batch
 
     job, questions, results = _job(JOB_IDS[0])
     logged = []
-    monkeypatch.setattr(api, "append_benchmark_metrics_log", lambda report, *a, **k: logged.append(report))
-    summary = api._append_batch_table_metrics(job["job_id"], questions, results, job["settings"])
+    monkeypatch.setattr(batch, "append_benchmark_metrics_log", lambda report, *a, **k: logged.append(report))
+    summary = batch.append_batch_table_metrics(job["job_id"], questions, results, job["settings"])
     assert len(logged) == 1
     assert summary == report_summary(logged[0])
     assert summary["case_count"] == 4 and "cases" not in summary

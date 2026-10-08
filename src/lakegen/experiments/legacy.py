@@ -46,9 +46,9 @@ def flatten(value: Any, prefix: str = "") -> dict[str, Any]:
 
 def resolve_as_submission(cell: Cell) -> dict[str, Any]:
     """The cell's configuration as the API stores it for a submitted batch."""
-    import api  # the FastAPI module next to the package; moves in phase 4.5
+    from lakegen.experiments.batch import resolve_config
 
-    return api._resolve_api_config(
+    return resolve_config(
         core=cell.lake,
         model=cell.config.model,
         retrieval_mode=cell.config.retrieval.mode.value,

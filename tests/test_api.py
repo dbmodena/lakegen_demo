@@ -1,4 +1,5 @@
 import lakegen.interfaces.api.app as api
+from lakegen.experiments import batch, jobs
 import csv
 import json
 import pytest
@@ -25,16 +26,16 @@ class FakeUpload:
 def test_batch_source_key_uses_path_when_source_id_is_missing():
     first = {"source_id": None, "source_path": "$.questions[0]"}
     second = {"source_id": None, "source_path": "$.questions[1]"}
-    assert api._batch_source_key(first) != api._batch_source_key(second)
+    assert jobs.question_key(first) != jobs.question_key(second)
 
 
 def test_positive_int_from_env_uses_default_for_invalid_values(monkeypatch):
     monkeypatch.setenv("TEST_LAKEGEN_WORKERS", "0")
-    assert api._positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 2
+    assert batch.positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 2
     monkeypatch.setenv("TEST_LAKEGEN_WORKERS", "invalid")
-    assert api._positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 2
+    assert batch.positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 2
     monkeypatch.setenv("TEST_LAKEGEN_WORKERS", "3")
-    assert api._positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 3
+    assert batch.positive_int_from_env("TEST_LAKEGEN_WORKERS", 2) == 3
 
 
 def test_benchmark_catalog_queues_its_complete_case_metadata(tmp_path, monkeypatch):
@@ -52,20 +53,20 @@ def test_benchmark_catalog_queues_its_complete_case_metadata(tmp_path, monkeypat
         encoding="utf-8",
     )
     monkeypatch.setattr(api, "BENCHMARK_DIR", tmp_path)
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path / "jobs")
-    monkeypatch.setattr(api._executor, "submit", lambda *_args: None)
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(batch.EXECUTOR, "submit", lambda *_args: None)
 
     assert api.list_benchmarks() == {"benchmarks": ["sample.json"]}
     accepted = api.submit_benchmark_batch("sample.json", core="nyc")
-    job = api._jobs[accepted.job_id]
+    job = jobs.JOBS[accepted.job_id]
 
     assert accepted.question_count == 1
     assert job["settings"]["resolved_config"]["experiment_id"] == "benchmark-sample"
     assert job["settings"]["resolved_config"]["core"] == "nyc"
-    stored = api._load_questions(accepted.job_id)[0]
+    stored = jobs.load_questions(accepted.job_id)[0]
     assert stored["log_fields"]["SOURCE_RELEVANT_TABLE_IDS"] == ["parks-123"]
     assert stored["log_fields"]["SOURCE_REFERENCE_CODE"] == "SELECT 1"
-    api._jobs.pop(accepted.job_id, None)
+    jobs.JOBS.pop(accepted.job_id, None)
 
 
 def test_benchmark_catalog_rejects_paths_outside_its_directory(tmp_path, monkeypatch):
@@ -77,34 +78,34 @@ def test_benchmark_catalog_rejects_paths_outside_its_directory(tmp_path, monkeyp
 
 
 def test_job_persistence_separates_metadata_and_results(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
     job_id = "a" * 32
     job = {"job_id": job_id, "status": "running", "results": []}
 
-    api._persist_job(job)
-    api._append_result(job_id, {"question": "One?", "result": {"status": "completed"}})
+    jobs.persist_job(job)
+    jobs.append_result(job_id, {"question": "One?", "result": {"status": "completed"}})
 
-    with_results = api._snapshot_job(job_id)
-    without_results = api._snapshot_job(job_id, include_results=False)
+    with_results = jobs.snapshot_job(job_id)
+    without_results = jobs.snapshot_job(job_id, include_results=False)
     assert with_results["results"][0]["question"] == "One?"
     assert "results" not in without_results
-    assert "results" not in api._job_path(job_id).read_text(encoding="utf-8")
+    assert "results" not in jobs.job_path(job_id).read_text(encoding="utf-8")
 
 
 def test_batch_question_checkpoint_round_trip(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
     job_id = "b" * 32
     questions = [{"question": "One?", "source_id": "q1"}]
 
-    api._persist_questions(job_id, questions)
+    jobs.persist_questions(job_id, questions)
 
-    assert api._load_questions(job_id) == questions
+    assert jobs.load_questions(job_id) == questions
 
 
 def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
-    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
-    monkeypatch.setattr(api, "ExperimentConfig", type("Config", (), {
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(batch, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(batch, "ExperimentConfig", type("Config", (), {
         "model_validate": staticmethod(lambda _settings: object())
     }))
     calls = []
@@ -121,8 +122,8 @@ def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
             calls.append((question, kwargs["log_context"]))
             return FakeResult()
 
-    monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
-    monkeypatch.setattr(api, "_append_batch_table_metrics", lambda *_args: False)
+    monkeypatch.setattr(batch, "ExperimentRunner", FakeRunner)
+    monkeypatch.setattr(batch, "append_batch_table_metrics", lambda *_args: False)
     job_id = "c" * 32
     first = {
         "question": "One?",
@@ -134,7 +135,7 @@ def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
         {"question": "One?", "source_path": "$.cases[0].question", "source_id": "q1", "log_fields": {}},
         {"question": "Two?", "source_path": "$.cases[1].question", "source_id": "q2", "log_fields": {}},
     ]
-    api._jobs[job_id] = {
+    jobs.JOBS[job_id] = {
         "job_id": job_id,
         "status": "running",
         "started_at": "start",
@@ -145,22 +146,22 @@ def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
         "results": [first],
     }
 
-    api._run_batch(job_id, questions, {"resolved_config": {}})
+    batch.run_batch(job_id, questions, {"resolved_config": {}})
 
     assert calls == [(
         "Two?",
         {"JOB_ID": job_id, "EXECUTION_ATTEMPT": 1, "IS_FINAL_ATTEMPT": True},
     )]
-    assert api._jobs[job_id]["processed"] == 2
-    assert len(api._jobs[job_id]["results"]) == 2
-    assert api._jobs[job_id]["status"] == "completed"
-    assert "code" in api._jobs[job_id]["batch_metrics"]
-    api._jobs.pop(job_id, None)
+    assert jobs.JOBS[job_id]["processed"] == 2
+    assert len(jobs.JOBS[job_id]["results"]) == 2
+    assert jobs.JOBS[job_id]["status"] == "completed"
+    assert "code" in jobs.JOBS[job_id]["batch_metrics"]
+    jobs.JOBS.pop(job_id, None)
 
 
 def test_batch_table_metrics_returns_summary_for_final_job_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "LOG_DIR", tmp_path / "logs")
-    monkeypatch.setattr(api, "append_benchmark_metrics_log", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(batch, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(batch, "append_benchmark_metrics_log", lambda *_args, **_kwargs: None)
     questions = [{
         "question": "How many parks?",
         "source_id": "case-1",
@@ -182,7 +183,7 @@ def test_batch_table_metrics_returns_summary_for_final_job_file(tmp_path, monkey
         },
     }}
 
-    summary = api._append_batch_table_metrics(
+    summary = batch.append_batch_table_metrics(
         "d" * 32, questions, results, settings
     )
 
@@ -193,7 +194,7 @@ def test_batch_table_metrics_returns_summary_for_final_job_file(tmp_path, monkey
 def test_automatic_coder_sweep_writes_one_csv_row_per_shared_context_variant(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(api, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(batch, "LOG_DIR", tmp_path / "logs")
     questions = [{
         "question": "How many parks?",
         "source_id": "case-1",
@@ -230,7 +231,7 @@ def test_automatic_coder_sweep_writes_one_csv_row_per_shared_context_variant(
         "coder_context_level": "full", "retrieval": retrieval,
     }}
 
-    api._append_batch_table_metrics("e" * 32, questions, results, settings)
+    batch.append_batch_table_metrics("e" * 32, questions, results, settings)
 
     with (tmp_path / "logs" / "retrieval_benchmarks_log.csv").open(
         newline="", encoding="utf-8"
@@ -247,9 +248,9 @@ def test_automatic_coder_sweep_writes_one_csv_row_per_shared_context_variant(
 
 
 def test_invalid_job_id_cannot_be_used_as_a_path(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
 
-    assert api._snapshot_job("../not-a-job") is None
+    assert jobs.snapshot_job("../not-a-job") is None
 
 
 def test_query_request_rejects_removed_ollama_url():
@@ -280,12 +281,12 @@ def test_api_contract_exposes_only_inline_config():
 
 
 def test_batch_accepts_only_inline_top_level_config():
-    config = api._inline_batch_config({
+    config = batch.inline_config({
         "config": {"core": "bologna", "retrieval": {"mode": "hybrid"}},
         "questions": ["One?"],
     })
     assert config == {"core": "bologna", "retrieval": {"mode": "hybrid"}}
-    resolved = api._resolve_api_config(
+    resolved = batch.resolve_config(
         core=api.DEFAULT_CORE,
         model=api.DEFAULT_MODEL,
         retrieval_mode="keyword",
@@ -298,15 +299,15 @@ def test_batch_accepts_only_inline_top_level_config():
     assert resolved.core == "bologna"
     assert resolved.retrieval.mode == "hybrid"
     with pytest.raises(ValueError, match="inline JSON object"):
-        api._inline_batch_config({"config": "/tmp/experiment.yaml", "questions": []})
+        batch.inline_config({"config": "/tmp/experiment.yaml", "questions": []})
 
 
 @pytest.mark.asyncio
 async def test_multipart_batch_accepts_config_and_questions_files(tmp_path, monkeypatch):
     submitted = {}
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
     monkeypatch.setattr(
-        api._executor,
+        batch.EXECUTOR,
         "submit",
         lambda function, *args: submitted.update(function=function, args=args),
     )
@@ -322,16 +323,16 @@ async def test_multipart_batch_accepts_config_and_questions_files(tmp_path, monk
     response = await api.submit_batch_files(config_upload, questions_upload)
 
     assert response.question_count == 2
-    job = api._jobs[response.job_id]
+    job = jobs.JOBS[response.job_id]
     resolved = job["settings"]["resolved_config"]
     assert resolved["experiment_id"] == "uploaded-5"
     assert resolved["discovery_architecture"] == "divided"
     assert resolved["retrieval"]["mode"] == "hybrid"
     assert resolved["retrieval"]["top_k"] == 7
     assert resolved["interaction_mode"] == "autonomous"
-    assert submitted["function"] is api._run_batch
+    assert submitted["function"] is batch.run_batch
     assert config_upload.closed and questions_upload.closed
-    api._jobs.pop(response.job_id, None)
+    jobs.JOBS.pop(response.job_id, None)
 
 
 @pytest.mark.parametrize(
@@ -394,7 +395,7 @@ def test_single_query_passes_the_complete_request_to_csv_logging(monkeypatch):
 
     runtime = object()
     monkeypatch.setattr(api, "make_runtime_settings", lambda **kwargs: runtime)
-    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(batch, "bootstrap_nltk_data", lambda: None)
     monkeypatch.setattr(api, "run_question", fake_run_question)
 
     response = api.query_lakegen(
@@ -415,7 +416,7 @@ def test_single_query_passes_the_complete_request_to_csv_logging(monkeypatch):
 
 
 def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(batch, "LOG_DIR", tmp_path / "logs")
     questions = [
         {
             "question": "One?",
@@ -472,7 +473,7 @@ def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatc
         }
     }
 
-    assert api._append_batch_table_metrics("job-1", questions, results, settings)
+    assert batch.append_batch_table_metrics("job-1", questions, results, settings)
 
     with (tmp_path / "logs" / "retrieval_benchmarks_log.csv").open(
         newline="", encoding="utf-8"
@@ -499,7 +500,7 @@ def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatc
 
 
 def test_batch_metrics_skip_legacy_questions_without_gold_tables(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(batch, "LOG_DIR", tmp_path / "logs")
     questions = [{
         "question": "Legacy?",
         "source_path": "$.questions[0]",
@@ -507,7 +508,7 @@ def test_batch_metrics_skip_legacy_questions_without_gold_tables(tmp_path, monke
         "log_fields": {},
     }]
 
-    assert not api._append_batch_table_metrics(
+    assert not batch.append_batch_table_metrics(
         "job-legacy", questions, [{"result": {"tables": ["table.parquet"]}}], {}
     )
     assert not (tmp_path / "logs" / "retrieval_benchmarks_log.csv").exists()
@@ -540,7 +541,7 @@ def test_augmented_metrics_report_alternative_selection_without_changing_strict_
         "retrieval": {"mode": "hybrid", "fusion_method": "weighted"},
     }}
 
-    metrics = api._append_batch_table_metrics(
+    metrics = batch.append_batch_table_metrics(
         "job-alt", questions, results, settings, append_log=False
     )
 
@@ -555,9 +556,9 @@ def test_augmented_metrics_report_alternative_selection_without_changing_strict_
 @pytest.mark.asyncio
 async def test_multipart_batch_propagates_question_file_id(tmp_path, monkeypatch):
     submitted = {}
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
     monkeypatch.setattr(
-        api._executor,
+        batch.EXECUTOR,
         "submit",
         lambda function, *args: submitted.update(function=function, args=args),
     )
@@ -573,34 +574,34 @@ async def test_multipart_batch_propagates_question_file_id(tmp_path, monkeypatch
     questions = submitted["args"][1]
     assert questions[0]["source_id"] == "file-q-7"
     assert questions[0]["log_fields"]["SOURCE_ID"] == "file-q-7"
-    api._jobs.pop(response.job_id, None)
+    jobs.JOBS.pop(response.job_id, None)
 
 
 def test_batch_pause_rests_after_every_n_questions_but_not_after_the_last(monkeypatch):
-    assert api._batch_pause_seconds(5, 10, every=5, seconds=30) == 30.0
-    assert api._batch_pause_seconds(10, 1, every=5, seconds=30) == 30.0
-    assert api._batch_pause_seconds(4, 10, every=5, seconds=30) == 0.0
-    assert api._batch_pause_seconds(5, 0, every=5, seconds=30) == 0.0
-    assert api._batch_pause_seconds(5, 10, every=0, seconds=30) == 0.0
-    assert api._batch_pause_seconds(5, 10, every=5, seconds=0) == 0.0
+    assert batch.batch_pause_seconds(5, 10, every=5, seconds=30) == 30.0
+    assert batch.batch_pause_seconds(10, 1, every=5, seconds=30) == 30.0
+    assert batch.batch_pause_seconds(4, 10, every=5, seconds=30) == 0.0
+    assert batch.batch_pause_seconds(5, 0, every=5, seconds=30) == 0.0
+    assert batch.batch_pause_seconds(5, 10, every=0, seconds=30) == 0.0
+    assert batch.batch_pause_seconds(5, 10, every=5, seconds=0) == 0.0
     monkeypatch.setenv("TEST_LAKEGEN_PAUSE", "-3")
-    assert api._non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 0.0) == 0.0
+    assert batch.non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 0.0) == 0.0
     monkeypatch.setenv("TEST_LAKEGEN_PAUSE", "invalid")
-    assert api._non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 1.5) == 1.5
+    assert batch.non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 1.5) == 1.5
     monkeypatch.setenv("TEST_LAKEGEN_PAUSE", "30")
-    assert api._non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 0.0) == 30.0
+    assert batch.non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 0.0) == 30.0
 
 
 def test_run_batch_pauses_between_groups_of_questions(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
-    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
-    monkeypatch.setattr(api, "ExperimentConfig", type("Config", (), {
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(batch, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(batch, "ExperimentConfig", type("Config", (), {
         "model_validate": staticmethod(lambda _settings: object())
     }))
-    monkeypatch.setattr(api, "BATCH_PAUSE_EVERY", 5)
-    monkeypatch.setattr(api, "BATCH_PAUSE_SECONDS", 30.0)
+    monkeypatch.setattr(batch, "BATCH_PAUSE_EVERY", 5)
+    monkeypatch.setattr(batch, "BATCH_PAUSE_SECONDS", 30.0)
     events = []
-    monkeypatch.setattr(api.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+    monkeypatch.setattr(batch.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
 
     class FakeResult:
         def to_dict(self):
@@ -614,27 +615,27 @@ def test_run_batch_pauses_between_groups_of_questions(tmp_path, monkeypatch):
             events.append(("run", question))
             return FakeResult()
 
-    monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
-    monkeypatch.setattr(api, "_append_batch_table_metrics", lambda *_args: False)
+    monkeypatch.setattr(batch, "ExperimentRunner", FakeRunner)
+    monkeypatch.setattr(batch, "append_batch_table_metrics", lambda *_args: False)
     job_id = "d" * 32
     questions = [
         {"question": f"Q{index}?", "source_path": f"$.cases[{index}].question",
          "source_id": f"q{index}", "log_fields": {}}
         for index in range(11)
     ]
-    api._jobs[job_id] = {
+    jobs.JOBS[job_id] = {
         "job_id": job_id, "status": "queued", "started_at": None, "updated_at": "start",
         "processed": 0, "failed": 0, "metrics_logged": False, "results": [],
     }
 
-    api._run_batch(job_id, questions, {"resolved_config": {}})
+    batch.run_batch(job_id, questions, {"resolved_config": {}})
 
     # A rest after the 5th and the 10th question, none after the last one.
     assert [index for index, event in enumerate(events) if event[0] == "sleep"] == [5, 11]
     assert [event[1] for event in events if event[0] == "sleep"] == [30.0, 30.0]
-    assert api._jobs[job_id]["status"] == "completed"
-    assert api._jobs[job_id]["processed"] == 11
-    api._jobs.pop(job_id, None)
+    assert jobs.JOBS[job_id]["status"] == "completed"
+    assert jobs.JOBS[job_id]["processed"] == 11
+    jobs.JOBS.pop(job_id, None)
 
 
 def test_question_tokens_count_every_phase_and_each_judged_variant():
@@ -646,44 +647,44 @@ def test_question_tokens_count_every_phase_and_each_judged_variant():
             "minimal": {"code_evaluation": {"semantic_judge_tokens": 30}},
         }},
     }
-    assert api._question_tokens(result) == 1650 + 70 + 30
+    assert batch.question_tokens(result) == 1650 + 70 + 30
     # Without variants the top-level evaluation is the only judgement.
     del result["coder_context_experiment"]
-    assert api._question_tokens(result) == 1650 + 70
-    assert api._question_tokens({"status": "failed"}) == 0
+    assert batch.question_tokens(result) == 1650 + 70
+    assert batch.question_tokens({"status": "failed"}) == 0
 
 
 def test_token_pause_lasts_as_long_as_the_tokens_take_at_the_rate():
-    assert api._token_pause_seconds(30_000, 5, per_minute=10_000) == 180.0
-    assert api._token_pause_seconds(30_000, 0, per_minute=10_000) == 0.0
-    assert api._token_pause_seconds(30_000, 5, per_minute=0) == 0.0
-    assert api._token_pause_seconds(0, 5, per_minute=10_000) == 0.0
+    assert batch.token_pause_seconds(30_000, 5, per_minute=10_000) == 180.0
+    assert batch.token_pause_seconds(30_000, 0, per_minute=10_000) == 0.0
+    assert batch.token_pause_seconds(30_000, 5, per_minute=0) == 0.0
+    assert batch.token_pause_seconds(0, 5, per_minute=10_000) == 0.0
 
 
 def test_token_rate_file_overrides_the_variable_and_is_reread(tmp_path, monkeypatch):
     rate_file = tmp_path / "tokens_per_minute"
-    monkeypatch.setattr(api, "BATCH_TOKENS_PER_MINUTE", 6_000.0)
-    monkeypatch.setattr(api, "BATCH_TOKENS_PER_MINUTE_FILE", str(rate_file))
+    monkeypatch.setattr(batch, "BATCH_TOKENS_PER_MINUTE", 6_000.0)
+    monkeypatch.setattr(batch, "BATCH_TOKENS_PER_MINUTE_FILE", str(rate_file))
     # No file yet, then garbage: the variable holds.
-    assert api._token_pause_seconds(30_000, 5) == 300.0
+    assert batch.token_pause_seconds(30_000, 5) == 300.0
     rate_file.write_text("fast\n")
-    assert api._token_pause_seconds(30_000, 5) == 300.0
+    assert batch.token_pause_seconds(30_000, 5) == 300.0
     rate_file.write_text("10000\n")
-    assert api._token_pause_seconds(30_000, 5) == 180.0
+    assert batch.token_pause_seconds(30_000, 5) == 180.0
     rate_file.write_text("0")
-    assert api._token_pause_seconds(30_000, 5) == 0.0
+    assert batch.token_pause_seconds(30_000, 5) == 0.0
 
 
 def test_run_batch_rests_in_proportion_to_tokens(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
-    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
-    monkeypatch.setattr(api, "ExperimentConfig", type("Config", (), {
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(batch, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(batch, "ExperimentConfig", type("Config", (), {
         "model_validate": staticmethod(lambda _settings: object())
     }))
-    monkeypatch.setattr(api, "BATCH_PAUSE_EVERY", 0)
-    monkeypatch.setattr(api, "BATCH_TOKENS_PER_MINUTE", 6_000.0)
+    monkeypatch.setattr(batch, "BATCH_PAUSE_EVERY", 0)
+    monkeypatch.setattr(batch, "BATCH_TOKENS_PER_MINUTE", 6_000.0)
     sleeps = []
-    monkeypatch.setattr(api.time, "sleep", sleeps.append)
+    monkeypatch.setattr(batch.time, "sleep", sleeps.append)
     spent = iter([1_000, 3_000, 2_000])
 
     class FakeResult:
@@ -701,24 +702,24 @@ def test_run_batch_rests_in_proportion_to_tokens(tmp_path, monkeypatch):
         def run(self, question, **kwargs):
             return FakeResult(next(spent))
 
-    monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
-    monkeypatch.setattr(api, "_append_batch_table_metrics", lambda *_args: False)
+    monkeypatch.setattr(batch, "ExperimentRunner", FakeRunner)
+    monkeypatch.setattr(batch, "append_batch_table_metrics", lambda *_args: False)
     job_id = "e" * 32
     questions = [
         {"question": f"Q{index}?", "source_path": f"$.cases[{index}].question",
          "source_id": f"q{index}", "log_fields": {}}
         for index in range(3)
     ]
-    api._jobs[job_id] = {
+    jobs.JOBS[job_id] = {
         "job_id": job_id, "status": "queued", "started_at": None, "updated_at": "start",
         "processed": 0, "failed": 0, "metrics_logged": False, "results": [],
     }
 
-    api._run_batch(job_id, questions, {"resolved_config": {}})
+    batch.run_batch(job_id, questions, {"resolved_config": {}})
 
     # 1,000 then 3,000 tokens at 6,000/min; no rest after the last question.
     assert sleeps == [10.0, 30.0]
-    api._jobs.pop(job_id, None)
+    jobs.JOBS.pop(job_id, None)
 
 
 def test_swap_model_replaces_the_job_model_at_any_depth():
@@ -726,7 +727,7 @@ def test_swap_model_replaces_the_job_model_at_any_depth():
               "retrieval": {"pneuma_entity_model": "together.m", "mode": "pneuma"},
               "semantic_code_judge_model": "together.m", "tags": ["together.m", "y"]}
 
-    swapped = api._swap_model(config, "together.m", "oci.m")
+    swapped = batch.swap_model(config, "together.m", "oci.m")
 
     assert swapped == {"model": "oci.m", "experiment_id": "x",
                        "retrieval": {"pneuma_entity_model": "oci.m", "mode": "pneuma"},
@@ -736,22 +737,22 @@ def test_swap_model_replaces_the_job_model_at_any_depth():
 
 def test_split_fraction_is_stable_and_spread():
     ids = [f"q{index}" for index in range(2_000)]
-    share = sum(api._split_fraction(source_id) < 0.2 for source_id in ids) / len(ids)
+    share = sum(batch.split_fraction(source_id) < 0.2 for source_id in ids) / len(ids)
 
-    assert api._split_fraction("21a96975-7ba") == api._split_fraction("21a96975-7ba")
+    assert batch.split_fraction("21a96975-7ba") == batch.split_fraction("21a96975-7ba")
     assert 0.17 < share < 0.23
 
 
 def test_run_batch_sends_the_split_share_of_questions_to_the_split_model(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
-    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
-    monkeypatch.setattr(api, "ExperimentConfig", type("Config", (), {
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(batch, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(batch, "ExperimentConfig", type("Config", (), {
         "model_validate": staticmethod(lambda settings: settings)
     }))
-    monkeypatch.setattr(api, "BATCH_PAUSE_EVERY", 0)
-    monkeypatch.setattr(api, "BATCH_TOKENS_PER_MINUTE", 0.0)
-    monkeypatch.setattr(api, "SPLIT_MODEL", "oci.m")
-    monkeypatch.setattr(api, "SPLIT_SHARE", 0.5)
+    monkeypatch.setattr(batch, "BATCH_PAUSE_EVERY", 0)
+    monkeypatch.setattr(batch, "BATCH_TOKENS_PER_MINUTE", 0.0)
+    monkeypatch.setattr(batch, "SPLIT_MODEL", "oci.m")
+    monkeypatch.setattr(batch, "SPLIT_SHARE", 0.5)
     ran = []
 
     class FakeResult:
@@ -767,55 +768,55 @@ def test_run_batch_sends_the_split_share_of_questions_to_the_split_model(tmp_pat
                         self.config["semantic_code_judge_model"]))
             return FakeResult()
 
-    monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
-    monkeypatch.setattr(api, "_append_batch_table_metrics", lambda *_args: False)
+    monkeypatch.setattr(batch, "ExperimentRunner", FakeRunner)
+    monkeypatch.setattr(batch, "append_batch_table_metrics", lambda *_args: False)
     job_id = "f" * 32
     questions = [
         {"question": f"Q{index}?", "source_path": f"$.cases[{index}].question",
          "source_id": f"q{index}", "log_fields": {}}
         for index in range(40)
     ]
-    api._jobs[job_id] = {
+    jobs.JOBS[job_id] = {
         "job_id": job_id, "status": "queued", "started_at": None, "updated_at": "start",
         "processed": 0, "failed": 0, "metrics_logged": False, "results": [],
     }
     settings = {"resolved_config": {"model": "together.m",
                                     "semantic_code_judge_model": "together.m"}}
 
-    api._run_batch(job_id, questions, settings)
+    batch.run_batch(job_id, questions, settings)
 
-    expected = {f"q{index}": "oci.m" if api._split_fraction(f"q{index}") < 0.5 else "together.m"
+    expected = {f"q{index}": "oci.m" if batch.split_fraction(f"q{index}") < 0.5 else "together.m"
                 for index in range(40)}
     assert {question_id: model for question_id, model, _judge in ran} == expected
     assert all(model == judge for _id, model, judge in ran)
     assert {"oci.m", "together.m"} == set(expected.values())
-    assert [entry["model"] for entry in api._jobs[job_id]["results"]] == list(expected.values())
-    api._jobs.pop(job_id, None)
+    assert [entry["model"] for entry in jobs.JOBS[job_id]["results"]] == list(expected.values())
+    jobs.JOBS.pop(job_id, None)
 
 
 def test_recovery_requeues_jobs_in_submission_order(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
     submitted = []
     monkeypatch.setattr(
-        api._executor, "submit", lambda _function, job_id, *_args: submitted.append(job_id)
+        batch.EXECUTOR, "submit", lambda _function, job_id, *_args: submitted.append(job_id)
     )
     # The job with the smaller id was submitted later; a completed job is left alone.
-    jobs = {
+    stored = {
         "a" * 32: ("queued", "2026-09-27T10:00:02+00:00"),
         "f" * 32: ("running", "2026-09-27T10:00:01+00:00"),
         "b" * 32: ("completed", "2026-09-27T10:00:00+00:00"),
     }
-    for job_id, (status, created_at) in jobs.items():
-        api._persist_job({
+    for job_id, (status, created_at) in stored.items():
+        jobs.persist_job({
             "job_id": job_id, "status": status, "created_at": created_at, "updated_at": created_at,
             "processed": 0, "failed": 0, "settings": {"resolved_config": {}}, "results": [],
         })
-        api._persist_questions(job_id, [
+        jobs.persist_questions(job_id, [
             {"question": "One?", "source_path": "$.cases[0].question", "source_id": "q1", "log_fields": {}},
         ])
 
-    recovered = api._recover_incomplete_jobs()
+    recovered = batch.recover_incomplete_jobs()
 
     assert recovered == submitted == ["f" * 32, "a" * 32]
     for job_id in recovered:
-        api._jobs.pop(job_id, None)
+        jobs.JOBS.pop(job_id, None)

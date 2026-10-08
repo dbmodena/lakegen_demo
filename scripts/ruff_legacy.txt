@@ -62,6 +62,8 @@ src/lakegen/discovery/tools/selection.py
 src/lakegen/discovery/tools/state.py
 src/lakegen/discovery/unified.py
 src/lakegen/experiment_config.py
+src/lakegen/experiments/batch.py
+src/lakegen/experiments/jobs.py
 src/lakegen/__init__.py
 src/lakegen/interfaces/api/app.py
 src/lakegen/interfaces/cli/ask.py

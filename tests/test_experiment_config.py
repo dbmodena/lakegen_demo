@@ -9,7 +9,7 @@ from lakegen.experiment_config import ExperimentConfig, load_experiment_config
 from lakegen.manifest import create_manifest, persist_manifest, redact_secrets
 from lakegen.runner import ExperimentRunner
 from lakegen.ui.state import RuntimeSettings
-from lakegen.interfaces.api.app import _resolve_api_config
+from lakegen.experiments.batch import resolve_config
 from src.cli import resolve_cli_experiment
 from lakegen.retrieval import RetrievalConfig
 from lakegen.service import run_question
@@ -61,11 +61,11 @@ def test_api_default_and_explicit_retrieval_pool_sizes(monkeypatch):
                     retrieval_mode=request.retrieval_mode, top_k=request.top_k,
                     hybrid_alpha=request.hybrid_alpha,
                     candidate_multiplier=request.candidate_multiplier)
-    assert _resolve_api_config(**defaults, explicit_fields=set()).retrieval.top_k == 20
-    assert _resolve_api_config(
+    assert resolve_config(**defaults, explicit_fields=set()).retrieval.top_k == 20
+    assert resolve_config(
         **defaults, explicit_fields=set(), config_data={"retrieval": {"top_k": 10}},
     ).retrieval.top_k == 10
-    assert _resolve_api_config(
+    assert resolve_config(
         **{**defaults, "top_k": 30}, explicit_fields={"top_k"},
         config_data={"retrieval": {"top_k": 10}},
     ).retrieval.top_k == 30
@@ -185,7 +185,7 @@ def test_secrets_are_redacted_and_environment_is_not_serialized(tmp_path, monkey
 
 
 def test_api_and_ui_translate_settings_to_canonical_config():
-    api_config = _resolve_api_config(
+    api_config = resolve_config(
         core="bologna",
         model="openai.gpt-oss-120b",
         retrieval_mode="hybrid",
@@ -210,7 +210,7 @@ def test_api_and_ui_translate_settings_to_canonical_config():
 
 
 def test_api_inline_values_are_only_replaced_by_explicit_overrides():
-    config = _resolve_api_config(
+    config = resolve_config(
         core="nyc",
         model="openai.gpt-oss-120b",
         retrieval_mode="keyword",

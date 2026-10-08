@@ -19,7 +19,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
+from lakegen.experiments import batch, jobs
 from lakegen.experiments.spec import Cell
+from lakegen.service import extract_questions
 
 
 class ExecutionError(RuntimeError):
@@ -91,21 +93,16 @@ class ApiExecutor:
 
 
 class LocalExecutor:
-    """Runs cells through the API module's batch loop in this process."""
+    """Runs cells through the batch loop in this process, as the API would."""
 
     backend = "local"
 
-    def __init__(self) -> None:
-        import lakegen.interfaces.api.app as api_module
-
-        self._api = api_module
-
     def job_dir(self) -> Path | None:
-        return Path(self._api.JOB_DIR)
+        return Path(jobs.JOB_DIR)
 
     def submit(self, cell: Cell, cases: list[dict[str, Any]]) -> str:
         body, params = submission(cell, cases)
-        resolved = self._api._resolve_api_config(
+        resolved = batch.resolve_config(
             core=params["core"],
             model=cell.config.model,
             retrieval_mode=params["retrieval_mode"],
@@ -116,10 +113,14 @@ class LocalExecutor:
             config_data=body["config"],
             explicit_fields={"core", "retrieval_mode", "experiment_id"},
         )
-        return str(self._api._enqueue_batch(body, resolved).job_id)
+        records = [
+            {"question": item.question, "source_path": item.path, "source_id": item.source_id, "log_fields": item.log_fields()}
+            for item in extract_questions(body)
+        ]
+        return str(batch.enqueue(records, resolved)["job_id"])
 
     def job(self, job_id: str) -> dict[str, Any]:
-        snapshot = self._api._snapshot_job(job_id, include_results=False)
+        snapshot = jobs.snapshot_job(job_id, include_results=False)
         if snapshot is None:
             raise ExecutionError(f"unknown job {job_id}")
         return snapshot
