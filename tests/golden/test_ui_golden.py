@@ -9,16 +9,24 @@ commits. Phases run on a real worker thread, as ``cl.make_async`` runs them.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
-from lakegen.ui.state import LakeGenSession
-
 from golden.harness import (
-    COMMON_NAMES, Case, Script, discovery_result, experiment, normalise,
-    phase1_result, phase3_result, prepare_run, make_runtime,
+    COMMON_NAMES,
+    Case,
+    Script,
+    discovery_result,
+    experiment,
+    make_runtime,
+    normalise,
+    phase1_result,
+    phase3_result,
+    prepare_run,
 )
+from lakegen.ui.state import LakeGenSession
 
 SCENARIOS: dict[str, Callable[[], tuple[Case, list[str]]]] = {}
 

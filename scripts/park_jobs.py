@@ -22,11 +22,11 @@ metadata files are touched: results and question files are left alone.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import shutil
 import sys
+from datetime import UTC, datetime
+from pathlib import Path
 
 RESUMABLE = {"queued", "running"}
 PARKED = "parked"
@@ -71,7 +71,7 @@ def park(directory: Path, backup_dir: Path, reason: str, dry_run: bool) -> int:
         back_up(path, backup_dir)
         job.update(
             parked_from=job["status"],
-            parked_at=datetime.now(timezone.utc).isoformat(),
+            parked_at=datetime.now(UTC).isoformat(),
             parked_reason=reason,
             status=PARKED,
         )

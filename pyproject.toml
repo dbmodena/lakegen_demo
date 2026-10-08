@@ -50,3 +50,37 @@ lakegen = ["prompts/*.yaml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14",
+    "import-linter>=2.3",
+    "pytest-cov>=6",
+]
+
+# The quality bar of the refactor (docs/REFACTOR_PLAN.md). The gate applies
+# it to the Python files a commit touches, not to untouched legacy code.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["experiments", "analysis", "scripts_pneuma", "backups"]
+
+[tool.ruff.lint]
+select = ["F", "I", "B", "UP", "C901", "PLR0915"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.pylint]
+max-statements = 60
+
+[tool.ruff.lint.isort]
+known-first-party = ["lakegen", "golden", "src", "prompts"]
+
+[tool.ruff.lint.per-file-ignores]
+# The entry scripts put src/ on sys.path before importing the package.
+"src/api.py" = ["E402", "I001"]
+"src/app.py" = ["E402", "I001"]
+"src/cli.py" = ["E402", "I001"]
+"index_retrieval.py" = ["E402", "I001"]

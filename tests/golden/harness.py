@@ -22,13 +22,14 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from enum import Enum
 import itertools
 import json
-from pathlib import Path
 import re
+from collections.abc import Callable
+from enum import Enum
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.orchestrated_context import PreparedCandidate, PreparedDiscoveryContext
@@ -107,7 +108,7 @@ class CallLog:
             if arg_names:
                 entry["args"] = {
                     label: normalise(value, self.replacements)
-                    for label, value in zip(arg_names, args)
+                    for label, value in zip(arg_names, args, strict=False)
                 }
             else:
                 entry["args"] = normalise(list(args), self.replacements)

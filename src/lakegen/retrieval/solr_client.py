@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 import json
 import math
 import os
+from collections.abc import Sequence
 from typing import Any
 
 import requests
-
 
 KNN_METADATA_FIELDS = (
     "id",

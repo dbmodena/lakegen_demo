@@ -13,7 +13,7 @@ else:
 
 CONFIG_FILE = BASE_DIR / "config_paths.json"
 if CONFIG_FILE.exists():
-    with open(CONFIG_FILE, "r") as f:
+    with open(CONFIG_FILE) as f:
         config_data = json.load(f)
 else:
     config_data = {"paths": {}}

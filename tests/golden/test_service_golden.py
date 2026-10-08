@@ -11,16 +11,24 @@ block, execution errors and empty results.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import pytest
 
-from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
-
 from golden.harness import (
-    SERVICE_NAMES, Case, Script, discovery_result, experiment, normalise,
-    phase1_result, phase3_result, prepare_run, prepared, make_runtime,
+    SERVICE_NAMES,
+    Case,
+    Script,
+    discovery_result,
+    experiment,
+    make_runtime,
+    normalise,
+    phase1_result,
+    phase3_result,
+    prepare_run,
+    prepared,
 )
+from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
 
 SCENARIOS: dict[str, Callable[[], Case]] = {}
 

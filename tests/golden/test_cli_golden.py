@@ -7,13 +7,21 @@ and the log rows; it changes only in listed commits.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import pytest
 
 from golden.harness import (
-    COMMON_NAMES, Case, Script, discovery_result, experiment, mask_text,
-    phase1_result, phase3_result, prepare_run, make_runtime,
+    COMMON_NAMES,
+    Case,
+    Script,
+    discovery_result,
+    experiment,
+    make_runtime,
+    mask_text,
+    phase1_result,
+    phase3_result,
+    prepare_run,
 )
 
 SCENARIOS: dict[str, Callable[[], tuple[Case, list[str]]]] = {}

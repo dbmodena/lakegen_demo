@@ -62,14 +62,26 @@ else
 fi
 
 echo "== 2. ruff on staged python files"
-TOUCHED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
-if [ -z "$TOUCHED" ]; then
+# New and rewritten files meet the whole quality bar (pyproject [tool.ruff]).
+# Files listed in scripts/ruff_legacy.txt existed before the refactor and only
+# get pyflakes' real errors until they are rewritten and taken off the list.
+RUFF="$ROOT/.venv/bin/ruff"
+[ -x "$RUFF" ] || { echo "ruff is missing: uv pip install --python .venv/bin/python ruff"; exit 1; }
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+if [ -z "$STAGED" ]; then
   echo "no staged python files"
-elif [ -x "$ROOT/.venv/bin/ruff" ]; then
-  # shellcheck disable=SC2086
-  "$ROOT/.venv/bin/ruff" check $TOUCHED
 else
-  echo "ruff is not installed yet (tooling step 0.6)"
+  NEW=$(echo "$STAGED" | grep -vFxf "$ROOT/scripts/ruff_legacy.txt" || true)
+  LEGACY=$(echo "$STAGED" | grep -Fxf "$ROOT/scripts/ruff_legacy.txt" || true)
+  if [ -n "$NEW" ]; then
+    # shellcheck disable=SC2086
+    "$RUFF" check $NEW
+  fi
+  if [ -n "$LEGACY" ]; then
+    # shellcheck disable=SC2086
+    "$RUFF" check --select F --ignore F401,F841,F541 $LEGACY
+  fi
+  echo "ruff: $(echo "$NEW" | grep -c .) new and $(echo "$LEGACY" | grep -c .) legacy files clean"
 fi
 
 echo "== 3. import smoke"

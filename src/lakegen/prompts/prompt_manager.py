@@ -1,7 +1,8 @@
-import os
-import yaml
 from pathlib import Path
+
+import yaml
 from jinja2 import Environment, StrictUndefined
+
 
 class PromptManager:
     def __init__(self):
@@ -28,7 +29,7 @@ class PromptManager:
 
     def _load_file(self, path: Path) -> dict:
         """Parse a single YAML file and return its contents as a dict."""
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             try:
                 data = yaml.safe_load(fh) or {}
                 # Pre-compile templates to catch syntax errors early and improve performance
@@ -38,7 +39,7 @@ class PromptManager:
             except Exception as exc:
                 raise ValueError(
                     f"[PromptManager] Error loading or compiling YAML file '{path}': {exc}"
-                )
+                ) from exc
         return data
 
     def _load_all(self):
@@ -109,7 +110,7 @@ class PromptManager:
             raise RuntimeError(
                 f"[PromptManager] Error rendering prompt '{prompt_type}' for agent '{agent_name}'. "
                 f"Did you forget to pass a variable? Details: {exc}"
-            )
+            ) from exc
         return rendered.strip()
 
     def reload(self):
