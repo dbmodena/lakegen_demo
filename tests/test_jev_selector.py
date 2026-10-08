@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import pytest
 
+from lakegen.discovery.selectors import jev as jev_selectors
 from lakegen.experiment_config import DiscoveryConfig, ExperimentConfig
 from lakegen.orchestrated_context import PreparedCandidate, PreparedDiscoveryContext
 from lakegen.phases import jev_selector, orchestrated_discovery, phase2
@@ -174,8 +175,7 @@ def _phase2(monkeypatch, discovery):
 
 
 def test_phase2_uses_jev_instead_of_the_llm_judge(monkeypatch):
-    monkeypatch.setattr(
-        phase2, "select_with_jev",
+    monkeypatch.setattr(jev_selectors, "select_with_jev",
         lambda *_a, **_k: JevSelection(["b.parquet"], "Jev rated as needed: b", "trace", {"b.parquet": 0.9}, 10),
     )
     selected, candidates, _meta_out, reasoning, trace, tokens = _phase2(monkeypatch, JEV)
@@ -189,7 +189,7 @@ def test_phase2_falls_back_to_the_llm_judge_when_jev_fails(monkeypatch):
     def failing(*_a, **_k):
         raise JevSelectorError("HTTP 502")
 
-    monkeypatch.setattr(phase2, "select_with_jev", failing)
+    monkeypatch.setattr(jev_selectors, "select_with_jev", failing)
     with pytest.raises(_StopBeforeLLMJudge):
         _phase2(monkeypatch, JEV)
 
@@ -198,7 +198,7 @@ def test_phase2_keeps_the_llm_judge_by_default(monkeypatch):
     def unexpected(*_a, **_k):
         raise AssertionError("Jev must not run with the default selector")
 
-    monkeypatch.setattr(phase2, "select_with_jev", unexpected)
+    monkeypatch.setattr(jev_selectors, "select_with_jev", unexpected)
     with pytest.raises(_StopBeforeLLMJudge):
         _phase2(monkeypatch, DiscoveryConfig())
 
@@ -212,8 +212,7 @@ def _context():
 
 
 def test_orchestrated_selector_uses_jev(monkeypatch):
-    monkeypatch.setattr(
-        orchestrated_discovery, "select_with_jev",
+    monkeypatch.setattr(jev_selectors, "select_with_jev",
         lambda *_a, **_k: JevSelection(["a.parquet"], "Jev rated as needed: a", "trace", {"a.parquet": 0.9}, 10),
     )
     selected, reasoning, _trace, tokens = orchestrated_discovery.select_from_prepared_context(
@@ -227,7 +226,7 @@ def test_orchestrated_selector_falls_back_to_the_llm_when_jev_fails(monkeypatch)
     def failing(*_a, **_k):
         raise JevSelectorError("HTTP 502")
 
-    monkeypatch.setattr(orchestrated_discovery, "select_with_jev", failing)
+    monkeypatch.setattr(jev_selectors, "select_with_jev", failing)
     monkeypatch.setattr(
         orchestrated_discovery, "_run_tool_free_turn",
         lambda **_k: ('FINAL_PAYLOAD: {"tables": ["a.parquet"], "reasoning": "llm"}', "stream", 5),

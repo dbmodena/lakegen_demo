@@ -335,13 +335,14 @@ class ExperimentConfig(FrozenModel):
                     "no_semantic_revision currently supports coder_context_level=full only"
                 )
         if (
-            self.discovery.selector == TableSelector.JEV
+            self.discovery.selector is not TableSelector.LLM
             and self.discovery_architecture != DiscoveryArchitecture.DIVIDED
         ):
             raise ValueError(
-                "discovery.selector=jev needs discovery_architecture=divided: the "
-                "unified architecture searches and selects in one agent turn, so "
-                "there is no separate selection step to hand to Jev"
+                f"discovery.selector={self.discovery.selector.value} needs "
+                "discovery_architecture=divided: the unified architecture searches "
+                "and selects in one agent turn, so there is no separate selection "
+                "step to hand to another selector"
             )
         if self.gates.plan or self.gates.result:
             raise ValueError("plan and result gates are not implemented")

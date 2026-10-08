@@ -15,9 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from lakegen.agents.agent_runner import run_agent_workflow
 from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.core.types import SolrMetadata, StreamCallback
-from lakegen.experiment_config import DiscoveryArchitecture, DiscoveryConfig, TableSelector
+from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
+from lakegen.discovery.selectors import choose as choose_selector
+from lakegen.experiment_config import DiscoveryArchitecture, DiscoveryConfig
 from lakegen.keyword_terms import keyword_terms
-from lakegen.phases.jev_selector import JevSelectorError, select_with_jev
 from lakegen.orchestrated_context import (
     PreparedDiscoveryContext,
     prepare_discovery_context,
@@ -194,23 +195,24 @@ def select_from_prepared_context(
 ) -> tuple[list[str], str, str, int]:
     """Divided architecture's second, distinct tool-free agent."""
     jev_fallback_note = ""
-    if discovery is not None and discovery.selector == TableSelector.JEV:
+    selector = choose_selector(discovery)
+    if selector is not None:
         try:
-            jev = select_with_jev(
+            selection = selector.select(SelectionRequest(
                 query,
                 [item.dataset for item in context.candidates],
                 {item.dataset: item.metadata for item in context.candidates},
                 table_dir,
                 discovery,
-            )
-        except JevSelectorError as exc:
-            jev_fallback_note = f"[jev selector unavailable, using the LLM selector] {exc}\n"
+            ))
+        except SelectorUnavailable as exc:
+            jev_fallback_note = f"[{selector.kind.value} selector unavailable, using the LLM selector] {exc}\n"
             print(jev_fallback_note, flush=True)
         else:
-            print(jev.trace, flush=True)
+            print(selection.trace, flush=True)
             if stream_callback is not None:
-                stream_callback(f"\n**Jev table selector**\n{jev.reasoning}\n")
-            return jev.selected, jev.reasoning, jev.trace, 0
+                stream_callback(f"\n**{selector.title}**\n{selection.reasoning}\n")
+            return selection.selected, selection.reasoning, selection.trace, selection.tokens
     system, user = _selector_prompts(context, hint)
     try:
         response, stream, tokens = _run_tool_free_turn(

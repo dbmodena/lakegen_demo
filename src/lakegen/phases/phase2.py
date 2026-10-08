@@ -41,8 +41,9 @@ from lakegen.phases.utils import (
     solr_metadata_from_doc,
 )
 from lakegen.core.resources import get_table_retrieval_service
-from lakegen.experiment_config import DiscoveryConfig, TableSelector
-from lakegen.phases.jev_selector import JevSelectorError, select_with_jev
+from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
+from lakegen.discovery.selectors import choose as choose_selector
+from lakegen.experiment_config import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
@@ -202,24 +203,26 @@ def phase2_select_tables(
         return [], [], {}, no_result_msg, trace, 0
 
     jev_fallback_note = ""
-    if discovery is not None and discovery.selector == TableSelector.JEV:
+    selector = choose_selector(discovery)
+    if selector is not None:
         try:
-            jev = select_with_jev(query, candidates, solr_meta, csv_dir, discovery)
-        except JevSelectorError as exc:
-            jev_fallback_note = f"[jev selector unavailable, using the LLM judge] {exc}\n"
+            selection = selector.select(
+                SelectionRequest(query, candidates, solr_meta, csv_dir, discovery)
+            )
+        except SelectorUnavailable as exc:
+            jev_fallback_note = f"[{selector.kind.value} selector unavailable, using the LLM judge] {exc}\n"
             print(f"[phase2] {jev_fallback_note}", flush=True)
         else:
-            print(f"[phase2] {jev.trace}", flush=True)
+            print(f"[phase2] {selection.trace}", flush=True)
             if stream_callback:
-                stream_callback(f"\n**Phase 2 – Jev table selector**\n{jev.reasoning}\n")
-            if selection_state is not None and jev.selected:
-                plan, advisories = build_minimal_selection_fallback(jev.selected, jev.reasoning)
-                selection_state.selection_plan = dict(plan)
-                selection_state.selection_advisories = list(advisories)
-                selection_state.selection_plan_source = "jev_selector"
-                selection_state.confirmed_tables = list(jev.selected)
-                selection_state.selection_reasoning = jev.reasoning
-            return jev.selected, candidates, solr_meta, jev.reasoning, jev.trace, 0
+                stream_callback(f"\n**Phase 2 – {selector.title}**\n{selection.reasoning}\n")
+            if selection_state is not None and selection.selected:
+                selection_state.selection_plan = dict(selection.plan or {})
+                selection_state.selection_advisories = list(selection.advisories)
+                selection_state.selection_plan_source = selection.source
+                selection_state.confirmed_tables = list(selection.selected)
+                selection_state.selection_reasoning = selection.reasoning
+            return selection.selected, candidates, solr_meta, selection.reasoning, selection.trace, selection.tokens
 
     # ── Step 3: Prepare agent with judge-only tools (no search_tables) ──
     tools_manager = Phase2JudgeToolsManager(
