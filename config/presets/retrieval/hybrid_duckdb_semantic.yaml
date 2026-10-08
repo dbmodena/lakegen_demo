@@ -1,0 +1,7 @@
+# The duckdb_agentic ranking fused with semantic KNN by RRF (the production setting).
+schema_version: 2
+retrieval:
+  mode: hybrid_duckdb_semantic
+  hybrid:
+    fusion: rrf
+    rrf_k: 60

@@ -1,0 +1,122 @@
+# The base experiment configuration, in the nested layout (schema_version 2).
+#
+# Every setting is explicit here, so a report never depends on a default hidden
+# in the code. An experiment file names this one in `extends:` and overrides
+# what it changes, usually by adding presets from config/presets/:
+#
+#     schema_version: 2
+#     extends: [base.yaml, presets/retrieval/hybrid_rrf.yaml, presets/selector/jev.yaml]
+#     experiment_id: bench-chicago-jev
+#     lake: chicago
+#
+# `python -m lakegen.config.files show <file>` prints the resolved configuration.
+# The flat layout of the older config/experiment.example*.yaml files is still
+# read; a file without `schema_version: 2` is flat.
+
+schema_version: 2
+
+# Free-form identifier stored in manifests and logs, so runs can be told apart.
+experiment_id: default
+
+# Seed recorded for reproducibility (integer >= 0).
+seed: 0
+
+# The lake to query: a name from config/lakes.yaml.
+lake: nyc
+
+# The LLM of discovery, code generation and answer synthesis: a name from
+# config/models.yaml.
+model: openai.gpt-oss-120b
+
+discovery:
+  # unified: one agent generates keywords and selects tables;
+  # divided: keyword generation and table selection are separate agents.
+  architecture: unified
+  # agentic: the agent calls its tools itself;
+  # orchestrated_context: retrieval runs first and the agent gets a fixed context.
+  tool_access: agentic
+  # Persistent query feedback in the orchestrated path; off for the baseline.
+  orchestrated_memory: false
+  # Who selects tables in the divided architecture: llm (the judge agent) or
+  # jev (TypeSafe's decision model, which falls back to the LLM on API errors).
+  selector:
+    kind: llm
+    model: jev-1.13.0        # pinned: the thresholds were tuned on this release
+    max_candidates: 8
+    threshold: 0.5
+    reject_floor: 0.15
+  # How far discovery may look before it must commit.
+  budget:
+    initial_candidates: 10   # candidates the agent sees before any expansion
+    expansion_size: 5        # candidates one expansion reveals
+    max_expansions: 1
+    max_search_attempts: 1
+    max_zero_result_retries: 2
+    initial_shortlist_size: 5
+    max_inspected_candidates: 8
+    max_inspections_per_file: 2
+    search_after_inspection: false
+  # What one search call runs in keyword mode: single, decompose_preview or
+  # cascade (ranked AND word sets, run one at a time until one finds a table).
+  keyword_search:
+    strategy: cascade
+    cascade_size: 5
+  # Context management of the unified agent.
+  context:
+    state_board: true
+    compact_history: true
+
+retrieval:
+  # keyword | semantic | hybrid | pneuma | pneuma_seeker | duckdb_agentic |
+  # hybrid_duckdb_semantic. A block below is accepted only for the modes that
+  # read it: hybrid for hybrid and hybrid_duckdb_semantic; rerank for keyword,
+  # semantic, hybrid and hybrid_duckdb_semantic; pneuma for pneuma and
+  # pneuma_seeker; seeker for pneuma_seeker; duckdb for duckdb_agentic and
+  # hybrid_duckdb_semantic.
+  mode: hybrid
+  top_k: 20                  # ranked pool size; the selector sees initial_candidates of it
+  candidate_multiplier: 5    # per-branch pool as a multiple of top_k (hybrid, seeker)
+  representation_version: metadata-v1
+  embedding_model: cohere.embed-v4.0
+  embedding_base_url: http://localhost:11434   # Ollama embedding models only
+  vector_field: table_embedding
+  lexical_query_fields: null                   # BM25 qf, e.g. "title^3 description^2 columns"
+  keyword_or_fallback: false
+  hybrid:
+    fusion: weighted         # weighted (uses alpha) or rrf (uses rrf_k)
+    alpha: 0.25              # lexical weight; the DuckDB weight in hybrid_duckdb_semantic
+    rrf_k: 60
+    missing_signal: zero
+  rerank:
+    model: cohere.rerank-v4.0-fast   # null turns reranking off
+    depth: 20
+
+coding:
+  context_level: full        # full | schema_only | minimal
+  brief_mode: advisory       # advisory | strict
+  automatic_test_coder: true # run full, schema_only and minimal on one selection
+  require_semantic_plan: true
+  revision_mode: current     # current | no_semantic_revision (ablation)
+  max_revision_rounds: 3
+
+judge:
+  enabled: true
+  model: openai.gpt-oss-120b
+
+interaction:
+  mode: autonomous           # autonomous (API, batches) | human_gated (CLI, UI)
+  gates:
+    keywords: true
+    datasets: true
+    plan: false              # not implemented
+    result: false            # not implemented
+
+# Automatic reviewers are not implemented; every value must stay false.
+reviewers:
+  dataset: false
+  plan: false
+  code: false
+  result: false
+
+benchmark:
+  path: null                 # the retriever-only benchmark's question file

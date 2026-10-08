@@ -1,0 +1,5 @@
+# The same open weights as OCI's gpt-oss-120b, on Together AI.
+schema_version: 2
+model: together.gpt-oss-120b
+judge:
+  model: together.gpt-oss-120b

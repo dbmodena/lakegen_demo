@@ -1,0 +1,11 @@
+# Bounded DuckDB SQL over the local Parquet files, no index.
+schema_version: 2
+retrieval:
+  mode: duckdb_agentic
+  duckdb:
+    max_files: 250
+    max_columns_per_file: 40
+    sample_rows: 3
+    max_scan_rows_per_file: 100000
+    probe_files: 25
+    probe_rows_per_file: 1000

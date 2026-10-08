@@ -1,0 +1,7 @@
+# BM25 + KNN, reciprocal rank fusion.
+schema_version: 2
+retrieval:
+  mode: hybrid
+  hybrid:
+    fusion: rrf
+    rrf_k: 60

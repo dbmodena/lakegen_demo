@@ -1,0 +1,5 @@
+# Local Qwen through Ollama; the code judge stays on gpt-oss-120b for comparable runs.
+schema_version: 2
+model: ollama.qwen3.8-27b
+judge:
+  model: openai.gpt-oss-120b

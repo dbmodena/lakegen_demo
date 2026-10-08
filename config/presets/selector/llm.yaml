@@ -1,0 +1,6 @@
+# The LLM judge selects the tables (divided architecture).
+schema_version: 2
+discovery:
+  architecture: divided
+  selector:
+    kind: llm

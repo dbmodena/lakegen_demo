@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-import json
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Mapping
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from lakegen.config.files import (
+    deep_merge,
+    flatten_document,
+    load_document,
+    parse_document,
+    translate_override,
+)
 
 from lakegen.config.registry import lake_names, model_names
 from lakegen.retrieval import (
@@ -350,14 +356,7 @@ class ExperimentConfig(FrozenModel):
         return self.discovery_architecture.value
 
 
-def _deep_merge(base: dict[str, Any], updates: Mapping[str, Any]) -> dict[str, Any]:
-    merged = dict(base)
-    for key, value in updates.items():
-        if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
-            merged[key] = _deep_merge(dict(merged[key]), value)
-        else:
-            merged[key] = value
-    return merged
+_deep_merge = deep_merge
 
 
 def dotted_overrides(values: Mapping[str, Any]) -> dict[str, Any]:
@@ -373,28 +372,10 @@ def dotted_overrides(values: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def parse_experiment_config_document(
-    text: str,
-    *,
-    suffix: str,
-) -> dict[str, Any]:
+def parse_experiment_config_document(text: str, *, suffix: str) -> dict[str, Any]:
     """Parse YAML/JSON configuration content without accessing the filesystem."""
 
-    normalized_suffix = suffix.casefold()
-    try:
-        if normalized_suffix == ".json":
-            loaded = json.loads(text)
-        elif normalized_suffix in {".yaml", ".yml"}:
-            loaded = yaml.safe_load(text)
-        else:
-            raise ValueError("experiment config must be a .yaml, .yml, or .json file")
-    except (json.JSONDecodeError, yaml.YAMLError) as exc:
-        raise ValueError(f"invalid experiment config: {exc}") from exc
-    if loaded is None:
-        return {}
-    if not isinstance(loaded, Mapping):
-        raise ValueError("experiment config root must be an object")
-    return dict(loaded)
+    return parse_document(text, suffix=suffix)
 
 
 def load_experiment_config(
@@ -404,16 +385,20 @@ def load_experiment_config(
     overrides: Mapping[str, Any] | None = None,
     base: ExperimentConfig | None = None,
 ) -> ExperimentConfig:
-    """Resolve defaults, an optional YAML/JSON file, and final overrides."""
+    """Resolve defaults, an optional config file, and final overrides.
+
+    The file may use either layout (lakegen.config.files): ``extends`` is
+    resolved and a ``schema_version: 2`` document is translated to this flat
+    schema. ``data_override`` is an inline document in either layout;
+    ``overrides`` are dotted keys written in either layout.
+    """
 
     data = (base or ExperimentConfig()).model_dump(mode="json")
     if path is not None:
-        config_path = Path(path)
-        text = config_path.read_text(encoding="utf-8")
-        loaded = parse_experiment_config_document(text, suffix=config_path.suffix)
-        data = _deep_merge(data, loaded)
+        data = deep_merge(data, load_document(path))
     if data_override:
-        data = _deep_merge(data, data_override)
+        data = deep_merge(data, flatten_document(data_override))
     if overrides:
-        data = _deep_merge(data, dotted_overrides(overrides))
+        translated = {translate_override(key): value for key, value in overrides.items()}
+        data = deep_merge(data, dotted_overrides(translated))
     return ExperimentConfig.model_validate(data)

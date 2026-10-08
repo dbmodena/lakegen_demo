@@ -19,7 +19,6 @@ import sys
 import uuid
 import time
 from pathlib import Path
-import yaml
 
 _SRC_DIR = Path(__file__).resolve().parent
 _ROOT_DIR = _SRC_DIR.parent
@@ -44,6 +43,7 @@ from lakegen.core import paths
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.runtime import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
+from lakegen.config.files import parse_set_values
 from lakegen.experiment_config import load_experiment_config, ToolAccess
 from lakegen.manifest import create_manifest, persist_manifest
 from lakegen.reproducibility import initialize_reproducibility
@@ -818,11 +818,7 @@ def resolve_cli_experiment(
         "retrieval.candidate_multiplier": candidate_multiplier,
     }
     overrides.update({key: value for key, value in cli_values.items() if value is not None})
-    for raw_override in set_values or []:
-        if "=" not in raw_override:
-            raise ValueError(f"invalid --set {raw_override!r}; expected PATH=VALUE")
-        key, raw_value = raw_override.split("=", 1)
-        overrides[key.strip()] = yaml.safe_load(raw_value)
+    overrides.update(parse_set_values(set_values))
     return load_experiment_config(config_path, overrides=overrides)
 
 

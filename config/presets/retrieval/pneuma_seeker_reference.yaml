@@ -1,0 +1,17 @@
+# Pneuma-Seeker in the reference configuration used by the grids: fill fusion,
+# no table enumeration, gpt-oss-120b entity extraction, a whole-lake content scan.
+schema_version: 2
+retrieval:
+  mode: pneuma_seeker
+  pneuma:
+    timeout_seconds: 120
+    entity_model: openai.gpt-oss-120b
+  seeker:
+    content_fusion: fill
+    content_weight: 0.5
+    enumerate_tables: false
+    table_name_weight: 3.0
+    column_name_weight: 2.0
+    cell_weight: 1.0
+    scan_workers: 8
+    max_files: null

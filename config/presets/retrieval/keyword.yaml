@@ -1,0 +1,4 @@
+# Lexical BM25 retrieval.
+schema_version: 2
+retrieval:
+  mode: keyword

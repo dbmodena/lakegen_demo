@@ -1,0 +1,4 @@
+# Vector retrieval on the whole question.
+schema_version: 2
+retrieval:
+  mode: semantic

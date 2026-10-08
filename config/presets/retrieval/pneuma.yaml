@@ -1,0 +1,8 @@
+# The original Pneuma index and ranking; the lake's service (config/lakes.yaml).
+schema_version: 2
+retrieval:
+  mode: pneuma
+  pneuma:
+    timeout_seconds: 120
+    entity_model: null
+    value_scan_weight: 0.0

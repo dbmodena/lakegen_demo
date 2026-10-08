@@ -1,0 +1,5 @@
+# Full, schema_only and minimal coder context on one shared selection.
+schema_version: 2
+coding:
+  automatic_test_coder: true
+  context_level: full

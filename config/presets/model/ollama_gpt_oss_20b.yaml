@@ -1,0 +1,4 @@
+schema_version: 2
+model: ollama.gpt-oss-20b
+judge:
+  model: openai.gpt-oss-120b

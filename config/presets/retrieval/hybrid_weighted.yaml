@@ -1,0 +1,7 @@
+# BM25 + KNN, weighted fusion (alpha = lexical weight).
+schema_version: 2
+retrieval:
+  mode: hybrid
+  hybrid:
+    fusion: weighted
+    alpha: 0.25

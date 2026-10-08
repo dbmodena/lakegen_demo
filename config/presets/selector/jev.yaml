@@ -1,0 +1,10 @@
+# TypeSafe's Jev selects the tables; needs the divided architecture.
+schema_version: 2
+discovery:
+  architecture: divided
+  selector:
+    kind: jev
+    model: jev-1.13.0
+    max_candidates: 8
+    threshold: 0.5
+    reject_floor: 0.15

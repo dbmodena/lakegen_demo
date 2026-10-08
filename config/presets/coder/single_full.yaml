@@ -1,0 +1,5 @@
+# One coder run with the full context.
+schema_version: 2
+coding:
+  automatic_test_coder: false
+  context_level: full
