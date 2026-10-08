@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 import uuid
 from collections.abc import Mapping
@@ -51,8 +50,15 @@ from lakegen.pipeline.adapters import (
     unified_agentic_outcome,
     unified_orchestrated_outcome,
 )
+from lakegen.pipeline.budgets import (
+    Attempts,
+    DedupeGuard,
+    rejected_selection_signature,
+    selection_plan_signature,
+)
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.deps import PipelineDeps
+from lakegen.pipeline.state import RunState
 from lakegen.reproducibility import initialize_reproducibility
 from lakegen.retrieval.intent import intent_entities
 from lakegen.service_models import QueryResult
@@ -60,53 +66,13 @@ from lakegen.service_models import QueryResult
 # The helper the tests import from here; it lives with the recorder now.
 _record_semantic_plan_telemetry = record_semantic_plan_telemetry
 
+# The signature helpers the tests import from here live with the budgets now.
+_rejected_selection_signature = rejected_selection_signature
+_selection_plan_signature = selection_plan_signature
+
 MAX_CODE_ATTEMPTS = 3
 MAX_TABLE_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
-
-
-def _rejected_selection_signature(
-    tables: list[str], details: Mapping[str, Any] | None, reason: str
-) -> dict[str, Any]:
-    """Build stable feedback for retry exclusion without benchmark metadata."""
-    details = details or {}
-    missing = sorted({
-        str(item).strip() for item in details.get("missing_requirements", [])
-        if str(item).strip()
-    })
-    columns = sorted(set(re.findall(
-        r"(?:column|columns?)\s+['\"]?([A-Za-z0-9 _/-]{2,80})",
-        " ".join([reason, *missing]), flags=re.IGNORECASE,
-    )))
-    return {
-        "tables": sorted(table.casefold() for table in tables),
-        "missing_requirements": missing,
-        "category": str(details.get("category") or "tables_rejected"),
-        "incompatible_columns": columns[:20],
-    }
-
-
-def _selection_plan_signature(
-    tables: list[str], selection_plan: Mapping[str, Any] | None
-) -> str:
-    """Return a stable identity for detecting an unchanged rejected plan."""
-    plan = selection_plan or {}
-    semantic = (
-        plan.get("coder_brief")
-        or plan.get("semantic_plan")
-        or {
-            key: plan.get(key)
-            for key in (
-                "requirement_coverage", "requirements", "requirement_ledger", "table_roles",
-                "combination_strategy", "uncovered_requirements",
-            )
-            if key in plan
-        }
-    )
-    return json.dumps({
-        "tables": sorted(str(table).casefold() for table in tables),
-        "plan": semantic,
-    }, ensure_ascii=False, sort_keys=True, default=str)
 
 
 def _selection_retry_feedback(
@@ -213,57 +179,36 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
         raise RuntimeError(f"No CSV or Parquet tables found in {ctx.tables_dir}")
 
     run_dir = paths.coding_dir() / uuid.uuid4().hex
-    selected: list[str] = []
-    keywords: list[str] = []
-    solr_meta: dict[str, dict[str, Any]] = {}
-    reasoning = ""
-    trace = ""
-    hint = ""
-    error = ""
-    selection_state = P12State()
-    selection_states: list[P12State] = []
-    selection_attempts: list[dict[str, Any]] = []
-    rejected_selection_keys: set[tuple[str, ...]] = set()
-    rejected_selection_signatures: list[dict[str, Any]] = []
-    rejected_plan_feedback: dict[str, dict[str, Any]] = {}
-    last_coder_rejection: dict[str, Any] | None = None
-    attempted_keywords: list[str] = []
+    state = RunState()
+    guard = DedupeGuard()
     # Unified lexical memory belongs to the whole question, not one selection
     # round. A fresh P12State is still needed for inspection budgets, but zero-
     # result knowledge must survive coder/selection retries.
-    keyword_memory_path = paths.keyword_memory_path()
-    keyword_memory_scope = "|".join((
+    state.keyword_memory_path = paths.keyword_memory_path()
+    state.keyword_memory_scope = "|".join((
         ctx.lake,
         ctx.retrieval.mode.value,
         ctx.retrieval.representation_version,
         ",".join(ctx.retrieval.lexical_query_fields or ()),
         "q.op=AND",
     ))
-    _persistent_keyword_history, failed_keyword_combinations = load_keyword_memory(
-        keyword_memory_path, keyword_memory_scope
+    _persistent_keyword_history, state.failed_keyword_combinations = load_keyword_memory(
+        state.keyword_memory_path, state.keyword_memory_scope
     )
     # Word sets that found only this question's excluded_tables: carried
     # across rounds like the bans above, but never persisted.
-    banned_table_keyword_combinations: list[frozenset[str]] = []
-    retrieval_question_key = question_memory_key(question)
-    retrieval_memory_summary = format_question_retrieval_memory(
+    state.retrieval_question_key = question_memory_key(question)
+    state.retrieval_memory_summary = format_question_retrieval_memory(
         load_question_retrieval_memory(
-            keyword_memory_path, keyword_memory_scope, retrieval_question_key
+            state.keyword_memory_path, state.keyword_memory_scope, state.retrieval_question_key
         )
     )
     # Historical searches are durable audit data, but do not consume the
     # per-question retry budget. Only failed combinations affect future runs.
-    keyword_history: list[list[str]] = []
-    persisted_keyword_count = 0
-    carried_tables: list[str] = []
-    carried_metadata: dict[str, dict[str, Any]] = {}
     # Unified only: the cached inspect_columns text for each carried table,
     # so a table already proven good doesn't have to be re-inspected from a
     # blank P12State every attempt -- that wasted the round's own bounded
     # inspection budget on re-verifying what was already known.
-    carried_inspection: dict[str, str] = {}
-    excluded_tables: set[str] = set()
-    last_generated = None
     def adjudicate_code_evaluation(
         evaluation: dict[str, Any], generated
     ) -> dict[str, Any]:
@@ -288,8 +233,8 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
             question=question,
             expected_description=expected_result_description,
             reference_result=reference_result,
-            selected_tables=selected,
-            selected_metadata=solr_meta,
+            selected_tables=state.selected,
+            selected_metadata=state.solr_meta,
             generated_code=generated.clean_code or generated.code_raw,
             generated_result=getattr(generated, "structured_result", None),
             deterministic_evaluation=evaluation,
@@ -385,16 +330,16 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
             retrieval_runs,
         )
         try:
-            for table_attempt in range(MAX_TABLE_ATTEMPTS):
+            for table_attempt in Attempts(MAX_TABLE_ATTEMPTS):
                 discovery_started = time.monotonic()
                 selection_record: dict[str, Any] = {
-                    "attempt": table_attempt + 1,
+                    "attempt": table_attempt.number,
                     "selected_datasets": [],
                     "keywords": [],
                     "outcome": "discovery_started",
                     "rejection_feedback": "",
                 }
-                selection_attempts.append(selection_record)
+                state.selection_attempts.append(selection_record)
                 if (
                     experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED
                     and experiment.tool_access == ToolAccess.AGENTIC
@@ -405,22 +350,22 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     # set, so a fresh state is still built each attempt -- but
                     # it is seeded with the cross-round memory accumulated so
                     # far (mirrors DIVIDED's excluded_tables/carried_tables).
-                    selection_state = P12State()
-                    selection_state.keyword_history = [
-                        list(item) for item in keyword_history
+                    state.selection_state = P12State()
+                    state.selection_state.keyword_history = [
+                        list(item) for item in state.keyword_history
                     ]
-                    selection_state.failed_keyword_combinations = list(
-                        failed_keyword_combinations
+                    state.selection_state.failed_keyword_combinations = list(
+                        state.failed_keyword_combinations
                     )
-                    selection_state.banned_table_keyword_combinations = list(
-                        banned_table_keyword_combinations
+                    state.selection_state.banned_table_keyword_combinations = list(
+                        state.banned_table_keyword_combinations
                     )
-                    selection_state.rejected_selections = set(rejected_selection_keys)
-                    selection_state.excluded_tables = set(excluded_tables)
-                    selection_state.carried_tables = list(carried_tables)
-                    selection_state.carried_metadata = dict(carried_metadata)
-                    selection_state.inspection_cache = dict(carried_inspection)
-                    selection_states.append(selection_state)
+                    state.selection_state.rejected_selections = set(guard.rejected_keys)
+                    state.selection_state.excluded_tables = set(state.excluded_tables)
+                    state.selection_state.carried_tables = list(state.carried_tables)
+                    state.selection_state.carried_metadata = dict(state.carried_metadata)
+                    state.selection_state.inspection_cache = dict(state.carried_inspection)
+                    state.selection_states.append(state.selection_state)
                     raw = deps.phase12_agent(
                         query=question,
                         llm=llm,
@@ -428,48 +373,48 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         all_files=all_files,
                         solr_client=solr,
                         csv_dir=ctx.tables_dir,
-                        hint=hint,
-                        retrieval_memory=retrieval_memory_summary,
+                        hint=state.hint,
+                        retrieval_memory=state.retrieval_memory_summary,
                         portal_name=ctx.portal_name,
                         retrieval_config=ctx.retrieval,
-                        state=selection_state,
+                        state=state.selection_state,
                         retrieval_observer=agentic_retrieval_observer,
                         require_semantic_plan=experiment.require_semantic_plan,
                         discovery_config=experiment.discovery,
                     )
-                    keyword_history = [
-                        list(item) for item in selection_state.keyword_history
+                    state.keyword_history = [
+                        list(item) for item in state.selection_state.keyword_history
                     ]
-                    failed_keyword_combinations = list(
-                        selection_state.failed_keyword_combinations
+                    state.failed_keyword_combinations = list(
+                        state.selection_state.failed_keyword_combinations
                     )
-                    banned_table_keyword_combinations = list(
-                        selection_state.banned_table_keyword_combinations
+                    state.banned_table_keyword_combinations = list(
+                        state.selection_state.banned_table_keyword_combinations
                     )
-                    new_history = keyword_history[persisted_keyword_count:]
+                    new_history = state.keyword_history[state.persisted_keyword_count:]
                     persist_keyword_memory(
-                        keyword_memory_path,
-                        keyword_memory_scope,
+                        state.keyword_memory_path,
+                        state.keyword_memory_scope,
                         new_history,
-                        failed_keyword_combinations,
+                        state.failed_keyword_combinations,
                     )
                     persist_question_retrieval_memory(
-                        keyword_memory_path,
-                        keyword_memory_scope,
-                        retrieval_question_key,
-                        selection_state.retrieval_memory_events,
+                        state.keyword_memory_path,
+                        state.keyword_memory_scope,
+                        state.retrieval_question_key,
+                        state.selection_state.retrieval_memory_events,
                     )
-                    retrieval_memory_summary = format_question_retrieval_memory(
+                    state.retrieval_memory_summary = format_question_retrieval_memory(
                         load_question_retrieval_memory(
-                            keyword_memory_path,
-                            keyword_memory_scope,
-                            retrieval_question_key,
+                            state.keyword_memory_path,
+                            state.keyword_memory_scope,
+                            state.retrieval_question_key,
                         )
                     )
-                    persisted_keyword_count = len(keyword_history)
+                    state.persisted_keyword_count = len(state.keyword_history)
                     recorder.phase_invocation_counts["discovery"] += 1
                     recorder.context_telemetry["llm_invocations"] += 1
-                    outcome = unified_agentic_outcome(raw, selection_state)
+                    outcome = unified_agentic_outcome(raw, state.selection_state)
                 elif (
                     experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED
                     and experiment.tool_access == ToolAccess.AGENTIC
@@ -478,9 +423,9 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         query=question,
                         llm=llm,
                         pm=prompt_manager,
-                        hint=hint,
+                        hint=state.hint,
                         portal_name=ctx.portal_name,
-                        avoid_keywords=attempted_keywords,
+                        avoid_keywords=state.attempted_keywords,
                         value_search=ctx.retrieval.mode.value_keywords,
                         verbatim_entities=ctx.retrieval.mode.verbatim_entities,
                     )
@@ -488,17 +433,17 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     selection_round = deps.phase2_select_tables(
                         query=question, llm=llm, pm=prompt_manager,
                         all_files=all_files, keywords=keyword_round[0], solr_client=solr,
-                        csv_dir=ctx.tables_dir, hint=hint,
+                        csv_dir=ctx.tables_dir, hint=state.hint,
                         portal_name=ctx.portal_name,
                         retrieval_config=ctx.retrieval,
-                        selection_state=selection_state,
+                        selection_state=state.selection_state,
                         entities=intent_entities(keyword_round[1]),
-                        carried_tables=carried_tables,
-                        carried_metadata=carried_metadata,
-                        excluded_tables=excluded_tables,
+                        carried_tables=state.carried_tables,
+                        carried_metadata=state.carried_metadata,
+                        excluded_tables=state.excluded_tables,
                         discovery=experiment.discovery,
                     )
-                    outcome = divided_agentic_outcome(keyword_round, selection_round, selection_state)
+                    outcome = divided_agentic_outcome(keyword_round, selection_round, state.selection_state)
                     selector_llm_calls = 0 if outcome.selector is SelectorKind.JEV else 1
                     recorder.phase_invocation_counts["discovery"] += selector_llm_calls
                     recorder.context_telemetry["llm_invocations"] += 1 + selector_llm_calls
@@ -509,13 +454,13 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             all_files=all_files, retrieval_config=ctx.retrieval,
                         table_dir=ctx.tables_dir,
                         portal_name=ctx.portal_name,
-                        hint=hint,
+                        hint=state.hint,
                         retrieval_memory=(
-                            retrieval_memory_summary
+                            state.retrieval_memory_summary
                             if experiment.orchestrated_memory_enabled else ""
                         ),
                         failed_keyword_combinations=(
-                            failed_keyword_combinations
+                            state.failed_keyword_combinations
                             if experiment.orchestrated_memory_enabled else []
                         ),
                         max_zero_result_retries=(
@@ -555,24 +500,24 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             if item
                         ]
                         if returned_bans:
-                            failed_keyword_combinations = returned_bans
+                            state.failed_keyword_combinations = returned_bans
                         persist_keyword_memory(
-                            keyword_memory_path,
-                            keyword_memory_scope,
+                            state.keyword_memory_path,
+                            state.keyword_memory_scope,
                             [],
-                            failed_keyword_combinations,
+                            state.failed_keyword_combinations,
                         )
                         persist_question_retrieval_memory(
-                            keyword_memory_path,
-                            keyword_memory_scope,
-                            retrieval_question_key,
+                            state.keyword_memory_path,
+                            state.keyword_memory_scope,
+                            state.retrieval_question_key,
                             discovery_result.retrieval_memory_events,
                         )
-                        retrieval_memory_summary = format_question_retrieval_memory(
+                        state.retrieval_memory_summary = format_question_retrieval_memory(
                             load_question_retrieval_memory(
-                                keyword_memory_path,
-                                keyword_memory_scope,
-                                retrieval_question_key,
+                                state.keyword_memory_path,
+                                state.keyword_memory_scope,
+                                state.retrieval_question_key,
                             )
                         )
                 else:
@@ -580,9 +525,9 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         query=question,
                         llm=llm,
                         pm=prompt_manager,
-                        hint=hint,
+                        hint=state.hint,
                         portal_name=ctx.portal_name,
-                        avoid_keywords=attempted_keywords,
+                        avoid_keywords=state.attempted_keywords,
                         value_search=ctx.retrieval.mode.value_keywords,
                         verbatim_entities=ctx.retrieval.mode.verbatim_entities,
                     )
@@ -608,7 +553,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             selection = deps.select_from_prepared_context(
                                 query=question, llm=llm, context=prepared,
                                 all_files=all_files, architecture=experiment.discovery_architecture,
-                                hint=hint, discovery=experiment.discovery,
+                                hint=state.hint, discovery=experiment.discovery,
                                 table_dir=ctx.tables_dir,
                             )
                         except OrchestratedSelectorError as exc:
@@ -622,11 +567,11 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     selector_llm_calls = 0 if outcome.selector in (SelectorKind.JEV, SelectorKind.NONE) else 1
                     recorder.phase_invocation_counts["discovery"] += selector_llm_calls
                     recorder.context_telemetry["llm_invocations"] += 1 + selector_llm_calls
-                selected = outcome.selected
-                keywords = outcome.keywords
-                solr_meta = outcome.metadata
-                reasoning = outcome.reasoning
-                trace = outcome.trace
+                state.selected = outcome.selected
+                state.keywords = outcome.keywords
+                state.solr_meta = outcome.metadata
+                state.reasoning = outcome.reasoning
+                state.trace = outcome.trace
                 architecture_tokens = outcome.tokens
                 tokens_p1, tokens_p2 = outcome.phase_tokens
                 keywords_rejected = outcome.rejected
@@ -635,41 +580,23 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     # round: a table it proved unusable is excluded, one it
                     # found useful carries forward with its metadata and, for
                     # the unified agent, its cached inspection.
-                    attempted_keywords.extend(keywords)
-                    attempted_keywords = list(dict.fromkeys(attempted_keywords))
-                    for table in outcome.skip_tables:
-                        excluded_tables.add(table.casefold())
-                    for table in outcome.keep_tables:
-                        if table.casefold() in excluded_tables:
-                            continue
-                        if table not in carried_tables:
-                            carried_tables.append(table)
-                        if table in solr_meta:
-                            carried_metadata[table] = solr_meta[table]
-                        cached_inspection = outcome.inspection_cache.get(table.casefold())
-                        if cached_inspection:
-                            carried_inspection[table.casefold()] = cached_inspection
-                    carried_tables = [
-                        table for table in carried_tables
-                        if table.casefold() not in excluded_tables
-                    ]
-                    carried_inspection = {
-                        key: value for key, value in carried_inspection.items()
-                        if key not in excluded_tables
-                    }
-                    hint = rejection_feedback_hint(
-                        reasoning, outcome.keep_tables,
+                    state.attempted_keywords.extend(state.keywords)
+                    state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
+                    state.carry(outcome.keep_tables, outcome.skip_tables, outcome.inspection_cache)
+                    state.prune_inspection()
+                    state.hint = rejection_feedback_hint(
+                        state.reasoning, outcome.keep_tables,
                         schemas_preloaded=experiment.use_unified_agent,
                     )
-                    keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
+                    keywords_rejected = not table_attempt.last
                     if not keywords_rejected:
                         # The last allowed attempt: force a selection from this
                         # round's candidates, minus the tables rejected above.
                         surviving_candidates = [
                             table for table in outcome.candidates
-                            if table.casefold() not in excluded_tables
+                            if table.casefold() not in state.excluded_tables
                         ]
-                        selected = (surviving_candidates or outcome.candidates or all_files)[:3]
+                        state.selected = (surviving_candidates or outcome.candidates or all_files)[:3]
                 if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
                     calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
                     mode = ctx.retrieval.mode.value
@@ -682,27 +609,27 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             "preparation_error": None,
                         })
                     if keywords_rejected:
-                        attempted_keywords.extend(keywords)
-                        attempted_keywords = list(dict.fromkeys(attempted_keywords))
+                        state.attempted_keywords.extend(state.keywords)
+                        state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
                         recorder.context_telemetry["empty_context_retries"] += 1
-                        hint = f"The previous keywords returned no datasets. Generate different keywords. Attempted: {attempted_keywords}"
+                        state.hint = f"The previous keywords returned no datasets. Generate different keywords. Attempted: {state.attempted_keywords}"
                 result.tokens["p1_p2"] += architecture_tokens
                 selection_record.update({
-                    "selected_datasets": list(selected),
-                    "keywords": list(keywords),
+                    "selected_datasets": list(state.selected),
+                    "keywords": list(state.keywords),
                     "reasoning_available_to_coder": False,
-                    "selection_plan": dict(selection_state.selection_plan),
-                    "selection_advisories": list(selection_state.selection_advisories),
-                    "semantic_plan_failure": selection_state.plan_failure,
-                    "initial_stall_reason": selection_state.initial_stall_reason,
-                    "recovery_started": selection_state.recovery_started,
-                    "recovery_stop_reason": selection_state.recovery_stop_reason,
-                    "selection_plan_source": selection_state.selection_plan_source,
-                    "semantic_planner_attempts": selection_state.semantic_planner_attempts,
-                    "semantic_draft_present": bool(selection_state.semantic_draft),
+                    "selection_plan": dict(state.selection_state.selection_plan),
+                    "selection_advisories": list(state.selection_state.selection_advisories),
+                    "semantic_plan_failure": state.selection_state.plan_failure,
+                    "initial_stall_reason": state.selection_state.initial_stall_reason,
+                    "recovery_started": state.selection_state.recovery_started,
+                    "recovery_stop_reason": state.selection_state.recovery_stop_reason,
+                    "selection_plan_source": state.selection_state.selection_plan_source,
+                    "semantic_planner_attempts": state.selection_state.semantic_planner_attempts,
+                    "semantic_draft_present": bool(state.selection_state.semantic_draft),
                     "outcome": "keywords_rejected" if keywords_rejected else "selected",
-                    "kept_tables": list(carried_tables),
-                    "skipped_tables": sorted(excluded_tables),
+                    "kept_tables": list(state.carried_tables),
+                    "skipped_tables": sorted(state.excluded_tables),
                 })
                 if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:
                     recorder.discovery_phase_tokens["p1"] += tokens_p1
@@ -718,64 +645,55 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                 discovery_metric["latency_seconds"] = round(
                     discovery_metric["latency_seconds"] + discovery_elapsed, 6
                 )
-                discovery_metric["retries"] = table_attempt
-                result.tables = selected
-                result.keywords = keywords
+                discovery_metric["retries"] = table_attempt.index
+                result.tables = state.selected
+                result.keywords = state.keywords
                 result.pipeline_stages["retrieval"] = (
                     "hit" if retrieval_runs and any(run.get("hits") for run in retrieval_runs)
                     else "no_hits"
                 )
                 result.pipeline_stages["table_selection"] = (
-                    "selected" if selected else "empty"
+                    "selected" if state.selected else "empty"
                 )
                 if keywords_rejected:
                     continue
 
-                selection_key = tuple(sorted(table.casefold() for table in selected))
-                if selected and selection_key in rejected_selection_keys:
+                prior = guard.prior_rejection(state.selected)
+                if prior is not None:
                     selection_record["outcome"] = (
                         "rejected_selection_excluded"
-                        if table_attempt < MAX_TABLE_ATTEMPTS - 1
+                        if not table_attempt.last
                         else "tables_rejected_no_alternative"
                     )
-                    prior = next((
-                        item for item in reversed(rejected_selection_signatures)
-                        if tuple(item["tables"]) == selection_key
-                    ), {})
-                    error = "No verified alternative selection remains. " + str(prior)
-                    hint = (
-                        error
+                    state.error = "No verified alternative selection remains. " + str(prior)
+                    state.hint = (
+                        state.error
                         + " Select at least one different table. Use these missing "
-                        f"requirements as retrieval concepts: {hint}"
+                        f"requirements as retrieval concepts: {state.hint}"
                     )
-                    if table_attempt < MAX_TABLE_ATTEMPTS - 1:
+                    if not table_attempt.last:
                         continue
                     result.status = "rejected"
                     result.pipeline_stages["code_execution"] = "tables_rejected"
                     break
 
-                plan_signature = _selection_plan_signature(
-                    selected, selection_state.selection_plan
+                plan_signature = selection_plan_signature(
+                    state.selected, state.selection_state.selection_plan
                 )
-                # An empty selection has no plan identity. It can occur when
-                # discovery itself failed (for example while its executor was
-                # shutting down); treating ``{"tables": [], "plan": {}}`` as
-                # a repeated rejected plan hides that operational failure and
-                # turns every retry into a misleading selection-gate block.
-                if selected and plan_signature in rejected_plan_feedback:
-                    feedback = rejected_plan_feedback[plan_signature]
+                feedback = guard.repeated_plan(state.selected, plan_signature)
+                if feedback is not None:
                     selection_record["outcome"] = "unchanged_rejected_plan"
                     selection_record["rejection_feedback"] = feedback
-                    error = (
+                    state.error = (
                         "Discovery repeated a plan already rejected by the selection "
                         "contract gate."
                     )
-                    hint = (
+                    state.hint = (
                         "STRUCTURED DISCOVERY CORRECTION (follow every item before "
                         "confirming):\n"
                         + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
                     )
-                    if table_attempt < MAX_TABLE_ATTEMPTS - 1:
+                    if not table_attempt.last:
                         continue
                     result.pipeline_stages["code_execution"] = "blocked_by_selection"
                     break
@@ -785,8 +703,8 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     # Run it first so rejected selections can return to discovery
                     # without wasting calls on the reduced-context variants.
                     variants = run_coder_context_sweep(
-                        question=question, selected=selected,
-                        solr_meta=solr_meta, reasoning=reasoning, llm=llm,
+                        question=question, selected=state.selected,
+                        solr_meta=state.solr_meta, reasoning=state.reasoning, llm=llm,
                         prompt_manager=prompt_manager, csv_dir=ctx.tables_dir,
                         run_dir=run_dir, seed=reproducibility.effective_seed,
                         record_seed_instruction=recorder.record_seed_instruction,
@@ -799,7 +717,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         phase_invocation_counts=recorder.phase_invocation_counts,
                         max_attempts=MAX_CODE_ATTEMPTS,
                         context_levels=[CoderContextLevel.FULL],
-                        selection_plan=dict(selection_state.selection_plan),
+                        selection_plan=dict(state.selection_state.selection_plan),
                         source_field_names=benchmark.field_names,
                         require_semantic_plan=experiment.require_semantic_plan,
                     )
@@ -824,45 +742,40 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             "evaluation_disposition": "blocked",
                             "error_category": "selection_contract_gate",
                         })
-                        error = sweep.error
+                        state.error = sweep.error
                         if (
                             coder_audit.get("status") == "missing"
-                            and last_coder_rejection
+                            and state.last_coder_rejection
                         ):
                             selection_record["recovery_from_rejection"] = dict(
-                                last_coder_rejection
+                                state.last_coder_rejection
                             )
-                            error = (
+                            state.error = (
                                 "Selection recovery produced no contract. Original "
-                                f"coder rejection: {last_coder_rejection['reason']} "
+                                f"coder rejection: {state.last_coder_rejection['reason']} "
                                 f"Current gate: {sweep.error}"
                             )
                         feedback = _selection_retry_feedback(
-                            selected, coder_audit, error
+                            state.selected, coder_audit, state.error
                         )
-                        rejected_plan_feedback[plan_signature] = feedback
+                        guard.reject_plan(plan_signature, feedback)
                         selection_record["rejection_feedback"] = feedback
-                        hint = (
+                        state.hint = (
                             "STRUCTURED DISCOVERY CORRECTION (follow every item before "
                             "confirming):\n"
                             + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
                         )
-                        if table_attempt < MAX_TABLE_ATTEMPTS - 1:
+                        if not table_attempt.last:
                             continue
                         break
                     if sweep.status is CodeStatus.TABLES_REJECTED:
                         rejection_reason = sweep.error
-                        last_coder_rejection = {
+                        state.last_coder_rejection = {
                             "reason": rejection_reason,
                             "details": sweep.rejection_details,
-                            "tables": list(selected),
+                            "tables": list(state.selected),
                         }
-                        rejected_selection_keys.add(selection_key)
-                        rejected_selection_signatures.append(
-                            _rejected_selection_signature(
-                                selected, sweep.rejection_details, rejection_reason
-                            )
-                        )
+                        guard.reject_selection(state.selected, sweep.rejection_details, rejection_reason)
                         selection_record["outcome"] = "tables_rejected"
                         selection_record["rejection_feedback"] = rejection_reason
                         result.errors.append({
@@ -873,12 +786,12 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         })
                         result.pipeline_stages["code_execution"] = "tables_rejected"
                         previous_visible = [
-                            table for table in selection_state.all_candidates[
-                                : selection_state.visible_candidate_count
+                            table for table in state.selection_state.all_candidates[
+                                : state.selection_state.visible_candidate_count
                             ]
-                            if table not in selected
+                            if table not in state.selected
                         ][:5]
-                        hint = (
+                        state.hint = (
                             "The full-context code generator rejected the previous "
                             "table combination. First reassess these previously visible "
                             "alternatives if retrieval returns them again: "
@@ -886,14 +799,14 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             "a genuinely new search only if none covers the missing "
                             f"requirement. Feedback: {rejection_reason}"
                         )
-                        error = rejection_reason
-                        if table_attempt < MAX_TABLE_ATTEMPTS - 1:
+                        state.error = rejection_reason
+                        if not table_attempt.last:
                             continue
                         break
 
                     variants.update(run_coder_context_sweep(
-                        question=question, selected=selected,
-                        solr_meta=solr_meta, reasoning=reasoning, llm=llm,
+                        question=question, selected=state.selected,
+                        solr_meta=state.solr_meta, reasoning=state.reasoning, llm=llm,
                         prompt_manager=prompt_manager, csv_dir=ctx.tables_dir,
                         run_dir=run_dir, seed=reproducibility.effective_seed,
                         record_seed_instruction=recorder.record_seed_instruction,
@@ -909,14 +822,14 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             CoderContextLevel.SCHEMA_ONLY,
                             CoderContextLevel.MINIMAL,
                         ],
-                        selection_plan=dict(selection_state.selection_plan),
+                        selection_plan=dict(state.selection_state.selection_plan),
                         source_field_names=benchmark.field_names,
                         require_semantic_plan=experiment.require_semantic_plan,
                     ))
                     result.coder_context_experiment = {
                         "shared_retrieval": True,
-                        "shared_tables": list(selected),
-                        "shared_keywords": list(keywords),
+                        "shared_tables": list(state.selected),
+                        "shared_keywords": list(state.keywords),
                         "shared_reasoning": None,
                         "primary_level": CoderContextLevel.FULL.value,
                         "variants": variants,
@@ -965,19 +878,19 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
 
                 previous_code = ""
                 total_code_runs = 0
-                for code_attempt in range(MAX_CODE_ATTEMPTS):
+                for code_attempt in Attempts(MAX_CODE_ATTEMPTS):
                     code_started = time.monotonic()
                     generated = deps.phase3_generate_and_execute(
                         question,
-                        selected,
-                        selected,
-                        solr_meta,
-                        reasoning,
+                        state.selected,
+                        state.selected,
+                        state.solr_meta,
+                        state.reasoning,
                         llm,
                         prompt_manager,
                         ctx.tables_dir,
-                        retries=code_attempt,
-                        error_msg=error,
+                        retries=code_attempt.index,
+                        error_msg=state.error,
                         previous_code=previous_code,
                         run_dir=run_dir,
                         seed=reproducibility.effective_seed,
@@ -985,7 +898,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         coder_context_level=experiment.coder_context_level,
                         evaluation_result_type=None,
                         max_run_calls=max(1, MAX_CODE_ATTEMPTS - total_code_runs),
-                        selection_plan=dict(selection_state.selection_plan),
+                        selection_plan=dict(state.selection_state.selection_plan),
                         source_field_names=benchmark.field_names,
                         require_semantic_plan=experiment.require_semantic_plan,
                         allow_semantic_revision=(
@@ -995,7 +908,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             experiment.coder_brief_mode.value == "advisory"
                         ),
                     )
-                    last_generated = generated
+                    state.last_generated = generated
                     outcome = code_outcome(
                         generated, require_semantic_plan=experiment.require_semantic_plan
                     )
@@ -1010,8 +923,8 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         + (time.monotonic() - code_started),
                         6,
                     )
-                    code_metric["retries"] = code_attempt
-                    result.retries += int(code_attempt > 0)
+                    code_metric["retries"] = code_attempt.index
+                    result.retries += int(code_attempt.index > 0)
                     total_code_runs += outcome.coder_runs
                     previous_code = outcome.code
                     result.code = previous_code
@@ -1023,21 +936,21 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             "evaluation_disposition": "blocked",
                             "error_category": "selection_contract_gate",
                         })
-                        error = outcome.error
+                        state.error = outcome.error
                         audit = outcome.audit or {}
-                        if audit.get("status") == "missing" and last_coder_rejection:
+                        if audit.get("status") == "missing" and state.last_coder_rejection:
                             selection_record["recovery_from_rejection"] = dict(
-                                last_coder_rejection
+                                state.last_coder_rejection
                             )
-                            error = (
+                            state.error = (
                                 "Selection recovery produced no contract. Original "
-                                f"coder rejection: {last_coder_rejection['reason']} "
-                                f"Current gate: {error}"
+                                f"coder rejection: {state.last_coder_rejection['reason']} "
+                                f"Current gate: {state.error}"
                             )
-                        feedback = _selection_retry_feedback(selected, audit, error)
-                        rejected_plan_feedback[plan_signature] = feedback
+                        feedback = _selection_retry_feedback(state.selected, audit, state.error)
+                        guard.reject_plan(plan_signature, feedback)
                         selection_record["rejection_feedback"] = feedback
-                        hint = (
+                        state.hint = (
                             "STRUCTURED DISCOVERY CORRECTION (follow every item before "
                             "confirming):\n"
                             + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
@@ -1050,38 +963,21 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             generated, len(attempts) + 1
                         ))
                         result.code_evaluation = attempt_evaluator.summarize(attempts)
-                        result.code_evaluation["generation_attempt_count"] = code_attempt + 1
+                        result.code_evaluation["generation_attempt_count"] = code_attempt.number
 
                     if outcome.status is CodeStatus.TABLES_REJECTED:
-                        last_coder_rejection = {
+                        state.last_coder_rejection = {
                             "reason": outcome.error,
                             "details": outcome.rejection_details,
-                            "tables": list(selected),
+                            "tables": list(state.selected),
                         }
-                        rejected_selection_keys.add(selection_key)
-                        rejected_selection_signatures.append(
-                            _rejected_selection_signature(
-                                selected, outcome.rejection_details, outcome.error,
-                            )
-                        )
+                        guard.reject_selection(state.selected, outcome.rejection_details, outcome.error)
                         # The coder's own per-table judgment feeds the same
                         # cross-round memory as an architect rejection: a
                         # table it proved unusable is banned outright, and
                         # one it found partially useful carries forward
                         # instead of being lost with the rest of the set.
-                        for table in outcome.skip_tables:
-                            excluded_tables.add(table.casefold())
-                        for table in outcome.keep_tables:
-                            if table.casefold() in excluded_tables:
-                                continue
-                            if table not in carried_tables:
-                                carried_tables.append(table)
-                            if table in solr_meta:
-                                carried_metadata[table] = solr_meta[table]
-                        carried_tables = [
-                            table for table in carried_tables
-                            if table.casefold() not in excluded_tables
-                        ]
+                        state.carry(outcome.keep_tables, outcome.skip_tables)
                         result.errors.append({
                             "phase": "code",
                             "type": "tables_rejected",
@@ -1089,12 +985,12 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         })
                         result.pipeline_stages["code_execution"] = "tables_rejected"
                         previous_visible = [
-                            table for table in selection_state.all_candidates[
-                                : selection_state.visible_candidate_count
+                            table for table in state.selection_state.all_candidates[
+                                : state.selection_state.visible_candidate_count
                             ]
-                            if table not in selected
+                            if table not in state.selected
                         ][:5]
-                        hint = (
+                        state.hint = (
                             "The code generator rejected the previous table combination. "
                             "First reassess these previously visible alternatives if "
                             f"retrieval returns them again: {previous_visible}. Select a "
@@ -1102,7 +998,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             "none covers the missing requirement. Feedback: "
                             f"{outcome.error}"
                         )
-                        error = outcome.error
+                        state.error = outcome.error
                         break
 
                     if outcome.status is CodeStatus.SUCCESS:
@@ -1110,7 +1006,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         raw_validation = validate_answer(outcome.raw_result)
                         if raw_validation.disposition == AnswerDisposition.EMPTY:
                             result.pipeline_stages["code_execution"] = "empty"
-                            error = raw_validation.reason
+                            state.error = raw_validation.reason
                             continue
                         if raw_validation.disposition == AnswerDisposition.REJECTED:
                             result.pipeline_stages["code_execution"] = "rejected"
@@ -1153,11 +1049,11 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             result.error = validation.reason
                         return result
 
-                    error = outcome.error
+                    state.error = outcome.error
                     error_record = {
                         "phase": "code",
                         "type": "execution_error",
-                        "message": error,
+                        "message": state.error,
                     }
                     structured_execution_error = outcome.execution_error
                     if structured_execution_error:
@@ -1168,7 +1064,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     result.errors.append(error_record)
                     result.pipeline_stages["code_execution"] = "failed"
                     if outcome.coder_runs:
-                        if outcome.retryable and code_attempt < MAX_CODE_ATTEMPTS - 1:
+                        if outcome.retryable and not code_attempt.last:
                             continue
                         break
                 else:
@@ -1183,7 +1079,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                 }:
                     break
 
-                if table_attempt == MAX_TABLE_ATTEMPTS - 1:
+                if table_attempt.last:
                     break
 
             result.status = (
@@ -1191,7 +1087,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                 if result.pipeline_stages["code_execution"] == "blocked_by_selection"
                 else "failed"
             )
-            result.error = error or "LakeGen could not produce an executable answer."
+            result.error = state.error or "LakeGen could not produce an executable answer."
             return result
         except Exception as exc:
             result.status = "failed"
@@ -1202,8 +1098,8 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
             recorder.finish(
                 retrieval_runs=retrieval_runs,
                 retrieval_log_context=retrieval_log_context,
-                selected=selected, keywords=keywords, reasoning=reasoning, trace=trace, error=error,
-                selection_state=selection_state, selection_states=selection_states,
-                selection_attempts=selection_attempts, last_generated=last_generated,
+                selected=state.selected, keywords=state.keywords, reasoning=state.reasoning, trace=state.trace, error=state.error,
+                selection_state=state.selection_state, selection_states=state.selection_states,
+                selection_attempts=state.selection_attempts, last_generated=state.last_generated,
                 manifest=manifest, reproducibility=reproducibility, benchmark=benchmark,
             )
