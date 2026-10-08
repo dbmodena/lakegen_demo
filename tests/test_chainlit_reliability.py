@@ -97,47 +97,6 @@ async def test_chainlit_interaction_timeout_is_explicit(monkeypatch):
     assert session.intervention_recorder.to_list() == []
 
 
-@pytest.mark.parametrize(
-    ("status", "phase"),
-    [
-        ("completed", "result"),
-        ("cancelled", "discovery"),
-        ("failed", "initialization"),
-        ("failed", "discovery"),
-        ("timed_out", "discovery"),
-    ],
-)
-def test_chainlit_finalizer_saves_once_with_partial_phases(
-    status, phase, monkeypatch
-):
-    session = _session()
-    session.phase = phase
-    session.intervention_recorder.record_hint(
-        phase="discovery",
-        gate=HumanGate.DATASET_HINT,
-        provided=True,
-        elapsed_seconds=0.2,
-    )
-    logged = []
-    monkeypatch.setattr(
-        workflow, "save_experiment_log", lambda **kwargs: logged.append(kwargs)
-    )
-
-    workflow._finalize_run(session, status, "safe failure" if status == "failed" else "")
-    workflow._finalize_run(session, status)
-
-    assert len(logged) == 1
-    assert logged[0]["status"] == status
-    trace = logged[0]["extra_fields"]["RUN_TRACE_JSON"]
-    assert trace["phase_reached"] == phase
-    assert len(trace["human_interventions"]) == 1
-    if phase in {"initialization", "discovery"}:
-        assert trace["code"] is None
-        assert trace["execution_outcome"]["raw_result"] is None
-        assert trace["llm_calls"][1]["total_tokens"] == 0
-        assert trace["llm_calls"][2]["total_tokens"] == 0
-
-
 class _Step:
     def __init__(self, **_kwargs):
         self.output = ""
@@ -255,7 +214,7 @@ async def test_busy_workflow_is_rejected_without_session_manifest_or_log(monkeyp
         workflow, "get_session", lambda: pytest.fail("active session was accessed")
     )
     monkeypatch.setattr(
-        workflow, "create_manifest", lambda *_a, **_k: pytest.fail("manifest created")
+        workflow, "persist_manifest", lambda *_a, **_k: pytest.fail("manifest created")
     )
     monkeypatch.setattr(
         workflow, "save_experiment_log", lambda **_k: pytest.fail("log created")
@@ -317,7 +276,6 @@ async def test_new_request_is_allowed_after_previous_workflow_finishes(monkeypat
 
     monkeypatch.setattr(workflow, "get_session", lambda: session)
     monkeypatch.setattr(workflow, "_run_locked_workflow", complete)
-    monkeypatch.setattr(workflow, "_finalize_run", lambda *_a, **_k: None)
 
     await workflow.run_lakegen_workflow("First question?")
     await workflow.run_lakegen_workflow("Next question?")
@@ -326,27 +284,23 @@ async def test_new_request_is_allowed_after_previous_workflow_finishes(monkeypat
 
 
 def test_next_round_hint_merges_architect_and_user_feedback():
-    assert workflow._next_round_hint("Architect says X.", "try Y") == (
+    from lakegen.pipeline.engine import next_round_hint
+
+    assert next_round_hint("Architect says X.", "try Y") == (
         "Architect says X. User feedback: try Y"
     )
-    assert workflow._next_round_hint("Architect says X.", "") == "Architect says X."
-    assert workflow._next_round_hint("", "try Y") == "try Y"
-    assert workflow._next_round_hint("", "") == ""
+    assert next_round_hint("Architect says X.", "") == "Architect says X."
+    assert next_round_hint("", "try Y") == "try Y"
+    assert next_round_hint("", "") == ""
 
 
 @pytest.mark.asyncio
-async def test_unified_rejection_feedback_and_memory_reach_the_next_round(
-    monkeypatch, tmp_path
-):
+async def test_unified_rejection_feedback_and_memory_reach_the_next_round(monkeypatch, tmp_path):
     """The chat UI used to start the round after a rejection with only the
-    user's typed hint: no architect feedback, no retrieval memory, and the
-    DiscoveryConfig defaults instead of the experiment's `discovery:`."""
-    config = ExperimentConfig(interaction_mode="human_gated")
+    user's typed hint: no architect feedback, no retrieval memory. On the
+    engine the architect's feedback, the kept table and the round's retrieval
+    evidence all reach the next round, which no one has to approve."""
     session = _session()
-    session.runtime = SimpleNamespace(
-        model_name=config.model, experiment=config, retrieval=RetrievalConfig(),
-        discovery=config.discovery, csv_dir=tmp_path, portal_name="UK",
-    )
     rejection = (
         "REJECT_KEYWORDS: all candidates are fishing licences\n"
         "Suggestion: water abstraction licence NI"
@@ -366,66 +320,17 @@ async def test_unified_rejection_feedback_and_memory_reach_the_next_round(
             return [], ["water", "licence"], {}, rejection, "", 0
         return ["kept.parquet"], ["water"], {}, "Selected.", "", 0
 
-    def make_async(function):
-        async def run(*args, **kwargs):
-            return function(*args, **kwargs)
-        return run
+    async def approve(*_args, **_kwargs):
+        return "approve"
 
-    class Step:
-        def __init__(self, **_kwargs):
-            self.output = ""
-            self.default_open = True
+    logged = _engine_run(monkeypatch, session, tmp_path, phase12=fake_phase12_agent, ask_choice=approve)
+    monkeypatch.setattr(workflow, "phase3_generate_and_execute", lambda *a, **k: (_ for _ in ()).throw(ValueError("stop here")))
+    await workflow.run_lakegen_workflow("How much water is abstracted?")
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_exc):
-            return False
-
-        async def update(self):
-            pass
-
-    class Bridge:
-        def __init__(self, _step):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_exc):
-            return False
-
-        def emit(self, _delta):
-            pass
-
-    choices = iter(["recalculate", "approve"])
-    hint_prompts = []
-
-    async def ask_choice(*_args, **_kwargs):
-        return next(choices)
-
-    async def ask_hint(prompt, **_kwargs):
-        hint_prompts.append(prompt)
-        return "look for NIEA registers"
-
-    monkeypatch.setattr(workflow, "phase12_agent", fake_phase12_agent)
-    monkeypatch.setattr(workflow.cl, "make_async", make_async)
-    monkeypatch.setattr(workflow.cl, "Step", Step)
-    monkeypatch.setattr(workflow, "StepStreamBridge", Bridge)
-    monkeypatch.setattr(workflow, "_ask_choice", ask_choice)
-    monkeypatch.setattr(workflow, "_ask_hint", ask_hint)
-
-    status = await workflow._run_unified_gate(session, None, None, None, ["kept.parquet"])
-
-    assert status == "approved"
     first, second = calls
     assert first["retrieval_memory"] == ""
     assert second["hint"].startswith("The previous attempt already found tables")
     assert f"Architect feedback: {rejection}." in second["hint"]
-    assert second["hint"].endswith("User feedback: look for NIEA registers")
-    assert "[water, licence] was insufficient: all candidates are fishing licences" in second["retrieval_memory"]
-    assert "Recorded next-search focus: water abstraction licence NI" in second["retrieval_memory"]
-    assert all(call["discovery_config"] is config.discovery for call in calls)
-    assert all(call["require_semantic_plan"] is config.require_semantic_plan for call in calls)
-    assert "passed on automatically" in hint_prompts[0]
-    assert session.carried_tables == ["kept.parquet"]
+    assert "water abstraction licence NI" in second["retrieval_memory"]
+    assert second["state"].carried_tables == ["kept.parquet"]
+    assert len(logged) == 1

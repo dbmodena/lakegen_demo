@@ -164,38 +164,3 @@ def get_runtime_settings() -> RuntimeSettings:
         runtime = RuntimeSettings.default()
         set_runtime_settings(runtime)
     return runtime
-
-
-def get_keyword_rejection_reason(reasoning: str) -> str | None:
-    if not reasoning.startswith("REJECT_KEYWORDS"):
-        return None
-    reason = reasoning.replace("REJECT_KEYWORDS:", "", 1)
-    reason = reason.replace("REJECT_KEYWORDS", "", 1).strip()
-    return reason or "The candidate tables did not match the generated keywords."
-
-
-def apply_phase2_keyword_rejection(
-    session: LakeGenSession,
-    candidates: list[str],
-    solr_metadata: SolrMetadata,
-    reasoning: str,
-    trace: str,
-    tokens: int,
-    accumulate_tokens: bool,
-) -> bool:
-    rejection_reason = get_keyword_rejection_reason(reasoning)
-    if rejection_reason is None:
-        return False
-
-    session.tables = []
-    session.candidates = candidates
-    session.solr_metadata_map = solr_metadata
-    session.architect_reasoning = reasoning
-    session.full_trace = trace
-    session.fallback_reason = rejection_reason
-    if accumulate_tokens:
-        session.tokens["p2"] += tokens
-    else:
-        session.tokens["p2"] = tokens
-    session.phase = "fallback_approval_keywords"
-    return True

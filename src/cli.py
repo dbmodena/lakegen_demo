@@ -16,62 +16,52 @@ uv run python src/cli.py --divided "What are the top 3 districts by student susp
 
 import argparse
 import sys
-import uuid
-import time
 from pathlib import Path
 
 _SRC_DIR = Path(__file__).resolve().parent
 _ROOT_DIR = _SRC_DIR.parent
+for _path in (_SRC_DIR, _ROOT_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-if str(_SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(_SRC_DIR))
-if str(_ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(_ROOT_DIR))
-
+from lakegen.config.files import parse_set_values
 from lakegen.config.registry import get_lake
+from lakegen.core.bootstrap import bootstrap_nltk_data
+from lakegen.core.config import resolve_portal_tables_dir
+from lakegen.experiment_config import InteractionMode, load_experiment_config
 from lakegen.interfaces.cli import terminal
 from lakegen.interfaces.cli.driver import TerminalDriver
 from lakegen.pipeline.context import MemoryScope, RunContext, SurfaceOptions
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.pipeline.engine import MAX_CODE_ATTEMPTS, MAX_TABLE_ATTEMPTS, Pipeline
-from lakegen.core.bootstrap import bootstrap_nltk_data
-from lakegen.core.resources import get_all_table_files, get_llm, get_prompt_manager, get_solr
-from lakegen.phases import (
+from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
+from lakegen.runner import ExperimentRunner
+from lakegen.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
+
+# The phases, resources and sinks the engine calls (PipelineDeps.from_module
+# reads them from this module when a run starts).
+from lakegen.core.logger import save_experiment_log  # noqa: F401
+from lakegen.core.resources import (  # noqa: F401
+    get_all_table_files,
+    get_llm,
+    get_prompt_manager,
+    get_solr,
+    log_retrieval_decision,
+)
+from lakegen.manifest import persist_manifest  # noqa: F401
+from lakegen.orchestrated_context import prepare_discovery_context  # noqa: F401
+from lakegen.phases import (  # noqa: F401
     phase1_generate_keywords,
     phase2_select_tables,
-    phase12_agent,
     phase3_generate_and_execute,
     phase4_synthesize,
+    phase12_agent,
 )
-from lakegen.core.logger import save_experiment_log
-from lakegen.core import paths
-from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
-from lakegen.runtime import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
-from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
-from lakegen.config.files import parse_set_values
-from lakegen.experiment_config import load_experiment_config, ToolAccess
-from lakegen.manifest import create_manifest, persist_manifest
-from lakegen.reproducibility import initialize_reproducibility
-from lakegen.tracing import (
-    HumanGate,
-    HumanInterventionRecorder,
-    PhaseName,
-    build_llm_phase_records,
-    summarize_tool_calls,
-    normalize_hint,
-)
-from lakegen.runner import ExperimentRunner
-from lakegen.experiment_config import InteractionMode
-from lakegen.orchestrated_context import prepare_discovery_context
-from lakegen.retrieval.intent import intent_entities
-from lakegen.phases.orchestrated_discovery import (
-    OrchestratedContextPreparationError,
-    OrchestratedSelectorError,
-    RetrievalRequestProtocolError,
+from lakegen.phases.orchestrated_discovery import (  # noqa: F401
     run_unified_orchestrated_discovery,
-    selector_retry_reason,
     select_from_prepared_context,
 )
+from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: F401
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -89,13 +79,6 @@ _keyword_list = terminal.keyword_list
 
 MAX_RETRIES = MAX_CODE_ATTEMPTS
 MAX_KEYWORD_RETRIES = MAX_TABLE_ATTEMPTS
-
-# The phases, resources and sinks the engine calls, imported here by name so
-# that a test patching `cli.<name>` patches what the engine calls
-# (PipelineDeps.from_module reads them from this module when a run starts).
-from lakegen.core.resources import log_retrieval_decision  # noqa: E402, F401
-from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: E402, F401
-
 
 def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     """Run one question step by step in the terminal, on the batch service's engine."""

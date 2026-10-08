@@ -13,8 +13,8 @@ import chainlit as cl
 import pytest
 from chainlit.config import config as chainlit_config
 
-from lakegen.ui import workflow as wf
 from lakegen.tracing import HumanGate
+from lakegen.ui import workflow as wf
 
 
 class _FakeSession:
@@ -131,8 +131,12 @@ def test_every_choice_action_has_a_registered_callback():
         assert name in chainlit_config.code.action_callbacks, (
             f"{name} would 404 on the HTTP action endpoint"
         )
-    # The names must match what the gates actually send.
+    # The names must match what the gates actually send (the driver's).
     import re
-    source = open(wf.__file__, encoding="utf-8").read()
+
+    from lakegen.interfaces.chainlit import driver
+
+    source = open(driver.__file__, encoding="utf-8").read()
     sent = set(re.findall(r'\("(\w+)", "(?:approve|recalculate|force)", ', source))
+    assert sent, "the driver's gates send no choice actions"
     assert sent <= set(wf._CHOICE_ACTIONS), sent - set(wf._CHOICE_ACTIONS)
