@@ -1,7 +1,7 @@
 """A human-gated run asks its driver at the gates; an autonomous run never does.
 
 The phases are the golden harness's scripted fakes, installed on the service
-module and read through ``PipelineDeps.from_module``; a scripted driver
+module and bound by its ``pipeline_deps()``; a scripted driver
 answers each request and the test checks what was asked, in which order,
 and how the run ended.
 """
@@ -22,7 +22,6 @@ from golden.harness import (
     prepare_run,
 )
 from lakegen.pipeline.context import RunContext, SurfaceOptions
-from lakegen.pipeline.deps import PipelineDeps
 from lakegen.pipeline.engine import Pipeline
 from lakegen.pipeline.events import (
     Abort,
@@ -52,7 +51,7 @@ def _drive(monkeypatch, tmp_path, case: Case, answers: list, *, gated: bool = Tr
     """Run the case with the scripted answers; the requests asked and the result."""
     _replacements, log, _capture = prepare_run(monkeypatch, tmp_path, service, case, SERVICE_NAMES)
     ctx = RunContext.from_runtime(make_runtime(case.experiment, tmp_path), SurfaceOptions(human_gated=gated))
-    steps = Pipeline(ctx, PipelineDeps.from_module(service)).steps(case.question)
+    steps = Pipeline(ctx, service.pipeline_deps()).steps(case.question)
     asked, signals, remaining = [], [], iter(answers)
     event = next(steps)
     try:
@@ -138,4 +137,4 @@ def test_a_wrong_answer_type_is_refused(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="cannot answer"):
         ctx = RunContext.from_runtime(make_runtime(case.experiment, tmp_path), SurfaceOptions(human_gated=True))
         prepare_run(monkeypatch, tmp_path, service, case, SERVICE_NAMES)
-        Pipeline(ctx, PipelineDeps.from_module(service)).run(case.question)
+        Pipeline(ctx, service.pipeline_deps()).run(case.question)

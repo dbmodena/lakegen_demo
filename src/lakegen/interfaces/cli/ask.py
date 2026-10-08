@@ -34,8 +34,8 @@ from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
 from lakegen.runner import ExperimentRunner
 from lakegen.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 
-# The phases, resources and sinks the engine calls (PipelineDeps.from_module
-# reads them from this module when a run starts).
+# The phases, resources and sinks the engine calls; pipeline_deps() binds
+# them when a run starts, so a test patching a name here patches the engine.
 from lakegen.core.logger import save_experiment_log  # noqa: F401
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
@@ -74,13 +74,39 @@ _keyword_list = terminal.keyword_list
 MAX_RETRIES = MAX_CODE_ATTEMPTS
 MAX_KEYWORD_RETRIES = MAX_TABLE_ATTEMPTS
 
-def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
+def pipeline_deps() -> PipelineDeps:
+    """The phases, resources and sinks this surface runs the engine with.
+
+    Built from this module's own names at the start of a run, so a test that
+    replaces one here replaces what the engine calls.
+    """
+    return PipelineDeps(
+        get_llm=get_llm,
+        get_solr=get_solr,
+        get_prompt_manager=get_prompt_manager,
+        get_all_table_files=get_all_table_files,
+        phase1_generate_keywords=phase1_generate_keywords,
+        phase2_select_tables=phase2_select_tables,
+        phase12_agent=phase12_agent,
+        phase3_generate_and_execute=phase3_generate_and_execute,
+        phase4_synthesize=phase4_synthesize,
+        run_unified_orchestrated_discovery=run_unified_orchestrated_discovery,
+        prepare_discovery_context=prepare_discovery_context,
+        select_from_prepared_context=select_from_prepared_context,
+        judge_semantic_code_result=judge_semantic_code_result,
+        save_experiment_log=save_experiment_log,
+        log_retrieval_decision=log_retrieval_decision,
+        persist_manifest=persist_manifest,
+    )
+
+
+def run_cli_workflow(question: str, runtime: RuntimeSettings, deps: PipelineDeps | None = None) -> None:
     """Run one question step by step in the terminal, on the batch service's engine."""
     ctx = RunContext.from_runtime(
         runtime,
         SurfaceOptions(human_gated=True, memory_scope=MemoryScope.NONE, answer_on_failure=True),
     )
-    pipeline = Pipeline(ctx, PipelineDeps.from_module(sys.modules[__name__]))
+    pipeline = Pipeline(ctx, deps or pipeline_deps())
     try:
         TerminalDriver(pipeline, ctx).run(question)
     except RuntimeError as exc:

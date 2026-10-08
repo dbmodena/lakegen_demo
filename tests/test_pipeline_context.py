@@ -2,38 +2,39 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
-
-import pytest
+from types import SimpleNamespace
 
 from lakegen.experiment_config import ExperimentConfig, InteractionMode
 from lakegen.pipeline.context import RunContext
-from lakegen.pipeline.deps import DEPENDENCY_NAMES, PipelineDeps
+from lakegen.pipeline.deps import PipelineDeps
 from lakegen.retrieval import RetrievalConfig
 
+FIELDS = tuple(field.name for field in fields(PipelineDeps))
 
-def test_from_module_takes_the_names_as_the_module_has_them_now():
-    module = ModuleType("surface")
-    for name in DEPENDENCY_NAMES:
-        setattr(module, name, lambda *a, _name=name, **k: _name)
-    deps = PipelineDeps.from_module(module)
-    assert deps.phase12_agent() == "phase12_agent" and deps.persist_manifest() == "persist_manifest"
 
-    module.get_llm = lambda model: ("patched", model)  # a later patch is seen by a later from_module
-    assert PipelineDeps.from_module(module).get_llm("m") == ("patched", "m")
-    assert deps.get_llm("m") == "get_llm"
+def test_each_surface_binds_its_own_names_when_a_run_starts(monkeypatch):
+    """A test that replaces a name on a surface replaces what the engine calls."""
+    import lakegen.service as service
+    from lakegen.interfaces.cli import ask
+    from lakegen.ui import workflow
 
-    del module.phase4_synthesize
-    with pytest.raises(AttributeError):
-        PipelineDeps.from_module(module)
+    for surface in (service, ask, workflow):
+        deps = surface.pipeline_deps()
+        for name in FIELDS:
+            assert getattr(deps, name) is getattr(surface, name), (surface.__name__, name)
+        original = surface.get_llm
+        monkeypatch.setattr(surface, "get_llm", lambda model: ("patched", model))
+        assert surface.pipeline_deps().get_llm("m") == ("patched", "m")
+        assert deps.get_llm is original  # deps built earlier keep what they were given
 
 
 def test_the_default_deps_are_the_real_phases_and_resources():
     import lakegen.service as service
 
     deps = PipelineDeps.default()
-    for name in DEPENDENCY_NAMES:
+    for name in FIELDS:
         assert getattr(deps, name) is getattr(service, name), name
 
 

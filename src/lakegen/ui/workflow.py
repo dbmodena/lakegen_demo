@@ -19,8 +19,8 @@ from typing import Any
 
 import chainlit as cl
 
-# The phases, resources and sinks the engine calls (PipelineDeps.from_module
-# reads them from this module when a run starts).
+# The phases, resources and sinks the engine calls; pipeline_deps() binds
+# them when a run starts, so a test patching a name here patches the engine.
 from lakegen.core.logger import save_experiment_log  # noqa: F401
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
@@ -192,6 +192,32 @@ async def _ask_hint(
     return hint
 
 
+def pipeline_deps() -> PipelineDeps:
+    """The phases, resources and sinks this surface runs the engine with.
+
+    Built from this module's own names at the start of a run, so a test that
+    replaces one here replaces what the engine calls.
+    """
+    return PipelineDeps(
+        get_llm=get_llm,
+        get_solr=get_solr,
+        get_prompt_manager=get_prompt_manager,
+        get_all_table_files=get_all_table_files,
+        phase1_generate_keywords=phase1_generate_keywords,
+        phase2_select_tables=phase2_select_tables,
+        phase12_agent=phase12_agent,
+        phase3_generate_and_execute=phase3_generate_and_execute,
+        phase4_synthesize=phase4_synthesize,
+        run_unified_orchestrated_discovery=run_unified_orchestrated_discovery,
+        prepare_discovery_context=prepare_discovery_context,
+        select_from_prepared_context=select_from_prepared_context,
+        judge_semantic_code_result=judge_semantic_code_result,
+        save_experiment_log=save_experiment_log,
+        log_retrieval_decision=log_retrieval_decision,
+        persist_manifest=persist_manifest,
+    )
+
+
 async def _run_locked_workflow(question: str) -> str:
     """One question on the engine, driven in the chat; the status the run ended with."""
     session = get_session()
@@ -202,7 +228,7 @@ async def _run_locked_workflow(question: str) -> str:
         runtime,
         SurfaceOptions(human_gated=True, memory_scope=MemoryScope.SESSION, answer_on_failure=True),
     )
-    pipeline = Pipeline(ctx, PipelineDeps.from_module(sys.modules[__name__]))
+    pipeline = Pipeline(ctx, pipeline_deps())
     driver = ChainlitDriver(
         pipeline, ctx, session, ask_choice=_ask_choice, ask_hint=_ask_hint, bridge_class=StepStreamBridge,
     )

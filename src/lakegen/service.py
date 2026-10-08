@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Any, Mapping
 
 from lakegen.config.registry import get_lake
@@ -19,9 +18,9 @@ from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
 from lakegen.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.service_models import QueryResult, QuestionSource, extract_questions
 
-# The phases, resources and sinks the engine calls, imported here by name so
-# that a test patching `lakegen.service.<name>` patches what the engine calls
-# (PipelineDeps.from_module reads them from this module when a run starts).
+# The phases, resources and sinks the engine calls, imported here by name:
+# pipeline_deps() binds them when a run starts, so a test patching
+# `lakegen.service.<name>` patches what the engine calls.
 from lakegen.core.logger import save_experiment_log  # noqa: F401
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
@@ -119,6 +118,32 @@ def make_runtime_settings(
     )
 
 
+def pipeline_deps() -> PipelineDeps:
+    """The phases, resources and sinks this surface runs the engine with.
+
+    Built from this module's own names at the start of a run, so a test that
+    replaces one here replaces what the engine calls.
+    """
+    return PipelineDeps(
+        get_llm=get_llm,
+        get_solr=get_solr,
+        get_prompt_manager=get_prompt_manager,
+        get_all_table_files=get_all_table_files,
+        phase1_generate_keywords=phase1_generate_keywords,
+        phase2_select_tables=phase2_select_tables,
+        phase12_agent=phase12_agent,
+        phase3_generate_and_execute=phase3_generate_and_execute,
+        phase4_synthesize=phase4_synthesize,
+        run_unified_orchestrated_discovery=run_unified_orchestrated_discovery,
+        prepare_discovery_context=prepare_discovery_context,
+        select_from_prepared_context=select_from_prepared_context,
+        judge_semantic_code_result=judge_semantic_code_result,
+        save_experiment_log=save_experiment_log,
+        log_retrieval_decision=log_retrieval_decision,
+        persist_manifest=persist_manifest,
+    )
+
+
 def run_question(
     question: str,
     runtime: RuntimeSettings,
@@ -127,16 +152,17 @@ def run_question(
     log_context: Mapping[str, Any] | None = None,
     manifest: ExperimentManifest | None = None,
     replay: Replay | None = None,
+    deps: PipelineDeps | None = None,
 ) -> QueryResult:
     """Run the autonomous LakeGen workflow for one question.
 
-    The phases and resources are taken from this module by name when the
-    run starts, so a name patched here is what the engine calls.
+    ``deps`` defaults to this module's ``pipeline_deps()``: the real phases
+    and resources, or what a test put in their place here.
     """
     return run_pipeline(
         question,
         RunContext.from_runtime(runtime),
-        PipelineDeps.from_module(sys.modules[__name__]),
+        deps or pipeline_deps(),
         question_id=question_id,
         log_context=log_context,
         manifest=manifest,

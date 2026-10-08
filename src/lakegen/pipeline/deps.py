@@ -1,40 +1,18 @@
 """What the engine calls: the phases, the resources and the sinks, injectable.
 
 The engine never imports a phase or a resource itself; it is handed a
-``PipelineDeps``. ``PipelineDeps.default()`` holds the real functions.
-``PipelineDeps.from_module(module)`` reads them from a surface module
-(``lakegen.service`` today) by name, at call time, so the tests that patch a
-name on that module keep patching what the engine calls. ``from_module`` is
-transitional: once the surfaces build their deps explicitly, the tests will
-patch the deps and it goes.
+``PipelineDeps``. ``PipelineDeps.default()`` holds the real functions. Each
+surface (the batch service, ``lakegen ask``, the Chainlit app) builds its own
+from the names it imports, at the start of a run, so a test that replaces a
+name on the surface replaces what the engine calls; a test of the engine
+itself passes a ``PipelineDeps`` of fakes.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, fields
-from types import ModuleType
+from dataclasses import dataclass
 from typing import Any
-
-# The attribute name of each dependency on a surface module.
-DEPENDENCY_NAMES = (
-    "get_llm",
-    "get_solr",
-    "get_prompt_manager",
-    "get_all_table_files",
-    "phase1_generate_keywords",
-    "phase2_select_tables",
-    "phase12_agent",
-    "phase3_generate_and_execute",
-    "phase4_synthesize",
-    "run_unified_orchestrated_discovery",
-    "prepare_discovery_context",
-    "select_from_prepared_context",
-    "judge_semantic_code_result",
-    "save_experiment_log",
-    "log_retrieval_decision",
-    "persist_manifest",
-)
 
 
 @dataclass(frozen=True)
@@ -55,11 +33,6 @@ class PipelineDeps:
     save_experiment_log: Callable[..., Any]
     log_retrieval_decision: Callable[..., Any]
     persist_manifest: Callable[..., Any]
-
-    @classmethod
-    def from_module(cls, module: ModuleType) -> PipelineDeps:
-        """The dependencies as ``module`` names them now (patches included)."""
-        return cls(**{name: getattr(module, name) for name in DEPENDENCY_NAMES})
 
     @classmethod
     def default(cls) -> PipelineDeps:
@@ -104,5 +77,3 @@ class PipelineDeps:
             persist_manifest=persist_manifest,
         )
 
-
-assert tuple(field.name for field in fields(PipelineDeps)) == DEPENDENCY_NAMES

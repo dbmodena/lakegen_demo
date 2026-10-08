@@ -17,7 +17,6 @@ from golden.harness import (
 from lakegen import service
 from lakegen.domain.outcomes import SelectorKind
 from lakegen.pipeline.context import RunContext
-from lakegen.pipeline.deps import PipelineDeps
 from lakegen.pipeline.engine import Pipeline
 from lakegen.pipeline.replay import (
     Replay,
@@ -39,7 +38,7 @@ REJECTION = phase3_result(
 def _run(monkeypatch, tmp_path, case: Case, replay: Replay):
     _replacements, log, _capture = prepare_run(monkeypatch, tmp_path, service, case, SERVICE_NAMES)
     ctx = RunContext.from_runtime(make_runtime(case.experiment, tmp_path))
-    result = Pipeline(ctx, PipelineDeps.from_module(service)).run(case.question, replay=replay)
+    result = Pipeline(ctx, service.pipeline_deps()).run(case.question, replay=replay)
     return result, [call["call"] for call in log.calls], log
 
 
