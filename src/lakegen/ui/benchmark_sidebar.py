@@ -1,9 +1,12 @@
-"""Sidebar of reference questions drawn from the UK candidate-discovery benchmark.
+"""Sidebar of reference questions drawn from the UK benchmark.
 
-The source JSON is the raw generated-queries file (same nested shape consumed
-by build_benchmark.py: engine -> query_kind -> group -> record, with
-per-group `_meta.tables` resolving table aliases to `dataset___resource`
-ids). We only read from it; nothing here executes or regenerates questions.
+The source JSON is the lake's ``reference_questions`` file (config/lakes.yaml):
+a curated benchmark (``cases`` with the question, the gold tables under their
+aliases, the reference result and its description), or the raw
+generated-queries file build_benchmark.py reads (engine -> query_kind ->
+group -> record, with per-group ``_meta.tables`` resolving table aliases
+to ``dataset___resource`` ids). We only read from it; nothing here executes
+or regenerates questions.
 """
 
 from __future__ import annotations
@@ -104,13 +107,42 @@ def load_uk_reference_questions() -> tuple[dict[str, Any], ...]:
         return ()
     seen: set[str] = set()
     entries: list[dict[str, Any]] = []
-    for query_kind, table_map, record in _iter_success_records(payload):
-        entry = _entry_from_record(query_kind, table_map, record)
+    candidates = (
+        (_entry_from_case(case) for case in payload.get("cases", []))
+        if isinstance(payload, dict) and isinstance(payload.get("cases"), list)
+        else (_entry_from_record(kind, tables, record) for kind, tables, record in _iter_success_records(payload))
+    )
+    for entry in candidates:
         if entry is None or entry["id"] in seen:
             continue
         seen.add(entry["id"])
         entries.append(entry)
     return tuple(entries)
+
+
+def _entry_from_case(case: Any) -> dict[str, Any] | None:
+    """A curated benchmark case as the sidebar shows it: the gold tables by alias, the reference result."""
+    if not isinstance(case, dict):
+        return None
+    question = case.get("question")
+    if not isinstance(question, str) or not question.strip():
+        return None
+    aliases = case.get("table_aliases") if isinstance(case.get("table_aliases"), dict) else {}
+    gold = case.get("relevant_table_ids") if isinstance(case.get("relevant_table_ids"), list) else []
+    golden_tables = [
+        {"alias": str(alias), "table_id": str(table_id), "description": ""}
+        for alias, table_id in aliases.items()
+    ] or [{"alias": str(table_id), "table_id": str(table_id), "description": ""} for table_id in gold]
+    if not golden_tables:
+        return None
+    return {
+        "id": str(case.get("id") or question),
+        "question": " ".join(question.split()),
+        "query_kind": str(case.get("expected_result_type") or "curated"),
+        "golden_tables": golden_tables,
+        "expected_result": case.get("reference_result"),
+        "reference_response": _truncate(str(case.get("expected_result_description") or ""), 600),
+    }
 
 
 async def show_uk_benchmark_sidebar() -> None:

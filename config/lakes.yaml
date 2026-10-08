@@ -20,33 +20,37 @@ defaults:
 lakes:
   nyc:
     title: New York City Open Data portal
+    starters: benchmark/100q_nyc.json
     pneuma_url: http://localhost:8774
-    starters: queries/generated_queries_new_york.json
   valencia:
     title: Valencia Open Data portal
+    starters: benchmark/100q_valencia.json
     pneuma_url: http://localhost:8771
-    starters: queries/generated_queries_valencia.json
   bologna:
     title: Bologna Open Data portal
+    starters: benchmark/100q_bologna.json
     pneuma_url: http://localhost:8773
-    starters: queries/generated_queries_bologna.json
   paris:
     title: Paris Open Data portal
+    starters: benchmark/100q_paris.json
     pneuma_url: http://localhost:8772
-    starters: queries/generated_queries_paris.json
   uk:
     title: UK Open Data portal
+    starters: benchmark/100q_uk.json
+    reference_questions: benchmark/100q_uk.json
     pneuma_url: http://localhost:8767
     # The cleaned tables and metadata are preferred when they exist.
     dataset_roots: [clean_datasets, datasets]
     metadata_files: [metadata_retrieved_cleaned.json, metadata_retrieved_only.json, metadata.json]
-    reference_questions: benchmark/generated_queries_semantic_uk.json
   kramabench:
     title: KramaBench data lake (archaeology, astronomy, biomedical, environment, legal, wildfire)
+    starters: benchmark/100q_kramabench.json
     pneuma_url: http://localhost:8781
   target_bird:
     title: BIRD databases (TARGET benchmark)
+    starters: benchmark/100q_target_bird.json
     pneuma_url: http://localhost:8782
   chicago:
     title: City of Chicago Open Data portal
+    starters: benchmark/100q_chicago.json
     pneuma_url: http://localhost:8783

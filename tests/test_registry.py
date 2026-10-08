@@ -59,9 +59,9 @@ def test_lake_paths_follow_the_rules_the_code_used():
     assert nyc.metadata_files == ("metadata_retrieved_only.json", "metadata.json")
     assert nyc.blend_db_path == BASE_DIR / "data" / "blend_nyc.db"
     assert nyc.statistics_path == BASE_DIR / "data" / "nyc" / "metadata" / "datasets_metadata.csv"
-    assert nyc.starters_path == BASE_DIR / "queries" / "generated_queries_new_york.json"
-    assert uk.reference_questions_path == BASE_DIR / "benchmark" / "generated_queries_semantic_uk.json"
-    assert get_lake("chicago").starters_path is None
+    assert nyc.starters_path == BASE_DIR / "benchmark" / "100q_nyc.json"
+    assert uk.reference_questions_path == BASE_DIR / "benchmark" / "100q_uk.json"
+    assert get_lake("chicago").starters_path == BASE_DIR / "benchmark" / "100q_chicago.json"
 
 
 def test_tables_dir_prefers_a_directory_that_holds_tables(monkeypatch, tmp_path):

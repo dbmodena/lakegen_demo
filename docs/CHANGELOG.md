@@ -55,3 +55,10 @@ branch moves code without changing what a run does.
   named the coding directory with a fresh uuid unrelated to the manifest
   it wrote for the same run, so neither could be found from the other.
   The directory is now `coding/<manifest run_id>/`.
+- **The chat's starter questions and the UK reference sidebar read files
+  the repository holds.** `config/lakes.yaml` named `queries/*.json` and
+  `benchmark/generated_queries_semantic_uk.json`, none of which exist in
+  the checkout, so the chat showed only the built-in starters and the UK
+  sidebar nothing. Every lake now takes its starters from its curated
+  `benchmark/100q_<lake>.json`, and the UK sidebar reads that file's cases
+  (the generated-queries shape is still read when a file holds it).
