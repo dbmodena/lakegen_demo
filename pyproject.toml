@@ -35,5 +35,18 @@ dependencies = [
     "llama-index-llms-oci-genai>=0.7.0",
 ]
 
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+# The package is the lakegen tree under src/; the entry scripts next to it
+# (api.py, cli.py, app.py) are run by path.
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["lakegen*"]
+
+[tool.setuptools.package-data]
+lakegen = ["prompts/*.yaml"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
