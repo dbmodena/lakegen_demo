@@ -1,21 +1,43 @@
-"""Durable lexical-search memory shared across batch executions."""
+"""Durable lexical-search memory shared across batch executions.
+
+Several API processes may share one memory file, so every read and every
+read-modify-write holds a lock on a file beside it (``<name>.lock``): the
+memory file itself is replaced on each write, which swaps its inode, so a
+lock on it would not outlive the write. The thread lock serialises the
+threads of one process before they contend for the file lock.
+"""
 
 from __future__ import annotations
 
-import json
+import fcntl
 import hashlib
+import json
 import re
 import threading
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from lakegen.keyword_terms import keyword_terms
-
 
 _LOCK = threading.Lock()
 _VERSION = 1
 _MAX_EVENTS_PER_QUESTION = 20
 _MAX_QUESTIONS_PER_SCOPE = 200
+
+
+@contextmanager
+def _locked(path: Path, *, shared: bool = False) -> Iterator[None]:
+    """Hold the memory's lock file: shared to read, exclusive to write."""
+    with _LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.with_name(path.name + ".lock").open("a+") as handle:
+            fcntl.flock(handle, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _prune(combinations: Iterable[Iterable[str]]) -> list[frozenset[str]]:
@@ -34,7 +56,7 @@ def _prune(combinations: Iterable[Iterable[str]]) -> list[frozenset[str]]:
 
 def load_keyword_memory(path: Path, scope: str) -> tuple[list[list[str]], list[frozenset[str]]]:
     """Load durable history and the minimal zero-result antichain for one index."""
-    with _LOCK:
+    with _locked(path, shared=True):
         if not path.is_file():
             return [], []
         try:
@@ -61,7 +83,7 @@ def persist_keyword_memory(
     failed_keyword_combinations: Iterable[Iterable[str]],
 ) -> None:
     """Merge one run into durable memory using an atomic file replacement."""
-    with _LOCK:
+    with _locked(path):
         payload: dict[str, Any] = {"version": _VERSION, "scopes": {}}
         if path.is_file():
             try:
@@ -153,7 +175,7 @@ def load_question_retrieval_memory(
     path: Path, scope: str, question_key: str
 ) -> list[dict[str, object]]:
     """Load bounded soft retrieval evidence for exactly one question."""
-    with _LOCK:
+    with _locked(path, shared=True):
         if not path.is_file():
             return []
         try:
@@ -181,7 +203,7 @@ def persist_question_retrieval_memory(
     ]
     if not clean_events:
         return
-    with _LOCK:
+    with _locked(path):
         payload: dict[str, Any] = {"version": _VERSION, "scopes": {}}
         if path.is_file():
             try:

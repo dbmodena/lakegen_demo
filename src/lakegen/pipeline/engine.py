@@ -96,7 +96,7 @@ def _open_keyword_memory(state: RunState, ctx: RunContext, question: str) -> Non
     """
     if ctx.surface.memory_scope is not MemoryScope.DURABLE:
         return
-    state.keyword_memory_path = paths.keyword_memory_path()
+    state.keyword_memory_path = paths.keyword_memory_path(ctx.experiment.experiment_id)
     state.keyword_memory_scope = "|".join((
         ctx.lake,
         ctx.retrieval.mode.value,

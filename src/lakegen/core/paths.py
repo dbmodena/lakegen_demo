@@ -6,7 +6,8 @@ Everything a run writes lives under one root, ``core.config.resolve_state_dir``:
     logs/                         experiment logs, retrieval rankings, the Groq ledger
     logs/manifests/               one manifest per run
     .lakegen_jobs*/               API batch jobs (``LAKEGEN_JOB_DIR`` names the folder)
-    .lakegen_keyword_memory.json  the durable keyword memory
+    .lakegen_keyword_memory.json  the durable keyword memory of standalone runs
+    runs/<experiment>/memory.json the keyword memory of one experiment
 
 ``core.config.LOG_DIR`` and ``api.JOB_DIR`` are the same locations computed
 once at import; they stay because modules and tests refer to them by name.
@@ -56,5 +57,13 @@ def services_dir() -> Path:
     return resolve_state_dir() / "services"
 
 
-def keyword_memory_path() -> Path:
+def keyword_memory_path(experiment_id: str | None = None) -> Path:
+    """The keyword memory of an experiment, or the lake-wide file of standalone runs.
+
+    Each experiment remembers on its own (``runs/<experiment>/memory.json``),
+    so concurrent experiments neither share bans nor contend for one file;
+    a run outside an experiment (the default id) keeps today's file.
+    """
+    if experiment_id and experiment_id != "default":
+        return runs_dir() / experiment_id / "memory.json"
     return resolve_state_dir() / KEYWORD_MEMORY_FILE
