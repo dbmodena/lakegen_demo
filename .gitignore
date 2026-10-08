@@ -38,6 +38,9 @@ queries
 scripts/*
 # This is a supported operational client, rather than a machine-local helper.
 !scripts/submit_parallel_batches.py
+# Refactor tooling: the commit gate and the job parking tool.
+!scripts/check.sh
+!scripts/park_jobs.py
 
 # Pneuma local runtime, virtual environment, and generated indexes.
 .pneuma/
