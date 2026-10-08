@@ -4,10 +4,14 @@ from types import SimpleNamespace
 import pytest
 import pandas as pd
 
-from lakegen.agent_tools import tools_p12
-from lakegen.agent_tools.tools_p12 import (
-    P12State, Phase12ToolsManager, _normalize_semantic_plan,
-    _resolve_partition_table_aliases, compile_semantic_plan_draft,
+from lakegen.discovery import tools as tools_p12
+from lakegen.discovery.tools import inspection as inspection_tools
+from lakegen.discovery.tools import search as search_tools
+from lakegen.discovery.tools import P12State, Phase12ToolsManager
+from lakegen.discovery.tools.plan_models import (
+    _normalize_semantic_plan,
+    _resolve_partition_table_aliases,
+    compile_semantic_plan_draft,
 )
 
 
@@ -257,8 +261,8 @@ def test_default_search_retains_hidden_candidates_for_expansion(monkeypatch, tmp
             assert kwargs["top_k"] == 20
             return [_hit(f"table-{i}", i, ["value"]) for i in range(1, 21)]
 
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
-    monkeypatch.setattr(tools_p12, "_inspect_columns", lambda *_: "Schema: value")
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_: FakeService())
+    monkeypatch.setattr(inspection_tools, "_inspect_columns", lambda *_: "Schema: value")
     files = [f"table-{i}.parquet" for i in range(1, 21)]
     state = P12State()
     manager = Phase12ToolsManager(state, object(), files, tmp_path)
@@ -275,7 +279,7 @@ def test_search_excludes_previously_rejected_tables(monkeypatch, tmp_path):
         def retrieve(self, **kwargs):
             return [_hit("bad", 1, ["value"]), _hit("good", 2, ["value"])]
 
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_: FakeService())
     files = ["bad.parquet", "good.parquet"]
     state = P12State()
     state.excluded_tables = {"bad.parquet"}
@@ -301,7 +305,7 @@ def test_search_finding_only_banned_tables_is_empty_and_bans_its_words(
             return [_hit("bad", 1, ["value"]), _hit("worse", 2, ["value"])]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
     )
     state = P12State()
     state.excluded_tables = {"bad.parquet", "worse.parquet"}
@@ -350,7 +354,7 @@ def test_search_widens_fetch_by_excluded_count(monkeypatch, tmp_path):
             captured_kwargs.append(kwargs)
             return [_hit(f"table-{i}", i, ["value"]) for i in range(1, 21)]
 
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_: FakeService())
     files = [f"table-{i}.parquet" for i in range(1, 21)]
 
     baseline_state = P12State()
@@ -371,7 +375,7 @@ def test_search_carries_forward_previously_kept_tables(monkeypatch, tmp_path):
         def retrieve(self, **kwargs):
             return [_hit("fresh", 1, ["value"])]
 
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_: FakeService())
     files = ["fresh.parquet", "kept.parquet"]
     state = P12State()
     state.carried_tables = ["kept.parquet"]
@@ -396,10 +400,10 @@ def test_carried_table_does_not_need_re_inspection(monkeypatch, tmp_path):
         def retrieve(self, **kwargs):
             return [_hit("fresh", 1, ["value"])]
 
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_: FakeService())
     inspect_calls = []
     monkeypatch.setattr(
-        tools_p12, "_inspect_columns",
+        inspection_tools, "_inspect_columns",
         lambda _directory, name: inspect_calls.append(name) or f"Schema for {name}",
     )
     files = ["fresh.parquet", "kept.parquet"]
@@ -548,7 +552,7 @@ def test_search_returns_bounded_schema_preview_in_retrieval_order(
             ]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     manager = Phase12ToolsManager(
         P12State(), object(), ["wide-table.parquet"], tmp_path,
@@ -581,7 +585,7 @@ def test_unified_search_allows_one_initial_search_then_guided_expansion(
             return [_hit("gold", 3, ["School Name", "Mbps Bandwidth"])]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     state = P12State()
     manager = Phase12ToolsManager(
@@ -614,10 +618,10 @@ def test_search_refinement_is_blocked_after_schema_inspection(monkeypatch, tmp_p
             return [_hit("table", 1, ["value"])]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     monkeypatch.setattr(
-        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+        inspection_tools, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
     )
     manager = Phase12ToolsManager(
         P12State(), object(), ["table.parquet"], tmp_path,
@@ -643,7 +647,7 @@ def test_configured_search_contract_is_mode_neutral_while_question_only_modes_us
             return [_hit("gold", 1, ["Bandwidth"])]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     state = P12State()
     manager = Phase12ToolsManager(
@@ -683,7 +687,7 @@ def test_semantic_embedding_failure_is_labeled_and_not_retried_by_agent(
             raise error
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FailingService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FailingService()
     )
     manager = Phase12ToolsManager(
         P12State(),
@@ -742,7 +746,7 @@ def test_pneuma_seeker_asks_the_agent_for_verbatim_entities(monkeypatch, tmp_pat
             return [_hit("table", 1, ["value"])]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     manager = Phase12ToolsManager(
         P12State(), object(), ["table.parquet"], tmp_path,
@@ -770,7 +774,7 @@ def test_search_tool_allows_one_initial_call_for_every_backend(
             return [_hit("table", 1, ["value"])]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     manager = Phase12ToolsManager(
         P12State(), object(), ["table.parquet"], tmp_path,
@@ -806,7 +810,7 @@ def test_keyword_zero_results_are_banned_and_force_a_new_and_query(
             return [_hit("table", 1, ["gamma"])]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
     )
     state = P12State()
     manager = Phase12ToolsManager(
@@ -839,7 +843,7 @@ def test_keyword_failed_subset_rejection_does_not_spend_retry_budget(
             return []
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
     )
     manager = Phase12ToolsManager(
         P12State(), object(), [], tmp_path,
@@ -870,7 +874,7 @@ def test_hybrid_zero_results_use_keyword_banlist_and_retry_budget(
             return []
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args, **_kwargs: FakeService()
     )
     state = P12State()
     manager = Phase12ToolsManager(
@@ -903,7 +907,7 @@ def test_inspect_columns_allows_two_attempts_but_reads_file_once(
         reads.append(name)
         return f"Schema for {name}"
 
-    monkeypatch.setattr(tools_p12, "_inspect_columns", fake_inspect)
+    monkeypatch.setattr(inspection_tools, "_inspect_columns", fake_inspect)
     state = P12State()
     state.all_candidates = ["table.parquet"]
     state.visible_candidate_count = 1
@@ -1582,7 +1586,7 @@ def test_solr_candidates_are_mapped_and_deduplicated_before_final_top_k(
             ]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     state = P12State()
     manager = Phase12ToolsManager(
@@ -1614,7 +1618,7 @@ def test_solr_candidate_order_is_preserved_without_schema_reranking(
             ]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     state = P12State()
     manager = Phase12ToolsManager(
@@ -1650,10 +1654,10 @@ def test_unified_adaptive_candidates_reveal_ten_then_five(
             return hits
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_args: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_args: FakeService()
     )
     monkeypatch.setattr(
-        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+        inspection_tools, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
     )
     files = [f"table-{index}.parquet" for index in range(1, 21)]
     state = P12State()
@@ -1685,7 +1689,7 @@ def test_unified_adaptive_candidates_reveal_ten_then_five(
 
 def test_unified_adaptive_inspection_limits_are_enforced(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+        inspection_tools, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
     )
     state = P12State()
     state.all_candidates = [f"table-{index}.parquet" for index in range(1, 21)]
@@ -1705,7 +1709,7 @@ def test_unified_adaptive_inspection_limits_are_enforced(monkeypatch, tmp_path):
 
 def test_unified_inspect_columns_resolves_candidate_number(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+        inspection_tools, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
     )
     state = P12State()
     state.all_candidates = [f"table-{index}.parquet" for index in range(1, 4)]
@@ -1726,8 +1730,8 @@ def test_unified_expand_candidates_numbering_continues_from_visible_count(
         def retrieve(self, **kwargs):
             return [_hit(f"table-{i}", i, ["value"]) for i in range(1, 21)]
 
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_: FakeService())
-    monkeypatch.setattr(tools_p12, "_inspect_columns", lambda *_: "Schema: value")
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_: FakeService())
+    monkeypatch.setattr(inspection_tools, "_inspect_columns", lambda *_: "Schema: value")
     files = [f"table-{i}.parquet" for i in range(1, 21)]
     state = P12State()
     manager = Phase12ToolsManager(state, object(), files, tmp_path)
@@ -1746,7 +1750,7 @@ def test_guided_expansion_prefers_hidden_metadata_covering_missing_requirement(
     monkeypatch, tmp_path
 ):
     monkeypatch.setattr(
-        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+        inspection_tools, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
     )
     state = P12State()
     state.all_candidates = [f"table-{index}.parquet" for index in range(1, 14)]
@@ -1771,7 +1775,7 @@ def test_guided_expansion_stops_when_hidden_metadata_has_no_coverage(
     monkeypatch, tmp_path
 ):
     monkeypatch.setattr(
-        tools_p12, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
+        inspection_tools, "_inspect_columns", lambda _directory, name: f"Schema for {name}"
     )
     state = P12State()
     state.all_candidates = [f"table-{index}.parquet" for index in range(1, 12)]
@@ -1826,7 +1830,7 @@ def test_keyword_tool_splits_multiword_concepts_into_solr_words(monkeypatch, tmp
             return []
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     manager = Phase12ToolsManager(
         P12State(), object(), [], tmp_path,
@@ -2251,7 +2255,7 @@ def test_repeated_search_points_back_and_a_withdrawn_tool_says_so(monkeypatch, t
         def retrieve(self, **_kwargs):
             return [RetrievalHit(document={"resource_id": "a", "title": "A"}, score=1.0, rank=1)]
 
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_a, **_k: Service())
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_a, **_k: Service())
     pd.DataFrame({"value": [1]}).to_parquet(tmp_path / "a.parquet")
     manager = Phase12ToolsManager(
         P12State(), object(), ["a.parquet"], tmp_path,

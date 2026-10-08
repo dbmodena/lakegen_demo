@@ -7,10 +7,10 @@ Hybrid mode skips the split entirely and runs one fused search."""
 import json
 from types import SimpleNamespace
 
-from lakegen.agent_tools import tools_p12
+from lakegen.discovery import tools as tools_p12
+from lakegen.discovery.tools import search as search_tools
 from lakegen.experiment_config import DiscoveryConfig, KeywordSearchStrategy
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
-
 
 TABLE_WORDS = {
     "orr_2021_11.parquet": {"organogram", "office", "rail", "road", "november", "2021"},
@@ -82,7 +82,7 @@ def _manager(
     service=None,
 ):
     service = service or _FakeRetrievalService()
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_a, **_k: service)
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_a, **_k: service)
     notices: list[str] = []
     state = tools_p12.P12State()
     manager = tools_p12.Phase12ToolsManager(

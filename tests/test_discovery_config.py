@@ -3,8 +3,8 @@
 import pandas as pd
 import pytest
 
-from lakegen.agent_tools import tools_p12
-from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
+from lakegen.discovery.tools import P12State, Phase12ToolsManager
+from lakegen.discovery.tools import search as search_tools
 from lakegen.experiment_config import (
     DiscoveryConfig,
     ExperimentConfig,
@@ -32,7 +32,7 @@ def _manager(monkeypatch, tmp_path, *, discovery=None, top_k=10, tables=12):
             return [_hit(name, index) for index, name in enumerate(names, 1)]
 
     monkeypatch.setattr(
-        tools_p12, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     return Phase12ToolsManager(
         P12State(),

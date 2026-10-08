@@ -34,7 +34,7 @@ from lakegen.agents.instrumentation import ThinkingCapture
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval.solr_client import LocalSolrClient
 from lakegen.experiment_config import DiscoveryConfig
-from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
+from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.agent_tools.requirement_ledger import (
     build_minimal_selection_fallback,
     requirement_ledger_blockers,

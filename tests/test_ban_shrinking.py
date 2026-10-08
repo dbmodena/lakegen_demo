@@ -3,7 +3,8 @@ nothing, and what one round learned is still known in the next."""
 
 import pytest
 
-from lakegen.agent_tools import tools_p12 as tools_p12_v1
+from lakegen.discovery import tools as tools_p12_v1
+from lakegen.discovery.tools import search as search_tools
 from lakegen.keyword_terms import keyword_terms, minimal_failing_subsets
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 from lakegen.ui.state import LakeGenSession
@@ -129,7 +130,7 @@ class _OracleService:
 
 def _manager(module, monkeypatch, tmp_path, service, *, mode=RetrievalMode.KEYWORD,
              files=None, state=None):
-    monkeypatch.setattr(module, "get_table_retrieval_service", lambda *_a, **_k: service)
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_a, **_k: service)
     state = state or module.P12State()
     files = files if files is not None else [f"table{i}.parquet" for i in range(len(service.tables))]
     return state, module.Phase12ToolsManager(

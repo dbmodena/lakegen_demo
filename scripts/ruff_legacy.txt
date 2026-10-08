@@ -20,7 +20,6 @@ src/lakegen/agent_tools/discovery_context.py
 src/lakegen/agent_tools/join_keys.py
 src/lakegen/agent_tools/requirement_ledger.py
 src/lakegen/agent_tools/schema_matching.py
-src/lakegen/agent_tools/tools_p12.py
 src/lakegen/agent_tools/tools_p2.py
 src/lakegen/agent_tools/tools_p3.py
 src/lakegen/agent_tools/union_mapping.py
@@ -39,6 +38,13 @@ src/lakegen/core/resources.py
 src/lakegen/core/table_io.py
 src/lakegen/core/types.py
 src/lakegen/data_quality.py
+src/lakegen/discovery/tools/brief.py
+src/lakegen/discovery/tools/inspection.py
+src/lakegen/discovery/tools/manager.py
+src/lakegen/discovery/tools/plan_models.py
+src/lakegen/discovery/tools/search.py
+src/lakegen/discovery/tools/selection.py
+src/lakegen/discovery/tools/state.py
 src/lakegen/experiment_config.py
 src/lakegen/__init__.py
 src/lakegen/keyword_memory.py

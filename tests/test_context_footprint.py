@@ -9,8 +9,10 @@ from llama_index.core.llms.mock import MockFunctionCallingLLM
 from llama_index.core.tools import FunctionTool
 from pydantic import Field
 
-from lakegen.agent_tools import tools_p12 as tools_p12_v1
 from lakegen.agents.agent_runner import run_agent_workflow
+from lakegen.discovery import tools as tools_p12_v1
+from lakegen.discovery.tools import inspection as inspection_tools
+from lakegen.discovery.tools import search as search_tools
 from lakegen.experiment_config import DiscoveryConfig
 from lakegen.phases.utils import (
     _candidate_columns,
@@ -40,7 +42,7 @@ def _manager(module, monkeypatch, tmp_path, *, found=True, mode=RetrievalMode.KE
             return [_hit("table")] if found else []
 
     monkeypatch.setattr(
-        module, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     state = module.P12State()
     manager = module.Phase12ToolsManager(
@@ -173,7 +175,7 @@ def test_a_search_rejected_for_a_banned_subset_spends_nothing(module, monkeypatc
 
 @BOTH
 def test_search_is_withdrawn_after_an_inspection(module, monkeypatch, tmp_path):
-    monkeypatch.setattr(module, "_inspect_columns", lambda *_a: "Schema")
+    monkeypatch.setattr(inspection_tools, "_inspect_columns", lambda *_a: "Schema")
     state, manager = _manager(module, monkeypatch, tmp_path)
     _candidates(state, total=1, visible=1)
     state.all_candidates = ["table.parquet"]
@@ -320,7 +322,7 @@ def test_reinspection_points_back_instead_of_repeating_the_schema(
     module, monkeypatch, tmp_path
 ):
     schema = "Schema for table.parquet:\n" + "\n".join(f"- column_{i} (int64)" for i in range(60))
-    monkeypatch.setattr(module, "_inspect_columns", lambda *_a: schema)
+    monkeypatch.setattr(inspection_tools, "_inspect_columns", lambda *_a: schema)
     state, manager = _manager(module, monkeypatch, tmp_path)
     state.all_candidates = ["other.parquet", "table.parquet"]
     state.visible_candidate_count = 2

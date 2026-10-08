@@ -5,7 +5,8 @@ import json
 
 import pytest
 
-from lakegen.agent_tools import tools_p12 as tools_p12_v1
+from lakegen.discovery import tools as tools_p12_v1
+from lakegen.discovery.tools import search as search_tools
 from lakegen.experiment_config import DiscoveryConfig
 from lakegen.keyword_memory import load_keyword_memory
 from lakegen.keyword_terms import keyword_terms
@@ -72,7 +73,7 @@ def test_manager_bans_punctuation_variants_of_a_failed_query(
             return []
 
     monkeypatch.setattr(
-        module, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     state = module.P12State()
     manager = module.Phase12ToolsManager(
@@ -101,7 +102,7 @@ def test_zero_hit_and_query_is_banned_and_never_retried_as_or(
             return [_hit("table", 1)] if kwargs["q_op"] == "OR" else []
 
     monkeypatch.setattr(
-        module, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     state = module.P12State()
     manager = module.Phase12ToolsManager(
@@ -133,7 +134,7 @@ def test_strict_and_hits_do_not_ban(monkeypatch, tmp_path):
             return [_hit("table", 1)]
 
     monkeypatch.setattr(
-        tools_p12_v1, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     state = tools_p12_v1.P12State()
     manager = tools_p12_v1.Phase12ToolsManager(
@@ -182,7 +183,7 @@ def test_concepts_reach_retrieval_as_deduplicated_single_words(
             return []
 
     monkeypatch.setattr(
-        module, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     state = module.P12State()
     manager = module.Phase12ToolsManager(
@@ -210,7 +211,7 @@ def test_superset_of_a_failed_word_set_is_rejected_and_a_failing_subset_evicts_i
             return []
 
     monkeypatch.setattr(
-        module, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     state = module.P12State()
     manager = module.Phase12ToolsManager(
@@ -239,7 +240,7 @@ def _manager_with_lexical_count(module, monkeypatch, tmp_path, mode, lexical_cou
             return [_hit("table", 1)]
 
     monkeypatch.setattr(
-        module, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
+        search_tools, "get_table_retrieval_service", lambda *_a, **_k: FakeService()
     )
     state = module.P12State()
     manager = module.Phase12ToolsManager(

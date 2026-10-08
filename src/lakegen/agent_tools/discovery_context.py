@@ -41,7 +41,7 @@ from lakegen.agent_tools.requirement_ledger import (
 )
 
 if TYPE_CHECKING:
-    from lakegen.agent_tools.tools_p12 import Phase12ToolsManager
+    from lakegen.discovery.tools import Phase12ToolsManager
 
 
 BOARD_MARKER = "\n\n[DISCOVERY STATE"

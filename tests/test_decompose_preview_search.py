@@ -7,9 +7,8 @@ before anything actually runs."""
 import json
 from types import SimpleNamespace
 
-import pytest
-
-from lakegen.agent_tools import tools_p12
+from lakegen.discovery import tools as tools_p12
+from lakegen.discovery.tools import search as search_tools
 from lakegen.experiment_config import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 
@@ -88,7 +87,7 @@ TABLE_WORDS = {f"{d['title']}.parquet": d["words"] for d in DOCS}
 def _manager(monkeypatch, tmp_path, *, discovery=None, llm=None, files=None):
     solr = _FakeSolr(DOCS)
     service = _FakeRetrievalService(TABLE_WORDS)
-    monkeypatch.setattr(tools_p12, "get_table_retrieval_service", lambda *_a, **_k: service)
+    monkeypatch.setattr(search_tools, "get_table_retrieval_service", lambda *_a, **_k: service)
     state = tools_p12.P12State()
     manager = tools_p12.Phase12ToolsManager(
         state, solr, files if files is not None else list(TABLE_WORDS), tmp_path,
