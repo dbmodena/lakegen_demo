@@ -12,6 +12,7 @@ import chainlit as cl
 
 from lakegen.ui.i18n import t
 from lakegen.core.types import SolrMetadata
+from lakegen.core import paths
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.experiment_config import (
@@ -213,7 +214,7 @@ class LakeGenSession:
 
     @property
     def run_dir(self) -> Path:
-        return BASE_DIR / "coding" / self.run_id
+        return paths.coding_dir() / self.run_id
 
     def text(self, key: str, **kwargs: Any) -> str:
         return t(key, **kwargs)

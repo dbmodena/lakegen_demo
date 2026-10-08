@@ -46,7 +46,8 @@ from lakegen.core.resources import (
     get_solr,
 )
 from lakegen.core.logger import save_experiment_log
-from lakegen.core.config import BASE_DIR, LOG_DIR
+from lakegen.core import paths
+from lakegen.core.config import BASE_DIR
 from lakegen.manifest import create_manifest, persist_manifest
 from lakegen.reproducibility import initialize_reproducibility
 from lakegen.tracing import (
@@ -1058,7 +1059,7 @@ async def _run_locked_workflow(question: str) -> str:
         question=question,
         run_id=session.run_id,
     )
-    persist_manifest(manifest, LOG_DIR / "manifests")
+    persist_manifest(manifest, paths.manifests_dir())
     session.manifest = manifest.model_dump(mode="json")
 
     llm, _token_counter = get_llm(runtime.model_name)

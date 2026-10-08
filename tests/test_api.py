@@ -159,7 +159,7 @@ def test_run_batch_resumes_after_last_persisted_result(tmp_path, monkeypatch):
 
 
 def test_batch_table_metrics_returns_summary_for_final_job_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(api, "LOG_DIR", tmp_path / "logs")
     monkeypatch.setattr(api, "append_benchmark_metrics_log", lambda *_args, **_kwargs: None)
     questions = [{
         "question": "How many parks?",
@@ -193,7 +193,7 @@ def test_batch_table_metrics_returns_summary_for_final_job_file(tmp_path, monkey
 def test_automatic_coder_sweep_writes_one_csv_row_per_shared_context_variant(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(api, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(api, "LOG_DIR", tmp_path / "logs")
     questions = [{
         "question": "How many parks?",
         "source_id": "case-1",
@@ -415,7 +415,7 @@ def test_single_query_passes_the_complete_request_to_csv_logging(monkeypatch):
 
 
 def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(api, "LOG_DIR", tmp_path / "logs")
     questions = [
         {
             "question": "One?",
@@ -499,7 +499,7 @@ def test_metric_ready_batch_appends_table_selection_metrics(tmp_path, monkeypatc
 
 
 def test_batch_metrics_skip_legacy_questions_without_gold_tables(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(api, "LOG_DIR", tmp_path / "logs")
     questions = [{
         "question": "Legacy?",
         "source_path": "$.questions[0]",

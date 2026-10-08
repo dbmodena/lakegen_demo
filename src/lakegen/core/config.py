@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 _src_dir = Path(__file__).resolve()
@@ -29,7 +30,23 @@ CSV_DIR = TABLES_DIR
 JSON_DIR = BASE_DIR / paths.get("json_metadata_dir", "Data/bologna_update/metadata")
 DB_PATH = BASE_DIR / paths.get("blend_db_path", "Data/blend_index.db")
 INDEXES_DIR = BASE_DIR / paths.get("indexes_dir", "Data/indexes")
-LOG_DIR = BASE_DIR / paths.get("logs_dir", "logs")
+
+
+def resolve_state_dir() -> Path:
+    """The root under which LakeGen writes its runtime state.
+
+    Coding runs, logs, manifests, job folders and the keyword memory all live
+    under one root: ``LAKEGEN_STATE_DIR`` when it is set, else the repository
+    root, where they have always been. The test suite points the variable at
+    a temporary directory so that no test touches the real state.
+    """
+    value = os.environ.get("LAKEGEN_STATE_DIR", "").strip()
+    return Path(value).expanduser() if value else BASE_DIR
+
+
+STATE_DIR = resolve_state_dir()
+LOGS_DIR_NAME = paths.get("logs_dir", "logs")
+LOG_DIR = STATE_DIR / LOGS_DIR_NAME
 
 
 def resolve_portal_tables_dir(portal: str) -> Path:

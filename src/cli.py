@@ -39,7 +39,8 @@ from lakegen.phases import (
     phase4_synthesize,
 )
 from lakegen.core.logger import save_experiment_log
-from lakegen.core.config import BASE_DIR, LOG_DIR, resolve_portal_tables_dir
+from lakegen.core import paths
+from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
 from lakegen.experiment_config import load_experiment_config, ToolAccess
@@ -184,7 +185,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
         question=question,
         run_id=run_id,
     )
-    persist_manifest(manifest, LOG_DIR / "manifests")
+    persist_manifest(manifest, paths.manifests_dir())
     keywords = []
     selected = []
     solr_meta = {}
@@ -546,7 +547,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
     candidates = selected
     architect_reasoning = reasoning
     force_execution = False
-    run_dir = BASE_DIR / "coding" / run_id
+    run_dir = paths.coding_dir() / run_id
 
     retries = 0
     error_msg = ""

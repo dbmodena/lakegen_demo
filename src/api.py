@@ -32,7 +32,8 @@ for _path in (_SRC_DIR, _ROOT_DIR):
         sys.path.insert(0, str(_path))
 
 from lakegen.core.bootstrap import bootstrap_nltk_data
-from lakegen.core.config import BASE_DIR
+from lakegen.core import paths
+from lakegen.core.config import BASE_DIR, LOG_DIR
 from lakegen.service import (
     QuestionSource,
     extract_questions,
@@ -65,7 +66,7 @@ MAX_CONFIG_UPLOAD_BYTES = 1_000_000
 MAX_QUESTIONS_UPLOAD_BYTES = 25_000_000
 # LAKEGEN_JOB_DIR gives an API instance its own job folder, so a second run
 # neither shows nor resumes the jobs another instance left unfinished.
-JOB_DIR = BASE_DIR / (os.environ.get("LAKEGEN_JOB_DIR") or ".lakegen_jobs")
+JOB_DIR = paths.jobs_dir()
 BENCHMARK_DIR = BASE_DIR / "benchmark"
 # Use Uvicorn's configured application logger so batch progress is visible in
 # the same terminal as the HTTP access log when the API is run with Uvicorn.
@@ -749,7 +750,7 @@ def _append_batch_table_metrics(
     if append_log:
         append_benchmark_metrics_log(
             report,
-            BASE_DIR / "logs" / "retrieval_benchmarks_log.csv",
+            LOG_DIR / "retrieval_benchmarks_log.csv",
             run_id=job_id,
             core=str(resolved["core"]),
             source_path=questions[0]["source_path"],

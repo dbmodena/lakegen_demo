@@ -9,7 +9,8 @@ import time
 import uuid
 from typing import Any, Mapping
 
-from lakegen.core.config import BASE_DIR, LOG_DIR, resolve_portal_tables_dir
+from lakegen.core import paths
+from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
 from lakegen.core.logger import save_experiment_log
 from lakegen.core.resources import (
@@ -346,7 +347,7 @@ def run_question(
     )
     result.manifest = manifest.model_dump(mode="json")
     result.configuration = dict(manifest.resolved_config)
-    persist_manifest(manifest, LOG_DIR / "manifests")
+    persist_manifest(manifest, paths.manifests_dir())
     llm, _token_counter = get_llm(runtime.model_name)
     semantic_judge_llm = None
     semantic_judge_requirements: list[dict[str, Any]] | None = None
@@ -356,7 +357,7 @@ def run_question(
     if not all_files:
         raise RuntimeError(f"No CSV or Parquet tables found in {runtime.csv_dir}")
 
-    run_dir = BASE_DIR / "coding" / uuid.uuid4().hex
+    run_dir = paths.coding_dir() / uuid.uuid4().hex
     selected: list[str] = []
     keywords: list[str] = []
     solr_meta: dict[str, dict[str, Any]] = {}
@@ -375,7 +376,7 @@ def run_question(
     # Unified lexical memory belongs to the whole question, not one selection
     # round. A fresh P12State is still needed for inspection budgets, but zero-
     # result knowledge must survive coder/selection retries.
-    keyword_memory_path = BASE_DIR / ".lakegen_keyword_memory.json"
+    keyword_memory_path = paths.keyword_memory_path()
     keyword_memory_scope = "|".join((
         runtime.solr_core,
         runtime.retrieval.mode.value,

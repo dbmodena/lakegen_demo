@@ -14,7 +14,7 @@ from llama_index.core.llms import ChatMessage, LLM
 from lakegen.core.types import SolrMetadata
 from lakegen.experiment_config import CoderContextLevel
 from prompts.prompt_manager import PromptManager
-from lakegen.core.config import BASE_DIR
+from lakegen.core import paths
 from lakegen.core.table_io import read_table, table_load_command
 from lakegen.column_resolution import resolve_generated_code_columns
 from lakegen.data_quality import profile_table_quality
@@ -314,7 +314,7 @@ def _execute_code(code_raw: str, run_dir: Path | None = None):
             code,
         )
 
-    coding_dir = run_dir or BASE_DIR / "coding" / uuid.uuid4().hex
+    coding_dir = run_dir or paths.coding_dir() / uuid.uuid4().hex
     coding_dir.mkdir(parents=True, exist_ok=True)
     fp = coding_dir / "script.py"
     fp.write_text(_CARTESIAN_GUARD_PREAMBLE + "\n\n" + code, encoding="utf-8")
