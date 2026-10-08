@@ -4,6 +4,11 @@ from pathlib import Path
 import pytest
 
 from lakegen.core import resources
+from lakegen.core.token_usage import extract_total_tokens
+from lakegen.llm import factory, tool_calls
+from lakegen.llm.providers import oci as oci_llm
+from lakegen.llm.providers import ollama as ollama_llm
+from lakegen.llm.providers import together as together_llm
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
@@ -26,10 +31,10 @@ def test_oci_runtime_config_uses_profile_and_region(monkeypatch, tmp_path):
 
     monkeypatch.setenv("OCI_CONFIG_FILE", str(config_file))
     monkeypatch.setenv("OCI_PROFILE", "LAKEGEN")
-    monkeypatch.setattr(resources.oci.config, "from_file", fake_from_file)
-    monkeypatch.setattr(resources.oci.config, "validate_config", lambda value: None)
+    monkeypatch.setattr(oci_llm.oci.config, "from_file", fake_from_file)
+    monkeypatch.setattr(oci_llm.oci.config, "validate_config", lambda value: None)
 
-    result = resources._oci_runtime_config()
+    result = oci_llm.oci_runtime_config()
 
     assert result == (
         config_file,
@@ -46,7 +51,7 @@ def test_oci_runtime_config_uses_profile_and_region(monkeypatch, tmp_path):
 def test_oci_runtime_config_requires_compartment(monkeypatch, tmp_path):
     monkeypatch.delenv("OCI_COMPARTMENT_ID", raising=False)
     monkeypatch.setattr(
-        resources.oci.config,
+        oci_llm.oci.config,
         "from_file",
         lambda **kwargs: {
             "user": "user",
@@ -56,10 +61,10 @@ def test_oci_runtime_config_requires_compartment(monkeypatch, tmp_path):
             "key_file": str(tmp_path / "key.pem"),
         },
     )
-    monkeypatch.setattr(resources.oci.config, "validate_config", lambda value: None)
+    monkeypatch.setattr(oci_llm.oci.config, "validate_config", lambda value: None)
 
     with pytest.raises(RuntimeError, match="compartment ID is missing"):
-        resources._oci_runtime_config()
+        oci_llm.oci_runtime_config()
 
 
 def test_get_solr_honors_configurable_base_url(monkeypatch):
@@ -100,8 +105,8 @@ def test_get_llm_builds_oci_client(monkeypatch):
         return fake_llm
 
     monkeypatch.setattr(
-        resources,
-        "_oci_runtime_config",
+        oci_llm,
+        "oci_runtime_config",
         lambda: (
             Path("/secure/config"),
             "DEFAULT",
@@ -109,16 +114,16 @@ def test_get_llm_builds_oci_client(monkeypatch):
             "https://inference.generativeai.eu-frankfurt-1.oci.oraclecloud.com",
         ),
     )
-    monkeypatch.setattr(resources, "_LakeGenOCIGenAI", fake_oci_genai)
+    monkeypatch.setattr(oci_llm, "OCIGenAILLM", fake_oci_genai)
     monkeypatch.setattr(
-        resources.tiktoken,
+        factory.tiktoken,
         "encoding_for_model",
         lambda _model: type(
             "OfflineEncoding", (), {"encode": staticmethod(lambda text: list(text))}
         )(),
     )
 
-    llm, token_counter = resources.get_llm("openai.gpt-oss-120b")
+    llm, token_counter = factory.get_llm("openai.gpt-oss-120b")
 
     assert llm is fake_llm
     assert token_counter is not None
@@ -133,7 +138,7 @@ def test_get_llm_builds_oci_client(monkeypatch):
         "auth_file_location": "/secure/config",
         "temperature": 0.1,
         "max_tokens": 16000,
-        "callback_manager": resources.Settings.callback_manager,
+        "callback_manager": factory.Settings.callback_manager,
         "context_size": 128_000,
     }
 
@@ -146,23 +151,23 @@ def test_get_llm_builds_local_ollama_client_without_oci(monkeypatch, model, tag)
     def no_oci():
         raise AssertionError("a local model must not need the OCI configuration")
 
-    monkeypatch.setattr(resources, "_oci_runtime_config", no_oci)
+    monkeypatch.setattr(oci_llm, "oci_runtime_config", no_oci)
     monkeypatch.setenv("LAKEGEN_OLLAMA_BASE_URL", "http://gpu-host:11434/")
     monkeypatch.setattr(
-        resources.tiktoken,
+        factory.tiktoken,
         "encoding_for_model",
         lambda _model: type(
             "OfflineEncoding", (), {"encode": staticmethod(lambda text: list(text))}
         )(),
     )
 
-    llm, token_counter = resources.get_llm(model)
+    llm, token_counter = factory.get_llm(model)
 
-    assert isinstance(llm, resources._LakeGenOllamaLLM)
+    assert isinstance(llm, ollama_llm.OllamaLLM)
     assert token_counter is not None
     assert llm.model == tag
     assert llm.api_base == "http://gpu-host:11434/v1"
-    assert llm.metadata.context_window == resources.OLLAMA_CONTEXT_SIZE
+    assert llm.metadata.context_window == ollama_llm.OLLAMA_CONTEXT_SIZE
     assert llm.metadata.is_function_calling_model
 
 
@@ -177,8 +182,8 @@ def test_ollama_chat_drops_think_and_counts_tokens(monkeypatch):
         })()
         return iter([chunk])
 
-    monkeypatch.setattr(resources.OpenAILike, "stream_chat", fake_stream_chat)
-    llm = resources._LakeGenOllamaLLM(model="gpt-oss:20b", api_key="ollama")
+    monkeypatch.setattr(ollama_llm.OpenAILike, "stream_chat", fake_stream_chat)
+    llm = ollama_llm.OllamaLLM(model="gpt-oss:20b", api_key="ollama")
 
     assert len(list(llm.stream_chat(["message"], think=True, request_id="run-1"))) == 1
     assert captured == {"messages": ["message"], "kwargs": {"request_id": "run-1"}}
@@ -188,9 +193,9 @@ def test_ollama_chat_drops_think_and_counts_tokens(monkeypatch):
 
 
 def test_gpt_oss_provider_is_registered():
-    assert resources.CHAT_MODELS["openai.gpt-oss-120b"] == 128_000
-    assert isinstance(resources.PROVIDERS["openai"], resources._OCIGenericProvider)
-    assert isinstance(resources.PROVIDERS["meta"], resources._OCIGenericProvider)
+    assert oci_llm.CHAT_MODELS["openai.gpt-oss-120b"] == 128_000
+    assert isinstance(oci_llm.PROVIDERS["openai"], oci_llm.OCIGenericProvider)
+    assert isinstance(oci_llm.PROVIDERS["meta"], oci_llm.OCIGenericProvider)
 
 
 def test_oci_stream_drops_unsupported_think_option(monkeypatch):
@@ -200,9 +205,9 @@ def test_oci_stream_drops_unsupported_think_option(monkeypatch):
         captured.update(messages=messages, kwargs=kwargs)
         return iter(())
 
-    monkeypatch.setattr(resources.OCIGenAI, "stream_chat", fake_stream_chat)
-    llm = resources._LakeGenOCIGenAI.model_construct(
-        model=resources.OPENAI_GPT_OSS_MODEL
+    monkeypatch.setattr(oci_llm.OCIGenAI, "stream_chat", fake_stream_chat)
+    llm = oci_llm.OCIGenAILLM.model_construct(
+        model=oci_llm.OPENAI_GPT_OSS_MODEL
     )
 
     assert list(llm.stream_chat(["message"], think=True, request_id="run-1")) == []
@@ -215,7 +220,7 @@ def test_oci_stream_drops_unsupported_think_option(monkeypatch):
 def test_generic_stream_tool_call_fragments_are_accumulated():
     accumulated = []
 
-    resources._merge_generic_stream_tool_calls(
+    tool_calls.merge_generic_stream_tool_calls(
         accumulated,
         {
             "message": {
@@ -229,7 +234,7 @@ def test_generic_stream_tool_call_fragments_are_accumulated():
             }
         },
     )
-    resources._merge_generic_stream_tool_calls(
+    tool_calls.merge_generic_stream_tool_calls(
         accumulated,
         {"message": {"toolCalls": [{"arguments": "\"parks\"}"}]}},
     )
@@ -241,25 +246,25 @@ def test_generic_stream_tool_call_fragments_are_accumulated():
             "input": "{\"name\":\"parks\"}",
         }
     ]
-    assert resources._finalized_stream_tool_calls(accumulated) == accumulated
+    assert tool_calls.finalized_stream_tool_calls(accumulated) == accumulated
 
 
 def test_tool_call_input_parser_tolerates_empty_and_partial_json():
-    assert resources._parse_tool_call_input("") == {}
-    assert resources._parse_tool_call_input(None) == {}
-    assert resources._parse_tool_call_input('{"name": "parks"}') == {
+    assert tool_calls.parse_tool_call_input("") == {}
+    assert tool_calls.parse_tool_call_input(None) == {}
+    assert tool_calls.parse_tool_call_input('{"name": "parks"}') == {
         "name": "parks"
     }
-    assert resources._parse_tool_call_input('{"name":') is None
+    assert tool_calls.parse_tool_call_input('{"name":') is None
 
 
 def test_incomplete_stream_tool_calls_are_not_exposed():
-    assert resources._finalized_stream_tool_calls(
+    assert tool_calls.finalized_stream_tool_calls(
         [{"toolUseId": "call-1", "name": "lookup_table", "input": ""}]
     ) == [
         {"toolUseId": "call-1", "name": "lookup_table", "input": "{}"}
     ]
-    assert resources._finalized_stream_tool_calls(
+    assert tool_calls.finalized_stream_tool_calls(
         [{"toolUseId": "call-1", "name": "lookup_table", "input": "{\"name\":"}]
     ) == []
 
@@ -342,7 +347,7 @@ def test_groq_offload_answers_a_plain_call_and_logs_it(tmp_path, monkeypatch):
     response = offload.chat("openai.gpt-oss-120b", messages, {"think": True}, 0.1)
 
     assert response.message.content == "answer"
-    assert resources.extract_total_tokens(response.raw) == 900
+    assert extract_total_tokens(response.raw) == 900
     assert sent[0]["model"] == "openai/gpt-oss-120b"
     assert [m["role"] for m in sent[0]["messages"]] == ["system", "user"]
     assert sent[0]["temperature"] == 0.1
@@ -409,11 +414,11 @@ def test_oci_chat_uses_the_groq_answer_when_offloaded(monkeypatch):
     def no_oci(*_args, **_kwargs):
         raise AssertionError("an offloaded call must not reach OCI")
 
-    monkeypatch.setattr(resources.OCIGenAI, "chat", no_oci)
+    monkeypatch.setattr(oci_llm.OCIGenAI, "chat", no_oci)
     answer = groq_offload.ChatResponse(
         message=ChatMessage(role="assistant", content="ok"), raw={"usage": {"total_tokens": 321}})
-    monkeypatch.setattr(resources.groq_offload, "chat", lambda *_args: answer)
-    llm = resources._LakeGenOCIGenAI.model_construct(model=resources.OPENAI_GPT_OSS_MODEL, temperature=0.1)
+    monkeypatch.setattr(oci_llm.groq_offload, "chat", lambda *_args: answer)
+    llm = oci_llm.OCIGenAILLM.model_construct(model=oci_llm.OPENAI_GPT_OSS_MODEL, temperature=0.1)
 
     assert llm.chat([ChatMessage(role="user", content="hi")]).message.content == "ok"
     assert llm.token_usage_total == 321
@@ -423,24 +428,24 @@ def test_get_llm_builds_together_client_without_oci(monkeypatch):
     def no_oci():
         raise AssertionError("a Together model must not need the OCI configuration")
 
-    monkeypatch.setattr(resources, "_oci_runtime_config", no_oci)
+    monkeypatch.setattr(oci_llm, "oci_runtime_config", no_oci)
     monkeypatch.setenv("TOGETHERAI_API_KEY", "together-secret")
     monkeypatch.setattr(
-        resources.tiktoken,
+        factory.tiktoken,
         "encoding_for_model",
         lambda _model: type(
             "OfflineEncoding", (), {"encode": staticmethod(lambda text: list(text))}
         )(),
     )
 
-    llm, _ = resources.get_llm("together.gpt-oss-120b")
+    llm, _ = factory.get_llm("together.gpt-oss-120b")
 
-    assert isinstance(llm, resources._LakeGenTogetherLLM)
+    assert isinstance(llm, together_llm.TogetherLLM)
     assert llm.model == "openai/gpt-oss-120b"
     assert llm.api_base == "https://api.together.xyz/v1"
     assert llm.api_key == "together-secret"
     assert llm.metadata.is_function_calling_model
-    assert llm.metadata.context_window == resources.OPENAI_GPT_OSS_CONTEXT_SIZE
+    assert llm.metadata.context_window == oci_llm.OPENAI_GPT_OSS_CONTEXT_SIZE
     # Streams must end with a usage chunk for the token accounting.
     assert llm.additional_kwargs["stream_options"] == {"include_usage": True}
 
@@ -449,7 +454,7 @@ def test_get_llm_needs_a_together_key(monkeypatch):
     monkeypatch.delenv("TOGETHERAI_API_KEY", raising=False)
     monkeypatch.delenv("TOGETHER_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="TOGETHERAI_API_KEY"):
-        resources.get_llm("together.gpt-oss-120b")
+        factory.get_llm("together.gpt-oss-120b")
 
 
 def _together_error(status, headers=None):
@@ -473,23 +478,23 @@ def test_together_retries_rate_limits_with_the_suggested_wait(monkeypatch):
             raise reply
         return reply
 
-    monkeypatch.setattr(resources._LakeGenOllamaLLM, "chat", fake_chat)
-    monkeypatch.setattr(resources.time, "sleep", waits.append)
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    monkeypatch.setattr(ollama_llm.OllamaLLM, "chat", fake_chat)
+    monkeypatch.setattr(together_llm.time, "sleep", waits.append)
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
 
     assert llm.chat(["m"]) == "ok"
     assert len(calls) == 3
     assert waits[0] >= 7  # at least Together's x-ratelimit-reset
-    assert 0 < waits[1] <= resources.TOGETHER_BACKOFF_MAX_SECONDS
+    assert 0 < waits[1] <= together_llm.TOGETHER_BACKOFF_MAX_SECONDS
 
 
 def test_together_does_not_retry_request_errors(monkeypatch):
     def fake_chat(_self, messages, **kwargs):
         raise _together_error(400)
 
-    monkeypatch.setattr(resources._LakeGenOllamaLLM, "chat", fake_chat)
-    monkeypatch.setattr(resources.time, "sleep", lambda _s: (_ for _ in ()).throw(AssertionError("no wait")))
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    monkeypatch.setattr(ollama_llm.OllamaLLM, "chat", fake_chat)
+    monkeypatch.setattr(together_llm.time, "sleep", lambda _s: (_ for _ in ()).throw(AssertionError("no wait")))
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
 
     with pytest.raises(Exception, match="limited"):
         llm.chat(["m"])
@@ -509,9 +514,9 @@ def test_together_stream_retries_until_the_first_chunk(monkeypatch):
 
         return generate()
 
-    monkeypatch.setattr(resources._LakeGenOllamaLLM, "stream_chat", fake_stream_chat)
-    monkeypatch.setattr(resources.time, "sleep", lambda _s: None)
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    monkeypatch.setattr(ollama_llm.OllamaLLM, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(together_llm.time, "sleep", lambda _s: None)
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
 
     assert list(llm.stream_chat(["m"])) == ["a", "b"]
     assert len(attempts) == 2
@@ -532,9 +537,9 @@ def test_together_async_chat_retries_rate_limits(monkeypatch):
     async def fake_sleep(seconds):
         waits.append(seconds)
 
-    monkeypatch.setattr(resources._LakeGenOllamaLLM, "achat", fake_achat)
-    monkeypatch.setattr(resources.asyncio, "sleep", fake_sleep)
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    monkeypatch.setattr(ollama_llm.OllamaLLM, "achat", fake_achat)
+    monkeypatch.setattr(together_llm.asyncio, "sleep", fake_sleep)
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
 
     assert asyncio.run(llm.achat(["m"])) == "ok"
     assert len(waits) == 1
@@ -548,7 +553,7 @@ def test_together_allows_parallel_calls_in_the_request_by_default(monkeypatch):
         "Add two numbers."
         return a + b
 
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
     request = llm._prepare_chat_with_tools([FunctionTool.from_defaults(add)], user_msg="hi",
                                            allow_parallel_tool_calls=True)
     assert request["parallel_tool_calls"] is True  # allowed; extra calls are dropped client-side
@@ -563,7 +568,7 @@ def test_together_keeps_only_the_first_tool_call():
         ToolCallBlock(tool_call_id="b", tool_name="run_analysis", tool_kwargs={"code": "print(1)"}),
     ], additional_kwargs={"tool_calls": ["first", "second"]})
     response = ChatResponse(message=message)
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
 
     calls = llm.get_tool_calls_from_response(response)
 
@@ -581,8 +586,8 @@ def test_together_reasoning_is_kept_and_sent_back(monkeypatch):
         from llama_index.core.base.llms.types import ChatResponse
         return ChatResponse(message=ChatMessage(role="assistant", content="ok"), raw=raw)
 
-    monkeypatch.setattr(resources._LakeGenOllamaLLM, "chat", fake_chat)
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    monkeypatch.setattr(ollama_llm.OllamaLLM, "chat", fake_chat)
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
     reply = llm.chat([ChatMessage(role="user", content="hi")])
     assert reply.message.additional_kwargs["reasoning"] == "check the year column"
 
@@ -606,8 +611,8 @@ def test_together_stream_accumulates_reasoning(monkeypatch):
     def fake_stream_chat(_self, messages, **kwargs):
         return iter([chunk("look at "), chunk("the columns"), chunk(None)])
 
-    monkeypatch.setattr(resources._LakeGenOllamaLLM, "stream_chat", fake_stream_chat)
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    monkeypatch.setattr(ollama_llm.OllamaLLM, "stream_chat", fake_stream_chat)
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
     chunks = list(llm.stream_chat([ChatMessage(role="user", content="hi")]))
     assert chunks[-1].message.additional_kwargs["reasoning"] == "look at the columns"
 
@@ -618,7 +623,7 @@ def test_together_recovers_a_tool_call_that_arrived_as_text():
     leaked = ('analysisNeed the columns first.assistantcommentary to=functions.inspect_data json'
               '{\n  "tables": ["r6e8-2fwe.parquet"],\n  "columns": null\n}')
     response = ChatResponse(message=ChatMessage(role="assistant", content=leaked))
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
 
     calls = llm.get_tool_calls_from_response(response, error_on_no_tool_call=False)
 
@@ -633,7 +638,7 @@ def test_together_recovers_a_tool_call_that_arrived_as_text():
 def test_together_leaves_plain_answers_and_broken_leaks_alone():
     from llama_index.core.base.llms.types import ChatResponse
 
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
     plain = ChatResponse(message=ChatMessage(role="assistant", content="The answer is 42."))
     broken = ChatResponse(message=ChatMessage(
         role="assistant", content='commentary to=functions.run_analysis json{"code": "import pan'))
@@ -653,11 +658,11 @@ def test_together_sends_tool_call_turns_with_empty_content_not_null():
 
     # Other backends: unchanged (the OpenAI client sends null for a bare tool call).
     assert openai_base.to_openai_message_dicts(history)[1]["content"] is None
-    token = resources._TOGETHER_REQUEST.set(True)
+    token = together_llm.TOGETHER_REQUEST.set(True)
     try:
         sent = openai_base.to_openai_message_dicts(history)[1]
     finally:
-        resources._TOGETHER_REQUEST.reset(token)
+        together_llm.TOGETHER_REQUEST.reset(token)
     assert sent["content"] == "" and sent["tool_calls"]
 
 
@@ -676,9 +681,9 @@ def test_together_waits_for_credit_instead_of_failing(monkeypatch):
             raise reply
         return reply
 
-    monkeypatch.setattr(resources._LakeGenOllamaLLM, "chat", fake_chat)
-    monkeypatch.setattr(resources.time, "sleep", waits.append)
-    llm = resources._LakeGenTogetherLLM(model="openai/gpt-oss-120b", api_key="k")
+    monkeypatch.setattr(ollama_llm.OllamaLLM, "chat", fake_chat)
+    monkeypatch.setattr(together_llm.time, "sleep", waits.append)
+    llm = together_llm.TogetherLLM(model="openai/gpt-oss-120b", api_key="k")
 
     assert llm.chat(["m"]) == "ok"
-    assert waits == [resources.TOGETHER_CREDIT_CHECK_SECONDS] * 2
+    assert waits == [together_llm.TOGETHER_CREDIT_CHECK_SECONDS] * 2

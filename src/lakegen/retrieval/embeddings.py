@@ -231,7 +231,7 @@ class OCIEmbedding:
 
     def __init__(self, model_name: str = "cohere.embed-v4.0") -> None:
         import oci
-        from lakegen.core.resources import _oci_runtime_config
+        from lakegen.llm.providers.oci import oci_runtime_config as _oci_runtime_config
 
         config_file, profile, compartment, endpoint = _oci_runtime_config()
         self.model_name = model_name

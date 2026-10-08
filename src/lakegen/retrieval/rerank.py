@@ -65,7 +65,7 @@ def _oci_client() -> tuple[Any, str]:
     """One OCI inference client per process: a service is built per search."""
     import oci
 
-    from lakegen.core.resources import _oci_runtime_config
+    from lakegen.llm.providers.oci import oci_runtime_config as _oci_runtime_config
 
     config_file, profile, compartment, endpoint = _oci_runtime_config()
     client = oci.generative_ai_inference.GenerativeAiInferenceClient(
