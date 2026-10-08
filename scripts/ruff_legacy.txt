@@ -47,7 +47,6 @@ src/lakegen/core/table_io.py
 src/lakegen/core/types.py
 src/lakegen/data_quality.py
 src/lakegen/discovery/candidates.py
-src/lakegen/discovery/divided.py
 src/lakegen/discovery/keywords.py
 src/lakegen/discovery/orchestrated.py
 src/lakegen/discovery/selectors/jev_service.py

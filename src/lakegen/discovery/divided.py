@@ -7,29 +7,28 @@ from llama_index.core import Settings
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 
+from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
+from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.agents.activity import (
     Phase2AgentStall,
 )
-from lakegen.core.types import Phase2SelectionResult, SolrMetadata, StreamCallback
-from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
-from lakegen.errors import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
-from lakegen.prompts.prompt_manager import PromptManager
-from lakegen.retrieval.solr_client import LocalSolrClient
-from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
-from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
-
+from lakegen.core.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from lakegen.discovery.candidates import (
     format_candidate_context,
     match_local_csv,
     parse_table_selector_response,
     solr_metadata_from_doc,
 )
-from lakegen.retrieval.factory import get_table_retrieval_service
 from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector
+from lakegen.errors import WorkflowCancelled
 from lakegen.experiment_config import DiscoveryConfig
+from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
+from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.retrieval.factory import get_table_retrieval_service
+from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 def _solr_and_search(
