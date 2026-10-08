@@ -92,8 +92,15 @@ class ExperimentSpec(StrictModel):
     base: list[str] = Field(default_factory=list)
     set: dict[str, Any] = Field(default_factory=dict)
     grid: dict[str, list[Any]] = Field(default_factory=dict)
+    # Explicit grid points for runs the cartesian product cannot express; a
+    # point may carry its own `questions`. They add to the grid's points.
+    cells: list[dict[str, Any]] = Field(default_factory=list)
     per_mode: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     per_lake: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # The Pneuma service of a lake for this run (base URL), where it differs
+    # from config/lakes.yaml; applied to the Pneuma cells only, as a
+    # LAKEGEN_PNEUMA_<LAKE>_BASE_URL in the submitter's environment was.
+    pneuma_routes: dict[str, str] = Field(default_factory=dict)
     questions: QuestionSelection = Field(default_factory=QuestionSelection)
     experiment_id: str = "{name}-{axes}"
     execution: Execution = Field(default_factory=Execution)
@@ -200,6 +207,7 @@ def compose(spec: ExperimentSpec, point: Mapping[str, Any]) -> dict[str, Any]:
         except KeyError:
             pass  # an unknown lake is reported by the validation below
         else:
+            url = spec.pneuma_routes.get(lake, url)
             data = deep_merge(data, {"retrieval": {"pneuma_base_url": url, "pneuma_index_name": index}})
     if lake in spec.per_lake:
         data = deep_merge(data, _flat(spec.per_lake[lake]))
@@ -209,14 +217,14 @@ def compose(spec: ExperimentSpec, point: Mapping[str, Any]) -> dict[str, Any]:
 def expand(spec: ExperimentSpec) -> list[Cell]:
     """Every cell of the spec: the grid's cartesian product times the question slices."""
     cells: list[Cell] = []
-    for point in _points(spec):
+    for point, selection in _points(spec):
         document = compose(spec, point)
         template_values = _template_values(point, document)
-        for pass_name, questions_slice in _slices(spec.questions):
+        for pass_name, questions_slice in _slices(selection):
             values = {**template_values, "name": spec.name, "pass": pass_name or "",
                       "axes": "-".join(str(value) for value in point.values())}
             experiment_id = _format(spec.experiment_id, values).strip("-")
-            questions_file = _questions_file(spec.questions, values)
+            questions_file = _questions_file(selection, values)
             document_with_id = deep_merge(document, {
                 "experiment_id": experiment_id,
                 "benchmark": {"path": str(questions_file)},
@@ -233,13 +241,18 @@ def expand(spec: ExperimentSpec) -> list[Cell]:
     return cells
 
 
-def _points(spec: ExperimentSpec) -> Iterator[dict[str, Any]]:
-    if not spec.grid:
-        yield {}
-        return
-    keys = list(spec.grid)
-    for values in itertools.product(*(spec.grid[key] for key in keys)):
-        yield dict(zip(keys, values, strict=True))
+def _points(spec: ExperimentSpec) -> Iterator[tuple[dict[str, Any], QuestionSelection]]:
+    """The grid's points, then the explicit cells, each with its question selection."""
+    if spec.grid:
+        keys = list(spec.grid)
+        for values in itertools.product(*(spec.grid[key] for key in keys)):
+            yield dict(zip(keys, values, strict=True)), spec.questions
+    elif not spec.cells:
+        yield {}, spec.questions
+    for point in spec.cells:
+        point = dict(point)
+        selection = point.pop("questions", None)
+        yield point, QuestionSelection.model_validate(selection) if selection else spec.questions
 
 
 def _questions_file(selection: QuestionSelection, values: Mapping[str, Any]) -> Path:

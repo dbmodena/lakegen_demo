@@ -98,6 +98,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/2dd7ac5d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "0103bc715093": {
@@ -199,6 +210,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/32ab1f3d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "01e44bfbf249": {
@@ -300,6 +322,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/31feb77d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "02369765887b": {
@@ -401,6 +434,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/135d5ef4"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "025ae25f46df": {
@@ -502,6 +546,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/ba403a4f"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "0339510fbf0a": {
@@ -603,6 +658,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/26e1f4fe"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "03d74b4d56ec": {
@@ -704,6 +770,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/30c81bd7"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "04406b2213cb": {
@@ -805,6 +882,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/3a3299af"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "05ad7b8647d4": {
@@ -906,6 +994,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/7ecd312f"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "087f49bc5c51": {
@@ -1002,7 +1101,8 @@
   },
   "jobs": [
    "lakegen_jobs/351810fa"
-  ]
+  ],
+  "switches": []
  },
  "09c123d4a109": {
   "config": {
@@ -1103,6 +1203,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/409f1f0b"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "0a9bf6798030": {
@@ -1204,7 +1319,8 @@
   },
   "jobs": [
    "lakegen_jobs_week/1e39fd80"
-  ]
+  ],
+  "switches": []
  },
  "0c025dfc0ff2": {
   "config": {
@@ -1305,6 +1421,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/cd46d7a2"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "0ef08b52a7a2": {
@@ -1406,6 +1537,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/f2ff23e1"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "116ef133f483": {
@@ -1502,7 +1644,8 @@
   },
   "jobs": [
    "lakegen_jobs/13eb9acd"
-  ]
+  ],
+  "switches": []
  },
  "122982d315b9": {
   "config": {
@@ -1603,6 +1746,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e05add15"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "12558369ddf1": {
@@ -1699,7 +1853,8 @@
   },
   "jobs": [
    "lakegen_jobs/48f91787"
-  ]
+  ],
+  "switches": []
  },
  "133b85ac83a3": {
   "config": {
@@ -1795,6 +1950,17 @@
   },
   "jobs": [
    "lakegen_jobs/63fbfb52"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 262,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "1af45e9ec13c": {
@@ -1896,6 +2062,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/622a7a9d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "1c3d79b6d385": {
@@ -1997,6 +2174,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/84120c58"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "1c4ab2910247": {
@@ -2093,7 +2281,8 @@
   },
   "jobs": [
    "lakegen_jobs/9fbcab29"
-  ]
+  ],
+  "switches": []
  },
  "1c5595611011": {
   "config": {
@@ -2194,7 +2383,8 @@
   },
   "jobs": [
    "lakegen_jobs_bench/47d797bf"
-  ]
+  ],
+  "switches": []
  },
  "1ec7c18d7f99": {
   "config": {
@@ -2295,6 +2485,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/51d1963b"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "1edc1030ed58": {
@@ -2396,6 +2597,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/cd13762e"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "1fe8b369c57a": {
@@ -2497,6 +2709,18 @@
   },
   "jobs": [
    "lakegen_jobs_week/5760fd24"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "21b90d614118": {
@@ -2599,7 +2823,8 @@
   "jobs": [
    "lakegen_jobs_bench/16ce3407",
    "lakegen_jobs_bench/ebb2cc50"
-  ]
+  ],
+  "switches": []
  },
  "21d5f91f1229": {
   "config": {
@@ -2700,7 +2925,8 @@
   },
   "jobs": [
    "lakegen_jobs_week/467ba790"
-  ]
+  ],
+  "switches": []
  },
  "21f6c0d27f9a": {
   "config": {
@@ -2801,6 +3027,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e0f209bb"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "2361c8241618": {
@@ -2902,6 +3139,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e1813c55"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "2399bb74e4f2": {
@@ -3003,6 +3251,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/d791966d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "23b636f49b4a": {
@@ -3104,6 +3363,11 @@
   },
   "jobs": [
    "lakegen_jobs_bench/7d82d149"
+  ],
+  "switches": [
+   {
+    "what": "requeued"
+   }
   ]
  },
  "2446f9b6d985": {
@@ -3200,7 +3464,8 @@
   },
   "jobs": [
    "lakegen_jobs/de555923"
-  ]
+  ],
+  "switches": []
  },
  "2811f9139b99": {
   "config": {
@@ -3301,6 +3566,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/8edefe56"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 13,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "2c44887e996f": {
@@ -3402,6 +3678,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/95b02a7a"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "2c4d44bc93d7": {
@@ -3503,6 +3791,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/5405c695"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "2cdd42485e0c": {
@@ -3599,7 +3902,8 @@
   },
   "jobs": [
    "lakegen_jobs/3e66a53b"
-  ]
+  ],
+  "switches": []
  },
  "2f43f0de25f0": {
   "config": {
@@ -3700,6 +4004,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/02aa9011"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "309db4a49437": {
@@ -3801,6 +4116,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/642fe793"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "31aa30f3295a": {
@@ -3902,6 +4232,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/06a67018"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "345bd151dc44": {
@@ -4003,6 +4344,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/40b29694"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "34ac2c8b8daf": {
@@ -4104,6 +4460,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/6e4201bd"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "34efe0b3ad89": {
@@ -4205,6 +4572,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/bfd9b3f1"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "37f1ba25a39d": {
@@ -4306,6 +4684,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/2a57fa6b"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "3844ca495be5": {
@@ -4407,6 +4796,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/d220df79"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "39c715ef36c4": {
@@ -4503,7 +4903,8 @@
   },
   "jobs": [
    "lakegen_jobs/953c4de8"
-  ]
+  ],
+  "switches": []
  },
  "3c11c668fe5d": {
   "config": {
@@ -4599,7 +5000,8 @@
   },
   "jobs": [
    "lakegen_jobs/9a161800"
-  ]
+  ],
+  "switches": []
  },
  "3cfdc049b7ba": {
   "config": {
@@ -4700,6 +5102,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/4280fe23"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "3e8a2dd65c80": {
@@ -4801,6 +5214,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e92c8321"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "3e9b9a196906": {
@@ -4902,6 +5326,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/cd8c192d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "4237813d04e7": {
@@ -4998,7 +5433,8 @@
   },
   "jobs": [
    "lakegen_jobs/98fc4a6c"
-  ]
+  ],
+  "switches": []
  },
  "43973affd187": {
   "config": {
@@ -5099,6 +5535,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/a1436742"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "44e93e73a401": {
@@ -5200,6 +5647,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/788cd975"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "47ac77d4271b": {
@@ -5301,6 +5759,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e903b672"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "4a1e166ca22f": {
@@ -5402,6 +5871,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/4a82a34f"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "4d90862e68f4": {
@@ -5503,6 +5983,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/826b3685"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "4e06bf4c2d5f": {
@@ -5604,6 +6095,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/1f342286"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "51797e6c6447": {
@@ -5700,7 +6202,8 @@
   },
   "jobs": [
    "lakegen_jobs/9a2fe31c"
-  ]
+  ],
+  "switches": []
  },
  "51f1272fa979": {
   "config": {
@@ -5801,6 +6304,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/28aabd49"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "53b2475b676b": {
@@ -5897,7 +6411,8 @@
   },
   "jobs": [
    "lakegen_jobs/f270125d"
-  ]
+  ],
+  "switches": []
  },
  "54101263df17": {
   "config": {
@@ -5998,6 +6513,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/6dd6d463"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "54f87a799bd1": {
@@ -6099,6 +6625,18 @@
   },
   "jobs": [
    "lakegen_jobs_week/5d3b62ac"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "55d8672cb0b1": {
@@ -6200,6 +6738,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/b7e7f173"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "5610dcd5596e": {
@@ -6296,7 +6845,8 @@
   },
   "jobs": [
    "lakegen_jobs/14a066e9"
-  ]
+  ],
+  "switches": []
  },
  "562d1c211fb9": {
   "config": {
@@ -6397,6 +6947,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/dc6df12d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "564b240ffc24": {
@@ -6498,6 +7059,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/6ae32803"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "56db80bd0ef3": {
@@ -6599,6 +7175,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/147a62a4"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "57784d8db336": {
@@ -6700,7 +7287,8 @@
   },
   "jobs": [
    "lakegen_jobs_local20b/916a958c"
-  ]
+  ],
+  "switches": []
  },
  "57bbd357812c": {
   "config": {
@@ -6801,6 +7389,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/cf4bbe91"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "5818831af83d": {
@@ -6902,6 +7501,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/a4993112"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "59276d0a0fcd": {
@@ -7003,6 +7613,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/b992bd0e"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "5a698b86ddf4": {
@@ -7104,6 +7729,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/8572c4f2"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "5b27171b0e5a": {
@@ -7205,7 +7841,8 @@
   },
   "jobs": [
    "lakegen_jobs_bench/3848a580"
-  ]
+  ],
+  "switches": []
  },
  "5b31bebaf78f": {
   "config": {
@@ -7306,6 +7943,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/7022e03b"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "5c9846d39c53": {
@@ -7407,6 +8059,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/9347d22c"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "5ec64efb09c1": {
@@ -7503,6 +8166,17 @@
   },
   "jobs": [
    "lakegen_jobs/fdad653a"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "5f36d5d6a5ea": {
@@ -7604,6 +8278,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/22c16b7c"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "5f97ec628750": {
@@ -7705,6 +8390,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/f18c985a"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 9,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "5fec2977c5a5": {
@@ -7806,6 +8506,18 @@
   },
   "jobs": [
    "lakegen_jobs_week/7b3d877c"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "60b9340e4d55": {
@@ -7902,6 +8614,17 @@
   },
   "jobs": [
    "lakegen_jobs/4941b70b"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 240,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "60e1175808ac": {
@@ -8003,6 +8726,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/33099908"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "6297527c0786": {
@@ -8104,6 +8838,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/b1a5bcff"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "6689e6f04aa1": {
@@ -8205,6 +8950,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/9b864938"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "67738ddb49bb": {
@@ -8306,7 +9062,8 @@
   },
   "jobs": [
    "lakegen_jobs_week/df30a426"
-  ]
+  ],
+  "switches": []
  },
  "68cab7c5c949": {
   "config": {
@@ -8407,6 +9164,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/0263cde2"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "692b02a75ee3": {
@@ -8508,6 +9276,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/217392dd"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "69efdba03d0c": {
@@ -8609,6 +9388,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/22610402"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "6cd7071afa68": {
@@ -8705,6 +9495,17 @@
   },
   "jobs": [
    "lakegen_jobs/dd75178a"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 231,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "6dc14eaf815f": {
@@ -8806,7 +9607,8 @@
   },
   "jobs": [
    "lakegen_jobs_week/45ae9e70"
-  ]
+  ],
+  "switches": []
  },
  "6e35b1f1cc42": {
   "config": {
@@ -8907,6 +9709,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/c1373292"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "6f42b3c0d31d": {
@@ -9008,6 +9821,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/7402dd3d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "70a608aa7274": {
@@ -9104,7 +9928,8 @@
   },
   "jobs": [
    "lakegen_jobs/beab1da6"
-  ]
+  ],
+  "switches": []
  },
  "72ace16484cf": {
   "config": {
@@ -9205,6 +10030,11 @@
   },
   "jobs": [
    "lakegen_jobs_bench/6625fef5"
+  ],
+  "switches": [
+   {
+    "what": "requeued"
+   }
   ]
  },
  "73364b0ec673": {
@@ -9306,7 +10136,8 @@
   },
   "jobs": [
    "lakegen_jobs_qwen_np2test/751430ea"
-  ]
+  ],
+  "switches": []
  },
  "73ec845c0efe": {
   "config": {
@@ -9407,6 +10238,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/2f9504c3"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "75eb8534149b": {
@@ -9508,6 +10350,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/f1fdb0bd"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "7607b9ed4776": {
@@ -9609,6 +10462,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/4c249777"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "7891a28d1a61": {
@@ -9705,7 +10569,8 @@
   },
   "jobs": [
    "lakegen_jobs/f238b6ee"
-  ]
+  ],
+  "switches": []
  },
  "7966312d1318": {
   "config": {
@@ -9806,6 +10671,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/71b879e1"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "7aa3d3261853": {
@@ -9907,6 +10783,18 @@
   },
   "jobs": [
    "lakegen_jobs_bench/f438db7b"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 83,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   }
   ]
  },
  "7d6ee5f60f2b": {
@@ -10008,6 +10896,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/ec8a117d"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "7e2bde92ca74": {
@@ -10109,6 +11012,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/31bad4fd"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "7fcb6b7a191d": {
@@ -10210,6 +11124,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/1db9ae61"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "804f77476423": {
@@ -10306,7 +11231,8 @@
   },
   "jobs": [
    "lakegen_jobs/16ee1b0b"
-  ]
+  ],
+  "switches": []
  },
  "81c081a629e9": {
   "config": {
@@ -10402,7 +11328,8 @@
   },
   "jobs": [
    "lakegen_jobs/a928e5d1"
-  ]
+  ],
+  "switches": []
  },
  "83321d90ee87": {
   "config": {
@@ -10503,6 +11430,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/1a0f3054"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "833a8098e027": {
@@ -10604,6 +11543,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/c07aaced"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "83c9528db53a": {
@@ -10705,6 +11655,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/abc17bcd"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "851123242b20": {
@@ -10806,6 +11771,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/6859deb9"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "855e472b1f07": {
@@ -10907,7 +11883,8 @@
   },
   "jobs": [
    "lakegen_jobs_week/adae3818"
-  ]
+  ],
+  "switches": []
  },
  "86d5836338b9": {
   "config": {
@@ -11008,7 +11985,8 @@
   },
   "jobs": [
    "lakegen_jobs_qwen_np2test/233d8cb7"
-  ]
+  ],
+  "switches": []
  },
  "875cacd8e14e": {
   "config": {
@@ -11109,6 +12087,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/fb19800c"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "875cd055236d": {
@@ -11205,7 +12194,8 @@
   },
   "jobs": [
    "lakegen_jobs/4d8d3c68"
-  ]
+  ],
+  "switches": []
  },
  "87daa6dce011": {
   "config": {
@@ -11306,6 +12296,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/9e2523ed"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "8bb949b15ee3": {
@@ -11407,6 +12412,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/3687ab4f"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "8ce796ee6d9e": {
@@ -11508,6 +12528,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/8613e7b1"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "8dec3439971b": {
@@ -11609,7 +12640,8 @@
   },
   "jobs": [
    "lakegen_jobs_week/93475d01"
-  ]
+  ],
+  "switches": []
  },
  "8ecde861c05a": {
   "config": {
@@ -11710,6 +12742,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/5973707d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "8eea0aacc997": {
@@ -11811,6 +12854,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/cdb0bd49"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 16,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "8fe7fb062cf2": {
@@ -11912,6 +12966,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/b48bb0c9"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "9093cd98a2db": {
@@ -12013,6 +13078,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/47928fc6"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "92137eb5fdb8": {
@@ -12114,6 +13190,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/7cab515f"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "92c01141ca92": {
@@ -12215,6 +13302,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/eac14404"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "930386f44626": {
@@ -12316,6 +13414,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/4e4576d7"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "93153df7093a": {
@@ -12417,6 +13530,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/1f1fa2da"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "935921caa148": {
@@ -12518,6 +13642,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/8af7625d"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "9412fb28fa8e": {
@@ -12619,6 +13754,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/78571f20"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "9468928cf444": {
@@ -12720,7 +13867,8 @@
   },
   "jobs": [
    "lakegen_jobs_week/99a11332"
-  ]
+  ],
+  "switches": []
  },
  "955ecbe65ca8": {
   "config": {
@@ -12821,7 +13969,8 @@
   },
   "jobs": [
    "lakegen_jobs_week/dd096c7f"
-  ]
+  ],
+  "switches": []
  },
  "967f45cca035": {
   "config": {
@@ -12922,6 +14071,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/3ed0b0da"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "971ad1cf635a": {
@@ -13023,6 +14187,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/dcb036aa"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "99a970308187": {
@@ -13124,6 +14299,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/ea15b2c7"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "9ad4582485b7": {
@@ -13225,7 +14411,8 @@
   },
   "jobs": [
    "lakegen_jobs_bench/2cbb0116"
-  ]
+  ],
+  "switches": []
  },
  "9ad94151b766": {
   "config": {
@@ -13321,6 +14508,17 @@
   },
   "jobs": [
    "lakegen_jobs/3c0ae2f1"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "9b59463bb9eb": {
@@ -13417,7 +14615,8 @@
   },
   "jobs": [
    "lakegen_jobs/f0388cee"
-  ]
+  ],
+  "switches": []
  },
  "9cb9aae585ac": {
   "config": {
@@ -13518,6 +14717,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e4de14e3"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "9d3000b03ba8": {
@@ -13619,6 +14829,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/613f8c24"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "9e253eaf2adb": {
@@ -13720,6 +14941,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/7b62a25a"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "9e463085f87c": {
@@ -13821,6 +15053,18 @@
   },
   "jobs": [
    "lakegen_jobs_bench/9c839418"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 79,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   }
   ]
  },
  "a02853415ce2": {
@@ -13922,6 +15166,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/7228d8ec"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "a0ad2ad24752": {
@@ -14023,6 +15279,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/bd3a2f23"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "a0ed9989983a": {
@@ -14124,6 +15391,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/8243f2b2"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "a144081ef3e4": {
@@ -14225,6 +15503,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/5cad846b"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "a2099fb6fe3e": {
@@ -14326,6 +15615,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/15196b13"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "a23824b2c1ac": {
@@ -14427,6 +15727,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/c67f57f0"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "a2a3201b1fb8": {
@@ -14528,6 +15843,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/474771f4"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "a3af3d3cf0f2": {
@@ -14629,6 +15955,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/54333847"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 8,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "a3b13c92e276": {
@@ -14730,6 +16071,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/dbea2d5f"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "a719672b44c8": {
@@ -14831,6 +16183,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/8a38321d"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "a7958f2b5769": {
@@ -14927,7 +16294,8 @@
   },
   "jobs": [
    "lakegen_jobs/cae3a8fe"
-  ]
+  ],
+  "switches": []
  },
  "a8546859ff6d": {
   "config": {
@@ -15028,6 +16396,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/65d9c8a4"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "a865220d3327": {
@@ -15129,6 +16512,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e7f0f278"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "aa1fad1f1466": {
@@ -15230,6 +16624,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e171c7e3"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "abc854a2f904": {
@@ -15331,6 +16736,18 @@
   },
   "jobs": [
    "lakegen_jobs_week/82edcfe5"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "ad200b3900b6": {
@@ -15427,7 +16844,8 @@
   },
   "jobs": [
    "lakegen_jobs/7f7c8df4"
-  ]
+  ],
+  "switches": []
  },
  "ae1e0258ebe7": {
   "config": {
@@ -15528,6 +16946,18 @@
   },
   "jobs": [
    "lakegen_jobs_bench/bdca34b1"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 11,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   }
   ]
  },
  "aeb318228ea2": {
@@ -15624,6 +17054,17 @@
   },
   "jobs": [
    "lakegen_jobs/bdaa6ade"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "af96fecd9683": {
@@ -15720,7 +17161,8 @@
   },
   "jobs": [
    "lakegen_jobs/01a6104f"
-  ]
+  ],
+  "switches": []
  },
  "b00aa6765ac0": {
   "config": {
@@ -15816,6 +17258,17 @@
   },
   "jobs": [
    "lakegen_jobs/a8470089"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 218,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b0b661ae5669": {
@@ -15917,6 +17370,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e61972a2"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b11d6109ad44": {
@@ -16018,6 +17482,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/0ea8f00f"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b197ea0b2d38": {
@@ -16119,6 +17594,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/36b035d0"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "b1f193a8b179": {
@@ -16220,6 +17710,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/d7b35a2c"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b3589be81773": {
@@ -16316,7 +17818,8 @@
   },
   "jobs": [
    "lakegen_jobs/1de28e92"
-  ]
+  ],
+  "switches": []
  },
  "b35f3a778b72": {
   "config": {
@@ -16417,6 +17920,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/20ec8daa"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b47743e4aceb": {
@@ -16518,6 +18033,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/d31d50bb"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b5999a0fc0f9": {
@@ -16619,6 +18145,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/2e79611a"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b67e7e709965": {
@@ -16720,6 +18257,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/cc13bec1"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b756a6ba1ef5": {
@@ -16821,6 +18369,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/21ede2aa"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b7de0d9d4c7f": {
@@ -16922,6 +18481,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/ef5222ce"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 8,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b7de7d6b59c9": {
@@ -17018,7 +18588,8 @@
   },
   "jobs": [
    "lakegen_jobs/0598e686"
-  ]
+  ],
+  "switches": []
  },
  "b8957dd522a9": {
   "config": {
@@ -17119,6 +18690,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/62697ed7"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "b8d3f34cb099": {
@@ -17220,6 +18806,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/0a7d0398"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "b9930b1f445d": {
@@ -17321,7 +18918,8 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/76273e55"
-  ]
+  ],
+  "switches": []
  },
  "b9f18c6f31c9": {
   "config": {
@@ -17422,7 +19020,8 @@
   },
   "jobs": [
    "lakegen_jobs_bench/45fc60a6"
-  ]
+  ],
+  "switches": []
  },
  "baf66db717ec": {
   "config": {
@@ -17523,6 +19122,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/b01faa30"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "bdac82dede0c": {
@@ -17624,6 +19234,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/0807c4fd"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "bdfa60fa1782": {
@@ -17725,6 +19346,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/499c0369"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "be5cf73d8846": {
@@ -17826,6 +19458,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/98526565"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c09a1cfca03b": {
@@ -17927,6 +19570,18 @@
   },
   "jobs": [
    "lakegen_jobs_week/7e523ab2"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c1aa301f50d3": {
@@ -18028,6 +19683,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/07351479"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c1fc3dc71708": {
@@ -18129,6 +19796,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/62f66b94"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c273bf690065": {
@@ -18230,6 +19908,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/9852f8c9"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c309e8427104": {
@@ -18331,6 +20021,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/1c340795"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c37cba56eaca": {
@@ -18432,6 +20134,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/51916f76"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c4dd1e36b668": {
@@ -18533,6 +20246,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/660f84df"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c51aa864cace": {
@@ -18629,6 +20353,17 @@
   },
   "jobs": [
    "lakegen_jobs/0a8e8ac9"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c82ff4f82528": {
@@ -18730,6 +20465,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/252c8afe"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "c9f0447b91d8": {
@@ -18831,6 +20577,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/e42ccb26"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 2,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "cca0e53236e6": {
@@ -18932,6 +20690,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/663dcff5"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "d1077c5ea8c4": {
@@ -19028,7 +20797,8 @@
   },
   "jobs": [
    "lakegen_jobs/7000f9e4"
-  ]
+  ],
+  "switches": []
  },
  "d1b44432f2a8": {
   "config": {
@@ -19124,7 +20894,8 @@
   },
   "jobs": [
    "lakegen_jobs/75a3b1ce"
-  ]
+  ],
+  "switches": []
  },
  "d1e4ea16244e": {
   "config": {
@@ -19225,6 +20996,11 @@
   },
   "jobs": [
    "lakegen_jobs_bench/4693274d"
+  ],
+  "switches": [
+   {
+    "what": "requeued"
+   }
   ]
  },
  "d20fed5a9287": {
@@ -19321,7 +21097,8 @@
   },
   "jobs": [
    "lakegen_jobs/b48ec332"
-  ]
+  ],
+  "switches": []
  },
  "d28e38b77b31": {
   "config": {
@@ -19417,7 +21194,8 @@
   },
   "jobs": [
    "lakegen_jobs/07dba4c1"
-  ]
+  ],
+  "switches": []
  },
  "d2beb24f60c3": {
   "config": {
@@ -19518,6 +21296,18 @@
   },
   "jobs": [
    "lakegen_jobs_week/b305f858"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "d36e7b9b76d7": {
@@ -19614,7 +21404,8 @@
   },
   "jobs": [
    "lakegen_jobs/9685e9b6"
-  ]
+  ],
+  "switches": []
  },
  "d379d1c4a694": {
   "config": {
@@ -19715,6 +21506,11 @@
   },
   "jobs": [
    "lakegen_jobs_bench/57fcde7c"
+  ],
+  "switches": [
+   {
+    "what": "requeued"
+   }
   ]
  },
  "d57912d4cf16": {
@@ -19816,6 +21612,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/3483564e"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "d584a152e397": {
@@ -19917,6 +21724,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/b01c8f32"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "d5f3ff1f938d": {
@@ -20013,7 +21831,8 @@
   },
   "jobs": [
    "lakegen_jobs/95668eb9"
-  ]
+  ],
+  "switches": []
  },
  "d5f4d3d313de": {
   "config": {
@@ -20114,6 +21933,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/1e759d54"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "d6e5681f8b12": {
@@ -20215,6 +22045,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/8ba537c5"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "d7938b42b2f8": {
@@ -20316,6 +22161,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/c5f907db"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "d95c46553ef2": {
@@ -20417,7 +22273,8 @@
   },
   "jobs": [
    "lakegen_jobs_bench/7a1a5f4c"
-  ]
+  ],
+  "switches": []
  },
  "da5ee261b3cc": {
   "config": {
@@ -20518,6 +22375,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/8e03761c"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "db5fd3961613": {
@@ -20614,7 +22482,8 @@
   },
   "jobs": [
    "lakegen_jobs/a7c163c2"
-  ]
+  ],
+  "switches": []
  },
  "dc8468098942": {
   "config": {
@@ -20715,6 +22584,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/4936e889"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "dceea19a946e": {
@@ -20816,7 +22696,8 @@
   },
   "jobs": [
    "lakegen_jobs_local20b/9cd76ba5"
-  ]
+  ],
+  "switches": []
  },
  "def0644539bd": {
   "config": {
@@ -20917,6 +22798,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/2a528f6c"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "df9fbb5d77b2": {
@@ -21013,6 +22906,17 @@
   },
   "jobs": [
    "lakegen_jobs/55327670"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "dfc852f248c6": {
@@ -21109,7 +23013,8 @@
   },
   "jobs": [
    "lakegen_jobs/3449e4b7"
-  ]
+  ],
+  "switches": []
  },
  "e0d0caf8ab77": {
   "config": {
@@ -21210,6 +23115,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/8bec0959"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "e152517f787a": {
@@ -21306,6 +23226,17 @@
   },
   "jobs": [
    "lakegen_jobs/0ea8feee"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 217,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "e36b5df4dd8b": {
@@ -21407,6 +23338,18 @@
   },
   "jobs": [
    "lakegen_jobs_week/5f8b443b"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "e3729090293f": {
@@ -21508,6 +23451,18 @@
   },
   "jobs": [
    "lakegen_jobs_week/cc0c0b1c"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "e5eb3b2b281b": {
@@ -21604,7 +23559,8 @@
   },
   "jobs": [
    "lakegen_jobs/14b725f6"
-  ]
+  ],
+  "switches": []
  },
  "e62a79811979": {
   "config": {
@@ -21705,6 +23661,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/613eeb02"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "e70b4b6ff826": {
@@ -21806,6 +23773,18 @@
   },
   "jobs": [
    "lakegen_jobs_bench/11d7cb4a"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 6,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   }
   ]
  },
  "e9e545172060": {
@@ -21902,7 +23881,8 @@
   },
   "jobs": [
    "lakegen_jobs/2cb34081"
-  ]
+  ],
+  "switches": []
  },
  "ed9afda9cfae": {
   "config": {
@@ -21998,7 +23978,8 @@
   },
   "jobs": [
    "lakegen_jobs/49603872"
-  ]
+  ],
+  "switches": []
  },
  "ef0930f71d55": {
   "config": {
@@ -22099,7 +24080,8 @@
   },
   "jobs": [
    "lakegen_jobs_bench/a111b8be"
-  ]
+  ],
+  "switches": []
  },
  "f0808eb8b39a": {
   "config": {
@@ -22201,7 +24183,8 @@
   "jobs": [
    "lakegen_jobs_bench/5187a6d8",
    "lakegen_jobs_bench/f56ea627"
-  ]
+  ],
+  "switches": []
  },
  "f20ae99807da": {
   "config": {
@@ -22302,6 +24285,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/dcce99d9"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "f5a84ed3e388": {
@@ -22398,7 +24392,8 @@
   },
   "jobs": [
    "lakegen_jobs/e627029b"
-  ]
+  ],
+  "switches": []
  },
  "f669aa8915e8": {
   "config": {
@@ -22499,6 +24494,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/5ec4895b"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "f67fcb3a9070": {
@@ -22600,6 +24606,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/cadeb090"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "f6aadea3398b": {
@@ -22701,6 +24718,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/1767bbf8"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "f72ba5f1bb86": {
@@ -22802,6 +24830,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/f9b29d3f"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "f7450224642f": {
@@ -22903,6 +24942,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/e3c04a69"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "f8909b87ac5c": {
@@ -23004,6 +25054,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/cb51517b"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "f8dd405809b3": {
@@ -23105,6 +25166,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/623b7c9e"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "f9bc473a7e06": {
@@ -23206,6 +25278,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/dbf1549b"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "fa020d99696a": {
@@ -23307,6 +25390,18 @@
   },
   "jobs": [
    "lakegen_jobs_rest/0eeae0ba"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "model",
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 1,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "fbbc1a5a7e38": {
@@ -23408,6 +25503,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/fce1fab6"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "fbf694e41a33": {
@@ -23509,6 +25615,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/b9c5c785"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "fcd9e985b17e": {
@@ -23610,7 +25727,8 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/3365cb62"
-  ]
+  ],
+  "switches": []
  },
  "fd729df238ca": {
   "config": {
@@ -23711,6 +25829,21 @@
   },
   "jobs": [
    "lakegen_jobs_bench/615a550b"
+  ],
+  "switches": [
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   },
+   {
+    "from": "openai.gpt-oss-120b (OCI)",
+    "to": "together.gpt-oss-120b",
+    "what": "retrieval.pneuma_entity_model"
+   },
+   {
+    "what": "requeued"
+   }
   ]
  },
  "fd926d19353c": {
@@ -23812,6 +25945,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/4dfd07dc"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  },
  "fd94b3f6211f": {
@@ -23913,6 +26057,17 @@
   },
   "jobs": [
    "lakegen_jobs_qwen/f25ed075"
+  ],
+  "switches": [
+   {
+    "fields": [
+     "semantic_code_judge_model",
+     "retrieval.pneuma_entity_model"
+    ],
+    "from": "openai.gpt-oss-120b (OCI)",
+    "results_before_switch": 0,
+    "to": "together.gpt-oss-120b"
+   }
   ]
  }
 }

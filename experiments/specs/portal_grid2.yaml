@@ -1,0 +1,31 @@
+# The second portal grid of 2026-09-27: the three rebuilt portals x five
+# retrieval modes on the questions the first grid left unused
+# (benchmark/rest_<portal>.json). Replaces experiments/portal_grid/run_grid.py
+# with its defaults and the label "grid2". Valencia ran on OCI's gpt-oss-120b;
+# Bologna was switched to Together's before its first result and Paris after
+# about 220 questions, when OCI's was no longer available (the effective block
+# of each result says which model answered it).
+name: portal-grid2
+description: Valencia, Paris, Bologna x 5 modes on the unused questions
+base: [config/base.yaml]
+set:
+  retrieval.pneuma.base_url: http://localhost:8765
+  retrieval.pneuma.index_name: lakegen
+  retrieval.seeker.scan_workers: 8
+grid:
+  lake: [valencia, paris, bologna]
+  retrieval.mode: [keyword, semantic, hybrid, pneuma, hybrid_duckdb_semantic]
+per_lake:
+  bologna: {model: together.gpt-oss-120b, judge.model: together.gpt-oss-120b}
+  paris: {model: together.gpt-oss-120b, judge.model: together.gpt-oss-120b}
+per_mode:
+  retrieval.mode:
+    hybrid_duckdb_semantic: {retrieval.hybrid.fusion: rrf}   # the production setting of this mode
+questions: {set: "rest_{lake}"}
+experiment_id: "grid2-{lake}-{retrieval.mode}"
+execution:
+  backend: api
+  api_url: http://127.0.0.1:8002
+  job_dir: /data/bilel/lakegen/jobs/lakegen_jobs
+  workers: 5
+requires: ["pneuma:{lake}"]

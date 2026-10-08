@@ -1,0 +1,33 @@
+# The benchmark-lake grid of 2026-10-01: the full pipeline on KramaBench,
+# TARGET's BIRD and Pneuma's Chicago lake, every retrieval mode that needs no
+# Pneuma service x both selectors, then the Pneuma and Seeker cells lake by lake
+# as each lake's service came up. Replaces
+# experiments/benchmark_lakes/submit.sh and its per-lake config files.
+name: bench-grid
+description: Benchmark lakes, 6 modes x 2 selectors
+base: [config/base.yaml, config/presets/model/together_gpt_oss_120b.yaml]
+set:
+  discovery.architecture: divided
+  retrieval.pneuma.timeout_seconds: 600
+  retrieval.seeker.content_fusion: fill
+  retrieval.seeker.enumerate_tables: false
+  retrieval.pneuma.entity_model: together.gpt-oss-120b
+  retrieval.pneuma.index_name: lakegen-cohere-v4-1024
+  retrieval.seeker.scan_workers: 8
+grid:
+  lake: [target_bird, chicago, kramabench]
+  retrieval.mode: [keyword, semantic, hybrid, duckdb_agentic, pneuma, pneuma_seeker]
+  discovery.selector.kind: [llm, jev]
+per_lake:   # each lake's own Pneuma service, carried by every cell as the config files did
+  kramabench: {retrieval.pneuma.base_url: http://localhost:8781}
+  target_bird: {retrieval.pneuma.base_url: http://localhost:8782}
+  chicago: {retrieval.pneuma.base_url: http://localhost:8783}
+questions: {set: "100q_{lake}"}
+experiment_id: "bench-{discovery.selector.kind}-{lake}-{retrieval.mode}"
+execution:
+  backend: api
+  api_url: http://127.0.0.1:8009
+  job_dir: /data/bilel/lakegen/jobs/lakegen_jobs_bench
+  workers: 6
+  split: {model: openai.gpt-oss-120b, share: 1.0}
+requires: ["pneuma:{lake}"]

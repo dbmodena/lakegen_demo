@@ -1,0 +1,40 @@
+# The Qwen grid of 2026-10-01: the full pipeline on local qwen3.8 27B, five lakes
+# x six retrieval modes x two selectors, in two passes (the first 20 questions of
+# each 100q set, then the other 80). Replaces experiments/qwen_grid/submit.sh;
+# tests/test_experiment_specs_parity.py checks these cells against the jobs that
+# script submitted.
+name: qwen-grid
+description: Full pipeline on local Qwen 27B, 5 lakes x 6 modes x 2 selectors
+base: [config/base.yaml, config/presets/model/ollama_qwen3_27b.yaml]
+set:
+  discovery.architecture: divided
+  # The code judge and the entity extraction were submitted on OCI's
+  # gpt-oss-120b and switched to Together's on 2026-10-02, when OCI's was no
+  # longer available; every job's stored configuration says Together.
+  judge.model: together.gpt-oss-120b
+  # Pneuma-Seeker in the reference configuration; the submit script set these
+  # for every job, so every cell carries them.
+  retrieval.seeker.content_fusion: fill
+  retrieval.seeker.enumerate_tables: false
+  retrieval.pneuma.entity_model: together.gpt-oss-120b
+  # The values the example configuration carried into every cell.
+  retrieval.pneuma.base_url: http://localhost:8765
+  retrieval.pneuma.index_name: lakegen
+  retrieval.seeker.scan_workers: 8
+grid:
+  lake: [valencia, paris, bologna, nyc, uk]
+  retrieval.mode: [keyword, semantic, hybrid, duckdb_agentic, pneuma, pneuma_seeker]
+  discovery.selector.kind: [llm, jev]
+pneuma_routes:   # the Pneuma services the run used (the submitter's environment)
+  uk: http://localhost:8767
+  nyc: http://localhost:8774
+questions:
+  set: "100q_{lake}"
+  passes: [{name: a, slice: ":20"}, {name: b, slice: "20:"}]
+experiment_id: "qwen-{discovery.selector.kind}-{pass}-{lake}-{retrieval.mode}"
+execution:
+  backend: api
+  api_url: http://127.0.0.1:8006
+  job_dir: /data/bilel/lakegen/jobs/lakegen_jobs_qwen
+  workers: 2
+requires: ["pneuma:{lake}", ollama]

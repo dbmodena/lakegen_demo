@@ -1,0 +1,46 @@
+# The rest run of 2026-10-01: every lake x retrieval cell of the 100q sets that
+# had no full-pipeline result yet, with the LLM selector; the UK keyword,
+# semantic and hybrid cells run the questions the weekend runs did not reach.
+# Replaces experiments/rest_run/submit.sh.
+name: rest-run
+description: The remaining 100q cells, LLM selector, gpt-oss-120b on Together
+base: [config/base.yaml]
+set:
+  # Submitted on OCI's gpt-oss-120b and switched, model, judge and entity
+  # extraction alike, to Together's on 2026-10-02, when OCI's was no longer
+  # available; every job's stored configuration says Together.
+  model: together.gpt-oss-120b
+  judge.model: together.gpt-oss-120b
+  retrieval.seeker.content_fusion: fill
+  retrieval.seeker.enumerate_tables: false
+  retrieval.pneuma.entity_model: together.gpt-oss-120b
+  retrieval.pneuma.base_url: http://localhost:8765
+  retrieval.pneuma.index_name: lakegen
+  retrieval.seeker.scan_workers: 8
+cells:
+  - {lake: uk, retrieval.mode: pneuma}
+  - {lake: uk, retrieval.mode: pneuma_seeker}
+  - {lake: nyc, retrieval.mode: pneuma}
+  - {lake: nyc, retrieval.mode: pneuma_seeker}
+  - {lake: valencia, retrieval.mode: pneuma_seeker}
+  - {lake: paris, retrieval.mode: pneuma_seeker}
+  - {lake: bologna, retrieval.mode: pneuma_seeker}
+  - {lake: uk, retrieval.mode: duckdb_agentic}
+  - {lake: nyc, retrieval.mode: duckdb_agentic}
+  - {lake: valencia, retrieval.mode: duckdb_agentic}
+  - {lake: paris, retrieval.mode: duckdb_agentic}
+  - {lake: bologna, retrieval.mode: duckdb_agentic}
+  - {lake: uk, retrieval.mode: keyword, questions: {file: experiments/rest_run/benchmarks/gap_uk_keyword.json}}
+  - {lake: uk, retrieval.mode: semantic, questions: {file: experiments/rest_run/benchmarks/gap_uk_semantic.json}}
+  - {lake: uk, retrieval.mode: hybrid, questions: {file: experiments/rest_run/benchmarks/gap_uk_hybrid.json}}
+pneuma_routes:   # the Pneuma services the run used (the submitter's environment)
+  uk: http://localhost:8767
+  nyc: http://localhost:8774
+questions: {set: "100q_{lake}"}
+experiment_id: "rest-{lake}-{retrieval.mode}"
+execution:
+  backend: api
+  api_url: http://127.0.0.1:8005
+  job_dir: /data/bilel/lakegen/jobs/lakegen_jobs_rest
+  stagger_seconds: 240
+requires: ["pneuma:{lake}"]
