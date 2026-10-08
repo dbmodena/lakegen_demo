@@ -79,6 +79,13 @@ class CoderBriefMode(StrEnum):
 
 
 class RetrievalExperimentConfig(FrozenModel):
+    """The retrieval block of an experiment file.
+
+    The same fields as ``RetrievalConfig`` (lakegen.retrieval.config), with the
+    production defaults; tests/test_retrieval_config_sync.py keeps the two in
+    step.
+    """
+
     mode: RetrievalMode = RetrievalMode.KEYWORD
     top_k: int = Field(default=DEFAULT_TOP_K, gt=0)
     alpha: float = Field(default=0.5, ge=0.0, le=1.0)

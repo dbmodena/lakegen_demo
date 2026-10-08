@@ -131,6 +131,13 @@ class PneumaContentFusion(StrEnum):
 
 @dataclass(frozen=True)
 class RetrievalConfig:
+    """The retrieval settings of one run.
+
+    ``RetrievalExperimentConfig`` (lakegen.experiment_config) mirrors this field
+    list for the experiment file; tests/test_retrieval_config_sync.py keeps the
+    two in step and pins the production defaults of ``from_env``.
+    """
+
     """Reproducible retrieval settings for a LakeGen experiment."""
 
     mode: RetrievalMode = RetrievalMode.KEYWORD
