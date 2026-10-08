@@ -29,3 +29,12 @@ branch moves code without changing what a run does.
   other questions' results. `lakegen.analysis.metrics.batch_cases` now
   pairs by source path and id (the last result of a re-queued question
   counts), and by position only for entries that carry no source.
+
+## 2026-10-09
+
+- **The divided judge's payload is read whole.** The judge's answer parser
+  matched `FINAL_PAYLOAD:` up to the first closing brace, so a payload that
+  nested a selection plan (every fallback after a stall or an agent error)
+  was cut short: its reason read "No reasoning provided." and its tables
+  were replaced by the top two candidates. The parser now decodes one
+  complete JSON object (`lakegen.discovery.candidates.parse_table_selector_response`).

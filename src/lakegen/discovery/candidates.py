@@ -160,6 +160,29 @@ def rejection_feedback_hint(
     return hint
 
 
+def _final_payload(agent_resp: str) -> dict | None:
+    """The JSON object after ``FINAL_PAYLOAD:``, whole, however deeply it nests.
+
+    A judge's payload carries its selection plan, so the object has objects
+    inside it; a non-greedy match to the first closing brace would cut it
+    short and lose the reasoning. The decoder reads one complete object;
+    quotes the model escaped as ``\\"`` are tried unescaped when the raw text
+    does not decode.
+    """
+    match = re.search(r"FINAL_PAYLOAD:\s*", agent_resp)
+    if match is None:
+        return None
+    decoder = json.JSONDecoder()
+    for candidate in (agent_resp, agent_resp.replace('\\"', '"')):
+        try:
+            payload, _end = decoder.raw_decode(candidate, match.end())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
 def parse_table_selector_response(
     agent_resp: str,
     all_files: list[str],
@@ -174,16 +197,14 @@ def parse_table_selector_response(
         return [], f"REJECT_KEYWORDS: {reason}"
 
     if "FINAL_PAYLOAD:" in agent_resp:
-        match = re.search(r"FINAL_PAYLOAD:\s*(\{.*?\})", agent_resp, re.DOTALL)
-        if match:
-            try:
-                payload = json.loads(match.group(1).replace('\\"', '"'))
-                selected_str = payload.get("tables", "")
-                reasoning = payload.get("reasoning", "")
-            except json.JSONDecodeError:
-                selected_str = match.group(1)
+        payload = _final_payload(agent_resp)
+        if payload is not None:
+            tables = payload.get("tables", "")
+            selected_str = ", ".join(map(str, tables)) if isinstance(tables, list) else str(tables)
+            reasoning = str(payload.get("reasoning", ""))
         else:
-            selected_str = agent_resp
+            match = re.search(r"FINAL_PAYLOAD:\s*(\{.*?\})", agent_resp, re.DOTALL)
+            selected_str = match.group(1) if match else agent_resp
     else:
         tables_match = re.search(r"(?i)TABLES:\s*(.*)", agent_resp)
         if tables_match:

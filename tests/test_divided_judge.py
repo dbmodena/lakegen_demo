@@ -73,17 +73,17 @@ def test_a_stall_falls_back_to_the_top_candidates(monkeypatch, tmp_path):
     (selected, _, _, reasoning, _, _), _, stream = _run(monkeypatch, tmp_path, [Phase2AgentStall("loop")], state=state)
     # Nothing was inspected, so the fallback names no table and the parser takes the top two.
     assert selected == ["a.parquet", "b.parquet"]
-    # Latent bug, pinned as it is: the fallback payload nests a selection plan,
-    # the parser's non-greedy match truncates it, and the reason is lost.
-    assert reasoning == "No reasoning provided."
+    assert reasoning == "Phase 2 loop guard triggered: loop. Fallback restricted to inspected candidates."
     assert "Phase 2 loop guard triggered" in stream and state.selection_plan == {}
 
 
 def test_an_agent_error_falls_back_and_says_so(monkeypatch, tmp_path):
     (selected, _, _, reasoning, _, _), _, stream = _run(monkeypatch, tmp_path, [RuntimeError("Max iterations reached")])
     assert selected == ["a.parquet", "b.parquet"]
-    assert reasoning == "No reasoning provided."  # the same truncated fallback payload as after a stall
+    assert reasoning == "Agent exceeded maximum iterations. Fallback to top candidates."
     assert "[phase2 agent error] Max iterations reached" in stream
+    (_, _, _, reasoning, _, _), _, _ = _run(monkeypatch, tmp_path, [RuntimeError("boom")])
+    assert reasoning == "Agent error: boom. Fallback to top 2."
 
 
 def test_a_cancellation_propagates(monkeypatch, tmp_path):
