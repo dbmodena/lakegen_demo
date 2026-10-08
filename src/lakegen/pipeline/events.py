@@ -9,6 +9,7 @@ autonomous run never asks.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 # --- signals -----------------------------------------------------------------
 
@@ -35,6 +36,10 @@ class StageFinished:
     """Discovery: the architect's reason; code: the result or the error."""
     more: bool = False
     """Another attempt of the same stage follows."""
+    details: dict[str, Any] = field(default_factory=dict)
+    """What the stage produced, for a driver that shows more than the message:
+    discovery: keywords, selected, candidates, reasoning, trace, selection_trace, tokens, hint;
+    code: code_raw, clean_code, tokens, error, error_msg, raw_result; answer: answer, tokens."""
 
 
 # --- requests and their answers ----------------------------------------------
@@ -45,6 +50,11 @@ class ReviewKeywords:
 
     keywords: list[str]
     tokens: int
+    hint: str = ""
+    """What the keyword writer was told for this round."""
+    raw: str = ""
+    """The writer's raw output."""
+    reasoning: str = ""
 
 
 @dataclass(frozen=True)
@@ -57,6 +67,8 @@ class ReviewTables:
     tokens: int
     after_rejection: bool = False
     """The round followed a coder rejection: the driver may only approve or abort."""
+    architect_feedback: str = ""
+    """The architect's own feedback on this round, when it rejected it; a hint the person adds is merged with it."""
 
 
 @dataclass(frozen=True)
@@ -83,6 +95,8 @@ class Reject:
     """Another discovery round, with a hint for the architect."""
 
     hint: str = ""
+    regenerate_keywords: bool = True
+    """Divided architecture: write new keywords (the CLI's way) or re-select with the same ones (the chat's)."""
 
 
 @dataclass(frozen=True)

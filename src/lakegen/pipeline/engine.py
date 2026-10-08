@@ -25,6 +25,7 @@ from lakegen.core import paths
 from lakegen.core.config import BASE_DIR
 from lakegen.core.resources import capture_retrieval_runs, make_retrieval_run_observer
 from lakegen.domain.evaluation import EvaluationContext
+from lakegen.errors import WorkflowCancelled, WorkflowTimedOut
 from lakegen.experiment_config import DiscoveryArchitecture
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
@@ -54,6 +55,7 @@ from lakegen.pipeline.events import (
     StageFinished,
     StageStarted,
 )
+from lakegen.pipeline.hooks import StageHooks
 from lakegen.pipeline.stages import (
     CORRECTION_HEADER,
     MAX_CODE_ATTEMPTS,
@@ -146,11 +148,13 @@ class Pipeline:
         log_context: Mapping[str, Any] | None = None,
         manifest: ExperimentManifest | None = None,
         interventions: Any = None,
+        hooks: StageHooks | None = None,
     ) -> Generator[Signal | Request, Answer | None, QueryResult]:
         """The run, step by step; see the module docstring.
 
         ``interventions`` is the driver's ``HumanInterventionRecorder``; what
-        it records goes into the result.
+        it records goes into the result. ``hooks`` are the driver's streams
+        and stop check, passed to the phases while they run.
         """
         ctx, deps = self.ctx, self.deps
         recorder = Recorder(question, ctx, deps)
@@ -189,6 +193,7 @@ class Pipeline:
             state=state, guard=DedupeGuard(), llm=llm, solr=solr, prompt_manager=prompt_manager,
             all_files=all_files, run_dir=paths.coding_dir() / uuid.uuid4().hex,
             reproducibility=reproducibility, attempt_evaluator=attempt_evaluator,
+            hooks=hooks or StageHooks(),
         )
         judge = SemanticJudge(run)
         discovery = DiscoveryStage(run)
@@ -211,6 +216,8 @@ class Pipeline:
                         "rejection_feedback": "",
                     }
                     state.selection_attempts.append(selection_record)
+                    round_hint = state.hint
+                    state.architect_feedback = ""
                     yield StageStarted("discovery", table_attempt.number)
                     outcome, keywords_rejected = yield from discovery.run_round(table_attempt, selection_record)
                     yield StageFinished(
@@ -218,6 +225,13 @@ class Pipeline:
                         "keywords_rejected" if keywords_rejected
                         else "forced_selection" if state.forced_selection else "selected",
                         message=state.reasoning,
+                        details={
+                            "keywords": list(state.keywords), "selected": list(state.selected),
+                            "candidates": list(outcome.candidates), "metadata": dict(state.solr_meta),
+                            "reasoning": state.reasoning,
+                            "trace": state.trace, "selection_trace": outcome.selection_trace,
+                            "tokens": outcome.tokens, "phase_tokens": outcome.phase_tokens, "hint": round_hint,
+                        },
                     )
                     state.forced_selection = False
                     if keywords_rejected:
@@ -227,7 +241,7 @@ class Pipeline:
                         answer = yield ReviewTables(
                             keywords=list(state.keywords), selected=list(state.selected), reasoning=state.reasoning,
                             tokens=outcome.tokens if experiment.use_unified_agent else outcome.phase_tokens[1],
-                            after_rejection=state.after_coder_rejection,
+                            after_rejection=state.after_coder_rejection, architect_feedback=state.architect_feedback,
                         )
                         state.after_coder_rejection = False
                         if isinstance(answer, Abort):
@@ -236,9 +250,12 @@ class Pipeline:
                             return result
                         if isinstance(answer, Reject):
                             if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:
-                                state.attempted_keywords.extend(state.keywords)
-                                state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
-                            state.hint = answer.hint
+                                if answer.regenerate_keywords:
+                                    state.attempted_keywords.extend(state.keywords)
+                                    state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
+                                else:
+                                    state.reuse_keywords = True
+                            state.hint = next_round_hint(state.architect_feedback, answer.hint)
                             continue
                         if not isinstance(answer, Approve):
                             raise TypeError(f"a table review is answered with Approve, Reject or Abort, not {answer!r}")
@@ -268,7 +285,19 @@ class Pipeline:
                     AnswerStage(run).run_fallback(
                         f"Execution failed after {MAX_CODE_ATTEMPTS} attempts. Last error: {state.error}"
                     )
+                    yield StageFinished("answer", message=result.answer, details={"answer": result.answer, "tokens": result.tokens["p4"]})
                 return result
+            except (WorkflowCancelled, WorkflowTimedOut) as exc:
+                # The person stopped the run, or a gate timed out: the record
+                # says so, and the surface decides what to show.
+                result.status = "cancelled" if isinstance(exc, WorkflowCancelled) else "timed_out"
+                result.error = f"{type(exc).__name__}: {exc}"
+                raise
+            except GeneratorExit:
+                # The driver closed the run between two steps.
+                result.status = "cancelled"
+                result.error = result.error or "Workflow stopped by user."
+                raise
             except Exception as exc:
                 result.status = "failed"
                 result.error = f"{type(exc).__name__}: {exc}"
@@ -301,6 +330,13 @@ def run_pipeline(
 ) -> QueryResult:
     """Run the autonomous LakeGen workflow for one question."""
     return Pipeline(ctx, deps).run(question, question_id=question_id, log_context=log_context, manifest=manifest)
+
+
+def next_round_hint(architect_feedback: str, user_hint: str) -> str:
+    """A rejected round's architect feedback, plus what the person added."""
+    if architect_feedback and user_hint:
+        return f"{architect_feedback} User feedback: {user_hint}"
+    return architect_feedback or user_hint
 
 
 def _repeated_rejection(run: Run, attempt, selection_record: dict[str, Any]) -> Verdict | None:

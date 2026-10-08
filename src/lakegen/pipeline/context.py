@@ -23,6 +23,8 @@ class MemoryScope(StrEnum):
 
     DURABLE = "durable"
     """The lake's memory file; what the batch service uses."""
+    SESSION = "session"
+    """Kept for the run only, as the Chainlit app does: what a round learns reaches the next, nothing is written."""
     NONE = "none"
     """No memory: each run starts blank, as the step-by-step CLI did."""
 

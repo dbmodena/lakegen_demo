@@ -5,10 +5,9 @@ import pytest
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.tracing import HumanGate
+from lakegen.ui import workflow
 from lakegen.ui.sections import format_retrieval_keywords
 from lakegen.ui.state import LakeGenSession, WorkflowTimedOut
-
-from lakegen.ui import workflow
 from src import app as chainlit_app
 
 
@@ -139,47 +138,100 @@ def test_chainlit_finalizer_saves_once_with_partial_phases(
         assert trace["llm_calls"][2]["total_tokens"] == 0
 
 
-@pytest.mark.parametrize("phase", ["initialization", "discovery"])
-@pytest.mark.asyncio
-async def test_workflow_exception_is_logged_without_masking_original(
-    phase, monkeypatch
-):
-    session = _session()
-    logged = []
+class _Step:
+    def __init__(self, **_kwargs):
+        self.output = ""
+        self.default_open = True
 
-    async def fail(_question):
-        session.phase = phase
-        raise ValueError(f"{phase} failed")
+    async def __aenter__(self):
+        return self
 
-    monkeypatch.setattr(workflow, "get_session", lambda: session)
-    monkeypatch.setattr(workflow, "_run_locked_workflow", fail)
-    monkeypatch.setattr(
-        workflow, "save_experiment_log", lambda **kwargs: logged.append(kwargs)
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def update(self):
+        pass
+
+
+class _Bridge:
+    def __init__(self, _step):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    def emit(self, _delta):
+        pass
+
+
+class _Message:
+    def __init__(self, **_kwargs):
+        pass
+
+    async def send(self):
+        pass
+
+
+def _engine_run(monkeypatch, session, tmp_path, *, phase12, ask_choice):
+    """A unified run on the engine with scripted phases, its log rows captured."""
+    config = ExperimentConfig(interaction_mode="human_gated")
+    runtime = SimpleNamespace(
+        model_name=config.model, solr_core=config.core, csv_dir=tmp_path, portal_name="UK",
+        retrieval=config.retrieval.to_runtime(), experiment=config, discovery=config.discovery,
+        use_unified_agent=True,
     )
+    logged = []
+    monkeypatch.setattr(workflow, "get_session", lambda: session)
+    monkeypatch.setattr(workflow, "get_runtime_settings", lambda: runtime)
+    monkeypatch.setattr(workflow, "get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr(workflow, "get_solr", lambda _core: object())
+    monkeypatch.setattr(workflow, "get_prompt_manager", object)
+    monkeypatch.setattr(workflow, "get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr(workflow, "persist_manifest", lambda *_args: None)
+    monkeypatch.setattr(workflow, "log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr(workflow, "phase12_agent", phase12)
+    monkeypatch.setattr(workflow, "_ask_choice", ask_choice)
+    monkeypatch.setattr(workflow, "save_experiment_log", lambda **kwargs: logged.append(kwargs))
+    monkeypatch.setattr(workflow, "StepStreamBridge", _Bridge)
+    monkeypatch.setattr(workflow.cl, "Step", _Step)
+    monkeypatch.setattr(workflow.cl, "Message", _Message)
+    return logged
 
-    with pytest.raises(ValueError, match=f"{phase} failed"):
-        await workflow.run_lakegen_workflow("Question?")
+
+@pytest.mark.asyncio
+async def test_workflow_exception_is_logged_without_masking_original(monkeypatch, tmp_path):
+    """A phase that raises ends the run as failed, with the error, in exactly one record."""
+    session = _session()
+
+    def fail(**_kwargs):
+        raise ValueError("discovery failed")
+
+    async def never(*_args, **_kwargs):
+        raise AssertionError("no gate is reached")
+
+    logged = _engine_run(monkeypatch, session, tmp_path, phase12=fail, ask_choice=never)
+    await workflow.run_lakegen_workflow("Question?")
 
     assert len(logged) == 1
     assert logged[0]["status"] == "failed"
-    assert f"ValueError: {phase} failed" in logged[0]["error"]
+    assert "ValueError: discovery failed" in logged[0]["error"]
 
 
 @pytest.mark.asyncio
-async def test_workflow_timeout_is_logged_once(monkeypatch):
+async def test_workflow_timeout_is_logged_once(monkeypatch, tmp_path):
+    """A gate that times out ends the run as timed out, recorded once, before the chat goes on."""
     session = _session()
-    logged = []
 
-    async def time_out(_question):
-        session.phase = "discovery"
+    def select(**_kwargs):
+        return ["table.csv"], ["water"], {}, "Selected.", "", 3
+
+    async def time_out(*_args, **_kwargs):
         raise WorkflowTimedOut("dataset_hint expired")
 
-    monkeypatch.setattr(workflow, "get_session", lambda: session)
-    monkeypatch.setattr(workflow, "_run_locked_workflow", time_out)
-    monkeypatch.setattr(
-        workflow, "save_experiment_log", lambda **kwargs: logged.append(kwargs)
-    )
-
+    logged = _engine_run(monkeypatch, session, tmp_path, phase12=select, ask_choice=time_out)
     await workflow.run_lakegen_workflow("Question?")
 
     assert len(logged) == 1

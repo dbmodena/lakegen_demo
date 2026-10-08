@@ -8,8 +8,12 @@
           "other.csv"
         ],
         "cancel_check": "<check_cancelled>",
+        "failed_keyword_combinations": [],
         "hint": "",
         "llm": "<object>",
+        "max_zero_result_retries": 0,
+        "memory_enabled": false,
+        "portal_name": "Test portal",
         "query": "How many parks are there per district?",
         "retrieval_config": {
           "alpha": 0.5,
@@ -54,6 +58,7 @@
           "top_k": 20,
           "vector_field": "table_embedding"
         },
+        "retrieval_memory": "",
         "solr_client": "<object>",
         "stream_callback": "<emit>",
         "table_dir": "<TMP>"
@@ -67,8 +72,12 @@
           "other.csv"
         ],
         "cancel_check": "<check_cancelled>",
-        "hint": "REJECT_KEYWORDS: nothing matched",
+        "failed_keyword_combinations": [],
+        "hint": "The previous keywords returned no datasets. Generate different keywords. Attempted: ['parks']",
         "llm": "<object>",
+        "max_zero_result_retries": 0,
+        "memory_enabled": false,
+        "portal_name": "Test portal",
         "query": "How many parks are there per district?",
         "retrieval_config": {
           "alpha": 0.5,
@@ -113,6 +122,7 @@
           "top_k": 20,
           "vector_field": "table_embedding"
         },
+        "retrieval_memory": "",
         "solr_client": "<object>",
         "stream_callback": "<emit>",
         "table_dir": "<TMP>"
@@ -126,8 +136,12 @@
           "other.csv"
         ],
         "cancel_check": "<check_cancelled>",
-        "hint": "REJECT_KEYWORDS: nothing matched",
+        "failed_keyword_combinations": [],
+        "hint": "The previous keywords returned no datasets. Generate different keywords. Attempted: ['parks']",
         "llm": "<object>",
+        "max_zero_result_retries": 0,
+        "memory_enabled": false,
+        "portal_name": "Test portal",
         "query": "How many parks are there per district?",
         "retrieval_config": {
           "alpha": 0.5,
@@ -172,6 +186,7 @@
           "top_k": 20,
           "vector_field": "table_embedding"
         },
+        "retrieval_memory": "",
         "solr_client": "<object>",
         "stream_callback": "<emit>",
         "table_dir": "<TMP>"
@@ -182,9 +197,20 @@
     {
       "architecture": "unified",
       "code": "",
+      "csv_filename": "api_experiments_log.csv",
       "elapsed_seconds": 0,
-      "error": "REJECT_KEYWORDS: nothing matched",
+      "error": "LakeGen could not produce an executable answer.",
       "extra_fields": {
+        "ANSWER_DISPOSITION": "",
+        "CANDIDATE_MULTIPLIER": 5,
+        "CORE": "nyc",
+        "EMBEDDING_BASE_URL": "http://localhost:11434",
+        "EMBEDDING_MODEL": "cohere.embed-v4.0",
+        "EXPERIMENT_ID": "golden",
+        "FUSION_METHOD": "weighted",
+        "HYBRID_ALPHA": 0.5,
+        "LEXICAL_QUERY_FIELDS": null,
+        "MANIFEST_ID": "<hex32>",
         "MANIFEST_JSON": {
           "core": "nyc",
           "dataset": "nyc",
@@ -369,8 +395,26 @@
           "seed": 0,
           "timestamp": "<timestamp>"
         },
+        "MISSING_SIGNAL_POLICY": "zero",
+        "PIPELINE_STAGES_JSON": {
+          "code_execution": "not_run",
+          "final_answer": "not_run",
+          "retrieval": "no_hits",
+          "table_selection": "empty"
+        },
+        "PORTAL_NAME": "Test portal",
+        "REPRESENTATION_VERSION": "metadata-v1",
+        "RETRIEVAL_MODE": "keyword",
+        "RETRIEVAL_RUNS_JSON": [],
+        "RRF_K": 60,
         "RUN_TRACE_JSON": {
-          "code": null,
+          "architecture": "unified",
+          "code_evaluation": {
+            "applicable": false,
+            "attempts": [],
+            "reason": "expected_result_type and reference_result are required"
+          },
+          "coder_context_experiment": {},
           "configuration": {
             "automatic_test_coder": false,
             "benchmark": {
@@ -468,19 +512,99 @@
             "tool_access": "orchestrated_context"
           },
           "discovery": {
+            "expansion_requirements": [],
+            "expansion_used": false,
             "keywords": [
               "parks"
             ],
+            "outcome": "empty",
+            "reasoning_available_to_coder": false,
+            "search_attempt_count": 0,
             "selected_datasets": [],
-            "unused_concepts": []
+            "selection_attempts": [
+              {
+                "attempt": 1,
+                "initial_stall_reason": null,
+                "kept_tables": [],
+                "keywords": [
+                  "parks"
+                ],
+                "outcome": "keywords_rejected",
+                "reasoning_available_to_coder": false,
+                "recovery_started": false,
+                "recovery_stop_reason": null,
+                "rejection_feedback": "",
+                "selected_datasets": [],
+                "selection_advisories": [],
+                "selection_plan": {},
+                "selection_plan_source": "none",
+                "semantic_draft_present": false,
+                "semantic_plan_failure": null,
+                "semantic_planner_attempts": 0,
+                "skipped_tables": []
+              },
+              {
+                "attempt": 2,
+                "initial_stall_reason": null,
+                "kept_tables": [],
+                "keywords": [
+                  "parks"
+                ],
+                "outcome": "keywords_rejected",
+                "reasoning_available_to_coder": false,
+                "recovery_started": false,
+                "recovery_stop_reason": null,
+                "rejection_feedback": "",
+                "selected_datasets": [],
+                "selection_advisories": [],
+                "selection_plan": {},
+                "selection_plan_source": "none",
+                "semantic_draft_present": false,
+                "semantic_plan_failure": null,
+                "semantic_planner_attempts": 0,
+                "skipped_tables": []
+              },
+              {
+                "attempt": 3,
+                "initial_stall_reason": null,
+                "kept_tables": [],
+                "keywords": [
+                  "parks"
+                ],
+                "outcome": "keywords_rejected",
+                "reasoning_available_to_coder": false,
+                "recovery_started": false,
+                "recovery_stop_reason": null,
+                "rejection_feedback": "",
+                "selected_datasets": [],
+                "selection_advisories": [],
+                "selection_plan": {},
+                "selection_plan_source": "none",
+                "semantic_draft_present": false,
+                "semantic_plan_failure": null,
+                "semantic_planner_attempts": 0,
+                "skipped_tables": []
+              }
+            ]
           },
           "errors": [
-            "REJECT_KEYWORDS: nothing matched"
+            {
+              "message": "LakeGen could not produce an executable answer.",
+              "phase": "pipeline"
+            }
           ],
           "execution_outcome": {
-            "error": "REJECT_KEYWORDS: nothing matched",
-            "raw_result": null,
-            "status": "failed"
+            "code_evaluation": {
+              "applicable": false,
+              "attempts": [],
+              "reason": "expected_result_type and reference_result are required"
+            },
+            "coder_context_experiment": {},
+            "coder_review": null,
+            "coder_runs": 0,
+            "error": "LakeGen could not produce an executable answer.",
+            "raw_result": "",
+            "status": "not_run"
           },
           "human_interventions": [],
           "llm_calls": [
@@ -516,20 +640,16 @@
             }
           ],
           "phase_metrics": {
-            "code": {
-              "latency_seconds": 0
-            },
             "discovery": {
-              "latency_seconds": 0
-            },
-            "result": {
-              "latency_seconds": 0
+              "latency_seconds": 0,
+              "retries": 2
             },
             "total": {
-              "latency_seconds": 0
+              "latency_seconds": 0,
+              "retries": 0
             }
           },
-          "phase_reached": "discovery",
+          "ranking": [],
           "reproducibility": {
             "configured_seed": 0,
             "deterministic_llm_generation": false,
@@ -548,11 +668,10 @@
               "oci_llm_generation"
             ]
           },
-          "retries": 0,
-          "status": "failed",
           "tool_access": {
             "agent_count": 1,
             "agent_direct_tools": [],
+            "coder_context_audit": null,
             "configured_tool_access": "orchestrated_context",
             "discovery_architecture": "unified",
             "empty_context_retries": 3,
@@ -570,7 +689,13 @@
             "selector_error": null
           },
           "tool_calls": []
-        }
+        },
+        "TOKENS_CODE_FULL": 0,
+        "TOKENS_CODE_MINIMAL": 0,
+        "TOKENS_CODE_SCHEMA_ONLY": 0,
+        "TOKENS_CODE_UNATTRIBUTED": 0,
+        "TOP_K": 20,
+        "VECTOR_FIELD": "table_embedding"
       },
       "final_keywords": [
         "parks"
@@ -579,7 +704,6 @@
       "full_trace": "",
       "model": "openai.gpt-oss-120b",
       "question": "How many parks are there per district?",
-      "raw_keywords": "",
       "reasoning": "REJECT_KEYWORDS: nothing matched",
       "result": "",
       "retries": 0,

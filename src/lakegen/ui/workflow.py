@@ -1,6 +1,7 @@
 from __future__ import annotations
 import uuid
 import os
+import sys
 import time
 import logging
 
@@ -61,6 +62,10 @@ from lakegen.experiment_config import ToolAccess
 from lakegen.orchestrated_context import prepare_discovery_context
 from lakegen.retrieval.intent import intent_entities
 from lakegen.keyword_memory import format_question_retrieval_memory
+from lakegen.interfaces.chainlit.driver import ChainlitDriver
+from lakegen.pipeline.context import MemoryScope, RunContext, SurfaceOptions
+from lakegen.pipeline.deps import PipelineDeps
+from lakegen.pipeline.engine import Pipeline
 from lakegen.phases.orchestrated_discovery import (
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
@@ -72,6 +77,12 @@ from lakegen.phases.orchestrated_discovery import (
 
 WORKFLOW_LOCK = asyncio.Lock()
 MAX_RETRIES = 3
+
+# The phases, resources and sinks the engine calls, imported here by name so
+# that a test patching `workflow.<name>` patches what the engine calls
+# (PipelineDeps.from_module reads them from this module when a run starts).
+from lakegen.core.resources import log_retrieval_decision  # noqa: E402, F401
+from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: E402, F401
 logger = logging.getLogger(__name__)
 
 
@@ -1023,169 +1034,29 @@ def _finalize_run(session: LakeGenSession, status: str, error: str = "") -> None
 
 
 async def _run_locked_workflow(question: str) -> str:
+    """One question on the engine, driven in the chat; the status the run ended with."""
     session = get_session()
     runtime = get_runtime_settings()
     session.runtime = runtime
-    # The session object persists across multiple questions in one Chainlit
-    # conversation; this discovery-attempt memory must not leak between them.
-    session.excluded_tables = set()
-    session.carried_tables = []
-    session.carried_metadata = {}
-    session.carried_inspection = {}
-    session.failed_keyword_combinations = []
-    session.banned_table_keyword_combinations = []
-    session.retrieval_memory_events = []
-    session.tool_access_telemetry = {
-        "configured_tool_access": runtime.experiment.tool_access.value,
-        "execution_path": runtime.experiment.tool_access.value,
-        "discovery_architecture": runtime.experiment.discovery_architecture.value,
-        "agent_count": 1 if runtime.use_unified_agent else 2,
-        "llm_invocations": 0,
-        "retrieval_mode": runtime.retrieval.mode.value,
-        "prepared_candidate_count": 0,
-        "retrieved_hit_count": 0,
-        "prepared_context_utf8_bytes": 0,
-        "agent_direct_tools": [],
-        "orchestrator_retrieval_calls": {},
-        "empty_context_retries": 0,
-        "request_protocol_error": None,
-        "preparation_error": None,
-        "selector_error": None,
-    }
-    session.phase = "initialization"
-    manifest = create_manifest(
-        runtime.experiment,
-        base_dir=BASE_DIR,
-        question=question,
-        run_id=session.run_id,
-    )
-    persist_manifest(manifest, paths.manifests_dir())
-    session.manifest = manifest.model_dump(mode="json")
-
-    llm, _token_counter = get_llm(runtime.model_name)
-    solr = get_solr(runtime.solr_core)
-    pm = get_prompt_manager()
-    all_files = get_all_table_files(runtime.csv_dir)
-    if not all_files:
-        session.execution_error = f"No local tables found in {runtime.csv_dir}"
-        await cl.Message(
-            content=(
-                "No CSV or Parquet files were found in "
-                f"`{runtime.csv_dir}`."
-            )
-        ).send()
-        return "failed"
-
-    keyword_hint = ""
     session.phase = "discovery"
-    while True:
-        if session.runtime.use_unified_agent:
-            table_status = await _run_unified_gate(
-                session,
-                llm,
-                pm,
-                solr,
-                all_files,
-                initial_hint=keyword_hint,
-            )
-            if table_status != "approved":
-                if table_status == "failed":
-                    return "failed"
-                await cl.Message(content=session.text("workflow.cancelled")).send()
-                return "cancelled"
-        else:
-            # ── Two-phase flow: Phase 1 (keywords) → Phase 2 (search + judge) ──
-            await _run_keyword_gate(session, llm, pm, keyword_hint)
-            table_status = await _run_table_gate(
-                session,
-                llm,
-                pm,
-                solr,
-                all_files,
-            )
-            if table_status == "keywords_rejected":
-                if (
-                    session.runtime.experiment.tool_access
-                    == ToolAccess.ORCHESTRATED_CONTEXT
-                    and session.tool_access_telemetry["empty_context_retries"]
-                    >= MAX_RETRIES
-                ):
-                    session.execution_error = session.fallback_reason
-                    return "failed"
-                keyword_hint = (
-                    "The previous keywords led to bad tables. "
-                    f"Architect feedback: {session.fallback_reason}. "
-                    "Generate completely different keywords."
-                )
-                continue
-            if table_status != "approved":
-                await cl.Message(content=session.text("workflow.cancelled")).send()
-                return "cancelled"
-
-        session.force_execution = False
-        while True:
-            outcome = await _run_execution(session, llm, pm)
-            if outcome.status == "done":
-                return "completed"
-
-            action = await _ask_choice(
-                session.text(
-                    "workflow.tables_rejected",
-                    feedback=outcome.reason,
-                ),
-                [
-                    (
-                        "reevaluate_tables",
-                        "reevaluate",
-                        session.text("workflow.reevaluate_tables"),
-                    ),
-                    ("force_execution", "force", session.text("workflow.force_execution")),
-                ],
-                phase="code",
-                gate=HumanGate.FORCE_EXECUTION_CONFIRMATION,
-                approved_value="force",
-            )
-            if action == "force":
-                session.force_execution = True
-                continue
-
-            session.force_execution = False
-
-            # Re-run Phase 1/2 with feedback from coder
-            hint_msg = (
-                "Previous selection rejected by Code Generator. "
-                f"Coder feedback: {outcome.reason}"
-            )
-            if session.runtime.use_unified_agent:
-                table_status = await _run_unified_gate(
-                    session, llm, pm, solr, all_files, initial_hint=hint_msg
-                )
-                if table_status != "approved":
-                    await cl.Message(content=session.text("workflow.cancelled")).send()
-                    return "cancelled"
-            else:
-                table_status = await _run_table_gate(
-                    session,
-                    llm,
-                    pm,
-                    solr,
-                    all_files,
-                    initial_hint=hint_msg,
-                )
-                if table_status == "keywords_rejected":
-                    keyword_hint = (
-                        "The previous keywords led to bad tables. "
-                        f"Architect feedback: {session.fallback_reason}. "
-                        "Generate completely different keywords."
-                    )
-                    break
-                if table_status != "approved":
-                    await cl.Message(content=session.text("workflow.cancelled")).send()
-                    return "cancelled"
-
-        # If we broke out due to keywords_rejected, loop back to Phase 1
-        if keyword_hint:
-            continue
+    ctx = RunContext.from_runtime(
+        runtime,
+        SurfaceOptions(human_gated=True, memory_scope=MemoryScope.SESSION, answer_on_failure=True),
+    )
+    pipeline = Pipeline(ctx, PipelineDeps.from_module(sys.modules[__name__]))
+    driver = ChainlitDriver(
+        pipeline, ctx, session, ask_choice=_ask_choice, ask_hint=_ask_hint, bridge_class=StepStreamBridge,
+    )
+    try:
+        result = await driver.run(question)
+    except RuntimeError as exc:
+        # The engine refuses a lake without tables before it starts.
+        session.execution_error = str(exc)
+        await cl.Message(content=f"No CSV or Parquet files were found in `{runtime.csv_dir}`.").send()
+        return "failed"
+    session.manifest = dict(result.manifest)
+    session.execution_error = result.error
+    return result.status
 
 
 async def run_lakegen_workflow(question: str) -> None:
@@ -1216,7 +1087,4 @@ async def run_lakegen_workflow(question: str) -> None:
             error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
-            try:
-                _finalize_run(session, status, error)
-            except Exception:
-                logger.exception("Could not persist the Chainlit experiment record")
+            session.finalized = True  # the engine's recorder wrote the run's record

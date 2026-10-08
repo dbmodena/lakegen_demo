@@ -61,6 +61,13 @@ class RunState:
     after_coder_rejection: bool = False
     forced_selection: bool = False
     """The last round's selection was forced on the last attempt, not chosen."""
+    architect_feedback: str = ""
+    """The architect's feedback when it rejected the last round; empty otherwise."""
+    last_keyword_round: tuple[Any, ...] | None = None
+    """The divided architecture's last approved keyword round, for a re-selection with the same keywords."""
+    reuse_keywords: bool = False
+    retrieval_memory_events: list[dict[str, Any]] = field(default_factory=list)
+    """The agent's retrieval evidence of this run, when the memory scope is the session."""
     """The next discovery round follows a coder rejection (a gated review may only approve or abort)."""
 
     def carry(self, keep_tables: list[str], skip_tables: list[str], inspection_cache: dict[str, str] | None = None) -> None:

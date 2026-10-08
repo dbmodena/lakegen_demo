@@ -77,7 +77,7 @@ def test_an_autonomous_run_asks_nothing_and_a_gated_one_reviews_the_tables(monke
     assert [(s.stage, type(s).__name__) for s in signals[1:]] == [
         ("discovery", "StageStarted"), ("discovery", "StageFinished"),
         ("coding", "StageStarted"), ("code", "StageStarted"), ("code", "StageFinished"),
-        ("answer", "StageStarted"), ("coding", "StageFinished"),
+        ("answer", "StageStarted"), ("answer", "StageFinished"), ("coding", "StageFinished"),
     ]
     assert signals[2].detail == "selected" and signals[5].detail == "succeeded" and signals[5].message == "42"
     asked, _, result, _ = _drive(monkeypatch, tmp_path, case, [Approve()])
@@ -103,8 +103,8 @@ def test_divided_keywords_are_reviewed_before_the_selection(monkeypatch, tmp_pat
         files=FILES,
     )
     asked, _, result, log = _drive(monkeypatch, tmp_path, case, [Regenerate("add the year"), Approve(), Approve()])
-    assert asked[0] == ReviewKeywords(keywords=["parks", "district"], tokens=2)
-    assert asked[1] == ReviewKeywords(keywords=["parks", "district", "2024"], tokens=2)
+    assert asked[0] == ReviewKeywords(keywords=["parks", "district"], tokens=2, raw="raw keyword output", reasoning="phase 1 reasoning")
+    assert asked[1].keywords == ["parks", "district", "2024"] and asked[1].hint == "add the year"
     assert isinstance(asked[2], ReviewTables) and asked[2].tokens == 4
     keyword_calls = [call["kwargs"] for call in log.calls if call["call"] == "phase1_generate_keywords"]
     assert keyword_calls[1]["hint"] == "add the year" and keyword_calls[1]["avoid_keywords"] == ["parks", "district"]

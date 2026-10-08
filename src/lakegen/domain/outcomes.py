@@ -55,6 +55,8 @@ class DiscoveryOutcome:
     """The unified agent's cached inspections of the kept tables."""
     prepared: Any = None
     """The orchestrated context the tables were chosen from, when one was prepared."""
+    selection_trace: str = ""
+    """The selector's own trace, before the divided architecture's composition with the keyword round."""
 
     @property
     def rejected(self) -> bool:

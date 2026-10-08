@@ -48,7 +48,7 @@ def unified_agentic_outcome(raw: tuple[Any, ...], state: Any) -> DiscoveryOutcom
         metadata=metadata, reasoning=reasoning, trace=trace, tokens=tokens,
         phase_tokens=(tokens, 0), selector=SelectorKind.AGENT,
         keep_tables=list(state.rejection_keep_tables), skip_tables=list(state.rejection_skip_tables),
-        inspection_cache=dict(state.inspection_cache),
+        inspection_cache=dict(state.inspection_cache), selection_trace=trace,
     )
 
 
@@ -63,6 +63,7 @@ def divided_agentic_outcome(keyword_round: tuple[Any, ...], selection_round: tup
         trace=f"--- Divided Phase 1 ---\n{reasoning_p1}\n--- Divided Phase 2 ---\n{trace}",
         tokens=tokens_p1 + tokens_p2, phase_tokens=(tokens_p1, tokens_p2), selector=_selector(trace),
         keep_tables=list(state.rejection_keep_tables), skip_tables=list(state.rejection_skip_tables),
+        selection_trace=trace,
     )
 
 
@@ -73,7 +74,7 @@ def unified_orchestrated_outcome(result: Any) -> DiscoveryOutcome:
         selected=list(result.selected_datasets), candidates=list(result.candidates),
         keywords=list(result.keywords), metadata=result.metadata, reasoning=result.reasoning,
         trace=result.trace, tokens=result.tokens, phase_tokens=(result.tokens, 0),
-        selector=SelectorKind.AGENT, prepared=result.prepared_context,
+        selector=SelectorKind.AGENT, prepared=result.prepared_context, selection_trace=result.trace,
     )
 
 
@@ -101,7 +102,7 @@ def divided_orchestrated_outcome(
     return DiscoveryOutcome(
         status=status, selected=list(selected), candidates=candidates, keywords=list(keywords),
         metadata=metadata, reasoning=reasoning, trace=trace, tokens=tokens_p1 + tokens_p2,
-        phase_tokens=(tokens_p1, tokens_p2), selector=selector, prepared=prepared,
+        phase_tokens=(tokens_p1, tokens_p2), selector=selector, prepared=prepared, selection_trace=trace,
     )
 
 

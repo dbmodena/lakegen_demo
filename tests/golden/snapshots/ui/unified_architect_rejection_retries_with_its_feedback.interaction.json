@@ -9,23 +9,6 @@
       "step_done": "Phase 1 & 2 (Unified Architect & Search)"
     },
     {
-      "answer": "recalculate",
-      "ask_choice": "Review selected tables:\n\n**Keywords:** `parks`, `district`\n\n**Tables:**\n\n\n**Reasoning:**\nREJECT_KEYWORDS: the candidates lack the district column",
-      "buttons": [
-        "Approve Selection",
-        "Recalculate (change hint)"
-      ]
-    },
-    {
-      "open": false,
-      "output": "**Keywords used:** `parks`, `district`\n\n**Tables selected:** \n\n**Reasoning:**\nREJECT_KEYWORDS: the candidates lack the district column\n\n- Tokens: `5`\n\n***Full agent activity log:***\n\n\n\n",
-      "step_update": "Phase 1 & 2 (Unified Architect & Search)"
-    },
-    {
-      "answer": "look for the district registers",
-      "ask_hint": "What should the agent change? (e.g., use different keywords, or look for different tables)\n\nThe architect's own feedback from this round is passed on automatically; add anything else it should know."
-    },
-    {
       "step": "Phase 1 & 2 (Unified Architect & Search)",
       "type": "run"
     },

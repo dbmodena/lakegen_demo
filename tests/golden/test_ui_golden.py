@@ -77,10 +77,14 @@ def _():
     return Case(unified(), Script(phase12=[SELECTED], phase3=[phase3_result()], phase4=[ANSWER]), files=FILES), ["approve"]
 
 
-@scenario("unified_recalculate_with_hint")
+@scenario("unified_architect_rejection_retries_with_its_feedback")
 def _():
+    # The architect rejects its first round and keeps one table: the next
+    # round starts from its feedback and the kept table without a review (the
+    # engine's policy since the chat adopted it; the chat used to show the
+    # empty selection for approval and merge the person's hint).
     script = Script(phase12=[rejecting_phase12, (["kept.csv"], ["parks"], {}, "Selected.", "", 5)], phase3=[phase3_result()], phase4=[ANSWER])
-    return Case(unified(), script, files=FILES + ("kept.csv",)), ["recalculate", "look for the district registers", "approve"]
+    return Case(unified(), script, files=FILES + ("kept.csv",)), ["approve"]
 
 
 @scenario("unified_orchestrated_approve")
