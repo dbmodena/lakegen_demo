@@ -640,7 +640,7 @@ Start the service using the generated index path:
 ```bash
 .venv-pneuma/bin/python scripts_pneuma/pneuma_server.py \
   --out-path /data/pneuma/nyc \
-  --port 8765
+  --port 8774
 ```
 
 For an OCI-built index, use the identical embedding model at query time:
@@ -651,13 +651,13 @@ For an OCI-built index, use the identical embedding model at query time:
   --oci-llm-model openai.gpt-oss-20b \
   --oci-embedding-model cohere.embed-v4.0 \
   --out-path /data/pneuma/uk \
-  --port 8765
+  --port 8767
 ```
 
 LakeGen routes Pneuma automatically by the selected Solr core:
 
-- `nyc` uses `/data/pneuma/nyc`, served on port `8765`;
-- `uk` uses `/data/pneuma/uk`, served on port `8766`;
+- `nyc` uses `/data/pneuma/nyc`, served on port `8774`;
+- `uk` uses `/data/pneuma/uk`, served on port `8767`;
 - both use the index name `lakegen-cohere-v4-1024`.
 
 The routes are internal defaults rather than extra experiment fields. They can

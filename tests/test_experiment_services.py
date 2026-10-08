@@ -65,7 +65,7 @@ def test_services_file_yields_one_pneuma_service_per_lake_on_its_port():
     services = load_services()
     assert services["pneuma:valencia"].health == "http://127.0.0.1:8771/health"
     assert "--port 8771 --out-path /data/bilel/pneuma/valencia" in services["pneuma:valencia"].command
-    assert services["pneuma:uk"].base_url == "http://127.0.0.1:8767"  # ours, not the registry's 8766
+    assert services["pneuma:uk"].base_url == "http://127.0.0.1:8767"  # the lake's route in lakes.yaml
     assert services["pneuma:nyc"].base_url == "http://127.0.0.1:8774"
     assert services["ollama"].health and services["tunnel"].health is None
     assert services["api"].env == {"PYTHONPATH": ".:src"}
@@ -109,10 +109,10 @@ def test_requirements_follow_the_cell_and_pneuma_counts_for_pneuma_cells_only(tm
     everything_down = ServiceManager(tmp_path, opener=Answering())
     missing = missing_requirements(cells, spec.requires, services, everything_down)
     assert [line.split(":")[0] for line in missing] == ["ollama", "pneuma", "pneuma"]
-    assert "pneuma:uk: http://localhost:8766 does not answer; start it with: services up pneuma:uk (it listens on http://127.0.0.1:8767" in missing[1]
+    assert "pneuma:uk: http://localhost:8767 does not answer; start it with: services up pneuma:uk (it listens on http://127.0.0.1:8767" in missing[1]
 
     pneuma_up = ServiceManager(tmp_path, opener=Answering(
-        "http://127.0.0.1:11434/api/version", "http://localhost:8766/health", "http://localhost:8771/health",
+        "http://127.0.0.1:11434/api/version", "http://localhost:8767/health", "http://localhost:8771/health",
     ))
     assert missing_requirements(cells, spec.requires, services, pneuma_up) == []
     keyword_only = [cell for cell in cells if cell.config.retrieval.mode.value == "keyword"]

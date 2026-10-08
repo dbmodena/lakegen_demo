@@ -209,7 +209,7 @@
           "dataset": "nyc",
           "effective": {
             "model": "openai.gpt-oss-120b",
-            "pneuma_base_url": "http://localhost:8765",
+            "pneuma_base_url": "http://localhost:8774",
             "pneuma_index_name": "lakegen-cohere-v4-1024",
             "solr_core": "nyc",
             "switches": {
@@ -687,7 +687,7 @@
       "dataset": "nyc",
       "effective": {
         "model": "openai.gpt-oss-120b",
-        "pneuma_base_url": "http://localhost:8765",
+        "pneuma_base_url": "http://localhost:8774",
         "pneuma_index_name": "lakegen-cohere-v4-1024",
         "solr_core": "nyc",
         "switches": {
@@ -1044,7 +1044,7 @@
       "dataset": "nyc",
       "effective": {
         "model": "openai.gpt-oss-120b",
-        "pneuma_base_url": "http://localhost:8765",
+        "pneuma_base_url": "http://localhost:8774",
         "pneuma_index_name": "lakegen-cohere-v4-1024",
         "solr_core": "nyc",
         "switches": {

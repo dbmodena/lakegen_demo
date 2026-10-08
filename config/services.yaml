@@ -15,19 +15,16 @@
 # in per cell, and `exp run` refuses to submit while a required service is down.
 
 # One Pneuma service per lake, `pneuma:<lake>`, built from this template: the
-# lake's index folder, and its port. The port is the lake's route in
-# config/lakes.yaml unless `ports` says otherwise: 8765 (nyc) and 8766 (uk) are
-# another user's servers, so ours listen on 8774 and 8767, and a spec pins
-# those routes with `pneuma_routes` (or the API gets LAKEGEN_PNEUMA_<LAKE>_BASE_URL).
+# lake's index folder, and its port, which is the lake's route in
+# config/lakes.yaml (`ports` can still say otherwise). Runs and specs reach the
+# service at that route unless LAKEGEN_PNEUMA_<LAKE>_BASE_URL or a spec's
+# `pneuma_routes` points elsewhere.
 pneuma:
   command: >-
     .venv-pneuma/bin/python scripts_pneuma/pneuma_server.py --host 127.0.0.1 --port {port}
     --out-path {index_path} --provider oci --oci-llm-model openai.gpt-oss-20b
     --oci-embedding-model cohere.embed-v4.0 --oci-embedding-dimensions 1024 --judge-workers 8
   health: http://127.0.0.1:{port}/health
-  ports:
-    uk: 8767
-    nyc: 8774
   index_paths:
     nyc: /data/bilel/pneuma/nyc
     valencia: /data/bilel/pneuma/valencia

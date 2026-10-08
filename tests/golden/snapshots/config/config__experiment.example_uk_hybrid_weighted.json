@@ -63,7 +63,7 @@
     "lexical_query_fields": null,
     "missing_signal_policy": "zero",
     "mode": "hybrid",
-    "pneuma_base_url": "http://localhost:8765",
+    "pneuma_base_url": "http://localhost:8767",
     "pneuma_cell_weight": 1.0,
     "pneuma_column_name_weight": 2.0,
     "pneuma_content_fusion": "weighted",

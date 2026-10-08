@@ -44,3 +44,10 @@ branch moves code without changing what a run does.
   `inspect_result`, `set_analysis_contract`, `plan_conflict` and
   `reject_tables`, none of which it could call. Every message, next action
   and required action now names an offered tool.
+- **The NYC and UK lakes route Pneuma to our own services.** `config/lakes.yaml`
+  sent `nyc` to port 8765 and `uk` to 8766, another user's servers, so a
+  run outside an experiment spec (the chat, `lakegen ask`, a plain API
+  call) queried them while our services listened on 8774 and 8767; only
+  the specs and `LAKEGEN_PNEUMA_<LAKE>_BASE_URL` reached ours. The lakes
+  now route to 8774 and 8767, `config/services.yaml` no longer needs its
+  port override, and the example configs name the same routes.

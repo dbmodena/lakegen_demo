@@ -123,7 +123,7 @@ retrieval:
   # NYC and UK are routed automatically to their dedicated Pneuma services.
   # These values remain the fallback for other portals.
   pneuma_index_name: lakegen
-  pneuma_base_url: http://localhost:8765
+  pneuma_base_url: http://localhost:8767
   pneuma_timeout_seconds: 120
 
   # Pneuma-Seeker only (mode: pneuma_seeker). Weight of the content-search

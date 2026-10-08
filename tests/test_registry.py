@@ -32,8 +32,8 @@ def test_lakes_in_the_order_the_interfaces_list_them():
 
 def test_pneuma_routes_match_the_services():
     assert pneuma_routes() == {
-        "nyc": ("http://localhost:8765", "lakegen-cohere-v4-1024"),
-        "uk": ("http://localhost:8766", "lakegen-cohere-v4-1024"),
+        "nyc": ("http://localhost:8774", "lakegen-cohere-v4-1024"),
+        "uk": ("http://localhost:8767", "lakegen-cohere-v4-1024"),
         "valencia": ("http://localhost:8771", "lakegen-cohere-v4-1024"),
         "paris": ("http://localhost:8772", "lakegen-cohere-v4-1024"),
         "bologna": ("http://localhost:8773", "lakegen-cohere-v4-1024"),
@@ -45,11 +45,11 @@ def test_pneuma_routes_match_the_services():
 
 def test_environment_overrides_apply_when_asked_not_when_loaded(monkeypatch):
     lake = get_lake("uk")
-    assert lake.solr_core == "uk" and lake.pneuma_route() == ("http://localhost:8766", "lakegen-cohere-v4-1024")
+    assert lake.solr_core == "uk" and lake.pneuma_route() == ("http://localhost:8767", "lakegen-cohere-v4-1024")
     monkeypatch.setenv("LAKEGEN_SOLR_CORE_UK", "uk_fixed")
-    monkeypatch.setenv("LAKEGEN_PNEUMA_UK_BASE_URL", "http://localhost:8767")
+    monkeypatch.setenv("LAKEGEN_PNEUMA_UK_BASE_URL", "http://localhost:8768")
     assert lake.solr_core == "uk_fixed"
-    assert lake.pneuma_route() == ("http://localhost:8767", "lakegen-cohere-v4-1024")
+    assert lake.pneuma_route() == ("http://localhost:8768", "lakegen-cohere-v4-1024")
 
 
 def test_lake_paths_follow_the_rules_the_code_used():

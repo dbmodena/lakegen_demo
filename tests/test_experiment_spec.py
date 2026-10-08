@@ -61,7 +61,7 @@ def test_per_value_settings_apply_only_to_their_grid_value(tmp_path):
     assert keyword.config.retrieval.pneuma_content_fusion.value == "weighted"
     assert cells["smoke-a-nyc-hybrid"].config.retrieval.fusion_method.value == "rrf"
     assert seeker.config.retrieval.pneuma_base_url == "http://localhost:8767"
-    assert cells["smoke-a-nyc-pneuma_seeker"].config.retrieval.pneuma_base_url == "http://localhost:8765"
+    assert cells["smoke-a-nyc-pneuma_seeker"].config.retrieval.pneuma_base_url == "http://localhost:8774"
 
 
 def test_compose_is_the_document_before_validation(tmp_path):

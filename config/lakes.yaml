@@ -4,10 +4,11 @@
 # differently named core), its folder under data/ and its blend database
 # data/blend_<lake>.db. Paths are relative to the repository root.
 #
-# pneuma: one Pneuma service per lake, each holding one index folder. 8765 and
-# 8766 are the NYC and UK services; the portals rebuilt in September 2026 got
-# 8771-8773 and the benchmark lakes 8781-8783. LAKEGEN_PNEUMA_<LAKE>_BASE_URL
-# and LAKEGEN_PNEUMA_<LAKE>_INDEX_NAME override a route.
+# pneuma: one Pneuma service per lake, each holding one index folder, the ones
+# config/services.yaml starts: NYC on 8774 and UK on 8767 (8765 and 8766 were
+# another user's servers), the portals rebuilt in September 2026 on 8771-8773
+# and the benchmark lakes on 8781-8783. LAKEGEN_PNEUMA_<LAKE>_BASE_URL and
+# LAKEGEN_PNEUMA_<LAKE>_INDEX_NAME override a route.
 
 defaults:
   dataset_roots: [datasets]              # searched in this order under data/<lake>/
@@ -19,7 +20,7 @@ defaults:
 lakes:
   nyc:
     title: New York City Open Data portal
-    pneuma_url: http://localhost:8765
+    pneuma_url: http://localhost:8774
     starters: queries/generated_queries_new_york.json
   valencia:
     title: Valencia Open Data portal
@@ -35,7 +36,7 @@ lakes:
     starters: queries/generated_queries_paris.json
   uk:
     title: UK Open Data portal
-    pneuma_url: http://localhost:8766
+    pneuma_url: http://localhost:8767
     # The cleaned tables and metadata are preferred when they exist.
     dataset_roots: [clean_datasets, datasets]
     metadata_files: [metadata_retrieved_cleaned.json, metadata_retrieved_only.json, metadata.json]
