@@ -105,3 +105,31 @@ class RetrievalRun:
         payload = asdict(self)
         payload["hits"] = [hit.to_log_dict() for hit in self.hits]
         return payload
+
+
+def hits_from_solr_response(response: dict[str, Any], limit: int) -> list[RetrievalHit]:
+    """Validate scores, de-duplicate documents, and preserve branch ranks."""
+    best: dict[str, RetrievalHit] = {}
+    docs = response.get("response", {}).get("docs", [])
+    for source_rank, document in enumerate(docs, 1):
+        if not isinstance(document, dict):
+            continue
+        try:
+            score = float(document.get("score"))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(score):
+            continue
+        key = document_key(document)
+        previous = best.get(key)
+        if previous is None or score > previous.score:
+            best[key] = RetrievalHit(
+                document=document,
+                score=score,
+                rank=source_rank,
+            )
+
+    ordered = sorted(best.values(), key=lambda hit: (hit.rank, -hit.score, hit.key))
+    for rank, hit in enumerate(ordered[:limit], 1):
+        hit.rank = rank
+    return ordered[:limit]

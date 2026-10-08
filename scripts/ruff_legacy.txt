@@ -78,12 +78,16 @@ src/lakegen/reproducibility.py
 src/lakegen/retrieval/benchmark.py
 src/lakegen/retrieval/config.py
 src/lakegen/retrieval/duckdb_agentic.py
+src/lakegen/retrieval/duckdb_semantic.py
 src/lakegen/retrieval/embeddings.py
 src/lakegen/retrieval/evaluation.py
+src/lakegen/retrieval/hybrid.py
 src/lakegen/retrieval/indexing.py
 src/lakegen/retrieval/__init__.py
 src/lakegen/retrieval/intent.py
+src/lakegen/retrieval/keyword.py
 src/lakegen/retrieval/models.py
+src/lakegen/retrieval/modes.py
 src/lakegen/retrieval/pneuma/client.py
 src/lakegen/retrieval/pneuma/entities.py
 src/lakegen/retrieval/pneuma/enumeration.py
@@ -92,7 +96,8 @@ src/lakegen/retrieval/pneuma/retriever.py
 src/lakegen/retrieval/pneuma/seeker.py
 src/lakegen/retrieval/representation.py
 src/lakegen/retrieval/rerank.py
-src/lakegen/retrieval/retrievers.py
+src/lakegen/retrieval/semantic.py
+src/lakegen/retrieval/service.py
 src/lakegen/revision_policy.py
 src/lakegen/runner.py
 src/lakegen/semantic_code_judge.py

@@ -8,6 +8,7 @@ import pytest
 
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.models import RetrievalHit
+from lakegen.retrieval.modes import HybridMode, KeywordMode
 from lakegen.retrieval.registry import (
     Branches,
     ModeRetriever,
@@ -16,7 +17,6 @@ from lakegen.retrieval.registry import (
     build,
     registered_modes,
 )
-from lakegen.retrieval.retrievers import HybridMode, KeywordMode
 
 
 def test_every_mode_is_registered_and_an_unknown_one_names_the_known():

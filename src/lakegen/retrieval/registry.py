@@ -24,13 +24,11 @@ from lakegen.retrieval.models import RetrievalHit
 
 if TYPE_CHECKING:
     from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
+    from lakegen.retrieval.duckdb_semantic import DuckDBSemanticHybridRetriever
+    from lakegen.retrieval.hybrid import HybridRetriever
+    from lakegen.retrieval.keyword import KeywordRetriever
     from lakegen.retrieval.pneuma import PneumaRetriever
-    from lakegen.retrieval.retrievers import (
-        DuckDBSemanticHybridRetriever,
-        HybridRetriever,
-        KeywordRetriever,
-        SemanticRetriever,
-    )
+    from lakegen.retrieval.semantic import SemanticRetriever
 
 
 @dataclass(frozen=True)

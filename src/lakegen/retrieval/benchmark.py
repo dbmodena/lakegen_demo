@@ -25,7 +25,7 @@ from lakegen.phases.utils import match_local_csv
 from lakegen.retrieval.config import FusionMethod, RetrievalConfig, RetrievalMode
 from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
-from lakegen.retrieval.retrievers import TableRetrievalService
+from lakegen.retrieval.service import TableRetrievalService
 
 
 BENCHMARK_LOG_COLUMNS = [

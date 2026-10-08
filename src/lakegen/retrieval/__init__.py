@@ -36,14 +36,12 @@ from lakegen.retrieval.registry import (
 from lakegen.retrieval.pneuma import PneumaRetriever, SolrPneumaDocumentResolver
 from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
 from lakegen.retrieval.representation import METADATA_V1, represent_table
-from lakegen.retrieval.retrievers import (
-    DuckDBSemanticHybridRetriever,
-    HybridRetriever,
-    KeywordRetriever,
-    SemanticRetriever,
-    TableRetrievalService,
-    min_max_normalize,
-)
+from lakegen.retrieval.duckdb_semantic import DuckDBSemanticHybridRetriever
+from lakegen.retrieval.hybrid import HybridRetriever
+from lakegen.retrieval.keyword import KeywordRetriever
+from lakegen.retrieval.models import min_max_normalize
+from lakegen.retrieval.semantic import SemanticRetriever
+from lakegen.retrieval.service import TableRetrievalService
 
 __all__ = [
     "Branches",
