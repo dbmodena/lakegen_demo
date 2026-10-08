@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from lakegen.coding.tools.state import CoderLifecycle
@@ -14,150 +15,136 @@ class ResultChecksMixin:
     """Part of ``Phase3ToolsManager``; the manager supplies the attributes it reads."""
 
     def _validate_contract_code(self, code: str) -> list[str]:
-        contract = self.state.analysis_contract
-        lowered = code.casefold()
+        """What the code does not show of the contract and the question; the warnings in their standing order."""
+        view = _CodeView(code=code, lowered=code.casefold(), question=self.question.casefold(), contract=self.state.analysis_contract)
+        return [
+            *self._code_filter_warnings(view),
+            *self._code_distinct_warnings(view),
+            *self._code_measure_warnings(view),
+            *self._code_join_warnings(view),
+            *self._code_time_warnings(view),
+            *self._code_table_warnings(view),
+        ]
+
+    def _code_filter_warnings(self, view: _CodeView) -> list[str]:
         warnings: list[str] = []
-        if re.search(r"if\s+[^:\n]*(?:empty|len\s*\([^)]*\)\s*==\s*0)[^:\n]*:[\s\S]{0,180}(?:=\s*df\b|\.copy\s*\()", code, re.IGNORECASE):
+        if re.search(r"if\s+[^:\n]*(?:empty|len\s*\([^)]*\)\s*==\s*0)[^:\n]*:[\s\S]{0,180}(?:=\s*df\b|\.copy\s*\()", view.code, re.IGNORECASE):
             warnings.append("fallback_to_all_rows_detected: empty filter restores unfiltered rows")
-        qualifier_terms = {
-            term for term in re.findall(
-                r"\b(?:with|containing|contains|named|called|category|type|status)\s+([a-z][a-z-]{2,})",
-                self.question.casefold(),
-            )
-        }
-        nonempty_filter = bool(
-            re.search(r"\.notna\s*\(\)|\.notnull\s*\(\)|\.str\.strip\s*\(\)\s*!=\s*['\"]{2}", code)
-        )
-        if qualifier_terms and nonempty_filter and not any(term in lowered for term in qualifier_terms):
+        qualifier_terms = set(re.findall(
+            r"\b(?:with|containing|contains|named|called|category|type|status)\s+([a-z][a-z-]{2,})", view.question,
+        ))
+        nonempty_filter = bool(re.search(r"\.notna\s*\(\)|\.notnull\s*\(\)|\.str\.strip\s*\(\)\s*!=\s*['\"]{2}", view.code))
+        if qualifier_terms and nonempty_filter and not any(term in view.lowered for term in qualifier_terms):
             warnings.append(
-                "semantic_filter_weakened_to_nonempty: requested qualifier "
-                + ", ".join(sorted(qualifier_terms))
+                "semantic_filter_weakened_to_nonempty: requested qualifier " + ", ".join(sorted(qualifier_terms))
             )
         contract_years = set(re.findall(
-            r"\b(?:19|20)\d{2}\b",
-            json.dumps(contract.get("filters", []), ensure_ascii=False, default=str),
+            r"\b(?:19|20)\d{2}\b", json.dumps(view.contract.get("filters", []), ensure_ascii=False, default=str),
         ))
         snapshot_years = self._snapshot_years() if contract_years else set()
         for year in contract_years:
             if year in snapshot_years:
                 # Every row of a selected table is stamped with this date.
                 continue
-            if not self._code_represents_year(code, year, contract_years):
+            if not self._code_represents_year(view.code, year, contract_years):
                 warnings.append(f"contract_filter_missing_in_code: year {year}")
-        if contract.get("distinct_counts") and not any(
-            marker in lowered for marker in ("nunique(", "drop_duplicates(", ".unique(")
-        ):
+        return warnings
+
+    def _code_distinct_warnings(self, view: _CodeView) -> list[str]:
+        warnings: list[str] = []
+        distinct_in_code = any(marker in view.lowered for marker in DISTINCT_MARKERS)
+        if view.contract.get("distinct_counts") and not distinct_in_code:
             warnings.append("contract_distinct_count_missing_in_code")
-        question = self.question.casefold()
-        count_requested = bool(re.search(r"\b(?:how many|count|number of)\b", question))
-        distinct_requested = bool(re.search(r"\b(?:distinct|unique|different)\b", question))
-        if (count_requested or distinct_requested) and distinct_requested and not any(
-            marker in lowered for marker in ("nunique(", "drop_duplicates(", ".unique(")
-        ):
+        count_requested = bool(re.search(r"\b(?:how many|count|number of)\b", view.question))
+        distinct_requested = bool(re.search(r"\b(?:distinct|unique|different)\b", view.question))
+        if (count_requested or distinct_requested) and distinct_requested and not distinct_in_code:
             warnings.append(
                 "count_semantics_check: question requests distinct entities but "
                 "code does not show a distinct-count operation"
             )
-        if not distinct_requested and any(
-            marker in lowered for marker in ("nunique(", "drop_duplicates(")
-        ):
+        if not distinct_requested and any(marker in view.lowered for marker in DEDUPE_MARKERS):
             warnings.append(
                 "unsupported_distinct_semantics: code deduplicates or counts unique "
                 "values although the question does not request distinct entities"
             )
-        measures = json.dumps(
-            contract.get("measures", []), ensure_ascii=False, default=str
-        ).casefold()
-        has_mean_aggregation = bool(re.search(
-            r"(?:\.mean\s*\(|\b(?:np|numpy)\.mean\s*\(|['\"]mean['\"])",
-            lowered,
-        ))
-        if ("average" in measures or "mean" in measures) and not has_mean_aggregation:
+        return warnings
+
+    def _code_measure_warnings(self, view: _CodeView) -> list[str]:
+        warnings: list[str] = []
+        measures = json.dumps(view.contract.get("measures", []), ensure_ascii=False, default=str).casefold()
+        has_mean = bool(re.search(r"(?:\.mean\s*\(|\b(?:np|numpy)\.mean\s*\(|['\"]mean['\"])", view.lowered))
+        if ("average" in measures or "mean" in measures) and not has_mean:
             warnings.append("contract_average_missing_in_code")
-        if "count_rows" in measures and any(marker in lowered for marker in ("nunique(", "drop_duplicates(")):
+        dedupes = any(marker in view.lowered for marker in DEDUPE_MARKERS)
+        if "count_rows" in measures and dedupes:
             warnings.append("contract_count_rows_implemented_as_distinct")
-        if "count_distinct" in measures and not any(marker in lowered for marker in ("nunique(", "drop_duplicates(")):
+        if "count_distinct" in measures and not dedupes:
             warnings.append("contract_count_distinct_implemented_as_row_count")
-        if any(marker in lowered for marker in ("pd.qcut(", ".qcut(", "pd.cut(", ".cut(")) and not re.search(
-            r"\b(?:quantile|quartile|quintile|decile|tertile|equal[- ](?:sized|width)|bins?)\b",
-            question,
+        buckets = any(marker in view.lowered for marker in ("pd.qcut(", ".qcut(", "pd.cut(", ".cut("))
+        if buckets and not re.search(
+            r"\b(?:quantile|quartile|quintile|decile|tertile|equal[- ](?:sized|width)|bins?)\b", view.question,
         ):
             warnings.append(
                 "unsupported_bucket_assumption: code invents statistical bucket "
                 "boundaries that are not specified by the question"
             )
-        if contract.get("joins") and not any(
-            marker in lowered for marker in (".merge(", ".join(", "pd.merge(")
-        ):
+        return warnings
+
+    def _code_join_warnings(self, view: _CodeView) -> list[str]:
+        warnings: list[str] = []
+        if view.contract.get("joins") and not any(marker in view.lowered for marker in JOIN_MARKERS):
             warnings.append("contract_join_missing_in_code")
-        for join in contract.get("join_bindings", []):
+        for join in view.contract.get("join_bindings", []):
             for key in (join.get("keys", {}) if isinstance(join, dict) else {}).values():
-                if str(key).casefold() not in lowered:
+                if str(key).casefold() not in view.lowered:
                     warnings.append(f"contract_join_key_missing_in_code: {key}")
-        if contract.get("group_by") and not any(
-            marker in lowered for marker in (".groupby(", ".pivot(", ".pivot_table(")
-        ):
+        if view.contract.get("group_by") and not any(marker in view.lowered for marker in GROUP_MARKERS):
             warnings.append("contract_grouping_missing_in_code")
-        requested_years = self._requested_filter_years(question)
+        return warnings
+
+    def _code_time_warnings(self, view: _CodeView) -> list[str]:
+        warnings: list[str] = []
+        requested_years = self._requested_filter_years(view.question)
         for year in sorted(requested_years):
-            if not self._code_represents_year(code, year, requested_years):
-                warnings.append(
-                    f"time_range_check: requested year {year} is not evident in code"
-                )
-        limit = contract.get("limit")
+            if not self._code_represents_year(view.code, year, requested_years):
+                warnings.append(f"time_range_check: requested year {year} is not evident in code")
+        limit = view.contract.get("limit")
         if limit is not None:
-            has_limit = bool(re.search(
-                rf"(?:head|nlargest|nsmallest)\s*\(\s*{int(limit)}\b", lowered
-            ))
-            if not has_limit:
+            if not re.search(rf"(?:head|nlargest|nsmallest)\s*\(\s*{int(limit)}\b", view.lowered):
                 warnings.append(f"contract_limit_missing_in_code: {limit}")
-            if not any(marker in lowered for marker in ("sort_values(", "nlargest(", "nsmallest(")):
+            if not any(marker in view.lowered for marker in ("sort_values(", "nlargest(", "nsmallest(")):
                 warnings.append("contract_ordering_missing_in_code")
-        expected_top = self._expected_top_n(question)
-        if expected_top is not None and not re.search(
-            rf"(?:head|nlargest|nsmallest)\s*\(\s*{expected_top}\b", lowered
-        ):
-            warnings.append(
-                f"top_n_check: question requests exactly {expected_top} ranked items"
-            )
-        categorical_terms = (
-            "borough", "district", "category", "status", "type", "program"
-        )
-        if any(term in question for term in categorical_terms) and not any(
-            marker in lowered
-            for marker in (
-                ".str.casefold(", ".str.lower(", ".str.upper(",
-                ".casefold(", ".replace(", ".map(",
-            )
+        expected_top = self._expected_top_n(view.question)
+        if expected_top is not None and not re.search(rf"(?:head|nlargest|nsmallest)\s*\(\s*{expected_top}\b", view.lowered):
+            warnings.append(f"top_n_check: question requests exactly {expected_top} ranked items")
+        return warnings
+
+    def _code_table_warnings(self, view: _CodeView) -> list[str]:
+        warnings: list[str] = []
+        if any(term in view.question for term in CATEGORICAL_TERMS) and not any(
+            marker in view.lowered for marker in NORMALISATION_MARKERS
         ):
             warnings.append(
                 "category_normalization_check: verify case/alias normalization "
                 "for requested categorical filters or groups"
             )
-        unloaded = [table for table in self.tables if table.casefold() not in lowered]
+        unloaded = [table for table in self.tables if table.casefold() not in view.lowered]
         if unloaded:
             warnings.append("selected_tables_not_loaded_in_code: " + ", ".join(unloaded))
-        loaded_table_count = len(self.tables) - len(unloaded)
-        if loaded_table_count > 1 and not any(
-            marker in lowered
-            for marker in ("rename(", "columns =", "columns=", "reindex(")
+        if len(self.tables) - len(unloaded) > 1 and not any(
+            marker in view.lowered for marker in ("rename(", "columns =", "columns=", "reindex(")
         ):
             warnings.append(
                 "partition_schema_check: multiple tables are loaded; verify exact "
                 "column names and harmonize schema differences before combining"
             )
         strategy = str(self.selection_plan.get("combination_strategy", ""))
-        if "pd.concat(" in lowered and strategy not in {"concat_partitions", "aggregate_separately"}:
+        if "pd.concat(" in view.lowered and strategy not in {"concat_partitions", "aggregate_separately"}:
             warnings.append(
                 "table_concat_without_explicit_strategy: concatenation is not justified by the selection plan"
             )
-        markers_by_strategy = {
-            "join": (".merge(", ".join(", "pd.merge("),
-            "lookup": (".merge(", ".join(", ".map(", ".replace("),
-            "concat_partitions": ("pd.concat(", ".concat("),
-        }
-        markers = markers_by_strategy.get(strategy)
-        if len(self.tables) > 1 and markers and not any(marker in lowered for marker in markers):
+        markers = STRATEGY_MARKERS.get(strategy)
+        if len(self.tables) > 1 and markers and not any(marker in view.lowered for marker in markers):
             warnings.append(f"selection_strategy_not_evident_in_code: {strategy}")
         return warnings
 
@@ -291,95 +278,9 @@ class ResultChecksMixin:
         Missing evidence is advisory only. It is deliberately not added to
         coverage_warnings and therefore cannot block a valid coder result.
         """
-        contract = self.state.analysis_contract
-        code = self.state.clean_code or self.state.code_raw
-        lowered = code.casefold()
-        result_fields = self._result_field_names(value)
-        rows: list[dict[str, Any]] = []
-        advisories: list[str] = []
-
-        def add(kind: str, requirement: str, code_evidence: list[str], result_evidence: list[str]) -> None:
-            missing: list[str] = []
-            if not code_evidence:
-                missing.append("code")
-            if not result_evidence:
-                missing.append("result")
-            advisory = ""
-            if missing:
-                advisory = (
-                    f"No explicit {' or '.join(missing)} evidence for {kind} "
-                    f"requirement '{requirement}'. Verify it before finalizing."
-                )
-                advisories.append(advisory)
-            rows.append({
-                "kind": kind,
-                "requirement": requirement,
-                "code_evidence": code_evidence,
-                "result_evidence": result_evidence,
-                "advisory": advisory,
-            })
-
-        def contract_text(item: Any) -> str:
-            return item if isinstance(item, str) else json.dumps(
-                item, ensure_ascii=False, sort_keys=True, default=str
-            )
-
-        years = set(re.findall(
-            r"\b(?:19|20)\d{2}\b",
-            " ".join(map(contract_text, contract.get("filters", []))),
-        ))
-        for item in contract.get("filters", []):
-            item_text = contract_text(item)
-            item_years = set(re.findall(r"\b(?:19|20)\d{2}\b", item_text))
-            evident = (
-                all(self._code_represents_year(code, year, years) for year in item_years)
-                if item_years else self._label_is_evident(item_text, [code])
-            )
-            add("filter", item_text, ["filter expression found in code"] if evident else [], ["filter affects computed structured result"] if evident else [])
-
-        measures = contract.get("measures", [])
-        for item in measures:
-            item_text = contract_text(item)
-            item_lower = item_text.casefold()
-            operation = ""
-            if any(term in item_lower for term in ("average", "mean")) and re.search(r"\.mean\s*\(|['\"]mean['\"]", lowered):
-                operation = "mean aggregation found"
-            elif any(term in item_lower for term in ("count", "number", "total")) and any(marker in lowered for marker in (".count(", ".size(", "nunique(", "len(")):
-                operation = "count aggregation found"
-            elif self._label_is_evident(item_text, [code]):
-                operation = "measure terms found in code"
-            result_match = [field for field in result_fields if self._label_is_evident(item_text, [field])]
-            if not result_match and len(measures) == 1 and value is not None and not result_fields:
-                result_match = ["structured scalar result"]
-            add("measure", item_text, [operation] if operation else [], result_match)
-
-        for item in contract.get("group_by", []):
-            item_text = contract_text(item)
-            grouped = any(marker in lowered for marker in (".groupby(", ".pivot(", ".pivot_table("))
-            label_in_code = self._label_is_evident(item_text, [code])
-            result_match = [field for field in result_fields if self._label_is_evident(item_text, [field])]
-            add("grouping", item_text, ["grouping operation and dimension found"] if grouped and label_in_code else [], result_match)
-
-        for item in contract.get("distinct_counts", []):
-            item_text = contract_text(item)
-            distinct = any(marker in lowered for marker in ("nunique(", "drop_duplicates(", ".unique("))
-            result_match = [field for field in result_fields if self._label_is_evident(item_text, [field])]
-            add("distinct count", item_text, ["distinct-count operation found"] if distinct else [], result_match or (["structured result"] if distinct and value is not None else []))
-
-        for item in contract.get("joins", []):
-            joined = any(marker in lowered for marker in (".merge(", ".join(", "pd.merge("))
-            add("join", contract_text(item), ["table join operation found"] if joined else [], ["joined structured result"] if joined and value is not None else [])
-
-        limit = contract.get("limit")
-        if limit is not None:
-            limited = bool(re.search(rf"(?:head|nlargest|nsmallest)\s*\(\s*{int(limit)}\b", lowered))
-            count = self._semantic_item_count(value)
-            add("limit", str(limit), [f"top/bottom limit {limit} found"] if limited else [], [f"{count} semantic items returned"] if count == limit else [])
-
-        for item in contract.get("output_columns", []):
-            result_match = [field for field in result_fields if self._label_is_evident(item, [field])]
-            add("output", item, ["output field terms found in code"] if self._label_is_evident(item, [code]) else [], result_match)
-        return rows, advisories
+        collector = _EvidenceCollector(self, value)
+        collector.collect(self.state.analysis_contract)
+        return collector.rows, collector.advisories
 
     def _coverage(self, value: Any) -> tuple[list[str], list[str], dict[str, Any]]:
         question = self.question.casefold()
@@ -571,6 +472,7 @@ class ResultChecksMixin:
         return False
 
     def _validate_contract_result(self, value: Any) -> list[str]:
+        """What the result does not show of the contract; the warnings in their standing order."""
         contract = self.state.analysis_contract
         warnings: list[str] = []
         if self._is_empty_result(value):
@@ -584,61 +486,64 @@ class ResultChecksMixin:
         limit = contract.get("limit")
         count = self._semantic_item_count(value)
         if limit is not None and count is not None and count != limit:
-            warnings.append(
-                f"contract_result_limit_mismatch: expected {limit}, found {count}"
-            )
+            warnings.append(f"contract_result_limit_mismatch: expected {limit}, found {count}")
         if contract.get("group_by") and isinstance(value, list) and value:
             if not all(isinstance(item, dict) for item in value):
                 warnings.append("contract_grouped_result_requires_record_rows")
                 return warnings
-
-        if not isinstance(value, list) or not value or not all(
-            isinstance(item, dict) for item in value
-        ):
+        if not isinstance(value, list) or not value or not all(isinstance(item, dict) for item in value):
             if isinstance(value, float) and not math.isfinite(value):
                 warnings.append("contract_result_non_finite_numeric_value")
             return warnings
-
-        fields = list(dict.fromkeys(
-            str(field_name) for row in value for field_name in row
-        ))
-
-        def matching_fields(label: str) -> list[str]:
-            normalized = re.sub(r"[^a-z0-9]+", " ", label.casefold()).strip()
-            if normalized in {"", "result", "requested result", "value", "requested value"}:
-                return []
-            return [field_name for field_name in fields if self._label_is_evident(label, [field_name])]
-
-        for required in contract.get("output_columns", []):
-            if not matching_fields(str(required)) and str(required).casefold().strip() not in {
-                "requested result", "requested value", "result", "value",
-            }:
-                warnings.append(
-                    f"contract_result_missing_output_column: {required}; "
-                    f"available={fields[:20]}"
-                )
-
-        group_fields: list[str] = []
-        for dimension in contract.get("group_by", []):
-            matches = matching_fields(str(dimension))
-            if len(matches) == 1:
-                group_fields.append(matches[0])
+        fields = list(dict.fromkeys(str(field_name) for row in value for field_name in row))
+        warnings.extend(self._missing_output_columns(contract, fields))
+        group_fields = self._group_fields(contract, fields)
         if group_fields:
             keys = [tuple(row.get(field_name) for field_name in group_fields) for row in value]
             if len(set(keys)) != len(keys):
-                warnings.append(
-                    "contract_result_duplicate_group_keys: " + ", ".join(group_fields)
-                )
-
+                warnings.append("contract_result_duplicate_group_keys: " + ", ".join(group_fields))
         measure_fields: list[str] = []
         for measure in [*contract.get("measures", []), *contract.get("output_columns", [])]:
-            for field_name in matching_fields(str(measure)):
+            for field_name in self._matching_fields(str(measure), fields):
                 if field_name not in measure_fields:
                     measure_fields.append(field_name)
-        # Output aliases need not repeat the brief's wording. Inspect every
-        # non-dimension numeric field_name so an all-NaN measure cannot evade checks
-        # simply by being renamed by the coder.
-        for field_name in dict.fromkeys([*measure_fields, *fields]):
+        warnings.extend(self._non_finite_fields(value, [*measure_fields, *fields], group_fields))
+        warnings.extend(self._order_mismatch(value, contract, measure_fields))
+        return warnings
+
+    def _matching_fields(self, label: str, fields: list[str]) -> list[str]:
+        """The result fields a contract label evidently names; none for a generic label."""
+        normalized = re.sub(r"[^a-z0-9]+", " ", label.casefold()).strip()
+        if normalized in {"", "result", "requested result", "value", "requested value"}:
+            return []
+        return [field_name for field_name in fields if self._label_is_evident(label, [field_name])]
+
+    def _missing_output_columns(self, contract: dict[str, Any], fields: list[str]) -> list[str]:
+        return [
+            f"contract_result_missing_output_column: {required}; available={fields[:20]}"
+            for required in contract.get("output_columns", [])
+            if not self._matching_fields(str(required), fields)
+            and str(required).casefold().strip() not in GENERIC_OUTPUT_LABELS
+        ]
+
+    def _group_fields(self, contract: dict[str, Any], fields: list[str]) -> list[str]:
+        """The result fields that unambiguously carry the contract's grouping dimensions."""
+        group_fields: list[str] = []
+        for dimension in contract.get("group_by", []):
+            matches = self._matching_fields(str(dimension), fields)
+            if len(matches) == 1:
+                group_fields.append(matches[0])
+        return group_fields
+
+    @staticmethod
+    def _non_finite_fields(value: list[dict[str, Any]], candidates: list[str], group_fields: list[str]) -> list[str]:
+        """Fields whose numbers are all non-finite: an all-NaN measure cannot hide behind a renamed column.
+
+        Output aliases need not repeat the brief's wording, so every
+        non-dimension numeric field is inspected.
+        """
+        warnings: list[str] = []
+        for field_name in dict.fromkeys(candidates):
             if field_name in group_fields:
                 continue
             numeric = [
@@ -648,43 +553,35 @@ class ResultChecksMixin:
             ]
             if numeric and not any(math.isfinite(number) for number in numeric):
                 warnings.append(f"contract_result_all_non_finite: {field_name}")
-
-        ordering = str(contract.get("ordering") or "none").casefold()
-        if ordering not in {"", "none", "not applicable", "n/a"}:
-            ordering_matches = [
-                field_name for field_name in measure_fields
-                if self._label_is_evident(ordering, [field_name])
-            ]
-            candidates = ordering_matches or measure_fields
-            numeric_candidates = []
-            for field_name in candidates:
-                values = [row.get(field_name) for row in value]
-                if values and all(
-                    isinstance(item, (int, float)) and not isinstance(item, bool)
-                    for item in values
-                ):
-                    numeric_candidates.append(field_name)
-            if len(numeric_candidates) == 1:
-                field_name = numeric_candidates[0]
-                numbers = [float(row[field_name]) for row in value]
-                descending = any(term in ordering for term in (
-                    "desc", "highest", "largest", "most", "top"
-                ))
-                ascending = any(term in ordering for term in (
-                    "asc", "lowest", "smallest", "least", "bottom"
-                ))
-                ordered = (
-                    all(left >= right for left, right in zip(numbers, numbers[1:]))
-                    if descending else
-                    all(left <= right for left, right in zip(numbers, numbers[1:]))
-                    if ascending else True
-                )
-                if not ordered:
-                    direction = "descending" if descending else "ascending"
-                    warnings.append(
-                        f"contract_result_order_mismatch: {field_name} is not {direction}"
-                    )
         return warnings
+
+    def _order_mismatch(self, value: list[dict[str, Any]], contract: dict[str, Any], measure_fields: list[str]) -> list[str]:
+        """Whether the one numeric field the ordering names runs the way the contract says."""
+        ordering = str(contract.get("ordering") or "none").casefold()
+        if ordering in {"", "none", "not applicable", "n/a"}:
+            return []
+        ordering_matches = [f for f in measure_fields if self._label_is_evident(ordering, [f])]
+        numeric_candidates = [
+            field_name for field_name in (ordering_matches or measure_fields)
+            if (values := [row.get(field_name) for row in value])
+            and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in values)
+        ]
+        if len(numeric_candidates) != 1:
+            return []
+        field_name = numeric_candidates[0]
+        numbers = [float(row[field_name]) for row in value]
+        descending = any(term in ordering for term in ("desc", "highest", "largest", "most", "top"))
+        ascending = any(term in ordering for term in ("asc", "lowest", "smallest", "least", "bottom"))
+        ordered = (
+            all(left >= right for left, right in zip(numbers, numbers[1:], strict=False))
+            if descending else
+            all(left <= right for left, right in zip(numbers, numbers[1:], strict=False))
+            if ascending else True
+        )
+        if ordered:
+            return []
+        direction = "descending" if descending else "ascending"
+        return [f"contract_result_order_mismatch: {field_name} is not {direction}"]
 
     def _validate_final_result_contract(self, value: Any) -> list[str]:
         """Validate unmistakable final-answer shape contradictions without gold data."""
@@ -768,3 +665,150 @@ class ResultChecksMixin:
                     f"{len(measures)}_numeric_measure_fields"
                 )
         return warnings
+
+
+DISTINCT_MARKERS = ("nunique(", "drop_duplicates(", ".unique(")
+DEDUPE_MARKERS = ("nunique(", "drop_duplicates(")
+JOIN_MARKERS = (".merge(", ".join(", "pd.merge(")
+GROUP_MARKERS = (".groupby(", ".pivot(", ".pivot_table(")
+CATEGORICAL_TERMS = ("borough", "district", "category", "status", "type", "program")
+NORMALISATION_MARKERS = (".str.casefold(", ".str.lower(", ".str.upper(", ".casefold(", ".replace(", ".map(")
+STRATEGY_MARKERS = {
+    "join": (".merge(", ".join(", "pd.merge("),
+    "lookup": (".merge(", ".join(", ".map(", ".replace("),
+    "concat_partitions": ("pd.concat(", ".concat("),
+}
+GENERIC_OUTPUT_LABELS = frozenset({"requested result", "requested value", "result", "value"})
+YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+@dataclass(frozen=True)
+class _CodeView:
+    """The code under check, once lowered, with the question and the contract it must show."""
+
+    code: str
+    lowered: str
+    question: str
+    contract: dict[str, Any]
+
+
+def _contract_text(item: Any) -> str:
+    return item if isinstance(item, str) else json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+
+
+class _EvidenceCollector:
+    """The contract's requirements against the code and the result: a row each, an advisory where evidence is missing."""
+
+    def __init__(self, checks: Any, value: Any) -> None:
+        self.checks = checks
+        self.value = value
+        self.code = checks.state.clean_code or checks.state.code_raw
+        self.lowered = self.code.casefold()
+        self.result_fields = checks._result_field_names(value)
+        self.rows: list[dict[str, Any]] = []
+        self.advisories: list[str] = []
+
+    def add(self, kind: str, requirement: str, code_evidence: list[str], result_evidence: list[str]) -> None:
+        missing = [name for name, found in (("code", code_evidence), ("result", result_evidence)) if not found]
+        advisory = ""
+        if missing:
+            advisory = (
+                f"No explicit {' or '.join(missing)} evidence for {kind} "
+                f"requirement '{requirement}'. Verify it before finalizing."
+            )
+            self.advisories.append(advisory)
+        self.rows.append({
+            "kind": kind,
+            "requirement": requirement,
+            "code_evidence": code_evidence,
+            "result_evidence": result_evidence,
+            "advisory": advisory,
+        })
+
+    def _fields_named(self, label: str) -> list[str]:
+        return [field for field in self.result_fields if self.checks._label_is_evident(label, [field])]
+
+    def collect(self, contract: dict[str, Any]) -> None:
+        self._filters(contract.get("filters", []))
+        self._measures(contract.get("measures", []))
+        self._groupings(contract.get("group_by", []))
+        self._distinct_counts(contract.get("distinct_counts", []))
+        self._joins(contract.get("joins", []))
+        if contract.get("limit") is not None:
+            self._limit(contract["limit"])
+        self._outputs(contract.get("output_columns", []))
+
+    def _filters(self, filters: list[Any]) -> None:
+        years = set(YEAR.findall(" ".join(map(_contract_text, filters))))
+        for item in filters:
+            text = _contract_text(item)
+            item_years = set(YEAR.findall(text))
+            evident = (
+                all(self.checks._code_represents_year(self.code, year, years) for year in item_years)
+                if item_years else self.checks._label_is_evident(text, [self.code])
+            )
+            self.add(
+                "filter", text, ["filter expression found in code"] if evident else [],
+                ["filter affects computed structured result"] if evident else [],
+            )
+
+    def _measures(self, measures: list[Any]) -> None:
+        for item in measures:
+            text = _contract_text(item)
+            lower = text.casefold()
+            operation = ""
+            if any(term in lower for term in ("average", "mean")) and re.search(r"\.mean\s*\(|['\"]mean['\"]", self.lowered):
+                operation = "mean aggregation found"
+            elif any(term in lower for term in ("count", "number", "total")) and any(
+                marker in self.lowered for marker in (".count(", ".size(", "nunique(", "len(")
+            ):
+                operation = "count aggregation found"
+            elif self.checks._label_is_evident(text, [self.code]):
+                operation = "measure terms found in code"
+            result_match = self._fields_named(text)
+            if not result_match and len(measures) == 1 and self.value is not None and not self.result_fields:
+                result_match = ["structured scalar result"]
+            self.add("measure", text, [operation] if operation else [], result_match)
+
+    def _groupings(self, dimensions: list[Any]) -> None:
+        grouped = any(marker in self.lowered for marker in GROUP_MARKERS)
+        for item in dimensions:
+            text = _contract_text(item)
+            label_in_code = self.checks._label_is_evident(text, [self.code])
+            self.add(
+                "grouping", text, ["grouping operation and dimension found"] if grouped and label_in_code else [],
+                self._fields_named(text),
+            )
+
+    def _distinct_counts(self, items: list[Any]) -> None:
+        distinct = any(marker in self.lowered for marker in DISTINCT_MARKERS)
+        for item in items:
+            text = _contract_text(item)
+            result_match = self._fields_named(text)
+            self.add(
+                "distinct count", text, ["distinct-count operation found"] if distinct else [],
+                result_match or (["structured result"] if distinct and self.value is not None else []),
+            )
+
+    def _joins(self, joins: list[Any]) -> None:
+        joined = any(marker in self.lowered for marker in JOIN_MARKERS)
+        for item in joins:
+            self.add(
+                "join", _contract_text(item), ["table join operation found"] if joined else [],
+                ["joined structured result"] if joined and self.value is not None else [],
+            )
+
+    def _limit(self, limit: Any) -> None:
+        limited = bool(re.search(rf"(?:head|nlargest|nsmallest)\s*\(\s*{int(limit)}\b", self.lowered))
+        count = self.checks._semantic_item_count(self.value)
+        self.add(
+            "limit", str(limit), [f"top/bottom limit {limit} found"] if limited else [],
+            [f"{count} semantic items returned"] if count == limit else [],
+        )
+
+    def _outputs(self, outputs: list[Any]) -> None:
+        for item in outputs:
+            self.add(
+                "output", item, ["output field terms found in code"] if self.checks._label_is_evident(item, [self.code]) else [],
+                self._fields_named(item),
+            )
