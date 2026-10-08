@@ -1,0 +1,51 @@
+# The lakes LakeGen can query, in the order the interfaces list them.
+#
+# A lake's name is its Solr core (LAKEGEN_SOLR_CORE_<LAKE> can point it at a
+# differently named core), its folder under data/ and its blend database
+# data/blend_<lake>.db. Paths are relative to the repository root.
+#
+# pneuma: one Pneuma service per lake, each holding one index folder. 8765 and
+# 8766 are the NYC and UK services; the portals rebuilt in September 2026 got
+# 8771-8773 and the benchmark lakes 8781-8783. LAKEGEN_PNEUMA_<LAKE>_BASE_URL
+# and LAKEGEN_PNEUMA_<LAKE>_INDEX_NAME override a route.
+
+defaults:
+  dataset_roots: [datasets]              # searched in this order under data/<lake>/
+  table_dirs: [parquets, parquet, csv]   # the first one holding table files wins
+  metadata_files: [metadata_retrieved_only.json, metadata.json]
+  statistics_file: datasets_metadata.csv
+  pneuma_index: lakegen-cohere-v4-1024
+
+lakes:
+  nyc:
+    title: New York City Open Data portal
+    pneuma_url: http://localhost:8765
+    starters: queries/generated_queries_new_york.json
+  valencia:
+    title: Valencia Open Data portal
+    pneuma_url: http://localhost:8771
+    starters: queries/generated_queries_valencia.json
+  bologna:
+    title: Bologna Open Data portal
+    pneuma_url: http://localhost:8773
+    starters: queries/generated_queries_bologna.json
+  paris:
+    title: Paris Open Data portal
+    pneuma_url: http://localhost:8772
+    starters: queries/generated_queries_paris.json
+  uk:
+    title: UK Open Data portal
+    pneuma_url: http://localhost:8766
+    # The cleaned tables and metadata are preferred when they exist.
+    dataset_roots: [clean_datasets, datasets]
+    metadata_files: [metadata_retrieved_cleaned.json, metadata_retrieved_only.json, metadata.json]
+    reference_questions: benchmark/generated_queries_semantic_uk.json
+  kramabench:
+    title: KramaBench data lake (archaeology, astronomy, biomedical, environment, legal, wildfire)
+    pneuma_url: http://localhost:8781
+  target_bird:
+    title: BIRD databases (TARGET benchmark)
+    pneuma_url: http://localhost:8782
+  chicago:
+    title: City of Chicago Open Data portal
+    pneuma_url: http://localhost:8783

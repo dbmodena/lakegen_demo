@@ -1,0 +1,38 @@
+# The chat models LakeGen can run, in the order the interfaces list them.
+#
+# provider: oci (OCI Generative AI, credentials from ~/.oci/config), ollama (a
+# local Ollama server, LAKEGEN_OLLAMA_BASE_URL) or together (Together AI,
+# TOGETHERAI_API_KEY). provider_model is the provider's own id when it differs
+# from the name; groq_model is the id of the same weights on Groq, for the
+# optional offload of small calls (LAKEGEN_GROQ_OFFLOAD).
+
+defaults:
+  temperature: 0.1
+
+models:
+  openai.gpt-oss-120b:
+    provider: oci
+    context_window: 128000
+    max_output_tokens: 16000
+    groq_model: openai/gpt-oss-120b
+  meta.llama-3.3-70b-instruct:
+    provider: oci
+    max_output_tokens: 4000
+  ollama.gpt-oss-20b:
+    provider: ollama
+    provider_model: "gpt-oss:20b"
+    context_window: 32768   # the local servers load a 32k window, not the native 128k
+    max_output_tokens: 16000
+    timeout_seconds: 600
+  ollama.qwen3.8-27b:
+    provider: ollama
+    provider_model: "qwen3.8:27b"
+    context_window: 32768   # not the native 256k
+    max_output_tokens: 16000
+    timeout_seconds: 600
+  together.gpt-oss-120b:
+    provider: together
+    provider_model: openai/gpt-oss-120b   # the same open weights as OCI's gpt-oss-120b
+    context_window: 128000
+    max_output_tokens: 16000
+    timeout_seconds: 300
