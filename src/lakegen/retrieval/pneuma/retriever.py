@@ -530,54 +530,15 @@ class PneumaRetriever:
         keywords: Sequence[str] | None = None,
     ) -> list[RetrievalHit]:
         if not self.content_search:
-            ordered = self._pneuma_candidates(question, top_k)
-            terms = _scan_terms(entities or keywords) if self.value_scan else []
-            if terms:
-                return self._value_scanned(ordered, terms)
-            hits: list[RetrievalHit] = []
-            for rank, (_table_id, document) in enumerate(ordered, 1):
-                # Pneuma 0.0.4 exposes ordered table IDs but not final scores.
-                hits.append(
-                    RetrievalHit(document=document, score=1.0 / rank, rank=rank)
-                )
-            return hits
-
+            return self._plain_hits(question, top_k, entities, keywords)
         fill = self.config.pneuma_content_fusion is PneumaContentFusion.FILL
-        extraction: dict[str, Any] | None = None
-        if entities is None and self.entity_extractor is not None:
-            started = time.monotonic()
-            error = None
-            try:
-                entities = self.entity_extractor.entities(question)
-            except Exception as exc:
-                # No entities means no content search, which is Pneuma's own
-                # ranking: a degraded answer, not a failed search.
-                entities, error = [], f"{type(exc).__name__}: {exc}"
-            extraction = {
-                "model": self.config.pneuma_entity_model,
-                "entities": list(entities),
-                "seconds": time.monotonic() - started,
-                "error": error,
-            }
+        entities, extraction = self._extract_entities(question, entities)
         # The weighted sum reranks a wider Pneuma pool than the caller asked
         # for, so a table at Pneuma rank 30 can still surface. The reference
         # fill asks Pneuma for exactly top_k, as its code does.
-        limit = (
-            top_k if fill else max(top_k, top_k * self.config.candidate_multiplier)
-        )
-        ordered = self._pneuma_candidates(question, limit)
+        limit = top_k if fill else max(top_k, top_k * self.config.candidate_multiplier)
+        candidates = self._pneuma_pool(question, limit)
         terms = _scan_terms(entities)
-
-        candidates: dict[str, _Candidate] = {}
-        for rank, (table_id, document) in enumerate(ordered, 1):
-            key = document_key(document)
-            candidates[key] = _Candidate(
-                key=key,
-                document=document,
-                path=Path(table_id) if table_id else None,
-                pneuma_rank=rank,
-            )
-
         # With no entity there is nothing to search for, and the reference
         # implementation leaves Pneuma's ranking untouched rather than scanning
         # for words taken from the question. Content search weighted 0 cannot
@@ -588,177 +549,232 @@ class PneumaRetriever:
         weight = self.config.pneuma_content_weight if terms else 0.0
         # Fill weights nothing, so any entity is enough to search for.
         scans_content = bool(terms) if fill else weight > 0.0
-        lake = (
-            self._lake()
-            if scans_content or self.config.pneuma_enumerate_tables
-            else []
-        )
+        lake = self._lake() if scans_content or self.config.pneuma_enumerate_tables else []
         content_by_stem: dict[str, _Content] = {}
         unscannable = 0
         if scans_content and lake:
-            # A table's name is the title its catalog document carries: the lakes
-            # here name files by opaque id, and the resolver's lookup of a path
-            # is deterministic, so the same file always yields the same title.
-            documents = {facts.stem: self.resolver(str(facts.path)) for facts in lake}
-            titles = {
-                stem: str(document.get("title") or "")
-                for stem, document in documents.items()
-                if document is not None
-            }
-            anchors = {
-                candidate.path.stem.casefold()
-                for candidate in candidates.values()
-                if candidate.path is not None
-            }
-            pool = self._scan_pool(lake, terms, anchors, titles)
-            content_by_stem, unscannable = self._content_scores(pool, terms, titles)
-            for facts in pool:
-                content = content_by_stem[facts.stem]
-                document = documents[facts.stem]
-                if document is None:
-                    continue
-                key = document_key(document)
-                candidate = candidates.get(key)
-                if candidate is None:
-                    # Now that the whole lake is scanned, most files match
-                    # nothing. A table neither branch found evidence for is not a
-                    # candidate; admitting it would bury the ranking in zeros and
-                    # make every file look already-retrieved to the enumerator.
-                    if not content.score:
-                        continue
-                    candidate = _Candidate(key=key, document=document, path=facts.path)
-                    candidates[key] = candidate
-                candidate.path = candidate.path or facts.path
-                candidate.content_score = content.score
-                candidate.term_cells = content.term_cells
-                candidate.column_name_terms = content.column_name_terms
-                candidate.title_terms = content.title_terms
+            content_by_stem, unscannable = self._scan_lake(candidates, lake, terms)
+        content_order = self._score(candidates, weight)
+        if fill:
+            ranked = self._rank_fill(candidates, content_order, lake, top_k)
+        else:
+            ranked = self._rank_weighted(candidates, limit, lake, top_k)
+        scan = {
+            "scan_terms": list(terms),
+            "entity_extraction": extraction,
+            "content_fusion": self.config.pneuma_content_fusion.value,
+            "content_weight": None if fill else weight,
+            "table_name_weight": self.config.pneuma_table_name_weight,
+            "column_name_weight": self.config.pneuma_column_name_weight,
+            "cell_weight": self.config.pneuma_cell_weight,
+            "scanned_files": len(content_by_stem),
+            "listed_files": len(lake),
+            "truncated": bool(content_by_stem) and len(content_by_stem) < len(lake),
+            "unscannable_files": unscannable,
+        }
+        return [self._hit(candidate, rank, terms, scan) for rank, candidate in enumerate(ranked[:top_k], 1)]
 
-        normalized_pneuma = min_max_normalize(
-            {
-                key: 1.0 / candidate.pneuma_rank
-                for key, candidate in candidates.items()
-                if candidate.pneuma_rank
-            }
-        )
+    def _plain_hits(
+        self, question: str, top_k: int, entities: Sequence[str] | None, keywords: Sequence[str] | None,
+    ) -> list[RetrievalHit]:
+        """Plain Pneuma: its ranking as hits, or its pool value-scanned when that is configured."""
+        ordered = self._pneuma_candidates(question, top_k)
+        terms = _scan_terms(entities or keywords) if self.value_scan else []
+        if terms:
+            return self._value_scanned(ordered, terms)
+        # Pneuma 0.0.4 exposes ordered table IDs but not final scores.
+        return [
+            RetrievalHit(document=document, score=1.0 / rank, rank=rank)
+            for rank, (_table_id, document) in enumerate(ordered, 1)
+        ]
+
+    def _extract_entities(
+        self, question: str, entities: Sequence[str] | None,
+    ) -> tuple[Sequence[str] | None, dict[str, Any] | None]:
+        """The entities to scan for, extracted when the caller passed none, and what the extraction recorded."""
+        if entities is not None or self.entity_extractor is None:
+            return entities, None
+        started = time.monotonic()
+        error = None
+        try:
+            entities = self.entity_extractor.entities(question)
+        except Exception as exc:
+            # No entities means no content search, which is Pneuma's own
+            # ranking: a degraded answer, not a failed search.
+            entities, error = [], f"{type(exc).__name__}: {exc}"
+        extraction = {
+            "model": self.config.pneuma_entity_model,
+            "entities": list(entities),
+            "seconds": time.monotonic() - started,
+            "error": error,
+        }
+        return entities, extraction
+
+    def _pneuma_pool(self, question: str, limit: int) -> dict[str, _Candidate]:
+        """Pneuma's ranking of the question, as candidates by document key."""
+        candidates: dict[str, _Candidate] = {}
+        for rank, (table_id, document) in enumerate(self._pneuma_candidates(question, limit), 1):
+            key = document_key(document)
+            candidates[key] = _Candidate(
+                key=key, document=document, path=Path(table_id) if table_id else None, pneuma_rank=rank,
+            )
+        return candidates
+
+    def _scan_lake(
+        self, candidates: dict[str, _Candidate], lake: list[_FileFacts], terms: list[str],
+    ) -> tuple[dict[str, _Content], int]:
+        """The content search over the lake, its evidence folded into the candidates; what it scored and could not scan."""
+        # A table's name is the title its catalog document carries: the lakes
+        # here name files by opaque id, and the resolver's lookup of a path
+        # is deterministic, so the same file always yields the same title.
+        documents = {facts.stem: self.resolver(str(facts.path)) for facts in lake}
+        titles = {
+            stem: str(document.get("title") or "")
+            for stem, document in documents.items()
+            if document is not None
+        }
+        anchors = {
+            candidate.path.stem.casefold() for candidate in candidates.values() if candidate.path is not None
+        }
+        pool = self._scan_pool(lake, terms, anchors, titles)
+        content_by_stem, unscannable = self._content_scores(pool, terms, titles)
+        for facts in pool:
+            content = content_by_stem[facts.stem]
+            document = documents[facts.stem]
+            if document is None:
+                continue
+            key = document_key(document)
+            candidate = candidates.get(key)
+            if candidate is None:
+                # Now that the whole lake is scanned, most files match
+                # nothing. A table neither branch found evidence for is not a
+                # candidate; admitting it would bury the ranking in zeros and
+                # make every file look already-retrieved to the enumerator.
+                if not content.score:
+                    continue
+                candidate = _Candidate(key=key, document=document, path=facts.path)
+                candidates[key] = candidate
+            candidate.path = candidate.path or facts.path
+            candidate.content_score = content.score
+            candidate.term_cells = content.term_cells
+            candidate.column_name_terms = content.column_name_terms
+            candidate.title_terms = content.title_terms
+        return content_by_stem, unscannable
+
+    @staticmethod
+    def _score(candidates: dict[str, _Candidate], weight: float) -> list[str]:
+        """Each candidate's fused score; the keys of the content matches, strongest first."""
+        normalized_pneuma = min_max_normalize({
+            key: 1.0 / candidate.pneuma_rank for key, candidate in candidates.items() if candidate.pneuma_rank
+        })
         # Only the Pneuma branch is min-max normalized. The content score is
         # already on a 0..1 scale by the paper's own recipe -- damped, then
         # normalized per keyword -- and re-normalizing it across the candidates
         # would undo exactly that: min-max forces the weakest table to 0.0 and
         # the strongest to 1.0, discarding the ratio the damping computed.
         content_order = sorted(
-            (
-                key
-                for key, candidate in candidates.items()
-                if candidate.content_score
-            ),
+            (key for key, candidate in candidates.items() if candidate.content_score),
             key=lambda key: (-(candidates[key].content_score or 0.0), key),
         )
         for rank, key in enumerate(content_order, 1):
             candidates[key].content_rank = rank
-
         for key, candidate in candidates.items():
             # A branch that did not see this table contributes nothing, which is
             # the zero missing-signal policy the hybrid retriever also uses.
             candidate.normalized_content = candidate.content_score or 0.0
             candidate.normalized_pneuma = normalized_pneuma.get(key, 0.0)
-            candidate.score = (
-                weight * candidate.normalized_content
-                + (1.0 - weight) * candidate.normalized_pneuma
+            candidate.score = weight * candidate.normalized_content + (1.0 - weight) * candidate.normalized_pneuma
+        return content_order
+
+    def _rank_fill(
+        self, candidates: dict[str, _Candidate], content_order: list[str], lake: list[_FileFacts], top_k: int,
+    ) -> list[_Candidate]:
+        """The reference merge: Pneuma's tables in Pneuma's order, then the content matches it did not return.
+
+        Only tables that matched an entity, strongest first, where the
+        reference would pad with zero-score tables in name order; enumerated
+        siblings come last. Positions are the scores.
+        """
+        ranked = [
+            *sorted((c for c in candidates.values() if c.pneuma_rank), key=lambda c: c.pneuma_rank or 0),
+            *(candidates[key] for key in content_order if not candidates[key].pneuma_rank),
+        ]
+        if self.config.pneuma_enumerate_tables and lake:
+            ranked += self._enumerate(ranked, lake, top_k)
+        for position, candidate in enumerate(ranked, 1):
+            candidate.score = 1.0 / position
+        return ranked
+
+    def _rank_weighted(
+        self, candidates: dict[str, _Candidate], limit: int, lake: list[_FileFacts], top_k: int,
+    ) -> list[_Candidate]:
+        """The weighted ranking: by fused score, seeds before their siblings, then the branch ranks and the key."""
+        no_rank = limit + 1
+
+        def order(candidate: _Candidate) -> tuple[Any, ...]:
+            return (
+                -candidate.score,
+                candidate.enumerated_from is not None,
+                candidate.pneuma_rank or no_rank,
+                candidate.content_rank or no_rank,
+                candidate.key,
             )
 
-        if fill:
-            # The reference merge: Pneuma's tables in Pneuma's order, then the
-            # content matches it did not return, strongest first -- only
-            # tables that matched an entity, where the reference would pad with
-            # zero-score tables in name order. Enumerated siblings come last.
-            ranked = [
-                *sorted(
-                    (c for c in candidates.values() if c.pneuma_rank),
-                    key=lambda c: c.pneuma_rank or 0,
-                ),
-                *(candidates[key] for key in content_order
-                  if not candidates[key].pneuma_rank),
-            ]
-            if self.config.pneuma_enumerate_tables and lake:
-                ranked += self._enumerate(ranked, lake, top_k)
-            for position, candidate in enumerate(ranked, 1):
-                candidate.score = 1.0 / position
-        else:
-            no_rank = limit + 1
+        ranked = sorted(candidates.values(), key=order)
+        if self.config.pneuma_enumerate_tables and lake:
+            siblings = self._enumerate(ranked, lake, top_k)
+            if siblings:
+                ranked = sorted([*ranked, *siblings], key=order)
+        return ranked
 
-            def order(candidate: _Candidate) -> tuple[Any, ...]:
-                return (
-                    -candidate.score,
-                    candidate.enumerated_from is not None,
-                    candidate.pneuma_rank or no_rank,
-                    candidate.content_rank or no_rank,
-                    candidate.key,
-                )
-
-            ranked = sorted(candidates.values(), key=order)
-            if self.config.pneuma_enumerate_tables and lake:
-                siblings = self._enumerate(ranked, lake, top_k)
-                if siblings:
-                    ranked = sorted([*ranked, *siblings], key=order)
-
-        hits = []
-        for rank, candidate in enumerate(ranked[:top_k], 1):
-            # The resolver hands out shared, cached dicts; evidence from one
-            # query must not leak into the next.
-            document = dict(candidate.document)
-            found = [
-                term
-                for term in terms
-                if candidate.term_cells.get(term)
-                or term in candidate.column_name_terms
-                or term in candidate.title_terms
-            ]
-            if found:
-                # The reference implementation tells the agent which entities a
-                # table contains, and the description is what the agent reads.
-                description = str(document.get("description") or "").strip()
-                document["description"] = (
-                    (description + " " if description else "")
-                    + "Contains the searched entities: "
-                    + ", ".join(found)
-                    + "."
-                )
-            document["pneuma_evidence"] = {
-                "scan_terms": list(terms),
-                "entity_extraction": extraction,
-                "matched_terms": found,
-                "content_score": candidate.content_score,
-                "normalized_content_score": candidate.normalized_content,
-                "normalized_pneuma_score": candidate.normalized_pneuma,
-                "content_fusion": self.config.pneuma_content_fusion.value,
-                "content_weight": None if fill else weight,
-                "table_name_weight": self.config.pneuma_table_name_weight,
-                "column_name_weight": self.config.pneuma_column_name_weight,
-                "cell_weight": self.config.pneuma_cell_weight,
-                "pneuma_rank": candidate.pneuma_rank,
-                "term_cells": candidate.term_cells,
-                "column_name_terms": list(candidate.column_name_terms),
-                "title_terms": list(candidate.title_terms),
-                "enumerated_from": candidate.enumerated_from,
-                "scanned_files": len(content_by_stem),
-                "listed_files": len(lake),
-                "truncated": bool(content_by_stem) and len(content_by_stem) < len(lake),
-                "unscannable_files": unscannable,
-            }
-            hits.append(
-                RetrievalHit(
-                    document=document,
-                    score=candidate.score,
-                    rank=rank,
-                    lexical_score=candidate.content_score,
-                    semantic_score=(
-                        1.0 / candidate.pneuma_rank if candidate.pneuma_rank else None
-                    ),
-                    normalized_lexical_score=candidate.normalized_content,
-                    normalized_semantic_score=candidate.normalized_pneuma,
-                    lexical_rank=candidate.content_rank,
-                    semantic_rank=candidate.pneuma_rank,
-                )
+    @staticmethod
+    def _hit(candidate: _Candidate, rank: int, terms: list[str], scan: dict[str, Any]) -> RetrievalHit:
+        """The candidate as a hit, its document carrying the entities found and the search's evidence."""
+        # The resolver hands out shared, cached dicts; evidence from one
+        # query must not leak into the next.
+        document = dict(candidate.document)
+        found = [
+            term for term in terms
+            if candidate.term_cells.get(term) or term in candidate.column_name_terms or term in candidate.title_terms
+        ]
+        if found:
+            # The reference implementation tells the agent which entities a
+            # table contains, and the description is what the agent reads.
+            description = str(document.get("description") or "").strip()
+            document["description"] = (
+                (description + " " if description else "")
+                + "Contains the searched entities: " + ", ".join(found) + "."
             )
-        return hits
+        document["pneuma_evidence"] = {
+            "scan_terms": scan["scan_terms"],
+            "entity_extraction": scan["entity_extraction"],
+            "matched_terms": found,
+            "content_score": candidate.content_score,
+            "normalized_content_score": candidate.normalized_content,
+            "normalized_pneuma_score": candidate.normalized_pneuma,
+            "content_fusion": scan["content_fusion"],
+            "content_weight": scan["content_weight"],
+            "table_name_weight": scan["table_name_weight"],
+            "column_name_weight": scan["column_name_weight"],
+            "cell_weight": scan["cell_weight"],
+            "pneuma_rank": candidate.pneuma_rank,
+            "term_cells": candidate.term_cells,
+            "column_name_terms": list(candidate.column_name_terms),
+            "title_terms": list(candidate.title_terms),
+            "enumerated_from": candidate.enumerated_from,
+            "scanned_files": scan["scanned_files"],
+            "listed_files": scan["listed_files"],
+            "truncated": scan["truncated"],
+            "unscannable_files": scan["unscannable_files"],
+        }
+        return RetrievalHit(
+            document=document,
+            score=candidate.score,
+            rank=rank,
+            lexical_score=candidate.content_score,
+            semantic_score=1.0 / candidate.pneuma_rank if candidate.pneuma_rank else None,
+            normalized_lexical_score=candidate.normalized_content,
+            normalized_semantic_score=candidate.normalized_pneuma,
+            lexical_rank=candidate.content_rank,
+            semantic_rank=candidate.pneuma_rank,
+        )
