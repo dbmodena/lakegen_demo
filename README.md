@@ -396,7 +396,7 @@ Before changing a Solr core, run the indexer without `--apply`. This validates
 the operation without writing documents:
 
 ```bash
-uv run python index_retrieval.py \
+lakegen index \
   --core nyc \
   --ensure-schema \
   --metadata-source backups/nyc-solr-ready-metadata.json
@@ -405,7 +405,7 @@ uv run python index_retrieval.py \
 Only after reviewing the dry run, apply the update and create a backup:
 
 ```bash
-uv run python index_retrieval.py \
+lakegen index \
   --core nyc \
   --ensure-schema \
   --metadata-source backups/nyc-solr-ready-metadata.json \

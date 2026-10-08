@@ -6,6 +6,7 @@
     lakegen runs index-legacy JOB_DIR...  the old submit scripts' jobs into the store
     lakegen services status|up|down       the services experiments need
     lakegen bench [options]               the retrieval benchmark
+    lakegen index [options]               table embeddings into a Solr core
 
 Each command keeps its own parser; this one only routes to it.
 """
@@ -56,6 +57,13 @@ def _bench(rest: list[str]) -> int:
     return benchmark.main(rest)
 
 
+def _index(rest: list[str]) -> int:
+    from lakegen.interfaces.cli import index
+
+    index.main(rest)
+    return 0
+
+
 COMMANDS: dict[str, tuple[Command, str]] = {
     "ask": (_ask, "answer one question from the terminal"),
     "config": (_config, "show, validate or diff configuration files"),
@@ -63,6 +71,7 @@ COMMANDS: dict[str, tuple[Command, str]] = {
     "runs": (_runs, "index the old submit scripts' jobs into the run store"),
     "services": (_services, "status, up or down of the services experiments need"),
     "bench": (_bench, "run the retrieval benchmark"),
+    "index": (_index, "index a lake's table embeddings into its Solr core"),
 }
 
 

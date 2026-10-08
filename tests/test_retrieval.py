@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from index_retrieval import validate_source_coverage
+from lakegen.interfaces.cli.index import validate_source_coverage
 from src.client_solr import LocalSolrClient
 from scripts_pneuma.pneuma_judge import (
     JudgeError,

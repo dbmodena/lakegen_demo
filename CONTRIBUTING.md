@@ -130,7 +130,7 @@ listed.
 
 One entry in `config/lakes.yaml` (title, Pneuma route, starter questions; the
 data layout is `data/<lake>/` with the defaults at the top of the file), then
-the Solr core and, for semantic retrieval, `python index_retrieval.py --core
+the Solr core and, for semantic retrieval, `lakegen index --core
 <lake>`. Configure it with `lake: <name>` (`core:` in the flat form).
 
 ### An experiment
