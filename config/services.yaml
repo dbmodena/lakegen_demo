@@ -60,3 +60,7 @@ services:
   tunnel:
     description: a Cloudflare quick tunnel to the dashboard; its public URL is in the log
     command: cloudflared tunnel --url http://127.0.0.1:8790 --no-autoupdate
+  runs_dashboard:
+    description: the dashboard over the run store (every spec run and every indexed legacy grid)
+    health: http://127.0.0.1:8792/health
+    command: .venv/bin/python -m lakegen.interfaces.dashboard --host 127.0.0.1 --port 8792

@@ -55,6 +55,7 @@ retrieval benchmark; variables already set in the environment win over it.
 | `LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE` | `''` | A file whose number overrides the token rate, re-read before every rest. | import of api |
 | `LAKEGEN_SPLIT_MODEL` | `''` | A second model that runs a share of every batch's questions. | import of api |
 | `LAKEGEN_SPLIT_SHARE` | `0.0` | The share of questions (0 to 1) that run on LAKEGEN_SPLIT_MODEL. | import of api |
+| `LAKEGEN_DASHBOARD_TOKEN` | `''` | A token the run dashboard requires (open /?token=... once; it is kept in a cookie). Empty: open. | start of the dashboard |
 
 ## Behaviour switches
 

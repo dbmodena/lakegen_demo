@@ -62,6 +62,39 @@ def is_job_file(path: Path) -> bool:
     return path.suffix == ".json" and not path.name.endswith(QUESTIONS_SUFFIX)
 
 
+@dataclass(frozen=True)
+class JobProgress:
+    """What the job file alone says, without reading the results: for listings."""
+
+    job_id: str
+    status: str
+    question_count: int
+    processed: int
+    failed: int
+    created_at: str | None
+    finished_at: str | None
+    error: str
+
+
+def read_progress(path: Path) -> JobProgress | None:
+    """The job's progress from its job file; None when the file is missing or unreadable."""
+    path = Path(path)
+    try:
+        job = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return JobProgress(
+        job_id=str(job.get("job_id") or path.stem),
+        status=str(job.get("status") or ""),
+        question_count=int(job.get("question_count") or 0),
+        processed=int(job.get("processed") or 0),
+        failed=int(job.get("failed") or 0),
+        created_at=job.get("created_at"),
+        finished_at=job.get("finished_at"),
+        error=str(job.get("error") or ""),
+    )
+
+
 def read_job(path: Path) -> StoredJob:
     path = Path(path)
     job = json.loads(path.read_text(encoding="utf-8"))

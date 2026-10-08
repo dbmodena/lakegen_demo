@@ -220,6 +220,9 @@ VARIABLES: tuple[EnvVar, ...] = (
            "A second model that runs a share of every batch's questions.", "import of api"),
     EnvVar("LAKEGEN_SPLIT_SHARE", 0.0, share, "api",
            "The share of questions (0 to 1) that run on LAKEGEN_SPLIT_MODEL.", "import of api"),
+    EnvVar("LAKEGEN_DASHBOARD_TOKEN", "", stripped, "api",
+           "A token the run dashboard requires (open /?token=... once; it is kept in a cookie). Empty: open.",
+           "start of the dashboard"),
     # switches
     EnvVar("LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT", False, is_one, "switches",
            "Adds the experimental table-count check to the unified architect's prompt (1)."),
@@ -406,6 +409,7 @@ class Settings:
     batch_tokens_per_minute_file: str
     split_model: str
     split_share: float
+    dashboard_token: str
     selection_cardinality_experiment: bool
     enable_tabpfn: bool
 
@@ -441,6 +445,7 @@ def get_settings() -> Settings:
         batch_tokens_per_minute_file=read("LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE"),
         split_model=read("LAKEGEN_SPLIT_MODEL"),
         split_share=read("LAKEGEN_SPLIT_SHARE"),
+        dashboard_token=read("LAKEGEN_DASHBOARD_TOKEN"),
         selection_cardinality_experiment=read("LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT"),
         enable_tabpfn=read("LAKEGEN_ENABLE_TABPFN"),
     )
