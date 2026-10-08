@@ -12,9 +12,9 @@ from llama_index.core.llms import ChatMessage
 
 from lakegen.core.catalogue import clean_catalogue_text
 from lakegen.discovery.candidates import format_candidate_context
+from lakegen.discovery.tools import pool
 from lakegen.experiment_config import KeywordSearchStrategy
 from lakegen.keyword_terms import keyword_terms, minimal_failing_subsets, split_keywords
-from lakegen.lakes.catalogue import match_local_csv, solr_metadata_from_doc
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalMode,
@@ -258,6 +258,44 @@ class SearchMixin:
             return kw_hybrid_limit_reached
         return len(outcomes) >= self.discovery.max_search_attempts
 
+    def _retriever(self):
+        """The retrieval service of this run, reporting to the run's observer when it has one."""
+        table_dir = [self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []
+        if self.retrieval_observer is None:
+            return get_table_retrieval_service(self.solr_client, self.retrieval_config, *table_dir)
+        return get_table_retrieval_service(
+            self.solr_client, self.retrieval_config, *table_dir, observer=self.retrieval_observer,
+        )
+
+    def _learn_from_lexical_miss(
+        self, retriever, hits: list, keywords: list[str], current: list[str], banned: list[str],
+    ) -> tuple[bool, object]:
+        """Ban what a keyword or hybrid search proved dead; whether its lexical branch was empty, and what was learned.
+
+        A strict AND lexical branch can fail to match anything while the
+        overall search still returns candidates in HYBRID mode, rescued by
+        the semantic branch: that miss must still be shrunk and banned, or
+        a repeat of the same doomed words looks new every time.
+        """
+        if self.retrieval_config.mode not in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
+            return False, None
+        lexical_empty = (
+            not hits if self.retrieval_config.mode == RetrievalMode.KEYWORD
+            else getattr(retriever, "last_lexical_hit_count", None) == 0
+        )
+        if lexical_empty:
+            return True, self._shrink_and_ban(keywords, getattr(retriever, "lexical_match_count", None))
+        if not current and banned:
+            # Everything local it matched is banned for this question: ban
+            # the whole set, but only for this question.
+            self._ban(keyword_terms(keywords), "banned_table_keyword_combinations")
+        elif not current:
+            # Solr matched something real for this AND query, just nothing
+            # available locally: ban the whole query as attempted; there is
+            # nothing lexically zero to shrink.
+            self._ban(keyword_terms(keywords))
+        return False, None
+
     def _run_one_retrieval(
         self, keywords: list[str], entities: list[str] | None = None
     ) -> dict:
@@ -271,19 +309,7 @@ class SearchMixin:
         one caller (the split keyword searches) may need this to run several
         times for what the agent experiences as a single search.
         """
-        if self.retrieval_observer is None:
-            retriever = get_table_retrieval_service(
-                self.solr_client,
-                self.retrieval_config,
-                *([self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []),
-            )
-        else:
-            retriever = get_table_retrieval_service(
-                self.solr_client,
-                self.retrieval_config,
-                *([self.csv_dir] if self.retrieval_config.mode.requires_table_dir else []),
-                observer=self.retrieval_observer,
-            )
+        retriever = self._retriever()
         # Retrieved candidates must first be mapped and de-duplicated against
         # local files.  Request a wider ranked list here and apply the
         # workflow's final top_k only after that mapping below. Widen by
@@ -291,136 +317,40 @@ class SearchMixin:
         # so a banned hit shrinks the fetch instead of the final visible
         # pool -- otherwise every accumulated ban would silently starve
         # top_k with nothing backfilling it.
-        fetch_k = (
-            max(self.discovery.fetch_floor, self.retrieval_config.top_k)
-            + len(self.state.excluded_tables)
-        )
+        fetch_k = max(self.discovery.fetch_floor, self.retrieval_config.top_k) + len(self.state.excluded_tables)
         retrieval_started = time.monotonic()
         hits = retriever.retrieve(
-            question=self.question,
-            keywords=keywords,
-            top_k=fetch_k,
-            lexical_fetch_k=fetch_k,
-            q_op="AND",
-            entities=entities,
+            question=self.question, keywords=keywords, top_k=fetch_k, lexical_fetch_k=fetch_k,
+            q_op="AND", entities=entities,
         )
-        search_mode = (
-            "AND" if self.retrieval_config.mode == RetrievalMode.KEYWORD
-            else self.retrieval_config.mode.value
-        )
-
-        searched = (
-            "the question only"
-            if self.retrieval_config.mode.ranks_question_only
-            else f"concepts {list(keywords)}"
-        )
+        mode = self.retrieval_config.mode
+        search_mode = "AND" if mode == RetrievalMode.KEYWORD else mode.value
+        searched = "the question only" if mode.ranks_question_only else f"concepts {list(keywords)}"
         self._emit_notice(
-            f"\n> \U0001f50e **Retrieval:** `{self.retrieval_config.mode.value}` "
+            f"\n> \U0001f50e **Retrieval:** `{mode.value}` "
             f"\u00b7 {searched} "
             f"\u00b7 {len(hits)} ranked hits in "
             f"{time.monotonic() - retrieval_started:.1f}s\n"
         )
-
         self.state.keyword_history.append(keywords)
         attempt = len(self.state.keyword_history)
-
-        current_candidates: list[str] = []
-        # Banned tables are dropped before anything is served: when they are
-        # all a search found, it counts as empty (see the bans below).
-        banned_hits: list[str] = []
-        for hit in hits:
-            doc = hit.document
-            matched = match_local_csv(doc, self.all_files)
-            if matched is None or matched in current_candidates:
-                continue
-            if matched.casefold() in self.state.excluded_tables:
-                if matched not in banned_hits:
-                    banned_hits.append(matched)
-                continue
-            current_candidates.append(matched)
-            previous_rank = self.state.best_ranks.get(matched)
-            self.state.candidate_scores[matched] = (
-                self.state.candidate_scores.get(matched, 0.0)
-                + 1.0 / (60.0 + hit.rank)
-            )
-            if previous_rank is None or hit.rank < previous_rank:
-                self.state.best_ranks[matched] = hit.rank
-                self.state.solr_meta[matched] = solr_metadata_from_doc(doc)
-                self.state.solr_meta[matched]["retrieval"] = hit.to_log_dict()
-                self.state.solr_meta[matched]["best_attempt"] = attempt
-                self.state.solr_meta[matched]["best_keywords"] = list(keywords)
-            if matched not in self.state.all_candidates:
-                self.state.all_candidates.append(matched)
-            if len(current_candidates) >= self.retrieval_config.top_k:
-                break
-
-        # Fuse at most two distinct agent searches with reciprocal-rank
-        # contributions. The first search alone preserves its original order.
-        self.state.all_candidates.sort(key=lambda candidate: (
-            -self.state.candidate_scores.get(candidate, 0.0),
-            self.state.best_ranks.get(candidate, 10**9),
-            candidate,
-        ))
-        self.state.all_candidates = self.state.all_candidates[
-            : self.retrieval_config.top_k
-        ]
-        # Carried candidates from a prior round already proved they
-        # satisfy part of the question; re-surface them regardless of
-        # whether this round's retrieval finds them again, even if that
-        # means displacing the weakest fresh candidate.
-        for table in self.state.carried_tables:
-            if table.casefold() in self.state.excluded_tables:
-                continue
-            if table in self.state.all_candidates:
-                self.state.all_candidates.remove(table)
-            self.state.all_candidates.insert(0, table)
-            if table not in self.state.solr_meta and table in self.state.carried_metadata:
-                self.state.solr_meta[table] = self.state.carried_metadata[table]
-        if len(self.state.all_candidates) > self.retrieval_config.top_k:
-            self.state.all_candidates = self.state.all_candidates[
-                : self.retrieval_config.top_k
-            ]
-        candidates = self.state.all_candidates
-        self.state.visible_candidate_count = min(
-            self.discovery.initial_candidates,
-            len(candidates),
+        current_candidates, banned_hits = pool.fold_hits(
+            self.state, hits, keywords=keywords, attempt=attempt, all_files=self.all_files,
+            top_k=self.retrieval_config.top_k,
         )
-        visible_candidates = candidates[: self.state.visible_candidate_count]
-        self.state.search_attempts.append(
-            {
-                "attempt": attempt,
-                "call": self.state.search_calls,
-                "keywords": list(keywords),
-                "search_mode": search_mode,
-                "current_candidates": list(current_candidates),
-                "accumulated_candidates": list(candidates),
-            }
+        candidates = pool.rank(self.state, self.retrieval_config.top_k)
+        visible_candidates = pool.show(self.state, self.discovery.initial_candidates)
+        self.state.search_attempts.append({
+            "attempt": attempt,
+            "call": self.state.search_calls,
+            "keywords": list(keywords),
+            "search_mode": search_mode,
+            "current_candidates": list(current_candidates),
+            "accumulated_candidates": list(candidates),
+        })
+        lexical_empty, learned = self._learn_from_lexical_miss(
+            retriever, hits, keywords, current_candidates, banned_hits,
         )
-
-        # A strict AND lexical branch can fail to match anything while the
-        # overall search still returns candidates in HYBRID mode, rescued by
-        # the semantic branch -- that miss must still be shrunk and banned,
-        # or a repeat of the same doomed words looks new every time.
-        learned = None
-        lexical_empty = False
-        if self.retrieval_config.mode in (RetrievalMode.KEYWORD, RetrievalMode.HYBRID):
-            lexical_empty = (
-                not hits if self.retrieval_config.mode == RetrievalMode.KEYWORD
-                else getattr(retriever, "last_lexical_hit_count", None) == 0
-            )
-            if lexical_empty:
-                count_fn = getattr(retriever, "lexical_match_count", None)
-                learned = self._shrink_and_ban(keywords, count_fn)
-            elif not current_candidates and banned_hits:
-                # Everything local it matched is banned for this question:
-                # ban the whole set, but only for this question.
-                self._ban(keyword_terms(keywords), "banned_table_keyword_combinations")
-            elif not current_candidates:
-                # Solr matched something real for this AND query, just
-                # nothing available locally -- ban the whole query as
-                # attempted; there is nothing lexically zero to shrink.
-                self._ban(keyword_terms(keywords))
-
         return {
             "attempt": attempt,
             "keywords": keywords,
