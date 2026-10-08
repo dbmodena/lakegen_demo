@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
-import os
+
+from lakegen.config.settings import pneuma_override, retrieval_env_values
 
 DEFAULT_TOP_K = 20
 # Second-stage reranker of production retrieval (retrieval.rerank); see
@@ -333,13 +334,11 @@ class RetrievalConfig:
         if route is None:
             return self
         default_url, default_index = route
-        env_prefix = f"LAKEGEN_PNEUMA_{normalized.upper()}"
+        url, index = pneuma_override(normalized)
         return replace(
             self,
-            pneuma_index_name=os.environ.get(
-                f"{env_prefix}_INDEX_NAME", default_index
-            ),
-            pneuma_base_url=os.environ.get(f"{env_prefix}_BASE_URL", default_url),
+            pneuma_index_name=default_index if index is None else index,
+            pneuma_base_url=default_url if url is None else url,
         )
 
     @classmethod
@@ -351,111 +350,18 @@ class RetrievalConfig:
         alpha: float | None = None,
         candidate_multiplier: int | None = None,
     ) -> "RetrievalConfig":
-        selected_mode = mode or os.environ.get(
-            "LAKEGEN_RETRIEVAL_MODE", RetrievalMode.KEYWORD
-        )
-        return cls(
-            mode=RetrievalMode(selected_mode),
-            top_k=top_k
-            if top_k is not None
-            else int(os.environ.get("LAKEGEN_RETRIEVAL_TOP_K", str(DEFAULT_TOP_K))),
-            alpha=alpha
-            if alpha is not None
-            else float(os.environ.get("LAKEGEN_HYBRID_ALPHA", "0.5")),
-            candidate_multiplier=candidate_multiplier
-            if candidate_multiplier is not None
-            else int(os.environ.get("LAKEGEN_CANDIDATE_MULTIPLIER", "5")),
-            representation_version=os.environ.get(
-                "LAKEGEN_REPRESENTATION_VERSION", "metadata-v1"
-            ),
-            embedding_model=os.environ.get(
-                "LAKEGEN_EMBEDDING_MODEL", "cohere.embed-v4.0"
-            ),
-            embedding_base_url=os.environ.get(
-                "LAKEGEN_EMBEDDING_BASE_URL", "http://localhost:11434"
-            ),
-            vector_field=os.environ.get(
-                "LAKEGEN_VECTOR_FIELD", "table_embedding"
-            ),
-            lexical_query_fields=os.environ.get("LAKEGEN_BM25_QUERY_FIELDS"),
-            missing_signal_policy=MissingSignalPolicy(
-                os.environ.get("LAKEGEN_MISSING_SIGNAL_POLICY", "zero")
-            ),
-            fusion_method=FusionMethod(
-                os.environ.get("LAKEGEN_FUSION_METHOD", "weighted")
-            ),
-            rrf_k=int(os.environ.get("LAKEGEN_RRF_K", "60")),
-            pneuma_index_name=os.environ.get("LAKEGEN_PNEUMA_INDEX_NAME", "lakegen-cohere-v4-1024"),
-            pneuma_base_url=os.environ.get(
-                "LAKEGEN_PNEUMA_BASE_URL", "http://localhost:8767"
-            ),
-            pneuma_timeout_seconds=float(
-                os.environ.get("LAKEGEN_PNEUMA_TIMEOUT_SECONDS", "120")
-            ),
-            pneuma_content_weight=float(
-                os.environ.get("LAKEGEN_PNEUMA_CONTENT_WEIGHT", "0.5")
-            ),
-            pneuma_content_fusion=PneumaContentFusion(
-                os.environ.get("LAKEGEN_PNEUMA_CONTENT_FUSION", "weighted")
-            ),
-            pneuma_entity_model=os.environ.get("LAKEGEN_PNEUMA_ENTITY_MODEL"),
-            pneuma_enumerate_tables=os.environ.get(
-                "LAKEGEN_PNEUMA_ENUMERATE_TABLES", "1"
-            ).strip().casefold() not in ("0", "false", "no"),
-            pneuma_table_name_weight=float(
-                os.environ.get("LAKEGEN_PNEUMA_TABLE_NAME_WEIGHT", "3.0")
-            ),
-            pneuma_column_name_weight=float(
-                os.environ.get("LAKEGEN_PNEUMA_COLUMN_NAME_WEIGHT", "2.0")
-            ),
-            pneuma_cell_weight=float(
-                os.environ.get("LAKEGEN_PNEUMA_CELL_WEIGHT", "1.0")
-            ),
-            pneuma_value_scan_weight=float(
-                os.environ.get("LAKEGEN_PNEUMA_VALUE_SCAN_WEIGHT", "0.0")
-            ),
-            duckdb_max_files=int(os.environ.get("LAKEGEN_DUCKDB_MAX_FILES", "250")),
-            duckdb_max_columns_per_file=int(
-                os.environ.get("LAKEGEN_DUCKDB_MAX_COLUMNS_PER_FILE", "40")
-            ),
-            duckdb_sample_rows=int(
-                os.environ.get("LAKEGEN_DUCKDB_SAMPLE_ROWS", "3")
-            ),
-            duckdb_max_scan_rows_per_file=int(
-                os.environ.get("LAKEGEN_DUCKDB_MAX_SCAN_ROWS_PER_FILE", "100000")
-            ),
-            duckdb_probe_files=int(
-                os.environ.get("LAKEGEN_DUCKDB_PROBE_FILES", "25")
-            ),
-            duckdb_probe_rows_per_file=int(
-                os.environ.get("LAKEGEN_DUCKDB_PROBE_ROWS_PER_FILE", "1000")
-            ),
-            grep_max_files=(
-                int(limit)
-                if (limit := os.environ.get("LAKEGEN_GREP_MAX_FILES", "").strip())
-                else None
-            ),
-            grep_max_columns_per_file=int(
-                os.environ.get("LAKEGEN_GREP_MAX_COLUMNS_PER_FILE", "40")
-            ),
-            grep_max_scan_rows_per_file=int(
-                os.environ.get("LAKEGEN_GREP_MAX_SCAN_ROWS_PER_FILE", "100000")
-            ),
-            grep_sample_rows=int(os.environ.get("LAKEGEN_GREP_SAMPLE_ROWS", "3")),
-            grep_probe_files=int(os.environ.get("LAKEGEN_GREP_PROBE_FILES", "25")),
-            scan_workers=int(os.environ.get("LAKEGEN_SCAN_WORKERS", "16")),
-            grep_value_weight=float(
-                os.environ.get("LAKEGEN_GREP_VALUE_WEIGHT", "1.0")
-            ),
-            grep_metadata_weight=float(
-                os.environ.get("LAKEGEN_GREP_METADATA_WEIGHT", "1.0")
-            ),
-            grep_probe_rows_per_file=int(
-                os.environ.get("LAKEGEN_GREP_PROBE_ROWS_PER_FILE", "1000")
-            ),
-            # An empty LAKEGEN_RERANK_MODEL turns reranking off.
-            rerank_model=os.environ.get("LAKEGEN_RERANK_MODEL", DEFAULT_RERANK_MODEL),
-            rerank_depth=int(
-                os.environ.get("LAKEGEN_RERANK_DEPTH", str(DEFAULT_RERANK_DEPTH))
-            ),
-        )
+        """The production defaults, each overridable by its LAKEGEN_* variable.
+
+        The variables and their defaults are listed in lakegen.config.settings
+        (group ``retrieval``); the keyword arguments win over the environment.
+        """
+        values = retrieval_env_values()
+        for name, value in (
+            ("mode", mode),
+            ("top_k", top_k),
+            ("alpha", alpha),
+            ("candidate_multiplier", candidate_multiplier),
+        ):
+            if value is not None:
+                values[name] = value
+        return cls(**values)
