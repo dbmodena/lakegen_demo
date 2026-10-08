@@ -1,55 +1,35 @@
 """The engine: one question through discovery, coding and the answer.
 
-``run_pipeline`` is the service's ``run_question`` moved here whole, reading
-its settings from a ``RunContext`` and calling its phases through a
-``PipelineDeps``. The CLI and the Chainlit app still run their own copies of
-the orchestration; phase 3 of the refactor ports them onto this engine and
-splits it into stages.
+``run_pipeline`` runs the autonomous workflow for a ``RunContext`` with the
+phases of a ``PipelineDeps``: up to three discovery rounds, each followed
+by the coding stage (direct attempts, or the automatic coder-context
+sweep), until a result is final. The stages live in ``stages``; the engine
+decides only the order and when a round repeats something already
+rejected. The CLI and the Chainlit app still run their own copies of the
+orchestration; phase 3 of the refactor ports them onto this engine.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import time
 import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.code_attempts import CodeAttemptEvaluator
-from lakegen.coder_experiment import run_coder_context_sweep
 from lakegen.core import paths
 from lakegen.core.config import BASE_DIR
 from lakegen.core.resources import capture_retrieval_runs, make_retrieval_run_observer
 from lakegen.domain.evaluation import EvaluationContext
-from lakegen.domain.outcomes import CodeStatus, SelectorKind
-from lakegen.experiment_config import CoderContextLevel, DiscoveryArchitecture, ToolAccess
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
     load_keyword_memory,
     load_question_retrieval_memory,
-    persist_keyword_memory,
-    persist_question_retrieval_memory,
     question_memory_key,
 )
 from lakegen.manifest import ExperimentManifest, create_manifest
 from lakegen.observability.recorder import Recorder, record_semantic_plan_telemetry
-from lakegen.output_validation import AnswerDisposition, validate_answer
-from lakegen.phases.orchestrated_discovery import (
-    OrchestratedContextPreparationError,
-    OrchestratedSelectorError,
-    RetrievalRequestProtocolError,
-)
-from lakegen.phases.utils import rejection_feedback_hint
-from lakegen.pipeline.adapters import (
-    code_outcome,
-    divided_agentic_outcome,
-    divided_orchestrated_outcome,
-    sweep_outcome,
-    unified_agentic_outcome,
-    unified_orchestrated_outcome,
-)
 from lakegen.pipeline.budgets import (
     Attempts,
     DedupeGuard,
@@ -58,132 +38,41 @@ from lakegen.pipeline.budgets import (
 )
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.deps import PipelineDeps
+from lakegen.pipeline.stages import (
+    CORRECTION_HEADER,
+    MAX_CODE_ATTEMPTS,
+    MAX_TABLE_ATTEMPTS,
+    CoderSweep,
+    CodingStage,
+    DiscoveryStage,
+    Run,
+    SemanticJudge,
+    Verdict,
+    selection_retry_feedback,
+)
 from lakegen.pipeline.state import RunState
 from lakegen.reproducibility import initialize_reproducibility
-from lakegen.retrieval.intent import intent_entities
 from lakegen.service_models import QueryResult
 
-# The helper the tests import from here; it lives with the recorder now.
-_record_semantic_plan_telemetry = record_semantic_plan_telemetry
-
-# The signature helpers the tests import from here live with the budgets now.
-_rejected_selection_signature = rejected_selection_signature
-_selection_plan_signature = selection_plan_signature
-
-MAX_CODE_ATTEMPTS = 3
-MAX_TABLE_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
 
+# The helpers the tests import from the service under their old names.
+_record_semantic_plan_telemetry = record_semantic_plan_telemetry
+_rejected_selection_signature = rejected_selection_signature
+_selection_plan_signature = selection_plan_signature
+_selection_retry_feedback = selection_retry_feedback
 
-def _selection_retry_feedback(
-    tables: list[str], audit: Mapping[str, Any] | None, error: str
-) -> dict[str, Any]:
-    """Compile one mode-neutral correction hint from the contract gate audit."""
-    audit = audit or {}
-    diagnostics = list(
-        audit.get("validation_diagnostics") or audit.get("diagnostics") or []
-    )
-    action_by_category = {
-        "unknown_column": "inspect the runtime schema and bind the exact column name",
-        "missing_columns": "inspect the runtime schema and choose the required columns",
-        "ambiguous_column": "inspect the candidate columns and resolve the binding",
-        "invalid_join": "inspect both schemas and provide explicit compatible join keys",
-        "unknown_join_column": "inspect both schemas and correct the join-column binding",
-        "table_unreadable": "select a readable table that covers the same requirement",
-        "unknown_table": "select only tables returned by the current retrieval",
-    }
-    corrections: list[dict[str, Any]] = []
-    for diagnostic in diagnostics:
-        item = diagnostic if isinstance(diagnostic, Mapping) else {"evidence": diagnostic}
-        category = str(item.get("category") or "contract_not_grounded")
-        correction = {
-            "category": category,
-            "action": action_by_category.get(
-                category,
-                "inspect the relevant runtime columns or values and revise the plan",
-            ),
-        }
-        for key in ("table", "column", "columns", "evidence"):
-            if item.get(key) not in (None, "", [], {}):
-                correction[key] = item[key]
-        corrections.append(correction)
-    if not corrections:
-        corrections.append({
-            "category": str(audit.get("status") or "contract_not_grounded"),
-            "action": (
-                "inspect the selected runtime schemas and values, then provide exact "
-                "column bindings and explicit join keys"
-            ),
-            "evidence": error,
-        })
-    keep_tables = not any(
-        item["category"] in {"unknown_table", "table_unreadable"}
-        for item in corrections
-    )
-    return {
-        "retry_reason": "selection_contract_invalid",
-        "keep_current_tables": keep_tables,
-        "previous_selection": list(tables),
-        "required_corrections": corrections,
-        "instruction": (
-            "Resolve every required correction before confirming. Do not repeat the "
-            "previous plan unchanged."
-        ),
-    }
+__all__ = ["MAX_CODE_ATTEMPTS", "MAX_TABLE_ATTEMPTS", "run_pipeline"]
 
 
-def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it into stages)
-    question: str,
-    ctx: RunContext,
-    deps: PipelineDeps,
-    *,
-    question_id: str | int | None = None,
-    log_context: Mapping[str, Any] | None = None,
-    manifest: ExperimentManifest | None = None,
-) -> QueryResult:
-    """Run the autonomous LakeGen workflow for one question."""
+def _open_keyword_memory(state: RunState, ctx: RunContext, question: str) -> None:
+    """Load the durable keyword memory of the lake and mode into the run's state.
 
-    recorder = Recorder(question, ctx, deps)
-    result = recorder.result
-    benchmark = EvaluationContext.from_log_context(log_context)
-    expected_result_type = benchmark.expected_result_type
-    reference_result = benchmark.reference_result
-    expected_result_description = benchmark.expected_description
-    attempt_evaluator = CodeAttemptEvaluator(
-        expected_result_type=expected_result_type,
-        reference_result=reference_result,
-        expected_description=expected_result_description,
-        evaluation_contract=dict(benchmark.evaluation_contract),
-    )
-    code_evaluation_enabled = attempt_evaluator.enabled
-    result.code_evaluation = attempt_evaluator.initial_evaluation()
-    experiment = ctx.experiment
-    source_id = benchmark.source_id
-    reproducibility = initialize_reproducibility(experiment.seed)
-    manifest = manifest or create_manifest(
-        experiment,
-        base_dir=BASE_DIR,
-        question=question,
-        question_id=question_id if question_id is not None else source_id,
-    )
-    result.manifest = manifest.model_dump(mode="json")
-    result.configuration = dict(manifest.resolved_config)
-    deps.persist_manifest(manifest, paths.manifests_dir())
-    llm, _token_counter = deps.get_llm(ctx.model_name)
-    semantic_judge_llm = None
-    semantic_judge_requirements: list[dict[str, Any]] | None = None
-    solr = deps.get_solr(ctx.lake)
-    prompt_manager = deps.get_prompt_manager()
-    all_files = deps.get_all_table_files(ctx.tables_dir)
-    if not all_files:
-        raise RuntimeError(f"No CSV or Parquet tables found in {ctx.tables_dir}")
-
-    run_dir = paths.coding_dir() / uuid.uuid4().hex
-    state = RunState()
-    guard = DedupeGuard()
-    # Unified lexical memory belongs to the whole question, not one selection
-    # round. A fresh P12State is still needed for inspection budgets, but zero-
-    # result knowledge must survive coder/selection retries.
+    Unified lexical memory belongs to the whole question, not one selection
+    round: zero-result knowledge survives coder and selection retries.
+    Historical searches are audit data and do not consume the per-question
+    retry budget; only failed combinations affect future runs.
+    """
     state.keyword_memory_path = paths.keyword_memory_path()
     state.keyword_memory_scope = "|".join((
         ctx.lake,
@@ -195,143 +84,70 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
     _persistent_keyword_history, state.failed_keyword_combinations = load_keyword_memory(
         state.keyword_memory_path, state.keyword_memory_scope
     )
-    # Word sets that found only this question's excluded_tables: carried
-    # across rounds like the bans above, but never persisted.
     state.retrieval_question_key = question_memory_key(question)
     state.retrieval_memory_summary = format_question_retrieval_memory(
         load_question_retrieval_memory(
             state.keyword_memory_path, state.keyword_memory_scope, state.retrieval_question_key
         )
     )
-    # Historical searches are durable audit data, but do not consume the
-    # per-question retry budget. Only failed combinations affect future runs.
-    # Unified only: the cached inspect_columns text for each carried table,
-    # so a table already proven good doesn't have to be re-inspected from a
-    # blank P12State every attempt -- that wasted the round's own bounded
-    # inspection budget on re-verifying what was already known.
-    def adjudicate_code_evaluation(
-        evaluation: dict[str, Any], generated
-    ) -> dict[str, Any]:
-        nonlocal semantic_judge_llm, semantic_judge_requirements
-        if evaluation.get("evaluation_disposition") != "pending_semantic_review":
-            return evaluation
-        if not experiment.semantic_code_judge_enabled:
-            evaluation.update({
-                "evaluation_disposition": "indeterminate",
-                "supported_correct": False,
-                "semantic_judge_used": False,
-                "semantic_judge_model": experiment.semantic_code_judge_model,
-            })
-            return evaluation
-        if semantic_judge_llm is None:
-            semantic_judge_llm = (
-                llm
-                if experiment.semantic_code_judge_model == ctx.model_name
-                else deps.get_llm(experiment.semantic_code_judge_model)[0]
-            )
-        judgment, judge_tokens = deps.judge_semantic_code_result(
-            question=question,
-            expected_description=expected_result_description,
-            reference_result=reference_result,
-            selected_tables=state.selected,
-            selected_metadata=state.solr_meta,
-            generated_code=generated.clean_code or generated.code_raw,
-            generated_result=getattr(generated, "structured_result", None),
-            deterministic_evaluation=evaluation,
-            llm=semantic_judge_llm,
-            prompt_manager=prompt_manager,
-            requirements_override=semantic_judge_requirements,
-        )
-        returned_requirements = judgment.get("requirements")
-        if semantic_judge_requirements is None and isinstance(returned_requirements, list):
-            semantic_judge_requirements = [
-                dict(item) for item in returned_requirements if isinstance(item, Mapping)
-            ]
-        disposition = judgment["disposition"]
-        judge_error = str(judgment.get("judge_error") or "")
-        assessments = judgment.get("requirement_assessments", [])
-        if not isinstance(assessments, list):
-            assessments = []
-        assessment_counts = {
-            status: sum(
-                isinstance(item, Mapping) and item.get("status") == status
-                for item in assessments
-            )
-            for status in ("verified", "failed", "unknown")
-        }
-        objections = judgment.get("critique", {}).get("objections", [])
-        if not isinstance(objections, list):
-            objections = []
-        blocking_objection_count = sum(
-            isinstance(item, Mapping)
-            and str(item.get("severity") or "").casefold() in {"critical", "major"}
-            for item in objections
-        )
-        requested_disposition = str(
-            judgment.get("requested_disposition") or disposition
-        )
-        requirement_count = len(assessments)
-        canonical_disposition = {
-            "alternative_correct": "correct",
-            "incorrect": "incorrect",
-            "indeterminate": "completed_with_warnings",
-        }.get(disposition, "completed_with_warnings")
-        if judge_error:
-            canonical_disposition = "completed_with_warnings"
-        evaluation.update({
-            "evaluation_disposition": canonical_disposition,
-            "semantic_correctness": disposition,
-            "supported_correct": disposition == "alternative_correct",
-            "semantic_pass_at_1": (
-                bool(evaluation.get("semantic_pass_at_1"))
-                or (
-                    disposition == "alternative_correct"
-                    and int(evaluation.get("attempt_count") or 0) == 1
-                )
-            ),
-            "semantic_success_within_3": (
-                bool(evaluation.get("semantic_success_within_3"))
-                or (
-                    disposition == "alternative_correct"
-                    and 0 < int(evaluation.get("attempt_count") or 0) <= 3
-                )
-            ),
-            "semantic_judge_used": True,
-            "semantic_judge_model": experiment.semantic_code_judge_model,
-            "semantic_judge_tokens": judge_tokens,
-            "semantic_judge_parse_success": not bool(judge_error),
-            "semantic_judge_status": "parse_failed" if judge_error else "completed",
-            "semantic_judge_pipeline_version": "evidence_v2",
-            "semantic_judge_requested_disposition": requested_disposition,
-            "semantic_judge_downgraded": requested_disposition != disposition,
-            "semantic_judge_requirement_count": requirement_count,
-            "semantic_judge_verified_requirement_count": assessment_counts["verified"],
-            "semantic_judge_failed_requirement_count": assessment_counts["failed"],
-            "semantic_judge_unknown_requirement_count": assessment_counts["unknown"],
-            "semantic_judge_evidence_coverage": (
-                assessment_counts["verified"] / requirement_count
-                if requirement_count else 0.0
-            ),
-            "semantic_judge_blocking_objection_count": blocking_objection_count,
-            "semantic_judge_hardcoding_risk": str(
-                judgment.get("code_analysis", {}).get("hardcoding_risk") or "unknown"
-            ),
-            "semantic_judgment": judgment,
-        })
-        return evaluation
 
-    retrieval_log_context = {
-        **benchmark.to_log_fields(),
-        "EXPERIMENT_ID": experiment.experiment_id,
-    }
+
+def run_pipeline(
+    question: str,
+    ctx: RunContext,
+    deps: PipelineDeps,
+    *,
+    question_id: str | int | None = None,
+    log_context: Mapping[str, Any] | None = None,
+    manifest: ExperimentManifest | None = None,
+) -> QueryResult:
+    """Run the autonomous LakeGen workflow for one question."""
+    recorder = Recorder(question, ctx, deps)
+    result = recorder.result
+    benchmark = EvaluationContext.from_log_context(log_context)
+    attempt_evaluator = CodeAttemptEvaluator(
+        expected_result_type=benchmark.expected_result_type,
+        reference_result=benchmark.reference_result,
+        expected_description=benchmark.expected_description,
+        evaluation_contract=dict(benchmark.evaluation_contract),
+    )
+    result.code_evaluation = attempt_evaluator.initial_evaluation()
+    experiment = ctx.experiment
+    reproducibility = initialize_reproducibility(experiment.seed)
+    manifest = manifest or create_manifest(
+        experiment,
+        base_dir=BASE_DIR,
+        question=question,
+        question_id=question_id if question_id is not None else benchmark.source_id,
+    )
+    result.manifest = manifest.model_dump(mode="json")
+    result.configuration = dict(manifest.resolved_config)
+    deps.persist_manifest(manifest, paths.manifests_dir())
+    llm, _token_counter = deps.get_llm(ctx.model_name)
+    solr = deps.get_solr(ctx.lake)
+    prompt_manager = deps.get_prompt_manager()
+    all_files = deps.get_all_table_files(ctx.tables_dir)
+    if not all_files:
+        raise RuntimeError(f"No CSV or Parquet tables found in {ctx.tables_dir}")
+
+    state = RunState()
+    _open_keyword_memory(state, ctx, question)
+    run = Run(
+        question=question, ctx=ctx, deps=deps, benchmark=benchmark, recorder=recorder,
+        state=state, guard=DedupeGuard(), llm=llm, solr=solr, prompt_manager=prompt_manager,
+        all_files=all_files, run_dir=paths.coding_dir() / uuid.uuid4().hex,
+        reproducibility=reproducibility, attempt_evaluator=attempt_evaluator,
+    )
+    judge = SemanticJudge(run)
+    discovery = DiscoveryStage(run)
+    coding = CoderSweep(run, judge) if experiment.automatic_test_coder else CodingStage(run, judge)
+
+    retrieval_log_context = {**benchmark.to_log_fields(), "EXPERIMENT_ID": experiment.experiment_id}
     with capture_retrieval_runs(retrieval_log_context) as retrieval_runs:
-        agentic_retrieval_observer = make_retrieval_run_observer(
-            retrieval_log_context,
-            retrieval_runs,
-        )
+        run.retrieval_runs = retrieval_runs
+        run.retrieval_observer = make_retrieval_run_observer(retrieval_log_context, retrieval_runs)
         try:
             for table_attempt in Attempts(MAX_TABLE_ATTEMPTS):
-                discovery_started = time.monotonic()
                 selection_record: dict[str, Any] = {
                     "attempt": table_attempt.number,
                     "selected_datasets": [],
@@ -340,748 +156,18 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     "rejection_feedback": "",
                 }
                 state.selection_attempts.append(selection_record)
-                if (
-                    experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED
-                    and experiment.tool_access == ToolAccess.AGENTIC
-                ):
-                    # A coder rejection starts a genuinely new retrieval turn.
-                    # Reusing P12State would block new searches after the first
-                    # inspected candidate and could silently repeat the same
-                    # set, so a fresh state is still built each attempt -- but
-                    # it is seeded with the cross-round memory accumulated so
-                    # far (mirrors DIVIDED's excluded_tables/carried_tables).
-                    state.selection_state = P12State()
-                    state.selection_state.keyword_history = [
-                        list(item) for item in state.keyword_history
-                    ]
-                    state.selection_state.failed_keyword_combinations = list(
-                        state.failed_keyword_combinations
-                    )
-                    state.selection_state.banned_table_keyword_combinations = list(
-                        state.banned_table_keyword_combinations
-                    )
-                    state.selection_state.rejected_selections = set(guard.rejected_keys)
-                    state.selection_state.excluded_tables = set(state.excluded_tables)
-                    state.selection_state.carried_tables = list(state.carried_tables)
-                    state.selection_state.carried_metadata = dict(state.carried_metadata)
-                    state.selection_state.inspection_cache = dict(state.carried_inspection)
-                    state.selection_states.append(state.selection_state)
-                    raw = deps.phase12_agent(
-                        query=question,
-                        llm=llm,
-                        pm=prompt_manager,
-                        all_files=all_files,
-                        solr_client=solr,
-                        csv_dir=ctx.tables_dir,
-                        hint=state.hint,
-                        retrieval_memory=state.retrieval_memory_summary,
-                        portal_name=ctx.portal_name,
-                        retrieval_config=ctx.retrieval,
-                        state=state.selection_state,
-                        retrieval_observer=agentic_retrieval_observer,
-                        require_semantic_plan=experiment.require_semantic_plan,
-                        discovery_config=experiment.discovery,
-                    )
-                    state.keyword_history = [
-                        list(item) for item in state.selection_state.keyword_history
-                    ]
-                    state.failed_keyword_combinations = list(
-                        state.selection_state.failed_keyword_combinations
-                    )
-                    state.banned_table_keyword_combinations = list(
-                        state.selection_state.banned_table_keyword_combinations
-                    )
-                    new_history = state.keyword_history[state.persisted_keyword_count:]
-                    persist_keyword_memory(
-                        state.keyword_memory_path,
-                        state.keyword_memory_scope,
-                        new_history,
-                        state.failed_keyword_combinations,
-                    )
-                    persist_question_retrieval_memory(
-                        state.keyword_memory_path,
-                        state.keyword_memory_scope,
-                        state.retrieval_question_key,
-                        state.selection_state.retrieval_memory_events,
-                    )
-                    state.retrieval_memory_summary = format_question_retrieval_memory(
-                        load_question_retrieval_memory(
-                            state.keyword_memory_path,
-                            state.keyword_memory_scope,
-                            state.retrieval_question_key,
-                        )
-                    )
-                    state.persisted_keyword_count = len(state.keyword_history)
-                    recorder.phase_invocation_counts["discovery"] += 1
-                    recorder.context_telemetry["llm_invocations"] += 1
-                    outcome = unified_agentic_outcome(raw, state.selection_state)
-                elif (
-                    experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED
-                    and experiment.tool_access == ToolAccess.AGENTIC
-                ):
-                    keyword_round = deps.phase1_generate_keywords(
-                        query=question,
-                        llm=llm,
-                        pm=prompt_manager,
-                        hint=state.hint,
-                        portal_name=ctx.portal_name,
-                        avoid_keywords=state.attempted_keywords,
-                        value_search=ctx.retrieval.mode.value_keywords,
-                        verbatim_entities=ctx.retrieval.mode.verbatim_entities,
-                    )
-                    recorder.phase_invocation_counts["discovery"] += 1
-                    selection_round = deps.phase2_select_tables(
-                        query=question, llm=llm, pm=prompt_manager,
-                        all_files=all_files, keywords=keyword_round[0], solr_client=solr,
-                        csv_dir=ctx.tables_dir, hint=state.hint,
-                        portal_name=ctx.portal_name,
-                        retrieval_config=ctx.retrieval,
-                        selection_state=state.selection_state,
-                        entities=intent_entities(keyword_round[1]),
-                        carried_tables=state.carried_tables,
-                        carried_metadata=state.carried_metadata,
-                        excluded_tables=state.excluded_tables,
-                        discovery=experiment.discovery,
-                    )
-                    outcome = divided_agentic_outcome(keyword_round, selection_round, state.selection_state)
-                    selector_llm_calls = 0 if outcome.selector is SelectorKind.JEV else 1
-                    recorder.phase_invocation_counts["discovery"] += selector_llm_calls
-                    recorder.context_telemetry["llm_invocations"] += 1 + selector_llm_calls
-                elif experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED:
-                    try:
-                        discovery_result = deps.run_unified_orchestrated_discovery(
-                            query=question, llm=llm, solr_client=solr,
-                            all_files=all_files, retrieval_config=ctx.retrieval,
-                        table_dir=ctx.tables_dir,
-                        portal_name=ctx.portal_name,
-                        hint=state.hint,
-                        retrieval_memory=(
-                            state.retrieval_memory_summary
-                            if experiment.orchestrated_memory_enabled else ""
-                        ),
-                        failed_keyword_combinations=(
-                            state.failed_keyword_combinations
-                            if experiment.orchestrated_memory_enabled else []
-                        ),
-                        max_zero_result_retries=(
-                            experiment.discovery.max_zero_result_retries
-                            if experiment.orchestrated_memory_enabled else 0
-                        ),
-                        memory_enabled=experiment.orchestrated_memory_enabled,
-                        )
-                    except RetrievalRequestProtocolError as exc:
-                        recorder.context_telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
-                        recorder.context_telemetry["llm_invocations"] += 1
-                        recorder.phase_invocation_counts["discovery"] += 1
-                        raise
-                    except OrchestratedContextPreparationError as exc:
-                        recorder.context_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
-                        recorder.context_telemetry["llm_invocations"] += 1
-                        recorder.phase_invocation_counts["discovery"] += 1
-                        calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
-                        mode = ctx.retrieval.mode.value
-                        calls[mode] = calls.get(mode, 0) + 1
-                        raise
-                    except OrchestratedSelectorError as exc:
-                        recorder.context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
-                        recorder.context_telemetry["llm_invocations"] += 2
-                        recorder.phase_invocation_counts["discovery"] += 2
-                        calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
-                        mode = ctx.retrieval.mode.value
-                        calls[mode] = calls.get(mode, 0) + 1
-                        raise
-                    outcome = unified_orchestrated_outcome(discovery_result)
-                    recorder.phase_invocation_counts["discovery"] += discovery_result.llm_invocations
-                    recorder.context_telemetry["llm_invocations"] += discovery_result.llm_invocations
-                    if experiment.orchestrated_memory_enabled:
-                        returned_bans = [
-                            frozenset(item)
-                            for item in discovery_result.failed_keyword_combinations
-                            if item
-                        ]
-                        if returned_bans:
-                            state.failed_keyword_combinations = returned_bans
-                        persist_keyword_memory(
-                            state.keyword_memory_path,
-                            state.keyword_memory_scope,
-                            [],
-                            state.failed_keyword_combinations,
-                        )
-                        persist_question_retrieval_memory(
-                            state.keyword_memory_path,
-                            state.keyword_memory_scope,
-                            state.retrieval_question_key,
-                            discovery_result.retrieval_memory_events,
-                        )
-                        state.retrieval_memory_summary = format_question_retrieval_memory(
-                            load_question_retrieval_memory(
-                                state.keyword_memory_path,
-                                state.keyword_memory_scope,
-                                state.retrieval_question_key,
-                            )
-                        )
-                else:
-                    keyword_round = deps.phase1_generate_keywords(
-                        query=question,
-                        llm=llm,
-                        pm=prompt_manager,
-                        hint=state.hint,
-                        portal_name=ctx.portal_name,
-                        avoid_keywords=state.attempted_keywords,
-                        value_search=ctx.retrieval.mode.value_keywords,
-                        verbatim_entities=ctx.retrieval.mode.verbatim_entities,
-                    )
-                    recorder.phase_invocation_counts["discovery"] += 1
-                    try:
-                        prepared, prepared_metadata = deps.prepare_discovery_context(
-                            query=question, keywords=keyword_round[0], solr_client=solr,
-                            all_files=all_files, retrieval_config=ctx.retrieval,
-                            table_dir=ctx.tables_dir,
-                            entities=intent_entities(keyword_round[1]),
-                        )
-                    except Exception as preparation_error:
-                        exc = OrchestratedContextPreparationError(str(preparation_error))
-                        recorder.context_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
-                        recorder.context_telemetry["llm_invocations"] += 1
-                        calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
-                        mode = ctx.retrieval.mode.value
-                        calls[mode] = calls.get(mode, 0) + 1
-                        raise exc from preparation_error
-                    selection = None
-                    if prepared.candidates:
-                        try:
-                            selection = deps.select_from_prepared_context(
-                                query=question, llm=llm, context=prepared,
-                                all_files=all_files, architecture=experiment.discovery_architecture,
-                                hint=state.hint, discovery=experiment.discovery,
-                                table_dir=ctx.tables_dir,
-                            )
-                        except OrchestratedSelectorError as exc:
-                            recorder.context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
-                            recorder.context_telemetry["llm_invocations"] += 2
-                            recorder.phase_invocation_counts["discovery"] += 1
-                            raise
-                    outcome = divided_orchestrated_outcome(
-                        keyword_round, prepared, prepared_metadata, selection
-                    )
-                    selector_llm_calls = 0 if outcome.selector in (SelectorKind.JEV, SelectorKind.NONE) else 1
-                    recorder.phase_invocation_counts["discovery"] += selector_llm_calls
-                    recorder.context_telemetry["llm_invocations"] += 1 + selector_llm_calls
-                state.selected = outcome.selected
-                state.keywords = outcome.keywords
-                state.solr_meta = outcome.metadata
-                state.reasoning = outcome.reasoning
-                state.trace = outcome.trace
-                architecture_tokens = outcome.tokens
-                tokens_p1, tokens_p2 = outcome.phase_tokens
-                keywords_rejected = outcome.rejected
-                if experiment.tool_access == ToolAccess.AGENTIC and outcome.rejected:
-                    # The architect's own per-table judgment feeds the next
-                    # round: a table it proved unusable is excluded, one it
-                    # found useful carries forward with its metadata and, for
-                    # the unified agent, its cached inspection.
-                    state.attempted_keywords.extend(state.keywords)
-                    state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
-                    state.carry(outcome.keep_tables, outcome.skip_tables, outcome.inspection_cache)
-                    state.prune_inspection()
-                    state.hint = rejection_feedback_hint(
-                        state.reasoning, outcome.keep_tables,
-                        schemas_preloaded=experiment.use_unified_agent,
-                    )
-                    keywords_rejected = not table_attempt.last
-                    if not keywords_rejected:
-                        # The last allowed attempt: force a selection from this
-                        # round's candidates, minus the tables rejected above.
-                        surviving_candidates = [
-                            table for table in outcome.candidates
-                            if table.casefold() not in state.excluded_tables
-                        ]
-                        state.selected = (surviving_candidates or outcome.candidates or all_files)[:3]
-                if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
-                    mode = ctx.retrieval.mode.value
-                    calls[mode] = calls.get(mode, 0) + 1
-                    if outcome.prepared is not None:
-                        recorder.context_telemetry.update({
-                            "prepared_candidate_count": outcome.prepared.prepared_candidate_count,
-                            "retrieved_hit_count": outcome.prepared.retrieved_hit_count,
-                            "prepared_context_utf8_bytes": len(outcome.prepared.stable_json().encode("utf-8")),
-                            "preparation_error": None,
-                        })
-                    if keywords_rejected:
-                        state.attempted_keywords.extend(state.keywords)
-                        state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
-                        recorder.context_telemetry["empty_context_retries"] += 1
-                        state.hint = f"The previous keywords returned no datasets. Generate different keywords. Attempted: {state.attempted_keywords}"
-                result.tokens["p1_p2"] += architecture_tokens
-                selection_record.update({
-                    "selected_datasets": list(state.selected),
-                    "keywords": list(state.keywords),
-                    "reasoning_available_to_coder": False,
-                    "selection_plan": dict(state.selection_state.selection_plan),
-                    "selection_advisories": list(state.selection_state.selection_advisories),
-                    "semantic_plan_failure": state.selection_state.plan_failure,
-                    "initial_stall_reason": state.selection_state.initial_stall_reason,
-                    "recovery_started": state.selection_state.recovery_started,
-                    "recovery_stop_reason": state.selection_state.recovery_stop_reason,
-                    "selection_plan_source": state.selection_state.selection_plan_source,
-                    "semantic_planner_attempts": state.selection_state.semantic_planner_attempts,
-                    "semantic_draft_present": bool(state.selection_state.semantic_draft),
-                    "outcome": "keywords_rejected" if keywords_rejected else "selected",
-                    "kept_tables": list(state.carried_tables),
-                    "skipped_tables": sorted(state.excluded_tables),
-                })
-                if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:
-                    recorder.discovery_phase_tokens["p1"] += tokens_p1
-                    recorder.discovery_phase_tokens["p2"] += tokens_p2
-                else:
-                    # A unified agent owns both logical phases, so its usage is
-                    # intentionally kept together in the Phase 1 log column.
-                    recorder.discovery_phase_tokens["p1"] += architecture_tokens
-                discovery_elapsed = round(time.monotonic() - discovery_started, 6)
-                discovery_metric = result.phase_metrics.setdefault(
-                    "discovery", {"latency_seconds": 0.0, "retries": 0}
-                )
-                discovery_metric["latency_seconds"] = round(
-                    discovery_metric["latency_seconds"] + discovery_elapsed, 6
-                )
-                discovery_metric["retries"] = table_attempt.index
-                result.tables = state.selected
-                result.keywords = state.keywords
-                result.pipeline_stages["retrieval"] = (
-                    "hit" if retrieval_runs and any(run.get("hits") for run in retrieval_runs)
-                    else "no_hits"
-                )
-                result.pipeline_stages["table_selection"] = (
-                    "selected" if state.selected else "empty"
-                )
-                if keywords_rejected:
+                if discovery.run_round(table_attempt, selection_record):
                     continue
-
-                prior = guard.prior_rejection(state.selected)
-                if prior is not None:
-                    selection_record["outcome"] = (
-                        "rejected_selection_excluded"
-                        if not table_attempt.last
-                        else "tables_rejected_no_alternative"
-                    )
-                    state.error = "No verified alternative selection remains. " + str(prior)
-                    state.hint = (
-                        state.error
-                        + " Select at least one different table. Use these missing "
-                        f"requirements as retrieval concepts: {state.hint}"
-                    )
-                    if not table_attempt.last:
-                        continue
-                    result.status = "rejected"
-                    result.pipeline_stages["code_execution"] = "tables_rejected"
-                    break
-
-                plan_signature = selection_plan_signature(
-                    state.selected, state.selection_state.selection_plan
-                )
-                feedback = guard.repeated_plan(state.selected, plan_signature)
-                if feedback is not None:
-                    selection_record["outcome"] = "unchanged_rejected_plan"
-                    selection_record["rejection_feedback"] = feedback
-                    state.error = (
-                        "Discovery repeated a plan already rejected by the selection "
-                        "contract gate."
-                    )
-                    state.hint = (
-                        "STRUCTURED DISCOVERY CORRECTION (follow every item before "
-                        "confirming):\n"
-                        + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
-                    )
-                    if not table_attempt.last:
-                        continue
-                    result.pipeline_stages["code_execution"] = "blocked_by_selection"
-                    break
-
-                if experiment.automatic_test_coder:
-                    # Full context is the only reliable table-rejection gate.
-                    # Run it first so rejected selections can return to discovery
-                    # without wasting calls on the reduced-context variants.
-                    variants = run_coder_context_sweep(
-                        question=question, selected=state.selected,
-                        solr_meta=state.solr_meta, reasoning=state.reasoning, llm=llm,
-                        prompt_manager=prompt_manager, csv_dir=ctx.tables_dir,
-                        run_dir=run_dir, seed=reproducibility.effective_seed,
-                        record_seed_instruction=recorder.record_seed_instruction,
-                        expected_result_type=expected_result_type,
-                        evaluation_enabled=code_evaluation_enabled,
-                        evaluator=attempt_evaluator,
-                        adjudicate=adjudicate_code_evaluation,
-                        generate_and_execute=deps.phase3_generate_and_execute,
-                        result=result,
-                        phase_invocation_counts=recorder.phase_invocation_counts,
-                        max_attempts=MAX_CODE_ATTEMPTS,
-                        context_levels=[CoderContextLevel.FULL],
-                        selection_plan=dict(state.selection_state.selection_plan),
-                        source_field_names=benchmark.field_names,
-                        require_semantic_plan=experiment.require_semantic_plan,
-                    )
-                    primary = variants[CoderContextLevel.FULL.value]
-                    sweep = sweep_outcome(
-                        primary, require_semantic_plan=experiment.require_semantic_plan
-                    )
-                    recorder.semantic_plan(sweep.audit)
-                    coder_audit = sweep.audit or {}
-                    selection_record["coder_brief_status"] = str(
-                        coder_audit.get("effective_coder_brief_status")
-                        or coder_audit.get("status") or "missing"
-                    )
-                    selection_record["coder_started"] = bool(
-                        coder_audit.get("coder_started_after_verified_plan")
-                    )
-                    selection_record["coder_outcome"] = sweep.raw_status
-                    if sweep.status is CodeStatus.BLOCKED_BY_SELECTION:
-                        selection_record["outcome"] = "selection_contract_blocked"
-                        result.pipeline_stages["code_execution"] = "blocked_by_selection"
-                        result.code_evaluation.update({
-                            "evaluation_disposition": "blocked",
-                            "error_category": "selection_contract_gate",
-                        })
-                        state.error = sweep.error
-                        if (
-                            coder_audit.get("status") == "missing"
-                            and state.last_coder_rejection
-                        ):
-                            selection_record["recovery_from_rejection"] = dict(
-                                state.last_coder_rejection
-                            )
-                            state.error = (
-                                "Selection recovery produced no contract. Original "
-                                f"coder rejection: {state.last_coder_rejection['reason']} "
-                                f"Current gate: {sweep.error}"
-                            )
-                        feedback = _selection_retry_feedback(
-                            state.selected, coder_audit, state.error
-                        )
-                        guard.reject_plan(plan_signature, feedback)
-                        selection_record["rejection_feedback"] = feedback
-                        state.hint = (
-                            "STRUCTURED DISCOVERY CORRECTION (follow every item before "
-                            "confirming):\n"
-                            + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
-                        )
-                        if not table_attempt.last:
-                            continue
-                        break
-                    if sweep.status is CodeStatus.TABLES_REJECTED:
-                        rejection_reason = sweep.error
-                        state.last_coder_rejection = {
-                            "reason": rejection_reason,
-                            "details": sweep.rejection_details,
-                            "tables": list(state.selected),
-                        }
-                        guard.reject_selection(state.selected, sweep.rejection_details, rejection_reason)
-                        selection_record["outcome"] = "tables_rejected"
-                        selection_record["rejection_feedback"] = rejection_reason
-                        result.errors.append({
-                            "phase": "code",
-                            "type": "tables_rejected",
-                            "message": rejection_reason,
-                            "coder_context_level": CoderContextLevel.FULL.value,
-                        })
-                        result.pipeline_stages["code_execution"] = "tables_rejected"
-                        previous_visible = [
-                            table for table in state.selection_state.all_candidates[
-                                : state.selection_state.visible_candidate_count
-                            ]
-                            if table not in state.selected
-                        ][:5]
-                        state.hint = (
-                            "The full-context code generator rejected the previous "
-                            "table combination. First reassess these previously visible "
-                            "alternatives if retrieval returns them again: "
-                            f"{previous_visible}. Select a different combination. Start "
-                            "a genuinely new search only if none covers the missing "
-                            f"requirement. Feedback: {rejection_reason}"
-                        )
-                        state.error = rejection_reason
-                        if not table_attempt.last:
-                            continue
-                        break
-
-                    variants.update(run_coder_context_sweep(
-                        question=question, selected=state.selected,
-                        solr_meta=state.solr_meta, reasoning=state.reasoning, llm=llm,
-                        prompt_manager=prompt_manager, csv_dir=ctx.tables_dir,
-                        run_dir=run_dir, seed=reproducibility.effective_seed,
-                        record_seed_instruction=recorder.record_seed_instruction,
-                        expected_result_type=expected_result_type,
-                        evaluation_enabled=code_evaluation_enabled,
-                        evaluator=attempt_evaluator,
-                        adjudicate=adjudicate_code_evaluation,
-                        generate_and_execute=deps.phase3_generate_and_execute,
-                        result=result,
-                        phase_invocation_counts=recorder.phase_invocation_counts,
-                        max_attempts=MAX_CODE_ATTEMPTS,
-                        context_levels=[
-                            CoderContextLevel.SCHEMA_ONLY,
-                            CoderContextLevel.MINIMAL,
-                        ],
-                        selection_plan=dict(state.selection_state.selection_plan),
-                        source_field_names=benchmark.field_names,
-                        require_semantic_plan=experiment.require_semantic_plan,
-                    ))
-                    result.coder_context_experiment = {
-                        "shared_retrieval": True,
-                        "shared_tables": list(state.selected),
-                        "shared_keywords": list(state.keywords),
-                        "shared_reasoning": None,
-                        "primary_level": CoderContextLevel.FULL.value,
-                        "variants": variants,
-                    }
-                    selection_record["outcome"] = "accepted"
-                    result.code = sweep.code
-                    result.raw_result = primary["raw_result"]
-                    result.code_evaluation = primary["code_evaluation"]
-                    if sweep.status is CodeStatus.SUCCESS:
-                        result.pipeline_stages["code_execution"] = "succeeded"
-                        result.code_evaluation["final_execution_success"] = True
-                        synthesis_started = time.monotonic()
-                        answer, synthesis_tokens = deps.phase4_synthesize(
-                            question, result.raw_result, llm, prompt_manager
-                        )
-                        recorder.phase_invocation_counts["result"] += 1
-                        result.answer = answer
-                        result.tokens["p4"] = synthesis_tokens
-                        result.phase_metrics["result"] = {
-                            "latency_seconds": round(
-                                time.monotonic() - synthesis_started, 6
-                            ),
-                            "retries": 0,
-                        }
-                        validation = validate_answer(result.raw_result, answer)
-                        result.answer_disposition = validation.disposition.value
-                        result.pipeline_stages["final_answer"] = (
-                            validation.disposition.value
-                        )
-                        if validation.disposition == AnswerDisposition.VALID:
-                            result.status = "completed"
-                            result.error = ""
-                        elif validation.disposition == AnswerDisposition.REJECTED:
-                            result.status = "rejected"
-                            result.error = validation.reason
-                        else:
-                            result.status = "failed"
-                            result.error = validation.reason
-                    else:
-                        result.pipeline_stages["code_execution"] = sweep.raw_status
-                        result.status = (
-                            "rejected" if sweep.raw_status == "rejected" else "failed"
-                        )
-                        result.error = sweep.error
+                verdict = _repeated_rejection(run, table_attempt, selection_record)
+                if verdict is None:
+                    plan_signature = selection_plan_signature(state.selected, state.selection_state.selection_plan)
+                    verdict = _repeated_plan(run, table_attempt, selection_record, plan_signature)
+                if verdict is None:
+                    verdict = coding.run_coding(table_attempt, selection_record, plan_signature)
+                if verdict is Verdict.RETURN:
                     return result
-
-                previous_code = ""
-                total_code_runs = 0
-                for code_attempt in Attempts(MAX_CODE_ATTEMPTS):
-                    code_started = time.monotonic()
-                    generated = deps.phase3_generate_and_execute(
-                        question,
-                        state.selected,
-                        state.selected,
-                        state.solr_meta,
-                        state.reasoning,
-                        llm,
-                        prompt_manager,
-                        ctx.tables_dir,
-                        retries=code_attempt.index,
-                        error_msg=state.error,
-                        previous_code=previous_code,
-                        run_dir=run_dir,
-                        seed=reproducibility.effective_seed,
-                        seed_instruction_recorder=recorder.record_seed_instruction,
-                        coder_context_level=experiment.coder_context_level,
-                        evaluation_result_type=None,
-                        max_run_calls=max(1, MAX_CODE_ATTEMPTS - total_code_runs),
-                        selection_plan=dict(state.selection_state.selection_plan),
-                        source_field_names=benchmark.field_names,
-                        require_semantic_plan=experiment.require_semantic_plan,
-                        allow_semantic_revision=(
-                            experiment.revision_experiment_mode.value == "current"
-                        ),
-                        brief_advisory=(
-                            experiment.coder_brief_mode.value == "advisory"
-                        ),
-                    )
-                    state.last_generated = generated
-                    outcome = code_outcome(
-                        generated, require_semantic_plan=experiment.require_semantic_plan
-                    )
-                    recorder.phase_invocation_counts["code"] += 1
-                    recorder.semantic_plan(outcome.audit)
-                    result.tokens["p3"] += outcome.tokens
-                    code_metric = result.phase_metrics.setdefault(
-                        "code", {"latency_seconds": 0.0, "retries": 0}
-                    )
-                    code_metric["latency_seconds"] = round(
-                        code_metric["latency_seconds"]
-                        + (time.monotonic() - code_started),
-                        6,
-                    )
-                    code_metric["retries"] = code_attempt.index
-                    result.retries += int(code_attempt.index > 0)
-                    total_code_runs += outcome.coder_runs
-                    previous_code = outcome.code
-                    result.code = previous_code
-
-                    if outcome.status is CodeStatus.BLOCKED_BY_SELECTION:
-                        selection_record["outcome"] = "selection_contract_blocked"
-                        result.pipeline_stages["code_execution"] = "blocked_by_selection"
-                        result.code_evaluation.update({
-                            "evaluation_disposition": "blocked",
-                            "error_category": "selection_contract_gate",
-                        })
-                        state.error = outcome.error
-                        audit = outcome.audit or {}
-                        if audit.get("status") == "missing" and state.last_coder_rejection:
-                            selection_record["recovery_from_rejection"] = dict(
-                                state.last_coder_rejection
-                            )
-                            state.error = (
-                                "Selection recovery produced no contract. Original "
-                                f"coder rejection: {state.last_coder_rejection['reason']} "
-                                f"Current gate: {state.error}"
-                            )
-                        feedback = _selection_retry_feedback(state.selected, audit, state.error)
-                        guard.reject_plan(plan_signature, feedback)
-                        selection_record["rejection_feedback"] = feedback
-                        state.hint = (
-                            "STRUCTURED DISCOVERY CORRECTION (follow every item before "
-                            "confirming):\n"
-                            + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
-                        )
-                        break
-
-                    if code_evaluation_enabled:
-                        attempts = result.code_evaluation["attempts"]
-                        attempts.extend(attempt_evaluator.evaluate_generated_attempts(
-                            generated, len(attempts) + 1
-                        ))
-                        result.code_evaluation = attempt_evaluator.summarize(attempts)
-                        result.code_evaluation["generation_attempt_count"] = code_attempt.number
-
-                    if outcome.status is CodeStatus.TABLES_REJECTED:
-                        state.last_coder_rejection = {
-                            "reason": outcome.error,
-                            "details": outcome.rejection_details,
-                            "tables": list(state.selected),
-                        }
-                        guard.reject_selection(state.selected, outcome.rejection_details, outcome.error)
-                        # The coder's own per-table judgment feeds the same
-                        # cross-round memory as an architect rejection: a
-                        # table it proved unusable is banned outright, and
-                        # one it found partially useful carries forward
-                        # instead of being lost with the rest of the set.
-                        state.carry(outcome.keep_tables, outcome.skip_tables)
-                        result.errors.append({
-                            "phase": "code",
-                            "type": "tables_rejected",
-                            "message": outcome.error,
-                        })
-                        result.pipeline_stages["code_execution"] = "tables_rejected"
-                        previous_visible = [
-                            table for table in state.selection_state.all_candidates[
-                                : state.selection_state.visible_candidate_count
-                            ]
-                            if table not in state.selected
-                        ][:5]
-                        state.hint = (
-                            "The code generator rejected the previous table combination. "
-                            "First reassess these previously visible alternatives if "
-                            f"retrieval returns them again: {previous_visible}. Select a "
-                            "different combination. Start a genuinely new search only if "
-                            "none covers the missing requirement. Feedback: "
-                            f"{outcome.error}"
-                        )
-                        state.error = outcome.error
-                        break
-
-                    if outcome.status is CodeStatus.SUCCESS:
-                        result.raw_result = outcome.raw_result
-                        raw_validation = validate_answer(outcome.raw_result)
-                        if raw_validation.disposition == AnswerDisposition.EMPTY:
-                            result.pipeline_stages["code_execution"] = "empty"
-                            state.error = raw_validation.reason
-                            continue
-                        if raw_validation.disposition == AnswerDisposition.REJECTED:
-                            result.pipeline_stages["code_execution"] = "rejected"
-                            result.pipeline_stages["final_answer"] = "rejected"
-                            result.answer_disposition = raw_validation.disposition.value
-                            result.status = "rejected"
-                            result.error = raw_validation.reason
-                            return result
-
-                        if code_evaluation_enabled:
-                            result.code_evaluation = adjudicate_code_evaluation(
-                                result.code_evaluation, generated
-                            )
-                        result.pipeline_stages["code_execution"] = "succeeded"
-                        result.code_evaluation["final_execution_success"] = True
-                        synthesis_started = time.monotonic()
-                        answer, synthesis_tokens = deps.phase4_synthesize(
-                            question, outcome.raw_result, llm, prompt_manager
-                        )
-                        recorder.phase_invocation_counts["result"] += 1
-                        result.answer = answer
-                        result.tokens["p4"] = synthesis_tokens
-                        result.phase_metrics["result"] = {
-                            "latency_seconds": round(
-                                time.monotonic() - synthesis_started, 6
-                            ),
-                            "retries": 0,
-                        }
-                        validation = validate_answer(outcome.raw_result, answer)
-                        result.answer_disposition = validation.disposition.value
-                        result.pipeline_stages["final_answer"] = validation.disposition.value
-                        if validation.disposition == AnswerDisposition.VALID:
-                            result.status = "completed"
-                            result.error = ""
-                        elif validation.disposition == AnswerDisposition.REJECTED:
-                            result.status = "rejected"
-                            result.error = validation.reason
-                        else:
-                            result.status = "failed"
-                            result.error = validation.reason
-                        return result
-
-                    state.error = outcome.error
-                    error_record = {
-                        "phase": "code",
-                        "type": "execution_error",
-                        "message": state.error,
-                    }
-                    structured_execution_error = outcome.execution_error
-                    if structured_execution_error:
-                        error_record["details"] = structured_execution_error
-                        error_record["type"] = structured_execution_error.get(
-                            "category", "execution_error"
-                        )
-                    result.errors.append(error_record)
-                    result.pipeline_stages["code_execution"] = "failed"
-                    if outcome.coder_runs:
-                        if outcome.retryable and not code_attempt.last:
-                            continue
-                        break
-                else:
+                if verdict is Verdict.STOP:
                     break
-
-                # A coder execution/revision failure is not evidence that table
-                # discovery was wrong. Preserve the verified selection; only a
-                # table rejection or an incomplete selection contract may start
-                # another discovery turn.
-                if result.pipeline_stages["code_execution"] not in {
-                    "tables_rejected", "blocked_by_selection",
-                }:
-                    break
-
-                if table_attempt.last:
-                    break
-
             result.status = (
                 "blocked_by_selection"
                 if result.pipeline_stages["code_execution"] == "blocked_by_selection"
@@ -1098,8 +184,47 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
             recorder.finish(
                 retrieval_runs=retrieval_runs,
                 retrieval_log_context=retrieval_log_context,
-                selected=state.selected, keywords=state.keywords, reasoning=state.reasoning, trace=state.trace, error=state.error,
+                selected=state.selected, keywords=state.keywords, reasoning=state.reasoning,
+                trace=state.trace, error=state.error,
                 selection_state=state.selection_state, selection_states=state.selection_states,
                 selection_attempts=state.selection_attempts, last_generated=state.last_generated,
                 manifest=manifest, reproducibility=reproducibility, benchmark=benchmark,
             )
+
+
+def _repeated_rejection(run: Run, attempt, selection_record: dict[str, Any]) -> Verdict | None:
+    """The round reproduced a selection the coder already rejected: hint it away, or give up."""
+    state, result = run.state, run.result
+    prior = run.guard.prior_rejection(state.selected)
+    if prior is None:
+        return None
+    selection_record["outcome"] = (
+        "rejected_selection_excluded" if not attempt.last else "tables_rejected_no_alternative"
+    )
+    state.error = "No verified alternative selection remains. " + str(prior)
+    state.hint = (
+        state.error
+        + " Select at least one different table. Use these missing "
+        f"requirements as retrieval concepts: {state.hint}"
+    )
+    if not attempt.last:
+        return Verdict.REDISCOVER
+    result.status = "rejected"
+    result.pipeline_stages["code_execution"] = "tables_rejected"
+    return Verdict.STOP
+
+
+def _repeated_plan(run: Run, attempt, selection_record: dict[str, Any], plan_signature: str) -> Verdict | None:
+    """The round reproduced a plan the selection-contract gate refused: correct it, or give up."""
+    state, result = run.state, run.result
+    feedback = run.guard.repeated_plan(state.selected, plan_signature)
+    if feedback is None:
+        return None
+    selection_record["outcome"] = "unchanged_rejected_plan"
+    selection_record["rejection_feedback"] = feedback
+    state.error = "Discovery repeated a plan already rejected by the selection contract gate."
+    state.hint = CORRECTION_HEADER + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
+    if not attempt.last:
+        return Verdict.REDISCOVER
+    result.pipeline_stages["code_execution"] = "blocked_by_selection"
+    return Verdict.STOP

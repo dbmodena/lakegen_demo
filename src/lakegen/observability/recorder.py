@@ -112,6 +112,67 @@ class Recorder:
     def semantic_plan(self, audit: Mapping[str, Any] | None) -> None:
         record_semantic_plan_telemetry(self.result, audit)
 
+    def discovery_round(
+        self,
+        outcome: Any,
+        *,
+        state: Any,
+        selection_record: dict[str, Any],
+        keywords_rejected: bool,
+        attempt: Any,
+        elapsed: float,
+        retrieval_runs: list[dict[str, Any]],
+    ) -> None:
+        """A discovery round ended: its tokens, its record, the result's selection so far."""
+        result = self.result
+        tokens_p1, tokens_p2 = outcome.phase_tokens
+        result.tokens["p1_p2"] += outcome.tokens
+        agent = state.selection_state
+        selection_record.update({
+            "selected_datasets": list(state.selected),
+            "keywords": list(state.keywords),
+            "reasoning_available_to_coder": False,
+            "selection_plan": dict(agent.selection_plan),
+            "selection_advisories": list(agent.selection_advisories),
+            "semantic_plan_failure": agent.plan_failure,
+            "initial_stall_reason": agent.initial_stall_reason,
+            "recovery_started": agent.recovery_started,
+            "recovery_stop_reason": agent.recovery_stop_reason,
+            "selection_plan_source": agent.selection_plan_source,
+            "semantic_planner_attempts": agent.semantic_planner_attempts,
+            "semantic_draft_present": bool(agent.semantic_draft),
+            "outcome": "keywords_rejected" if keywords_rejected else "selected",
+            "kept_tables": list(state.carried_tables),
+            "skipped_tables": sorted(state.excluded_tables),
+        })
+        if self.experiment.discovery_architecture.value == "divided":
+            self.discovery_phase_tokens["p1"] += tokens_p1
+            self.discovery_phase_tokens["p2"] += tokens_p2
+        else:
+            # A unified agent owns both logical phases, so its usage is
+            # intentionally kept together in the Phase 1 log column.
+            self.discovery_phase_tokens["p1"] += outcome.tokens
+        metric = result.phase_metrics.setdefault("discovery", {"latency_seconds": 0.0, "retries": 0})
+        metric["latency_seconds"] = round(metric["latency_seconds"] + elapsed, 6)
+        metric["retries"] = attempt.index
+        result.tables = state.selected
+        result.keywords = state.keywords
+        result.pipeline_stages["retrieval"] = (
+            "hit" if retrieval_runs and any(run.get("hits") for run in retrieval_runs) else "no_hits"
+        )
+        result.pipeline_stages["table_selection"] = "selected" if state.selected else "empty"
+
+    def code_attempt(self, outcome: Any, *, attempt: Any, elapsed: float) -> None:
+        """A coder attempt ended: its invocation, audit, tokens and time."""
+        result = self.result
+        self.phase_invocation_counts["code"] += 1
+        self.semantic_plan(outcome.audit)
+        result.tokens["p3"] += outcome.tokens
+        metric = result.phase_metrics.setdefault("code", {"latency_seconds": 0.0, "retries": 0})
+        metric["latency_seconds"] = round(metric["latency_seconds"] + elapsed, 6)
+        metric["retries"] = attempt.index
+        result.retries += int(attempt.index > 0)
+
     def finish(  # noqa: C901, PLR0915  (the service's finally block, moved whole)
         self,
         *,

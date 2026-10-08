@@ -1,0 +1,858 @@
+"""The stages of a run: discovery, coding (direct or as a sweep), the answer.
+
+Each stage is a small object over the ``Run`` (the resources of the run,
+its state, its recorder) with one ``run`` method. Discovery returns whether
+the round asked for new keywords; coding returns a ``Verdict`` that tells
+the engine whether the result is final, whether discovery should run again,
+or whether the run is over. The stages report what they did to the
+recorder and leave what the next round needs in the state; the engine
+decides nothing but the order.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
+
+from lakegen.agent_tools.tools_p12 import P12State
+from lakegen.code_attempts import CodeAttemptEvaluator
+from lakegen.coder_experiment import run_coder_context_sweep
+from lakegen.domain.evaluation import EvaluationContext
+from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome, SelectorKind
+from lakegen.experiment_config import (
+    CoderContextLevel,
+    DiscoveryArchitecture,
+    ExperimentConfig,
+    ToolAccess,
+)
+from lakegen.keyword_memory import (
+    format_question_retrieval_memory,
+    load_question_retrieval_memory,
+    persist_keyword_memory,
+    persist_question_retrieval_memory,
+)
+from lakegen.observability.recorder import Recorder
+from lakegen.output_validation import AnswerDisposition, validate_answer
+from lakegen.phases.orchestrated_discovery import (
+    OrchestratedContextPreparationError,
+    OrchestratedSelectorError,
+    RetrievalRequestProtocolError,
+)
+from lakegen.phases.utils import rejection_feedback_hint
+from lakegen.pipeline.adapters import (
+    code_outcome,
+    divided_agentic_outcome,
+    divided_orchestrated_outcome,
+    sweep_outcome,
+    unified_agentic_outcome,
+    unified_orchestrated_outcome,
+)
+from lakegen.pipeline.budgets import Attempt, Attempts, DedupeGuard
+from lakegen.pipeline.context import RunContext
+from lakegen.pipeline.deps import PipelineDeps
+from lakegen.pipeline.state import RunState
+from lakegen.retrieval.intent import intent_entities
+
+MAX_CODE_ATTEMPTS = 3
+MAX_TABLE_ATTEMPTS = 3
+
+CORRECTION_HEADER = "STRUCTURED DISCOVERY CORRECTION (follow every item before confirming):\n"
+
+
+class Verdict(StrEnum):
+    """What the engine does after a coding stage."""
+
+    RETURN = "return"
+    """The result is final."""
+    REDISCOVER = "rediscover"
+    """The selection was rejected or blocked; discovery runs again."""
+    STOP = "stop"
+    """No more attempts; the run ends as it stands."""
+
+
+@dataclass
+class Run:
+    """The run in progress, as the stages see it."""
+
+    question: str
+    ctx: RunContext
+    deps: PipelineDeps
+    benchmark: EvaluationContext
+    recorder: Recorder
+    state: RunState
+    guard: DedupeGuard
+    llm: Any
+    solr: Any
+    prompt_manager: Any
+    all_files: list[str]
+    run_dir: Path
+    reproducibility: Any
+    attempt_evaluator: CodeAttemptEvaluator
+    retrieval_runs: list[dict[str, Any]] = field(default_factory=list)
+    retrieval_observer: Callable[..., Any] | None = None
+
+    @property
+    def experiment(self) -> ExperimentConfig:
+        return self.ctx.experiment
+
+    @property
+    def result(self):
+        return self.recorder.result
+
+    @property
+    def code_evaluation_enabled(self) -> bool:
+        return self.attempt_evaluator.enabled
+
+
+def selection_retry_feedback(
+    tables: list[str], audit: Mapping[str, Any] | None, error: str
+) -> dict[str, Any]:
+    """Compile one mode-neutral correction hint from the contract gate audit."""
+    audit = audit or {}
+    diagnostics = list(
+        audit.get("validation_diagnostics") or audit.get("diagnostics") or []
+    )
+    action_by_category = {
+        "unknown_column": "inspect the runtime schema and bind the exact column name",
+        "missing_columns": "inspect the runtime schema and choose the required columns",
+        "ambiguous_column": "inspect the candidate columns and resolve the binding",
+        "invalid_join": "inspect both schemas and provide explicit compatible join keys",
+        "unknown_join_column": "inspect both schemas and correct the join-column binding",
+        "table_unreadable": "select a readable table that covers the same requirement",
+        "unknown_table": "select only tables returned by the current retrieval",
+    }
+    corrections: list[dict[str, Any]] = []
+    for diagnostic in diagnostics:
+        item = diagnostic if isinstance(diagnostic, Mapping) else {"evidence": diagnostic}
+        category = str(item.get("category") or "contract_not_grounded")
+        correction = {
+            "category": category,
+            "action": action_by_category.get(
+                category,
+                "inspect the relevant runtime columns or values and revise the plan",
+            ),
+        }
+        for key in ("table", "column", "columns", "evidence"):
+            if item.get(key) not in (None, "", [], {}):
+                correction[key] = item[key]
+        corrections.append(correction)
+    if not corrections:
+        corrections.append({
+            "category": str(audit.get("status") or "contract_not_grounded"),
+            "action": (
+                "inspect the selected runtime schemas and values, then provide exact "
+                "column bindings and explicit join keys"
+            ),
+            "evidence": error,
+        })
+    keep_tables = not any(
+        item["category"] in {"unknown_table", "table_unreadable"}
+        for item in corrections
+    )
+    return {
+        "retry_reason": "selection_contract_invalid",
+        "keep_current_tables": keep_tables,
+        "previous_selection": list(tables),
+        "required_corrections": corrections,
+        "instruction": (
+            "Resolve every required correction before confirming. Do not repeat the "
+            "previous plan unchanged."
+        ),
+    }
+
+
+class SemanticJudge:
+    """Adjudicates a pending code evaluation with the semantic judge, once per run."""
+
+    def __init__(self, run: Run) -> None:
+        self.run = run
+        self.llm: Any = None
+        self.requirements: list[dict[str, Any]] | None = None
+
+    def adjudicate(self, evaluation: dict[str, Any], generated: Any) -> dict[str, Any]:
+        run, experiment = self.run, self.run.experiment
+        if evaluation.get("evaluation_disposition") != "pending_semantic_review":
+            return evaluation
+        if not experiment.semantic_code_judge_enabled:
+            evaluation.update({
+                "evaluation_disposition": "indeterminate",
+                "supported_correct": False,
+                "semantic_judge_used": False,
+                "semantic_judge_model": experiment.semantic_code_judge_model,
+            })
+            return evaluation
+        if self.llm is None:
+            self.llm = (
+                run.llm
+                if experiment.semantic_code_judge_model == run.ctx.model_name
+                else run.deps.get_llm(experiment.semantic_code_judge_model)[0]
+            )
+        judgment, judge_tokens = run.deps.judge_semantic_code_result(
+            question=run.question,
+            expected_description=run.benchmark.expected_description,
+            reference_result=run.benchmark.reference_result,
+            selected_tables=run.state.selected,
+            selected_metadata=run.state.solr_meta,
+            generated_code=generated.clean_code or generated.code_raw,
+            generated_result=getattr(generated, "structured_result", None),
+            deterministic_evaluation=evaluation,
+            llm=self.llm,
+            prompt_manager=run.prompt_manager,
+            requirements_override=self.requirements,
+        )
+        returned_requirements = judgment.get("requirements")
+        if self.requirements is None and isinstance(returned_requirements, list):
+            self.requirements = [
+                dict(item) for item in returned_requirements if isinstance(item, Mapping)
+            ]
+        evaluation.update(_judgment_fields(judgment, judge_tokens, evaluation, experiment))
+        return evaluation
+
+
+def _judgment_fields(
+    judgment: Mapping[str, Any], judge_tokens: int, evaluation: Mapping[str, Any], experiment: ExperimentConfig,
+) -> dict[str, Any]:
+    disposition = judgment["disposition"]
+    judge_error = str(judgment.get("judge_error") or "")
+    assessments = judgment.get("requirement_assessments", [])
+    if not isinstance(assessments, list):
+        assessments = []
+    assessment_counts = {
+        status: sum(
+            isinstance(item, Mapping) and item.get("status") == status
+            for item in assessments
+        )
+        for status in ("verified", "failed", "unknown")
+    }
+    objections = judgment.get("critique", {}).get("objections", [])
+    if not isinstance(objections, list):
+        objections = []
+    blocking_objection_count = sum(
+        isinstance(item, Mapping)
+        and str(item.get("severity") or "").casefold() in {"critical", "major"}
+        for item in objections
+    )
+    requested_disposition = str(
+        judgment.get("requested_disposition") or disposition
+    )
+    requirement_count = len(assessments)
+    canonical_disposition = {
+        "alternative_correct": "correct",
+        "incorrect": "incorrect",
+        "indeterminate": "completed_with_warnings",
+    }.get(disposition, "completed_with_warnings")
+    if judge_error:
+        canonical_disposition = "completed_with_warnings"
+    return {
+        "evaluation_disposition": canonical_disposition,
+        "semantic_correctness": disposition,
+        "supported_correct": disposition == "alternative_correct",
+        "semantic_pass_at_1": (
+            bool(evaluation.get("semantic_pass_at_1"))
+            or (
+                disposition == "alternative_correct"
+                and int(evaluation.get("attempt_count") or 0) == 1
+            )
+        ),
+        "semantic_success_within_3": (
+            bool(evaluation.get("semantic_success_within_3"))
+            or (
+                disposition == "alternative_correct"
+                and 0 < int(evaluation.get("attempt_count") or 0) <= 3
+            )
+        ),
+        "semantic_judge_used": True,
+        "semantic_judge_model": experiment.semantic_code_judge_model,
+        "semantic_judge_tokens": judge_tokens,
+        "semantic_judge_parse_success": not bool(judge_error),
+        "semantic_judge_status": "parse_failed" if judge_error else "completed",
+        "semantic_judge_pipeline_version": "evidence_v2",
+        "semantic_judge_requested_disposition": requested_disposition,
+        "semantic_judge_downgraded": requested_disposition != disposition,
+        "semantic_judge_requirement_count": requirement_count,
+        "semantic_judge_verified_requirement_count": assessment_counts["verified"],
+        "semantic_judge_failed_requirement_count": assessment_counts["failed"],
+        "semantic_judge_unknown_requirement_count": assessment_counts["unknown"],
+        "semantic_judge_evidence_coverage": (
+            assessment_counts["verified"] / requirement_count
+            if requirement_count else 0.0
+        ),
+        "semantic_judge_blocking_objection_count": blocking_objection_count,
+        "semantic_judge_hardcoding_risk": str(
+            judgment.get("code_analysis", {}).get("hardcoding_risk") or "unknown"
+        ),
+        "semantic_judgment": judgment,
+    }
+
+
+# --- discovery ---------------------------------------------------------------
+
+class DiscoveryStage:
+    """One discovery round: the architecture's agents, then what the round leaves behind."""
+
+    def __init__(self, run: Run) -> None:
+        self.run = run
+
+    def run_round(self, attempt: Attempt, selection_record: dict[str, Any]) -> bool:
+        """Run the round and record it; True when it asked for new keywords."""
+        run, state, experiment = self.run, self.run.state, self.run.experiment
+        started = time.monotonic()
+        if experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED and experiment.tool_access == ToolAccess.AGENTIC:
+            outcome = self._unified_agentic()
+        elif experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED and experiment.tool_access == ToolAccess.AGENTIC:
+            outcome = self._divided_agentic()
+        elif experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED:
+            outcome = self._unified_orchestrated()
+        else:
+            outcome = self._divided_orchestrated()
+        state.selected = outcome.selected
+        state.keywords = outcome.keywords
+        state.solr_meta = outcome.metadata
+        state.reasoning = outcome.reasoning
+        state.trace = outcome.trace
+        keywords_rejected = outcome.rejected
+        if experiment.tool_access == ToolAccess.AGENTIC and outcome.rejected:
+            keywords_rejected = self._apply_rejection(outcome, attempt)
+        if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
+            self._orchestrated_round(outcome, keywords_rejected)
+        run.recorder.discovery_round(
+            outcome, state=state, selection_record=selection_record, keywords_rejected=keywords_rejected,
+            attempt=attempt, elapsed=round(time.monotonic() - started, 6), retrieval_runs=run.retrieval_runs,
+        )
+        return keywords_rejected
+
+    def _seeded_state(self) -> P12State:
+        """A fresh agent state for the round, seeded with what earlier rounds learned.
+
+        A coder rejection starts a genuinely new retrieval turn. Reusing the
+        state would block new searches after the first inspected candidate
+        and could silently repeat the same set, so a fresh one is built each
+        attempt, seeded with the cross-round memory accumulated so far (what
+        the divided architecture passes as excluded and carried tables).
+        """
+        state, guard = self.run.state, self.run.guard
+        seeded = P12State()
+        seeded.keyword_history = [list(item) for item in state.keyword_history]
+        seeded.failed_keyword_combinations = list(state.failed_keyword_combinations)
+        seeded.banned_table_keyword_combinations = list(state.banned_table_keyword_combinations)
+        seeded.rejected_selections = set(guard.rejected_keys)
+        seeded.excluded_tables = set(state.excluded_tables)
+        seeded.carried_tables = list(state.carried_tables)
+        seeded.carried_metadata = dict(state.carried_metadata)
+        seeded.inspection_cache = dict(state.carried_inspection)
+        return seeded
+
+    def _unified_agentic(self) -> DiscoveryOutcome:
+        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
+        state.selection_state = self._seeded_state()
+        state.selection_states.append(state.selection_state)
+        raw = run.deps.phase12_agent(
+            query=run.question,
+            llm=run.llm,
+            pm=run.prompt_manager,
+            all_files=run.all_files,
+            solr_client=run.solr,
+            csv_dir=ctx.tables_dir,
+            hint=state.hint,
+            retrieval_memory=state.retrieval_memory_summary,
+            portal_name=ctx.portal_name,
+            retrieval_config=ctx.retrieval,
+            state=state.selection_state,
+            retrieval_observer=run.retrieval_observer,
+            require_semantic_plan=experiment.require_semantic_plan,
+            discovery_config=experiment.discovery,
+        )
+        self._persist_agent_memory(state.selection_state)
+        run.recorder.phase_invocation_counts["discovery"] += 1
+        run.recorder.context_telemetry["llm_invocations"] += 1
+        return unified_agentic_outcome(raw, state.selection_state)
+
+    def _persist_agent_memory(self, agent_state: P12State) -> None:
+        """What the unified agent learned this round goes to the durable keyword memory."""
+        state = self.run.state
+        state.keyword_history = [list(item) for item in agent_state.keyword_history]
+        state.failed_keyword_combinations = list(agent_state.failed_keyword_combinations)
+        state.banned_table_keyword_combinations = list(agent_state.banned_table_keyword_combinations)
+        new_history = state.keyword_history[state.persisted_keyword_count:]
+        persist_keyword_memory(
+            state.keyword_memory_path, state.keyword_memory_scope, new_history, state.failed_keyword_combinations,
+        )
+        persist_question_retrieval_memory(
+            state.keyword_memory_path, state.keyword_memory_scope, state.retrieval_question_key,
+            agent_state.retrieval_memory_events,
+        )
+        state.retrieval_memory_summary = format_question_retrieval_memory(
+            load_question_retrieval_memory(
+                state.keyword_memory_path, state.keyword_memory_scope, state.retrieval_question_key,
+            )
+        )
+        state.persisted_keyword_count = len(state.keyword_history)
+
+    def _keyword_round(self) -> tuple[Any, ...]:
+        run, state, ctx = self.run, self.run.state, self.run.ctx
+        keyword_round = run.deps.phase1_generate_keywords(
+            query=run.question,
+            llm=run.llm,
+            pm=run.prompt_manager,
+            hint=state.hint,
+            portal_name=ctx.portal_name,
+            avoid_keywords=state.attempted_keywords,
+            value_search=ctx.retrieval.mode.value_keywords,
+            verbatim_entities=ctx.retrieval.mode.verbatim_entities,
+        )
+        run.recorder.phase_invocation_counts["discovery"] += 1
+        return keyword_round
+
+    def _divided_agentic(self) -> DiscoveryOutcome:
+        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
+        keyword_round = self._keyword_round()
+        selection_round = run.deps.phase2_select_tables(
+            query=run.question, llm=run.llm, pm=run.prompt_manager,
+            all_files=run.all_files, keywords=keyword_round[0], solr_client=run.solr,
+            csv_dir=ctx.tables_dir, hint=state.hint,
+            portal_name=ctx.portal_name,
+            retrieval_config=ctx.retrieval,
+            selection_state=state.selection_state,
+            entities=intent_entities(keyword_round[1]),
+            carried_tables=state.carried_tables,
+            carried_metadata=state.carried_metadata,
+            excluded_tables=state.excluded_tables,
+            discovery=experiment.discovery,
+        )
+        outcome = divided_agentic_outcome(keyword_round, selection_round, state.selection_state)
+        selector_llm_calls = 0 if outcome.selector is SelectorKind.JEV else 1
+        run.recorder.phase_invocation_counts["discovery"] += selector_llm_calls
+        run.recorder.context_telemetry["llm_invocations"] += 1 + selector_llm_calls
+        return outcome
+
+    def _count_orchestrator_call(self) -> None:
+        calls = self.run.recorder.context_telemetry["orchestrator_retrieval_calls"]
+        mode = self.run.ctx.retrieval.mode.value
+        calls[mode] = calls.get(mode, 0) + 1
+
+    def _unified_orchestrated(self) -> DiscoveryOutcome:
+        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
+        telemetry, counts = run.recorder.context_telemetry, run.recorder.phase_invocation_counts
+        memory = experiment.orchestrated_memory_enabled
+        try:
+            discovery_result = run.deps.run_unified_orchestrated_discovery(
+                query=run.question, llm=run.llm, solr_client=run.solr,
+                all_files=run.all_files, retrieval_config=ctx.retrieval,
+                table_dir=ctx.tables_dir,
+                portal_name=ctx.portal_name,
+                hint=state.hint,
+                retrieval_memory=state.retrieval_memory_summary if memory else "",
+                failed_keyword_combinations=state.failed_keyword_combinations if memory else [],
+                max_zero_result_retries=experiment.discovery.max_zero_result_retries if memory else 0,
+                memory_enabled=memory,
+            )
+        except RetrievalRequestProtocolError as exc:
+            telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
+            telemetry["llm_invocations"] += 1
+            counts["discovery"] += 1
+            raise
+        except OrchestratedContextPreparationError as exc:
+            telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+            telemetry["llm_invocations"] += 1
+            counts["discovery"] += 1
+            self._count_orchestrator_call()
+            raise
+        except OrchestratedSelectorError as exc:
+            telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+            telemetry["llm_invocations"] += 2
+            counts["discovery"] += 2
+            self._count_orchestrator_call()
+            raise
+        outcome = unified_orchestrated_outcome(discovery_result)
+        counts["discovery"] += discovery_result.llm_invocations
+        telemetry["llm_invocations"] += discovery_result.llm_invocations
+        if memory:
+            returned_bans = [
+                frozenset(item) for item in discovery_result.failed_keyword_combinations if item
+            ]
+            if returned_bans:
+                state.failed_keyword_combinations = returned_bans
+            persist_keyword_memory(
+                state.keyword_memory_path, state.keyword_memory_scope, [], state.failed_keyword_combinations,
+            )
+            persist_question_retrieval_memory(
+                state.keyword_memory_path, state.keyword_memory_scope, state.retrieval_question_key,
+                discovery_result.retrieval_memory_events,
+            )
+            state.retrieval_memory_summary = format_question_retrieval_memory(
+                load_question_retrieval_memory(
+                    state.keyword_memory_path, state.keyword_memory_scope, state.retrieval_question_key,
+                )
+            )
+        return outcome
+
+    def _divided_orchestrated(self) -> DiscoveryOutcome:
+        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
+        telemetry, counts = run.recorder.context_telemetry, run.recorder.phase_invocation_counts
+        keyword_round = self._keyword_round()
+        try:
+            prepared, prepared_metadata = run.deps.prepare_discovery_context(
+                query=run.question, keywords=keyword_round[0], solr_client=run.solr,
+                all_files=run.all_files, retrieval_config=ctx.retrieval,
+                table_dir=ctx.tables_dir,
+                entities=intent_entities(keyword_round[1]),
+            )
+        except Exception as preparation_error:
+            exc = OrchestratedContextPreparationError(str(preparation_error))
+            telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+            telemetry["llm_invocations"] += 1
+            self._count_orchestrator_call()
+            raise exc from preparation_error
+        selection = None
+        if prepared.candidates:
+            try:
+                selection = run.deps.select_from_prepared_context(
+                    query=run.question, llm=run.llm, context=prepared,
+                    all_files=run.all_files, architecture=experiment.discovery_architecture,
+                    hint=state.hint, discovery=experiment.discovery,
+                    table_dir=ctx.tables_dir,
+                )
+            except OrchestratedSelectorError as exc:
+                telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                telemetry["llm_invocations"] += 2
+                counts["discovery"] += 1
+                raise
+        outcome = divided_orchestrated_outcome(keyword_round, prepared, prepared_metadata, selection)
+        selector_llm_calls = 0 if outcome.selector in (SelectorKind.JEV, SelectorKind.NONE) else 1
+        counts["discovery"] += selector_llm_calls
+        telemetry["llm_invocations"] += 1 + selector_llm_calls
+        return outcome
+
+    def _apply_rejection(self, outcome: DiscoveryOutcome, attempt: Attempt) -> bool:
+        """The architect rejected the round: carry its judgment, hint the next round.
+
+        A table it proved unusable is excluded, one it found useful carries
+        forward with its metadata and, for the unified agent, its cached
+        inspection. On the last attempt a selection is forced from this
+        round's candidates, minus the tables just rejected. Returns whether
+        another round follows.
+        """
+        state, experiment = self.run.state, self.run.experiment
+        state.attempted_keywords.extend(state.keywords)
+        state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
+        state.carry(outcome.keep_tables, outcome.skip_tables, outcome.inspection_cache)
+        state.prune_inspection()
+        state.hint = rejection_feedback_hint(
+            state.reasoning, outcome.keep_tables, schemas_preloaded=experiment.use_unified_agent,
+        )
+        if attempt.last:
+            surviving = [t for t in outcome.candidates if t.casefold() not in state.excluded_tables]
+            state.selected = (surviving or outcome.candidates or self.run.all_files)[:3]
+            return False
+        return True
+
+    def _orchestrated_round(self, outcome: DiscoveryOutcome, keywords_rejected: bool) -> None:
+        state, telemetry = self.run.state, self.run.recorder.context_telemetry
+        self._count_orchestrator_call()
+        if outcome.prepared is not None:
+            telemetry.update({
+                "prepared_candidate_count": outcome.prepared.prepared_candidate_count,
+                "retrieved_hit_count": outcome.prepared.retrieved_hit_count,
+                "prepared_context_utf8_bytes": len(outcome.prepared.stable_json().encode("utf-8")),
+                "preparation_error": None,
+            })
+        if keywords_rejected:
+            state.attempted_keywords.extend(state.keywords)
+            state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
+            telemetry["empty_context_retries"] += 1
+            state.hint = (
+                "The previous keywords returned no datasets. Generate different keywords. "
+                f"Attempted: {state.attempted_keywords}"
+            )
+
+
+# --- coding ------------------------------------------------------------------
+
+class AnswerStage:
+    """The result became an answer: synthesise it and validate it."""
+
+    def __init__(self, run: Run) -> None:
+        self.run = run
+
+    def run_answer(self, raw_result: str) -> None:
+        run, result = self.run, self.run.result
+        result.pipeline_stages["code_execution"] = "succeeded"
+        result.code_evaluation["final_execution_success"] = True
+        synthesis_started = time.monotonic()
+        answer, synthesis_tokens = run.deps.phase4_synthesize(
+            run.question, raw_result, run.llm, run.prompt_manager
+        )
+        run.recorder.phase_invocation_counts["result"] += 1
+        result.answer = answer
+        result.tokens["p4"] = synthesis_tokens
+        result.phase_metrics["result"] = {
+            "latency_seconds": round(time.monotonic() - synthesis_started, 6),
+            "retries": 0,
+        }
+        validation = validate_answer(raw_result, answer)
+        result.answer_disposition = validation.disposition.value
+        result.pipeline_stages["final_answer"] = validation.disposition.value
+        if validation.disposition == AnswerDisposition.VALID:
+            result.status = "completed"
+            result.error = ""
+        elif validation.disposition == AnswerDisposition.REJECTED:
+            result.status = "rejected"
+            result.error = validation.reason
+        else:
+            result.status = "failed"
+            result.error = validation.reason
+
+
+class _Coding:
+    """What the direct coder and the sweep share: the gate and the rejection."""
+
+    def __init__(self, run: Run, judge: SemanticJudge) -> None:
+        self.run = run
+        self.judge = judge
+        self.answer = AnswerStage(run)
+
+    def previously_visible(self) -> list[str]:
+        state = self.run.state
+        return [
+            table for table in state.selection_state.all_candidates[: state.selection_state.visible_candidate_count]
+            if table not in state.selected
+        ][:5]
+
+    def blocked(self, outcome: CodeOutcome, selection_record: dict[str, Any], plan_signature: str) -> None:
+        """The selection-contract gate stopped the coder: ask discovery for a corrected plan."""
+        run, state, result = self.run, self.run.state, self.run.result
+        selection_record["outcome"] = "selection_contract_blocked"
+        result.pipeline_stages["code_execution"] = "blocked_by_selection"
+        result.code_evaluation.update({
+            "evaluation_disposition": "blocked",
+            "error_category": "selection_contract_gate",
+        })
+        state.error = outcome.error
+        audit = outcome.audit or {}
+        if audit.get("status") == "missing" and state.last_coder_rejection:
+            selection_record["recovery_from_rejection"] = dict(state.last_coder_rejection)
+            state.error = (
+                "Selection recovery produced no contract. Original "
+                f"coder rejection: {state.last_coder_rejection['reason']} "
+                f"Current gate: {outcome.error}"
+            )
+        feedback = selection_retry_feedback(state.selected, audit, state.error)
+        run.guard.reject_plan(plan_signature, feedback)
+        selection_record["rejection_feedback"] = feedback
+        state.hint = CORRECTION_HEADER + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
+
+    def rejected(self, outcome: CodeOutcome, selection_record: dict[str, Any], *, who: str, level: str | None) -> None:
+        """The coder rejected the tables: remember the selection, hint the next round."""
+        run, state, result = self.run, self.run.state, self.run.result
+        state.last_coder_rejection = {
+            "reason": outcome.error,
+            "details": outcome.rejection_details,
+            "tables": list(state.selected),
+        }
+        run.guard.reject_selection(state.selected, outcome.rejection_details, outcome.error)
+        record: dict[str, Any] = {"phase": "code", "type": "tables_rejected", "message": outcome.error}
+        if level is not None:
+            record["coder_context_level"] = level
+        result.errors.append(record)
+        result.pipeline_stages["code_execution"] = "tables_rejected"
+        state.hint = (
+            f"{who} rejected the previous table combination. "
+            "First reassess these previously visible alternatives if retrieval returns them again: "
+            f"{self.previously_visible()}. Select a different combination. Start a genuinely new "
+            f"search only if none covers the missing requirement. Feedback: {outcome.error}"
+        )
+        state.error = outcome.error
+
+
+class CoderSweep(_Coding):
+    """The automatic coder-context sweep: every context level on the same tables.
+
+    Full context is the only reliable table-rejection gate, so it runs
+    first; a rejected selection returns to discovery without the calls the
+    reduced-context variants would spend.
+    """
+
+    def _sweep(self, levels: list[CoderContextLevel]) -> dict[str, Any]:
+        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
+        return run_coder_context_sweep(
+            question=run.question, selected=state.selected,
+            solr_meta=state.solr_meta, reasoning=state.reasoning, llm=run.llm,
+            prompt_manager=run.prompt_manager, csv_dir=ctx.tables_dir,
+            run_dir=run.run_dir, seed=run.reproducibility.effective_seed,
+            record_seed_instruction=run.recorder.record_seed_instruction,
+            expected_result_type=run.benchmark.expected_result_type,
+            evaluation_enabled=run.code_evaluation_enabled,
+            evaluator=run.attempt_evaluator,
+            adjudicate=self.judge.adjudicate,
+            generate_and_execute=run.deps.phase3_generate_and_execute,
+            result=run.result,
+            phase_invocation_counts=run.recorder.phase_invocation_counts,
+            max_attempts=MAX_CODE_ATTEMPTS,
+            context_levels=levels,
+            selection_plan=dict(state.selection_state.selection_plan),
+            source_field_names=run.benchmark.field_names,
+            require_semantic_plan=experiment.require_semantic_plan,
+        )
+
+    def run_coding(self, attempt: Attempt, selection_record: dict[str, Any], plan_signature: str) -> Verdict:
+        run, state, result, experiment = self.run, self.run.state, self.run.result, self.run.experiment
+        variants = self._sweep([CoderContextLevel.FULL])
+        primary = variants[CoderContextLevel.FULL.value]
+        sweep = sweep_outcome(primary, require_semantic_plan=experiment.require_semantic_plan)
+        run.recorder.semantic_plan(sweep.audit)
+        coder_audit = sweep.audit or {}
+        selection_record["coder_brief_status"] = str(
+            coder_audit.get("effective_coder_brief_status") or coder_audit.get("status") or "missing"
+        )
+        selection_record["coder_started"] = bool(coder_audit.get("coder_started_after_verified_plan"))
+        selection_record["coder_outcome"] = sweep.raw_status
+        if sweep.status is CodeStatus.BLOCKED_BY_SELECTION:
+            self.blocked(sweep, selection_record, plan_signature)
+            return Verdict.STOP if attempt.last else Verdict.REDISCOVER
+        if sweep.status is CodeStatus.TABLES_REJECTED:
+            self.rejected(sweep, selection_record, who="The full-context code generator", level=CoderContextLevel.FULL.value)
+            selection_record["outcome"] = "tables_rejected"
+            selection_record["rejection_feedback"] = sweep.error
+            return Verdict.STOP if attempt.last else Verdict.REDISCOVER
+
+        variants.update(self._sweep([CoderContextLevel.SCHEMA_ONLY, CoderContextLevel.MINIMAL]))
+        result.coder_context_experiment = {
+            "shared_retrieval": True,
+            "shared_tables": list(state.selected),
+            "shared_keywords": list(state.keywords),
+            "shared_reasoning": None,
+            "primary_level": CoderContextLevel.FULL.value,
+            "variants": variants,
+        }
+        selection_record["outcome"] = "accepted"
+        result.code = sweep.code
+        result.raw_result = primary["raw_result"]
+        result.code_evaluation = primary["code_evaluation"]
+        if sweep.status is CodeStatus.SUCCESS:
+            self.answer.run_answer(result.raw_result)
+        else:
+            result.pipeline_stages["code_execution"] = sweep.raw_status
+            result.status = "rejected" if sweep.raw_status == "rejected" else "failed"
+            result.error = sweep.error
+        return Verdict.RETURN
+
+
+class CodingStage(_Coding):
+    """Up to three coder attempts on the selection; the result or a reason to rediscover."""
+
+    def run_coding(self, attempt: Attempt, selection_record: dict[str, Any], plan_signature: str) -> Verdict:
+        run, state, result, experiment = self.run, self.run.state, self.run.result, self.run.experiment
+        previous_code = ""
+        total_code_runs = 0
+        for code_attempt in Attempts(MAX_CODE_ATTEMPTS):
+            code_started = time.monotonic()
+            generated = run.deps.phase3_generate_and_execute(
+                run.question,
+                state.selected,
+                state.selected,
+                state.solr_meta,
+                state.reasoning,
+                run.llm,
+                run.prompt_manager,
+                run.ctx.tables_dir,
+                retries=code_attempt.index,
+                error_msg=state.error,
+                previous_code=previous_code,
+                run_dir=run.run_dir,
+                seed=run.reproducibility.effective_seed,
+                seed_instruction_recorder=run.recorder.record_seed_instruction,
+                coder_context_level=experiment.coder_context_level,
+                evaluation_result_type=None,
+                max_run_calls=max(1, MAX_CODE_ATTEMPTS - total_code_runs),
+                selection_plan=dict(state.selection_state.selection_plan),
+                source_field_names=run.benchmark.field_names,
+                require_semantic_plan=experiment.require_semantic_plan,
+                allow_semantic_revision=(experiment.revision_experiment_mode.value == "current"),
+                brief_advisory=(experiment.coder_brief_mode.value == "advisory"),
+            )
+            state.last_generated = generated
+            outcome = code_outcome(generated, require_semantic_plan=experiment.require_semantic_plan)
+            run.recorder.code_attempt(outcome, attempt=code_attempt, elapsed=time.monotonic() - code_started)
+            total_code_runs += outcome.coder_runs
+            previous_code = outcome.code
+            result.code = previous_code
+
+            if outcome.status is CodeStatus.BLOCKED_BY_SELECTION:
+                self.blocked(outcome, selection_record, plan_signature)
+                return self._after_break(attempt)
+            if run.code_evaluation_enabled:
+                attempts = result.code_evaluation["attempts"]
+                attempts.extend(run.attempt_evaluator.evaluate_generated_attempts(generated, len(attempts) + 1))
+                result.code_evaluation = run.attempt_evaluator.summarize(attempts)
+                result.code_evaluation["generation_attempt_count"] = code_attempt.number
+            if outcome.status is CodeStatus.TABLES_REJECTED:
+                # The coder's own per-table judgment feeds the same cross-round
+                # memory as an architect rejection: a table it proved unusable
+                # is banned outright, one it found partially useful carries
+                # forward. (The sweep does not carry yet: see phase 5.3.)
+                self.rejected(outcome, selection_record, who="The code generator", level=None)
+                state.carry(outcome.keep_tables, outcome.skip_tables)
+                return self._after_break(attempt)
+            if outcome.status is CodeStatus.SUCCESS:
+                verdict = self._succeeded(outcome, generated)
+                if verdict is not None:
+                    return verdict
+                continue
+            if self._failed(outcome, code_attempt):
+                continue
+            return self._after_break(attempt)
+        return Verdict.STOP
+
+    def _succeeded(self, outcome: CodeOutcome, generated: Any) -> Verdict | None:
+        """The code ran: an empty result tries again (None), anything else is final."""
+        run, state, result = self.run, self.run.state, self.run.result
+        result.raw_result = outcome.raw_result
+        raw_validation = validate_answer(outcome.raw_result)
+        if raw_validation.disposition == AnswerDisposition.EMPTY:
+            result.pipeline_stages["code_execution"] = "empty"
+            state.error = raw_validation.reason
+            return None
+        if raw_validation.disposition == AnswerDisposition.REJECTED:
+            result.pipeline_stages["code_execution"] = "rejected"
+            result.pipeline_stages["final_answer"] = "rejected"
+            result.answer_disposition = raw_validation.disposition.value
+            result.status = "rejected"
+            result.error = raw_validation.reason
+            return Verdict.RETURN
+        if run.code_evaluation_enabled:
+            result.code_evaluation = self.judge.adjudicate(result.code_evaluation, generated)
+        self.answer.run_answer(outcome.raw_result)
+        return Verdict.RETURN
+
+    def _failed(self, outcome: CodeOutcome, code_attempt: Attempt) -> bool:
+        """The code failed: record it; True when another attempt should follow.
+
+        A turn that executed nothing tries again regardless; one that ran
+        retries only while its failure is retryable and attempts remain.
+        """
+        state, result = self.run.state, self.run.result
+        state.error = outcome.error
+        error_record: dict[str, Any] = {"phase": "code", "type": "execution_error", "message": state.error}
+        if outcome.execution_error:
+            error_record["details"] = outcome.execution_error
+            error_record["type"] = outcome.execution_error.get("category", "execution_error")
+        result.errors.append(error_record)
+        result.pipeline_stages["code_execution"] = "failed"
+        if not outcome.coder_runs:
+            return True
+        return outcome.retryable and not code_attempt.last
+
+    def _after_break(self, attempt: Attempt) -> Verdict:
+        """A coder execution failure is not evidence that discovery was wrong.
+
+        The verified selection is kept; only a table rejection or an
+        incomplete selection contract starts another discovery round.
+        """
+        if self.run.result.pipeline_stages["code_execution"] not in {"tables_rejected", "blocked_by_selection"}:
+            return Verdict.STOP
+        return Verdict.STOP if attempt.last else Verdict.REDISCOVER
