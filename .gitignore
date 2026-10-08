@@ -51,7 +51,7 @@ scripts/*
 pneuma-out
 
 # Ignore dynamically generated Python code by the agent
-coding/
+/coding/
 script.py
 .lakegen_jobs/
 # The run store (what each experiment submitted); state, like the jobs

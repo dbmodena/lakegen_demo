@@ -19,7 +19,7 @@ from lakegen.phases.phase3 import (
     phase3_generate_and_execute,
 )
 from lakegen.experiment_config import CoderContextLevel
-from lakegen.agent_tools.tools_p3 import (
+from lakegen.coding.tools import (
     CoderLifecycle,
     P3State,
     Phase3ToolsManager,

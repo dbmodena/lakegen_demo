@@ -892,7 +892,7 @@ def phase3_generate_and_execute(
 ) -> Phase3Result:
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
-    from lakegen.agent_tools.tools_p3 import P3State, Phase3ToolsManager
+    from lakegen.coding.tools import P3State, Phase3ToolsManager
     from lakegen.agents.agent_runner import run_agent_workflow
     from lakegen.phases.logging import Phase2AgentStall
 
