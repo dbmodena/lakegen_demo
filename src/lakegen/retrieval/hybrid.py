@@ -11,11 +11,10 @@ from lakegen.retrieval.config import (
     MissingSignalPolicy,
     RetrievalConfig,
 )
-from lakegen.retrieval.fusion import best_finite_hits
+from lakegen.retrieval.fusion import best_finite_hits, fuse
 from lakegen.retrieval.keyword import KeywordRetriever
 from lakegen.retrieval.models import (
     RetrievalHit,
-    min_max_normalize,
 )
 from lakegen.retrieval.semantic import SemanticRetriever
 
@@ -129,50 +128,8 @@ class HybridRetriever:
                 if score is not None:
                     semantic_scores[key] = score
 
-        normalized_lexical = min_max_normalize(lexical_scores)
-        normalized_semantic = min_max_normalize(semantic_scores)
-        fused: list[RetrievalHit] = []
-        for key in all_keys:
-            lexical_score = lexical_scores.get(key)
-            semantic_score = semantic_scores.get(key)
-            lexical_normalized = normalized_lexical.get(key, 0.0)
-            semantic_normalized = normalized_semantic.get(key, 0.0)
-            lexical_hit = lexical_by_key.get(key)
-            semantic_hit = semantic_by_key.get(key)
-            if self.config.fusion_method == FusionMethod.RRF:
-                score = sum(
-                    1.0 / (self.config.rrf_k + branch_hit.rank)
-                    for branch_hit in (lexical_hit, semantic_hit)
-                    if branch_hit is not None and branch_hit.rank > 0
-                )
-            else:
-                score = (
-                    self.config.alpha * lexical_normalized
-                    + (1.0 - self.config.alpha) * semantic_normalized
-                )
-            if not math.isfinite(score):
-                continue
-            fused.append(
-                RetrievalHit(
-                    document=documents[key],
-                    score=score,
-                    lexical_score=lexical_score,
-                    semantic_score=semantic_score,
-                    normalized_lexical_score=lexical_normalized,
-                    normalized_semantic_score=semantic_normalized,
-                    lexical_rank=lexical_hit.rank if lexical_hit else None,
-                    semantic_rank=semantic_hit.rank if semantic_hit else None,
-                )
-            )
-
-        no_rank = candidate_count + 1
-        fused.sort(
-            key=lambda hit: (
-                -hit.score,
-                min(hit.lexical_rank or no_rank, hit.semantic_rank or no_rank),
-                hit.key,
-            )
+        fused = fuse(
+            lexical_by_key, semantic_by_key, config=self.config, top_k=top_k,
+            candidate_count=candidate_count, first_scores=lexical_scores, second_scores=semantic_scores,
         )
-        for rank, hit in enumerate(fused[:top_k], 1):
-            hit.rank = rank
-        return fused[:top_k], len(lexical_hits)
+        return fused, len(lexical_hits)

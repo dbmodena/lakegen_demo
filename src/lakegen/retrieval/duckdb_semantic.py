@@ -5,15 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from lakegen.retrieval.config import (
-    FusionMethod,
     RetrievalConfig,
 )
 from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever, evidence_note
-from lakegen.retrieval.fusion import best_finite_hits
+from lakegen.retrieval.fusion import best_finite_hits, fuse
 from lakegen.retrieval.models import (
     RetrievalHit,
     document_key,
-    min_max_normalize,
 )
 from lakegen.retrieval.pneuma import (
     DocumentResolver,
@@ -87,53 +85,12 @@ class DuckDBSemanticHybridRetriever:
         semantic_by_key = best_finite_hits(
             self.semantic.retrieve(question, top_k=candidate_count)
         )
-        duckdb_scores = {key: hit.score for key, hit in duckdb_by_key.items()}
-        semantic_scores = {key: hit.score for key, hit in semantic_by_key.items()}
-        normalized_duckdb = min_max_normalize(duckdb_scores)
-        normalized_semantic = min_max_normalize(semantic_scores)
-
-        fused: list[RetrievalHit] = []
-        for key in set(duckdb_by_key) | set(semantic_by_key):
-            duckdb_hit = duckdb_by_key.get(key)
-            semantic_hit = semantic_by_key.get(key)
-            # The DuckDB document is the catalog one plus DuckDB's evidence, so
-            # it is the richer of the two whenever both branches found the table.
-            document = (duckdb_hit or semantic_hit).document
-            if self.config.fusion_method == FusionMethod.RRF:
-                score = sum(
-                    1.0 / (self.config.rrf_k + branch_hit.rank)
-                    for branch_hit in (duckdb_hit, semantic_hit)
-                    if branch_hit is not None and branch_hit.rank > 0
-                )
-            else:
-                score = (
-                    self.config.alpha * normalized_duckdb.get(key, 0.0)
-                    + (1.0 - self.config.alpha) * normalized_semantic.get(key, 0.0)
-                )
-            fused.append(
-                RetrievalHit(
-                    document=document,
-                    score=score,
-                    lexical_score=duckdb_scores.get(key),
-                    semantic_score=semantic_scores.get(key),
-                    normalized_lexical_score=normalized_duckdb.get(key, 0.0),
-                    normalized_semantic_score=normalized_semantic.get(key, 0.0),
-                    lexical_rank=duckdb_hit.rank if duckdb_hit else None,
-                    semantic_rank=semantic_hit.rank if semantic_hit else None,
-                )
-            )
-
-        no_rank = candidate_count + 1
-        fused.sort(
-            key=lambda hit: (
-                -hit.score,
-                min(hit.lexical_rank or no_rank, hit.semantic_rank or no_rank),
-                hit.key,
-            )
+        # The DuckDB document is the catalog one plus DuckDB's evidence, so it
+        # is the richer of the two whenever both branches found the table: the
+        # first branch's document wins in the fusion.
+        return fuse(
+            duckdb_by_key, semantic_by_key, config=self.config, top_k=top_k, candidate_count=candidate_count,
         )
-        for rank, hit in enumerate(fused[:top_k], 1):
-            hit.rank = rank
-        return fused[:top_k]
 
 
 # --- the modes: one retriever per RetrievalMode, composed from the branches --
