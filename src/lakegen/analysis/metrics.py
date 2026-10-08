@@ -167,18 +167,48 @@ def case_metrics(source: Mapping[str, Any], entry: Mapping[str, Any]) -> CaseMet
     return CaseMetrics(row, retrieval, selection, augmented, expansion_contributed)
 
 
+def _source_key(entry: Mapping[str, Any]) -> tuple[Any, Any] | None:
+    """What names a question in a job: its source path and id, when the entry carries them."""
+    if entry.get("source_id") is None and not entry.get("source_path"):
+        return None
+    return (entry.get("source_path"), entry.get("source_id"))
+
+
+def _paired(
+    questions: Sequence[Mapping[str, Any]], results: Sequence[Mapping[str, Any]],
+) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]] | None:
+    """Each question with its result: by source when both sides name theirs, else by position.
+
+    A re-queued question has several results; the last one is its result.
+    Pairing by position is what older jobs allow, and it is wrong once a
+    result was re-queued, which is why the source is preferred.
+    """
+    keys = [_source_key(question) for question in questions]
+    result_keys = [_source_key(entry) for entry in results]
+    if all(keys) and all(result_keys) and len(set(keys)) == len(keys):
+        latest = dict(zip(result_keys, results, strict=True))
+        pairs = [(question, latest.get(key)) for question, key in zip(questions, keys, strict=True)]
+        return None if any(entry is None for _, entry in pairs) else pairs  # type: ignore[return-value]
+    if len(questions) != len(results):
+        return None
+    return list(zip(questions, results, strict=True))
+
+
 def batch_cases(
     questions: Sequence[Mapping[str, Any]], results: Sequence[Mapping[str, Any]],
 ) -> list[CaseMetrics] | None:
-    """A case per question, paired by position; None unless every question has gold tables.
+    """A case per question, paired with its result; None unless every question has gold tables and a result.
 
     Older query documents carry no gold tables; a batch with any such question
     is skipped whole rather than scored in part.
     """
-    if not questions or len(questions) != len(results):
+    if not questions:
+        return None
+    pairs = _paired(questions, results)
+    if pairs is None:
         return None
     cases = []
-    for source, entry in zip(questions, results, strict=True):
+    for source, entry in pairs:
         case = case_metrics(source, entry)
         if case is None:
             return None

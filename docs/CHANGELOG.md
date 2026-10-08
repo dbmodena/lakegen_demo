@@ -23,3 +23,9 @@ branch moves code without changing what a run does.
   now apply the judgment (`CodingStage`/`CoderSweep` share it); the
   sweep's recorded variants gain `rejection_keep_tables` and
   `rejection_skip_tables`.
+- **Batch table metrics pair each question with its own result.** The
+  API's end-of-batch metrics paired questions and results by position, so
+  a batch whose results were re-queued by hand scored questions against
+  other questions' results. `lakegen.analysis.metrics.batch_cases` now
+  pairs by source path and id (the last result of a re-queued question
+  counts), and by position only for entries that carry no source.
