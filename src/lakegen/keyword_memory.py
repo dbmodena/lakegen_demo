@@ -84,7 +84,10 @@ def persist_keyword_memory(
             *current.get("failed_keyword_combinations", []),
             *failed_keyword_combinations,
         ])
+        # The scope also holds the questions' retrieval memories: merge into
+        # it, so persisting the keywords does not wipe them.
         scopes[scope] = {
+            **(current if isinstance(current, dict) else {}),
             "keyword_history": merged_history,
             "failed_keyword_combinations": [sorted(item) for item in merged_failed],
         }
