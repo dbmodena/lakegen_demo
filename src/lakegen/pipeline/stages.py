@@ -23,12 +23,10 @@ from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.coder_experiment import run_coder_context_sweep
 from lakegen.domain.evaluation import EvaluationContext
-from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome, SelectorKind
+from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome
 from lakegen.experiment_config import (
     CoderContextLevel,
-    DiscoveryArchitecture,
     ExperimentConfig,
-    ToolAccess,
 )
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
@@ -38,19 +36,10 @@ from lakegen.keyword_memory import (
 )
 from lakegen.observability.recorder import Recorder
 from lakegen.output_validation import AnswerDisposition, validate_answer
-from lakegen.phases.orchestrated_discovery import (
-    OrchestratedContextPreparationError,
-    OrchestratedSelectorError,
-    RetrievalRequestProtocolError,
-)
 from lakegen.phases.utils import rejection_feedback_hint
 from lakegen.pipeline.adapters import (
     code_outcome,
-    divided_agentic_outcome,
-    divided_orchestrated_outcome,
     sweep_outcome,
-    unified_agentic_outcome,
-    unified_orchestrated_outcome,
 )
 from lakegen.pipeline.budgets import Attempt, DedupeGuard
 from lakegen.pipeline.context import MemoryScope, RunContext
@@ -69,7 +58,7 @@ from lakegen.pipeline.events import (
 )
 from lakegen.pipeline.hooks import StageHooks
 from lakegen.pipeline.state import RunState
-from lakegen.retrieval.intent import intent_entities
+from lakegen.pipeline.strategies import build as build_strategy
 
 MAX_CODE_ATTEMPTS = 3
 MAX_TABLE_ATTEMPTS = 3
@@ -307,46 +296,39 @@ def _judgment_fields(
 # --- discovery ---------------------------------------------------------------
 
 class DiscoveryStage:
-    """One discovery round: the architecture's agents, then what the round leaves behind."""
+    """One discovery round: the configured strategy's agents, then what the round leaves behind."""
 
     def __init__(self, run: Run) -> None:
         self.run = run
+        experiment = run.experiment
+        self.strategy = build_strategy(experiment.discovery_architecture, experiment.tool_access)
 
     def run_round(
         self, attempt: Attempt, selection_record: dict[str, Any],
     ) -> Generator[Request, Answer, tuple[DiscoveryOutcome, bool]]:
         """Run the round and record it: its outcome, and whether it asked for new keywords.
 
-        In a gated run the divided architecture's keywords are reviewed
-        before the selection; the selection itself is reviewed by the engine.
+        A strategy that writes keywords first gets them from ``keywords()``,
+        reviewed in a gated run before the selection; the selection itself
+        is reviewed by the engine.
         """
-        run, state, experiment = self.run, self.run.state, self.run.experiment
+        run, state, strategy = self.run, self.run.state, self.strategy
         started = time.monotonic()
-        if experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED and experiment.tool_access == ToolAccess.AGENTIC:
-            outcome = self._unified_agentic()
-        elif experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED and experiment.tool_access == ToolAccess.AGENTIC:
-            outcome = self._divided_agentic((yield from self._keywords()))
-        elif experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED:
-            outcome = self._unified_orchestrated()
-        else:
-            outcome = self._divided_orchestrated((yield from self._keywords()))
+        keyword_round = (yield from self.keywords()) if strategy.writes_keywords_first else None
+        outcome = strategy.discover(self, keyword_round)
         state.selected = outcome.selected
         state.keywords = outcome.keywords
         state.solr_meta = outcome.metadata
         state.reasoning = outcome.reasoning
         state.trace = outcome.trace
-        keywords_rejected = outcome.rejected
-        if experiment.tool_access == ToolAccess.AGENTIC and outcome.rejected:
-            keywords_rejected = self._apply_rejection(outcome, attempt)
-        if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-            self._orchestrated_round(outcome, keywords_rejected)
+        keywords_rejected = strategy.after_round(self, outcome, attempt)
         run.recorder.discovery_round(
             outcome, state=state, selection_record=selection_record, keywords_rejected=keywords_rejected,
             attempt=attempt, elapsed=round(time.monotonic() - started, 6), retrieval_runs=run.retrieval_runs,
         )
         return outcome, keywords_rejected
 
-    def _keywords(self) -> Generator[Request, Answer, tuple[Any, ...]]:
+    def keywords(self) -> Generator[Request, Answer, tuple[Any, ...]]:
         """The divided architecture's keyword round; in a gated run, written until approved.
 
         A person who asked for a re-selection with the same keywords gets the
@@ -358,7 +340,7 @@ class DiscoveryStage:
             keywords, raw, _tokens, reasoning = state.last_keyword_round
             return (keywords, raw, 0, reasoning)
         while True:
-            keyword_round = self._keyword_round()
+            keyword_round = self.keyword_round()
             state.last_keyword_round = keyword_round
             if not self.run.ctx.surface.human_gated:
                 return keyword_round
@@ -375,7 +357,7 @@ class DiscoveryStage:
             state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
             state.hint = answer.hint
 
-    def _seeded_state(self) -> P12State:
+    def seeded_state(self) -> P12State:
         """A fresh agent state for the round, seeded with what earlier rounds learned.
 
         A coder rejection starts a genuinely new retrieval turn. Reusing the
@@ -396,33 +378,7 @@ class DiscoveryStage:
         seeded.inspection_cache = dict(state.carried_inspection)
         return seeded
 
-    def _unified_agentic(self) -> DiscoveryOutcome:
-        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
-        state.selection_state = self._seeded_state()
-        state.selection_states.append(state.selection_state)
-        raw = run.deps.phase12_agent(
-            query=run.question,
-            llm=run.llm,
-            pm=run.prompt_manager,
-            all_files=run.all_files,
-            solr_client=run.solr,
-            csv_dir=ctx.tables_dir,
-            hint=state.hint,
-            retrieval_memory=state.retrieval_memory_summary,
-            portal_name=ctx.portal_name,
-            retrieval_config=ctx.retrieval,
-            state=state.selection_state,
-            retrieval_observer=run.retrieval_observer,
-            require_semantic_plan=experiment.require_semantic_plan,
-            discovery_config=experiment.discovery,
-            **run.hooks.agent_kwargs(),
-        )
-        self._remember_agent_round(state.selection_state)
-        run.recorder.phase_invocation_counts["discovery"] += 1
-        run.recorder.context_telemetry["llm_invocations"] += 1
-        return unified_agentic_outcome(raw, state.selection_state)
-
-    def _remember_agent_round(self, agent_state: P12State) -> None:
+    def remember_agent_round(self, agent_state: P12State) -> None:
         """What the unified agent learned this round reaches the next, within the memory scope.
 
         With no memory nothing is kept; within the session the word sets it
@@ -454,7 +410,7 @@ class DiscoveryStage:
         )
         state.persisted_keyword_count = len(state.keyword_history)
 
-    def _keyword_round(self) -> tuple[Any, ...]:
+    def keyword_round(self) -> tuple[Any, ...]:
         run, state, ctx = self.run, self.run.state, self.run.ctx
         keyword_round = run.deps.phase1_generate_keywords(
             query=run.question,
@@ -470,128 +426,12 @@ class DiscoveryStage:
         run.recorder.phase_invocation_counts["discovery"] += 1
         return keyword_round
 
-    def _divided_agentic(self, keyword_round: tuple[Any, ...]) -> DiscoveryOutcome:
-        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
-        selection_round = run.deps.phase2_select_tables(
-            query=run.question, llm=run.llm, pm=run.prompt_manager,
-            all_files=run.all_files, keywords=keyword_round[0], solr_client=run.solr,
-            csv_dir=ctx.tables_dir, hint=state.hint,
-            portal_name=ctx.portal_name,
-            retrieval_config=ctx.retrieval,
-            selection_state=state.selection_state,
-            entities=intent_entities(keyword_round[1]),
-            carried_tables=state.carried_tables,
-            carried_metadata=state.carried_metadata,
-            excluded_tables=state.excluded_tables,
-            discovery=experiment.discovery,
-            **run.hooks.agent_kwargs(),
-        )
-        outcome = divided_agentic_outcome(keyword_round, selection_round, state.selection_state)
-        selector_llm_calls = 0 if outcome.selector is SelectorKind.JEV else 1
-        run.recorder.phase_invocation_counts["discovery"] += selector_llm_calls
-        run.recorder.context_telemetry["llm_invocations"] += 1 + selector_llm_calls
-        return outcome
-
-    def _count_orchestrator_call(self) -> None:
+    def count_orchestrator_call(self) -> None:
         calls = self.run.recorder.context_telemetry["orchestrator_retrieval_calls"]
         mode = self.run.ctx.retrieval.mode.value
         calls[mode] = calls.get(mode, 0) + 1
 
-    def _unified_orchestrated(self) -> DiscoveryOutcome:
-        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
-        telemetry, counts = run.recorder.context_telemetry, run.recorder.phase_invocation_counts
-        memory = experiment.orchestrated_memory_enabled
-        try:
-            discovery_result = run.deps.run_unified_orchestrated_discovery(
-                query=run.question, llm=run.llm, solr_client=run.solr,
-                all_files=run.all_files, retrieval_config=ctx.retrieval,
-                table_dir=ctx.tables_dir,
-                portal_name=ctx.portal_name,
-                hint=state.hint,
-                retrieval_memory=state.retrieval_memory_summary if memory else "",
-                failed_keyword_combinations=state.failed_keyword_combinations if memory else [],
-                max_zero_result_retries=experiment.discovery.max_zero_result_retries if memory else 0,
-                memory_enabled=memory,
-                **run.hooks.agent_kwargs(),
-            )
-        except RetrievalRequestProtocolError as exc:
-            telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
-            telemetry["llm_invocations"] += 1
-            counts["discovery"] += 1
-            raise
-        except OrchestratedContextPreparationError as exc:
-            telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
-            telemetry["llm_invocations"] += 1
-            counts["discovery"] += 1
-            self._count_orchestrator_call()
-            raise
-        except OrchestratedSelectorError as exc:
-            telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
-            telemetry["llm_invocations"] += 2
-            counts["discovery"] += 2
-            self._count_orchestrator_call()
-            raise
-        outcome = unified_orchestrated_outcome(discovery_result)
-        counts["discovery"] += discovery_result.llm_invocations
-        telemetry["llm_invocations"] += discovery_result.llm_invocations
-        if memory and state.keyword_memory_path is not None:
-            returned_bans = [
-                frozenset(item) for item in discovery_result.failed_keyword_combinations if item
-            ]
-            if returned_bans:
-                state.failed_keyword_combinations = returned_bans
-            persist_keyword_memory(
-                state.keyword_memory_path, state.keyword_memory_scope, [], state.failed_keyword_combinations,
-            )
-            persist_question_retrieval_memory(
-                state.keyword_memory_path, state.keyword_memory_scope, state.retrieval_question_key,
-                discovery_result.retrieval_memory_events,
-            )
-            state.retrieval_memory_summary = format_question_retrieval_memory(
-                load_question_retrieval_memory(
-                    state.keyword_memory_path, state.keyword_memory_scope, state.retrieval_question_key,
-                )
-            )
-        return outcome
-
-    def _divided_orchestrated(self, keyword_round: tuple[Any, ...]) -> DiscoveryOutcome:
-        run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
-        telemetry, counts = run.recorder.context_telemetry, run.recorder.phase_invocation_counts
-        try:
-            prepared, prepared_metadata = run.deps.prepare_discovery_context(
-                query=run.question, keywords=keyword_round[0], solr_client=run.solr,
-                all_files=run.all_files, retrieval_config=ctx.retrieval,
-                table_dir=ctx.tables_dir,
-                entities=intent_entities(keyword_round[1]),
-            )
-        except Exception as preparation_error:
-            exc = OrchestratedContextPreparationError(str(preparation_error))
-            telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
-            telemetry["llm_invocations"] += 1
-            self._count_orchestrator_call()
-            raise exc from preparation_error
-        selection = None
-        if prepared.candidates:
-            try:
-                selection = run.deps.select_from_prepared_context(
-                    query=run.question, llm=run.llm, context=prepared,
-                    all_files=run.all_files, architecture=experiment.discovery_architecture,
-                    hint=state.hint, discovery=experiment.discovery,
-                    table_dir=ctx.tables_dir,
-                    **run.hooks.agent_kwargs(),
-                )
-            except OrchestratedSelectorError as exc:
-                telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
-                telemetry["llm_invocations"] += 2
-                counts["discovery"] += 1
-                raise
-        outcome = divided_orchestrated_outcome(keyword_round, prepared, prepared_metadata, selection)
-        selector_llm_calls = 0 if outcome.selector in (SelectorKind.JEV, SelectorKind.NONE) else 1
-        counts["discovery"] += selector_llm_calls
-        telemetry["llm_invocations"] += 1 + selector_llm_calls
-        return outcome
-
-    def _apply_rejection(self, outcome: DiscoveryOutcome, attempt: Attempt) -> bool:
+    def apply_rejection(self, outcome: DiscoveryOutcome, attempt: Attempt) -> bool:
         """The architect rejected the round: carry its judgment, hint the next round.
 
         A table it proved unusable is excluded, one it found useful carries
@@ -616,9 +456,9 @@ class DiscoveryStage:
             return False
         return True
 
-    def _orchestrated_round(self, outcome: DiscoveryOutcome, keywords_rejected: bool) -> None:
+    def orchestrated_round(self, outcome: DiscoveryOutcome, keywords_rejected: bool) -> None:
         state, telemetry = self.run.state, self.run.recorder.context_telemetry
-        self._count_orchestrator_call()
+        self.count_orchestrator_call()
         if outcome.prepared is not None:
             telemetry.update({
                 "prepared_candidate_count": outcome.prepared.prepared_candidate_count,
