@@ -369,7 +369,7 @@ class ResultChecksMixin:
     def inspect_result(self) -> str:
         """Inspect the latest successful result using a bounded preview and shape profile. Never compares against benchmark gold."""
         if self.state.error is not None or self.state.raw_result is None:
-            return json.dumps({"ok": False, "error": {"category": "no_successful_result", "message": "Call run_code successfully first."}})
+            return json.dumps({"ok": False, "error": {"category": "no_successful_result", "message": "Run the analysis successfully first (run_analysis)."}})
         value = self.state.structured_result
         requirements, warnings, coverage = self._coverage(value)
         warnings = list(dict.fromkeys([
@@ -426,8 +426,8 @@ class ResultChecksMixin:
         return json.dumps({
             "ok": True,
             "state": self.state.lifecycle.value,
-            "required_action": "run_code_or_reject_tables" if warnings else "automatic_finalization",
-            "allowed_actions": ["run_code", "reject_tables"] if warnings else [],
+            "required_action": "run_analysis_or_reject_data" if warnings else "automatic_finalization",
+            "allowed_actions": ["run_analysis", "reject_data"] if warnings else [],
             "profile": profile,
         }, ensure_ascii=False, default=str)
 

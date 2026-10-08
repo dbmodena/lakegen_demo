@@ -100,7 +100,7 @@ class SandboxMixin:
             "ok": True,
             "attempt": self.state.run_count,
             "result_available": self.state.raw_result is not None,
-            "next_action": "Call inspect_result; finalization is automatic when validation passes.",
+            "next_action": "run_analysis inspects the result; finalization is automatic when validation passes.",
         })
 
     def _refusal_before_run(self) -> str | None:
@@ -122,13 +122,13 @@ class SandboxMixin:
                     "category": "semantic_plan_not_grounded",
                     "diagnostics": validation.get("diagnostics", []),
                     "correction_required": (
-                        "Call inspect_table first, then set_analysis_contract; "
-                        "or call plan_conflict/reject_tables with evidence."
+                        "Call inspect_data first, then run_analysis; "
+                        "or call reject_data with evidence."
                     ),
                     "next_actions": (
-                        ["set_analysis_contract", "plan_conflict", "reject_tables"]
+                        ["run_analysis", "reject_data"]
                         if self.state.inspected_tables else
-                        ["inspect_table", "plan_conflict", "reject_tables"]
+                        ["inspect_data", "reject_data"]
                     ),
                 },
             }, ensure_ascii=False, default=str)
@@ -177,7 +177,7 @@ class SandboxMixin:
                 "message": message, "missing": contract_gaps,
                 "runtime_checklist": self._runtime_checklist(),
                 "retryable": True, "revision_budget_remaining": 0,
-                "repair_hint": "Correct every listed gap in one revision, then call run_code again.",
+                "repair_hint": "Correct every listed gap in one revision, then call run_analysis again.",
             }, ensure_ascii=False, default=str)
         return resolved, None
 
@@ -312,16 +312,16 @@ class SandboxMixin:
         if structured is not None or not any(marker in diagnostic_text for marker in self.DIAGNOSTIC_MARKERS):
             return None
         state.error = (
-            "Diagnostic output is not a final answer. Use inspect_table "
-            "for schema/value evidence, then choose run_code with corrected "
-            "analysis or reject_tables if required data is unavailable."
+            "Diagnostic output is not a final answer. Use inspect_data "
+            "for schema/value evidence, then choose run_analysis with corrected "
+            "analysis or reject_data if required data is unavailable."
         )
         state.execution_error = {
             "stage": "result_validation",
             "category": "diagnostic_output",
             "message": state.error,
             "retryable": state.run_count < state.max_runs,
-            "next_actions": ["inspect_table", "run_code", "reject_tables"],
+            "next_actions": ["inspect_data", "run_analysis", "reject_data"],
         }
         state.raw_result = None
         self._record_execution_attempt()

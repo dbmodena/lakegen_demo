@@ -676,7 +676,7 @@ class _Grounding:
                 self.diagnostics.append({
                     "requirement": "selected table is readable",
                     "status": "contradicted", "table": table, "category": "table_unreadable",
-                    "evidence": str(exc), "correction_required": "inspect_table or reject_tables",
+                    "evidence": str(exc), "correction_required": "inspect_data or reject_data",
                 })
 
     def _table_of(self, binding: dict[str, Any]) -> str:
@@ -729,7 +729,7 @@ class _Grounding:
                     "selected_tables": list(self.tables),
                     "available_columns": sorted(self.schemas.get(table, set())),
                 },
-                "correction_required": "inspect_table and revise the binding",
+                "correction_required": "inspect_data and revise the binding",
             })
             return None
         return table, columns
@@ -779,7 +779,7 @@ class _Grounding:
                         "observed_values": observed,
                         "profiled_rows": len(self.profiled(table)),
                     },
-                    "correction_required": "perform targeted inspect_table profiling; absence is not proof of contradiction",
+                    "correction_required": "perform targeted inspect_data profiling; absence is not proof of contradiction",
                 })
                 return True
         return False
@@ -948,7 +948,7 @@ class _Grounding:
             "evidence": self.evidence,
             "required_action": (
                 "resolve_runtime_obligations" if warnings and not blockers else
-                None if not blockers else "inspect_table_or_plan_conflict"
+                None if not blockers else "inspect_data_or_reject_data"
             ),
             "runtime_obligations": warnings,
         }

@@ -63,7 +63,7 @@ class InspectionMixin:
                 "error": "Column profile limit exceeded: at most 8 distinct columns per table.",
                 "already_profiled": sorted(already_profiled),
                 "remaining_profile_slots": max(0, 8 - len(already_profiled)),
-                "next_action": "Use the existing evidence and choose run_code or reject_tables.",
+                "next_action": "Use the existing evidence and choose run_analysis or reject_data.",
             })
         already_profiled.update(new_names)
         for requested_column, name in resolved_requests:
@@ -109,8 +109,8 @@ class InspectionMixin:
             "profiled_columns_total": sorted(already_profiled),
             "remaining_profile_slots": 8 - len(already_profiled),
             "next_action": (
-                "Choose one: run_code if the evidence is sufficient, or "
-                "reject_tables if required data is missing."
+                "Choose one: run_analysis if the evidence is sufficient, or "
+                "reject_data if required data is missing."
             ),
         }, ensure_ascii=False, default=str)
         return response

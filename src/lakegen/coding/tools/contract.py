@@ -27,7 +27,7 @@ class ContractMixin:
                 "ok": False,
                 "error": "architect_semantic_plan_is_authoritative",
                 "contract": self.state.analysis_contract,
-                "next_action": "Write the program and call run_code.",
+                "next_action": "Write the program and call run_analysis.",
             }, ensure_ascii=False)
         if self.state.plan_validation and not self.state.plan_validation.get("valid"):
             # A failed architect plan is provisional and may be replaced after
@@ -67,7 +67,7 @@ class ContractMixin:
             "ok": True,
             "contract": contract,
             "advisories": problems,
-            "next_action": "Write the complete program and call run_code.",
+            "next_action": "Write the complete program and call run_analysis.",
         }, ensure_ascii=False)
 
     @staticmethod

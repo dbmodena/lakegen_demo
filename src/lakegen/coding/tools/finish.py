@@ -35,7 +35,7 @@ class FinishMixin:
             raise ValueError("Finish blocked: inspect_result must inspect the latest successful run.")
         if self.state.coverage_warnings:
             raise ValueError(
-                "Finish blocked: correct the code and call run_code again. "
+                "Finish blocked: correct the code and call run_analysis again. "
                 + "; ".join(self.state.coverage_warnings)
             )
         unresolved = [name for name, status in checks.items() if status == "needs_revision"]

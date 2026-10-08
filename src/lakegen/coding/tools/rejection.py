@@ -46,7 +46,7 @@ class RejectionMixin:
                     "category": "rejection_not_proven",
                     "message": "The selected tables have not been proven insufficient.",
                     "blockers": blockers,
-                    "next_actions": ["run_code", "inspect_table"],
+                    "next_actions": ["run_analysis", "inspect_data"],
                 },
             }, ensure_ascii=False)
             raise ValueError("REJECTION_NOT_PROVEN: " + payload)
@@ -110,13 +110,13 @@ class RejectionMixin:
             **self.state.plan_validation,
             "valid": False, "locked": False, "status": "needs_runtime_evidence",
             "rejected": False, "conflict": conflict,
-            "required_action": "inspect_table_then_set_analysis_contract_or_reject_tables",
+            "required_action": "inspect_data_then_run_analysis_or_reject_data",
         }
         self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
         return json.dumps({
             "ok": True, "status": "PLAN_CONFLICT_RECORDED",
             "conflict": conflict,
-            "next_actions": ["inspect_table", "set_analysis_contract", "reject_tables"],
+            "next_actions": ["inspect_data", "run_analysis", "reject_data"],
         }, ensure_ascii=False)
 
     def _metadata_text(self) -> str:

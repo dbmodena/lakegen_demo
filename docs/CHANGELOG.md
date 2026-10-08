@@ -38,3 +38,9 @@ branch moves code without changing what a run does.
   was cut short: its reason read "No reasoning provided." and its tables
   were replaced by the top two candidates. The parser now decodes one
   complete JSON object (`lakegen.discovery.candidates.parse_table_selector_response`).
+- **The coder's tools name the tools the coder has.** The coder gets
+  `inspect_data`, `run_analysis` and `reject_data`, but the messages its
+  tools returned told it to call `inspect_table`, `run_code`,
+  `inspect_result`, `set_analysis_contract`, `plan_conflict` and
+  `reject_tables`, none of which it could call. Every message, next action
+  and required action now names an offered tool.

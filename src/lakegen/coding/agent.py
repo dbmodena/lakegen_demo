@@ -929,7 +929,7 @@ MISSING_PLAN_VIEW = {
     "valid": False,
     "locked": False,
     "status": "missing",
-    "required_action": "inspect_table_then_set_analysis_contract_or_reject_tables",
+    "required_action": "inspect_data_then_run_analysis_or_reject_data",
 }
 STOP_WITHOUT_TERMINAL_STATE = {
     "needs_inspection": "Coder stopped after execution without inspecting the latest result.",

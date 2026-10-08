@@ -344,7 +344,7 @@ def test_plan_conflict_records_revision_path_without_terminal_rejection(tmp_path
     assert payload["status"] == "PLAN_CONFLICT_RECORDED"
     assert state.rejected_reason == ""
     assert state.lifecycle == CoderLifecycle.NEEDS_REVISION
-    assert "set_analysis_contract" in payload["next_actions"]
+    assert payload["next_actions"] == ["inspect_data", "run_analysis", "reject_data"]
 
 
 def test_contract_blocks_filter_fallback_and_count_semantic_swap(tmp_path):
@@ -1039,7 +1039,7 @@ def test_contract_result_blocks_missing_columns_order_and_duplicate_groups(tmp_p
     assert "contract_result_duplicate_group_keys: borough" in warnings
     assert "contract_result_order_mismatch: score is not descending" not in warnings
     assert "applied_explicit_ordering" in state.result_adaptations
-    assert inspection["allowed_actions"] == ["run_code", "reject_tables"]
+    assert inspection["allowed_actions"] == ["run_analysis", "reject_data"]
 
 
 def test_contract_result_blocks_all_non_finite_measure_values(tmp_path):
@@ -1923,7 +1923,7 @@ def test_inspect_table_is_limited_and_returns_exact_load_command(tmp_path):
     assert "pd.read_csv" in first["load_command"]
     assert second["ok"] is True
     assert second["cached_sample"] is True
-    assert "run_code" in second["next_action"]
+    assert "run_analysis" in second["next_action"]
 
 
 def test_inspect_table_accepts_exact_selected_absolute_path(tmp_path):
