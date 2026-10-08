@@ -50,7 +50,9 @@ from lakegen.runtime import (
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode, check_embedding_health
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
+from lakegen.analysis.results import final_ranking
 from lakegen.code_evaluation import summarize_code_evaluations
+from lakegen.domain.tables import resource_id, table_id
 from lakegen.experiment_config import (
     CoderContextLevel,
     DiscoveryArchitecture,
@@ -402,34 +404,11 @@ def _append_result(job_id: str, result: dict[str, Any]) -> None:
         output.write(json.dumps(result, ensure_ascii=False) + "\n")
 
 
-def _table_id(value: Any) -> str:
-    """Normalize a selected table filename to the gold resource identifier."""
-
-    name = Path(str(value)).name
-    suffix = Path(name).suffix.casefold()
-    return Path(name).stem if suffix in {".csv", ".parquet", ".pq"} else name
-
-
-def _resource_id(value: Any) -> str:
-    """Return the resource part shared by benchmark gold IDs and rankings."""
-    return _table_id(value).rsplit("___", 1)[-1]
-
-
-def _retrieval_ranking(result: dict[str, Any]) -> list[str]:
-    """Return the final retrieval attempt in rank order, with selection fallback."""
-    entries = [entry for entry in result.get("ranking", []) if isinstance(entry, dict)]
-    if not entries:
-        return list(dict.fromkeys(_resource_id(value) for value in result.get("tables", [])))
-    final_attempt = max(int(entry.get("attempt", 1)) for entry in entries)
-    final_entries = sorted(
-        (entry for entry in entries if int(entry.get("attempt", 1)) == final_attempt),
-        key=lambda entry: int(entry.get("rank", 0)),
-    )
-    return list(dict.fromkeys(
-        _resource_id(entry["resource_id"])
-        for entry in final_entries
-        if entry.get("resource_id")
-    ))
+# The normalisers and the ranking reader moved to the package; the old names
+# stay for the analyses that call them (experiments/paper_analysis/records.py).
+_table_id = table_id
+_resource_id = resource_id
+_retrieval_ranking = final_ranking
 
 
 def _append_batch_table_metrics(
