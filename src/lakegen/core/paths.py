@@ -51,5 +51,10 @@ def runs_dir() -> Path:
     return resolve_state_dir() / "runs"
 
 
+def services_dir() -> Path:
+    """Logs and pids of the services ``lakegen services up`` started."""
+    return resolve_state_dir() / "services"
+
+
 def keyword_memory_path() -> Path:
     return resolve_state_dir() / KEYWORD_MEMORY_FILE

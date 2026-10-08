@@ -1,0 +1,62 @@
+# The services LakeGen's experiments run against, and how this machine starts them.
+#
+#   python -m lakegen.experiments.cli services status [NAME...]
+#   python -m lakegen.experiments.cli services up NAME...     # start what is not healthy
+#   python -m lakegen.experiments.cli services down NAME...   # stop what `up` started
+#
+# A service is healthy when its `health` URL answers 200 (a service without one
+# is "running" while the process `up` started is alive). `up` runs `command`
+# from the repository root, detached, with its output in
+# <state root>/services/<name>.log and its pid in <name>.pid; `down` kills that
+# pid. Commands are what the grids' start scripts ran in September and October
+# 2026 (experiments/*/start_in_screen.sh).
+#
+# A spec's `requires` names services by these names; `pneuma:{lake}` is filled
+# in per cell, and `exp run` refuses to submit while a required service is down.
+
+# One Pneuma service per lake, `pneuma:<lake>`, built from this template: the
+# lake's index folder, and its port. The port is the lake's route in
+# config/lakes.yaml unless `ports` says otherwise: 8765 (nyc) and 8766 (uk) are
+# another user's servers, so ours listen on 8774 and 8767, and a spec pins
+# those routes with `pneuma_routes` (or the API gets LAKEGEN_PNEUMA_<LAKE>_BASE_URL).
+pneuma:
+  command: >-
+    .venv-pneuma/bin/python scripts_pneuma/pneuma_server.py --host 127.0.0.1 --port {port}
+    --out-path {index_path} --provider oci --oci-llm-model openai.gpt-oss-20b
+    --oci-embedding-model cohere.embed-v4.0 --oci-embedding-dimensions 1024 --judge-workers 8
+  health: http://127.0.0.1:{port}/health
+  ports:
+    uk: 8767
+    nyc: 8774
+  index_paths:
+    nyc: /data/bilel/pneuma/nyc
+    valencia: /data/bilel/pneuma/valencia
+    paris: /data/bilel/pneuma/paris
+    bologna: /data/bilel/pneuma/bologna
+    uk: /data/bilel/pneuma/uk_copy
+    kramabench: /data/bilel/pneuma/kramabench
+    target_bird: /data/bilel/pneuma/target_bird
+    chicago: /data/bilel/pneuma/chicago
+
+services:
+  ollama:
+    description: Ollama, serving the ollama.* models of config/models.yaml (usually a system service)
+    health: http://127.0.0.1:11434/api/version
+    command: ollama serve
+  llama_qwen:
+    description: llama.cpp serving Qwen 3.8 27B with two slots, the qwen grid's backend (LAKEGEN_OLLAMA_BASE_URL=http://127.0.0.1:11600)
+    health: http://127.0.0.1:11600/health
+    command: experiments/qwen_grid/llama_server.sh
+  api:
+    description: a LakeGen API of this checkout for batch submissions (a grid's spec names its port in execution.api_url)
+    health: http://127.0.0.1:8002/health
+    command: .venv/bin/python -m uvicorn src.api:app --host 127.0.0.1 --port 8002
+    env: {PYTHONPATH: ".:src"}
+  dashboard:
+    description: the grid dashboard over the API's jobs
+    health: http://127.0.0.1:8790/health
+    command: .venv/bin/python -m uvicorn experiments.portal_grid.dashboard:app --host 127.0.0.1 --port 8790
+    env: {PYTHONPATH: ".:src", LAKEGEN_API_URL: "http://127.0.0.1:8002"}
+  tunnel:
+    description: a Cloudflare quick tunnel to the dashboard; its public URL is in the log
+    command: cloudflared tunnel --url http://127.0.0.1:8790 --no-autoupdate

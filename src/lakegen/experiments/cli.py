@@ -4,12 +4,15 @@
     python -m lakegen.experiments.cli run    SPEC [--count N] [--dry-run] [--only TEXT]
     python -m lakegen.experiments.cli status SPEC
     python -m lakegen.experiments.cli index-legacy JOB_DIR... [--spec SPEC...]
+    python -m lakegen.experiments.cli services status|up|down [NAME...] [--wait SECONDS]
 
 ``run`` is idempotent: a cell already in the run store's index is skipped, so a
 crashed or stopped submission can be restarted. Cells are submitted
-``execution.stagger_seconds`` apart. ``index-legacy`` records the jobs the old
-submit scripts created, under the spec whose cells they match (every spec in
-experiments/specs by default) or under ``legacy-<directory>``.
+``execution.stagger_seconds`` apart, and not at all while a service the spec
+``requires`` is down. ``index-legacy`` records the jobs the old submit scripts
+created, under the spec whose cells they match (every spec in
+experiments/specs by default) or under ``legacy-<directory>``. ``services``
+probes, starts and stops the services of config/services.yaml.
 """
 
 from __future__ import annotations
@@ -24,6 +27,12 @@ from lakegen.core.config import BASE_DIR
 from lakegen.experiments.executors import ExecutionError, Executor, make_executor
 from lakegen.experiments.legacy import index_legacy
 from lakegen.experiments.questions import select_cases
+from lakegen.experiments.services import (
+    ServiceManager,
+    load_services,
+    missing_requirements,
+    service_for,
+)
 from lakegen.experiments.spec import ExperimentSpec, expand
 from lakegen.experiments.store import RunStore
 
@@ -40,9 +49,27 @@ def plan(spec: ExperimentSpec, store: RunStore) -> int:
     return 0
 
 
-def run(spec: ExperimentSpec, store: RunStore, executor: Executor, *, count: int | None, only: str | None, dry_run: bool, sleep=time.sleep) -> int:
+def run(
+    spec: ExperimentSpec,
+    store: RunStore,
+    executor: Executor,
+    *,
+    count: int | None,
+    only: str | None,
+    dry_run: bool,
+    sleep=time.sleep,
+    services: ServiceManager | None = None,
+) -> int:
     cells = [cell for cell in expand(spec) if only is None or only in cell.experiment_id]
     submitted = store.submitted(spec.name)
+    pending = [cell for cell in cells if cell.cell_id not in submitted]
+    if pending and not dry_run and spec.requires:
+        missing = missing_requirements(pending, spec.requires, load_services(), services or ServiceManager())
+        if missing:
+            print("not submitting: a required service is down")
+            for line in missing:
+                print(f"  {line}")
+            return 1
     store.write_spec(spec)
     first = True
     for cell in cells:
@@ -99,9 +126,33 @@ def index_legacy_jobs(store: RunStore, job_dirs: Sequence[Path], spec_paths: Seq
     return 0
 
 
+def services_command(action: str, names: Sequence[str], manager: ServiceManager, *, wait_seconds: float = 0.0) -> int:
+    services = load_services()
+    chosen = [service_for(name, services) for name in names] if names else list(services.values())
+    failed = 0
+    for service in chosen:
+        if action == "up":
+            status = manager.up(service, wait_seconds=wait_seconds)
+            state = "up" if status.up else "started, not healthy yet" if status.pid else "failed to start"
+            failed += not status.up
+            print(f"{service.name:20} {state}  log: {manager.log_file(service)}")
+        elif action == "down":
+            print(f"{service.name:20} {'stopped' if manager.down(service) else 'not started by services up'}")
+        else:
+            status = manager.status(service)
+            state = "up" if status.up else "down"
+            detail = f"pid {status.pid}" if status.pid else ""
+            print(f"{service.name:20} {state:5} {service.health or '(no health url)'}  {detail}")
+    return 1 if failed else 0
+
+
 def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m lakegen.experiments.cli", description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
+    services = commands.add_parser("services")
+    services.add_argument("action", choices=("status", "up", "down"))
+    services.add_argument("names", nargs="*", metavar="NAME")
+    services.add_argument("--wait", type=float, default=0.0, help="seconds to wait for health after up")
     for name in ("plan", "run", "status"):
         command = commands.add_parser(name)
         command.add_argument("spec", type=Path)
@@ -117,8 +168,10 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, services: ServiceManager | None = None) -> int:
     args = _parse(argv)
+    if args.command == "services":
+        return services_command(args.action, args.names, services or ServiceManager(), wait_seconds=args.wait)
     store = RunStore(args.store)
     if args.command == "index-legacy":
         specs = args.spec or sorted((BASE_DIR / "experiments" / "specs").glob("*.yaml"))
@@ -131,7 +184,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if executor.backend == "api" and not executor.healthy():
             print(f"the API at {spec.execution.api_url} is not reachable")
             return 1
-        return run(spec, store, executor, count=args.count, only=args.only, dry_run=args.dry_run)
+        return run(spec, store, executor, count=args.count, only=args.only, dry_run=args.dry_run, services=services)
     return status(spec, store, executor)
 
 
