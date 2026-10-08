@@ -96,7 +96,7 @@ class LocalExecutor:
     backend = "local"
 
     def __init__(self) -> None:
-        import api as api_module  # the FastAPI module next to the package; moves in phase 4.5
+        import lakegen.interfaces.api.app as api_module
 
         self._api = api_module
 

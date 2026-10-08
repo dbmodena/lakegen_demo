@@ -50,7 +50,7 @@ services:
   api:
     description: a LakeGen API of this checkout for batch submissions (a grid's spec names its port in execution.api_url)
     health: http://127.0.0.1:8002/health
-    command: .venv/bin/python -m uvicorn src.api:app --host 127.0.0.1 --port 8002
+    command: .venv/bin/python -m uvicorn lakegen.interfaces.api.app:app --host 127.0.0.1 --port 8002
     env: {PYTHONPATH: ".:src"}
   dashboard:
     description: the grid dashboard over the API's jobs

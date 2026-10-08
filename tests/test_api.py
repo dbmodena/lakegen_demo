@@ -1,4 +1,4 @@
-import src.api as api
+import lakegen.interfaces.api.app as api
 import csv
 import json
 import pytest

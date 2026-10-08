@@ -9,7 +9,7 @@ from lakegen.experiment_config import ExperimentConfig, load_experiment_config
 from lakegen.manifest import create_manifest, persist_manifest, redact_secrets
 from lakegen.runner import ExperimentRunner
 from lakegen.ui.state import RuntimeSettings
-from src.api import _resolve_api_config
+from lakegen.interfaces.api.app import _resolve_api_config
 from src.cli import resolve_cli_experiment
 from lakegen.retrieval import RetrievalConfig
 from lakegen.service import run_question
@@ -53,7 +53,7 @@ def test_cli_defaults_keep_workflow_values_despite_retrieval_environment(monkeyp
 
 def test_api_default_and_explicit_retrieval_pool_sizes(monkeypatch):
     monkeypatch.delenv("LAKEGEN_RETRIEVAL_TOP_K", raising=False)
-    from src.api import QueryRequest
+    from lakegen.interfaces.api.app import QueryRequest
 
     request = QueryRequest(question="How many parks?")
     assert request.top_k == 20
