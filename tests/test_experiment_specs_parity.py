@@ -25,9 +25,8 @@ from typing import Any
 
 import pytest
 
-from lakegen.config.recorded import load_recorded_config
+from lakegen.experiments.legacy import config_differences, resolve_as_submission
 from lakegen.experiments.spec import ExperimentSpec, expand
-from lakegen.retrieval import DEFAULT_TOP_K
 
 ROOT = Path(__file__).resolve().parents[1]
 SPECS = sorted((ROOT / "experiments" / "specs").glob("*.yaml"))
@@ -40,17 +39,7 @@ GRIDS = {
     "bench-grid": ("lakegen_jobs_bench", (), True),
     "portal-grid2": ("lakegen_jobs", ("grid-", "smoke-"), False),
 }
-IGNORED_KEYS = {"benchmark.path"}
 PROVIDER_FIELDS = {"model", "semantic_code_judge_model", "retrieval.pneuma_entity_model"}
-
-
-def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
-    if isinstance(value, dict):
-        flat: dict[str, Any] = {}
-        for key, item in value.items():
-            flat.update(_flatten(item, f"{prefix}{key}."))
-        return flat
-    return {prefix.rstrip("."): value}
 
 
 def _stored_jobs(job_dir: str, skipped: tuple[str, ...]) -> tuple[dict[str, list[dict[str, Any]]], int]:
@@ -68,33 +57,6 @@ def _stored_jobs(job_dir: str, skipped: tuple[str, ...]) -> tuple[dict[str, list
     return jobs, switched
 
 
-def _differences(resolved: dict[str, Any], stored: dict[str, Any], skipped: set[str]) -> dict[str, tuple[Any, Any]]:
-    expected, actual = _flatten(stored), _flatten(resolved)
-    # Fields the job never recorded (it predates them) are not compared.
-    skipped = skipped | set(load_recorded_config(stored).not_recorded)
-    return {
-        key: (expected.get(key, "<absent>"), actual.get(key, "<absent>"))
-        for key in sorted(set(expected) | set(actual))
-        if key not in skipped and expected.get(key, "<absent>") != actual.get(key, "<absent>")
-    }
-
-
-def _resolved_through_the_api(cell) -> dict[str, Any]:
-    import api
-
-    return api._resolve_api_config(
-        core=cell.lake,
-        model=cell.config.model,
-        retrieval_mode=cell.config.retrieval.mode.value,
-        top_k=DEFAULT_TOP_K,
-        hybrid_alpha=0.5,
-        candidate_multiplier=5,
-        experiment_id=cell.experiment_id,
-        config_data=cell.config.model_dump(mode="json"),
-        explicit_fields={"core", "retrieval_mode", "experiment_id"},
-    ).model_dump(mode="json")
-
-
 @pytest.mark.parametrize("spec_path", SPECS, ids=[p.stem for p in SPECS])
 def test_spec_cells_match_the_submitted_jobs(spec_path: Path):
     spec = ExperimentSpec.load(spec_path)
@@ -102,13 +64,13 @@ def test_spec_cells_match_the_submitted_jobs(spec_path: Path):
     stored, switched = _stored_jobs(job_dir, skipped_ids)
     cells = {cell.experiment_id: cell for cell in expand(spec)}
     assert len(cells) == len(expand(spec)), "experiment ids must be unique"
-    skipped_keys = IGNORED_KEYS | (PROVIDER_FIELDS if mixed_providers else set())
+    skipped_keys = PROVIDER_FIELDS if mixed_providers else set()
 
     mismatches: dict[str, dict[str, tuple[Any, Any]]] = {}
     for experiment_id, configs in stored.items():
         assert experiment_id in cells, f"the spec has no cell for the stored job {experiment_id}"
-        resolved = _resolved_through_the_api(cells[experiment_id])
-        attempts = [_differences(resolved, config, skipped_keys) for config in configs]
+        resolved = resolve_as_submission(cells[experiment_id])
+        attempts = [config_differences(resolved, config, ignored=skipped_keys) for config in configs]
         if all(attempts):
             mismatches[experiment_id] = min(attempts, key=len)
     assert not mismatches, json.dumps(mismatches, indent=1, default=str)[:4000]

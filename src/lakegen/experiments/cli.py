@@ -3,10 +3,13 @@
     python -m lakegen.experiments.cli plan   SPEC            # the cells, and which already ran
     python -m lakegen.experiments.cli run    SPEC [--count N] [--dry-run] [--only TEXT]
     python -m lakegen.experiments.cli status SPEC
+    python -m lakegen.experiments.cli index-legacy JOB_DIR... [--spec SPEC...]
 
 ``run`` is idempotent: a cell already in the run store's index is skipped, so a
 crashed or stopped submission can be restarted. Cells are submitted
-``execution.stagger_seconds`` apart.
+``execution.stagger_seconds`` apart. ``index-legacy`` records the jobs the old
+submit scripts created, under the spec whose cells they match (every spec in
+experiments/specs by default) or under ``legacy-<directory>``.
 """
 
 from __future__ import annotations
@@ -17,7 +20,9 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from lakegen.core.config import BASE_DIR
 from lakegen.experiments.executors import ExecutionError, Executor, make_executor
+from lakegen.experiments.legacy import index_legacy
 from lakegen.experiments.questions import select_cases
 from lakegen.experiments.spec import ExperimentSpec, expand
 from lakegen.experiments.store import RunStore
@@ -80,6 +85,20 @@ def status(spec: ExperimentSpec, store: RunStore, executor: Executor) -> int:
     return 0
 
 
+def index_legacy_jobs(store: RunStore, job_dirs: Sequence[Path], spec_paths: Sequence[Path]) -> int:
+    specs = [ExperimentSpec.load(path) for path in spec_paths]
+    indexed = index_legacy(store, job_dirs, specs)
+    for job_dir in job_dirs:
+        mine = [entry for entry in indexed if entry.job.job_dir == Path(job_dir)]
+        matched = [entry for entry in mine if entry.matched]
+        specs_hit = sorted({entry.experiment for entry in matched})
+        print(
+            f"{job_dir}: {len(mine)} jobs, {len(matched)} matched "
+            f"{', '.join(specs_hit) or 'no spec'}, {len(mine) - len(matched)} under legacy"
+        )
+    return 0
+
+
 def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m lakegen.experiments.cli", description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -91,13 +110,20 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
             command.add_argument("--count", type=int, default=None, help="cases per cell (default: the whole slice)")
             command.add_argument("--only", default=None, help="run only cells whose experiment id contains this")
             command.add_argument("--dry-run", action="store_true")
+    legacy = commands.add_parser("index-legacy")
+    legacy.add_argument("job_dirs", type=Path, nargs="+", metavar="JOB_DIR")
+    legacy.add_argument("--spec", type=Path, action="append", default=None, help="specs to match (default: experiments/specs/*.yaml)")
+    legacy.add_argument("--store", type=Path, default=None, help="run store root (default: <state root>/runs)")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse(argv)
-    spec = ExperimentSpec.load(args.spec)
     store = RunStore(args.store)
+    if args.command == "index-legacy":
+        specs = args.spec or sorted((BASE_DIR / "experiments" / "specs").glob("*.yaml"))
+        return index_legacy_jobs(store, args.job_dirs, specs)
+    spec = ExperimentSpec.load(args.spec)
     if args.command == "plan":
         return plan(spec, store)
     executor = make_executor(spec.execution.backend, api_url=spec.execution.api_url, job_dir=spec.execution.job_dir)

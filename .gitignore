@@ -54,6 +54,8 @@ pneuma-out
 coding/
 script.py
 .lakegen_jobs/
+# The run store (what each experiment submitted); state, like the jobs
+/runs
 .lakegen_reference_cache/
 reports
 benchmarks

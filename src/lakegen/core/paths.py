@@ -46,5 +46,10 @@ def jobs_dir() -> Path:
     return resolve_state_dir() / (read("LAKEGEN_JOB_DIR") or DEFAULT_JOBS_DIR_NAME)
 
 
+def runs_dir() -> Path:
+    """The run store: what each experiment submitted and where its results are."""
+    return resolve_state_dir() / "runs"
+
+
 def keyword_memory_path() -> Path:
     return resolve_state_dir() / KEYWORD_MEMORY_FILE
