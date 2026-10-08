@@ -88,7 +88,7 @@ def test_every_phase_owns_the_terminal(module_path):
     """If a phase stopped printing, callers passing no callback would go silent."""
     source = Path(module_path).read_text(encoding="utf-8")
     body = re.search(
-        r"def emit(?:_stream)?\(delta[^)]*\)[^\n]*\n((?:[ \t]{8,}.*\n|\n)+)", source
+        r"def emit(?:_stream)?\((?:self, )?delta[^)]*\)[^\n]*\n((?:[ \t]{8,}.*\n|\n)+)", source
     )
     assert body, f"{module_path}: no streaming emit function found"
     assert "print(delta" in body.group(1), f"{module_path}: emit no longer prints"
