@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from llama_index.core.llms import ChatMessage, LLM
@@ -861,6 +862,336 @@ def phase3_generate_code(
     return final_code, tokens
 
 
+RUNNABLE_PLAN_STATUSES = frozenset({"verified", "executable_with_obligations"})
+"""The plan statuses the coder may start from when a semantic plan is required."""
+
+CODER_AGENT_RULES = (
+    "\n\nYou are a bounded coding agent. A semantic plan is authoritative only "
+    "after deterministic runtime validation reports it locked. An invalid or "
+    "insufficiently evidenced plan must be resolved using inspect_data or "
+    "rejected with concrete evidence through reject_data. The validated coder "
+    "brief remains the sole semantic contract. "
+    "Treat a year that names a dataset edition or release (for example, "
+    "'using the 2024 ... dataset') as resource provenance, not as a row-level "
+    "filter: omit it from filters and do not require a year/date column. "
+    "The contract must preserve every semantic "
+    "qualifier from the question (for example Community, completed, distinct, "
+    "and the exact measure being averaged). Objective contract violations block "
+    "finalization and require corrected code. "
+    "Do not add filters, limits, distinct-count semantics, deduplication, or "
+    "temporal interpretations that the question does not request. Preserve every "
+    "requested measure and identifying dimension in the final structured output. "
+    "Do not invent bucket boundaries with qcut/cut, tertiles, or quantiles unless "
+    "the question explicitly defines that bucketing rule. Do not replace a named "
+    "measure with a nearby total, count, or identifier merely because it is easier "
+    "to compute. For a qualified filter, inspect the exact column values when its "
+    "encoding is unclear; a non-empty value is not evidence that a semantic "
+    "qualifier is satisfied. "
+    "For distinct counts of categories or types, use the column whose meaning "
+    "represents the requested category; do not automatically prefer an identifier "
+    "code when an explicit descriptive column is available. "
+    "You have exactly three tools: inspect_data, run_analysis, and reject_data. "
+    "Use inspect_data at most once and request all needed tables/columns together. "
+    "Then write a complete Python program and call run_analysis. That tool performs "
+    "preflight, execution, result inspection, adaptation, and finalization. If it "
+    "returns revision_required, correct every reported problem together and call "
+    "run_analysis once more. The second executed analysis is terminal, including "
+    "when warnings remain. Do not call any separate inspection, contract, or finish "
+    "tool. Call reject_data only when inspected evidence proves fundamental source "
+    "facts are absent. Never print diagnostic schemas from analysis code. Never "
+    "infer correctness from benchmark gold: it is not available. "
+    "Do not import sys; it is unnecessary and forbidden by the execution sandbox. "
+    "Do not merely describe code in chat."
+)
+NO_SEMANTIC_REVISION_RULE = (
+    " For this experimental arm, semantic coverage warnings are terminal: "
+    "preserve the inspected result and do not revise code because of those "
+    "warnings. Technical execution and preflight errors remain actionable."
+)
+PLAN_COMPLETION_RULE = (
+    "The computational part of the brief may be "
+    "incomplete. Compare it with the complete question and add or refine any required "
+    "final aggregation, derived calculation, ratio, correlation, ordering, limit, or "
+    "output shaping. Do not stop at an intermediate grouped result. Call "
+    "run_analysis with the code only; completion is inferred automatically. "
+    "If the selected data cannot support an essential requirement, inspect once and "
+    "reject_data with concrete evidence instead of inventing it.\n"
+)
+ADVISORY_BRIEF_RULE = (
+    "Treat selected tables and evidenced join keys as fixed; verify the brief's "
+    "column choices, row filters and null policy against the data evidence. "
+)
+IMMUTABLE_BRIEF_RULE = (
+    "Treat selected tables, exact runtime columns, explicit question filters, and "
+    "evidenced join keys as immutable. "
+)
+MISSING_PLAN_VIEW = {
+    "valid": False,
+    "locked": False,
+    "status": "missing",
+    "required_action": "inspect_table_then_set_analysis_contract_or_reject_tables",
+}
+STOP_WITHOUT_TERMINAL_STATE = {
+    "needs_inspection": "Coder stopped after execution without inspecting the latest result.",
+    "needs_revision": "Coder stopped while the inspected result still required revision.",
+    "ready_to_finish": "Coder stopped before mandatory finalization.",
+}
+
+
+def _coder_system_prompt(pm: PromptManager, *, brief_advisory: bool, allow_semantic_revision: bool) -> str:
+    prompt = pm.render("code_generator", "agentic_system_prompt", brief_advisory=brief_advisory) + CODER_AGENT_RULES
+    if not allow_semantic_revision:
+        prompt += NO_SEMANTIC_REVISION_RULE
+    return prompt
+
+
+def _coder_user_prompt(
+    pm: PromptManager, *, query: str, retries: int, error_msg: str, previous_code: str, tables_info: str,
+    output_shape: Any, seed: int, force_execution: bool,
+) -> str:
+    """The coder's turn: the task or the correction, the cues, the seed, the output format."""
+    if retries == 0:
+        prompt = pm.render(
+            "code_generator", "agentic_initial_prompt", question=query, arch_reasoning="", tables_info=tables_info,
+        )
+    else:
+        prompt = pm.render(
+            "code_generator", "agentic_correction_prompt", question=query, error_message=error_msg,
+            previous_code=previous_code, arch_reasoning="", tables_info=tables_info,
+        )
+    prompt += (
+        "\n\nQUESTION-DERIVED ORDERING/LIMIT CUES (non-gold):\n"
+        + json.dumps(output_shape, ensure_ascii=False, sort_keys=True)
+    )
+    prompt += (
+        "\n\n[REPRODUCIBILITY]\n"
+        f"Use seed {seed} for every stochastic operation. "
+        "Before finishing, inspect the actual output and check filters, measures, "
+        "group coverage, ordering/limits, and output shape."
+    )
+    prompt += evaluation_output_instruction()
+    if force_execution:
+        prompt += (
+            "\nThe selected tables must be used for the best possible executable "
+            "answer; do not reject them."
+        )
+    return prompt
+
+
+def _plan_sections(plan_view: dict[str, Any], *, brief_advisory: bool, retries: int, query: str) -> str:
+    """What the coder is told about the validated plan, how to complete it, and the question again on a correction."""
+    sections = (
+        "\n\nSELECTION CONTRACT RUNTIME VALIDATION (non-gold):\n"
+        + json.dumps(plan_view or MISSING_PLAN_VIEW, ensure_ascii=False, sort_keys=True, default=str)
+    )
+    sections += (
+        "\n\nPLAN COMPLETION RULE:\n"
+        + (ADVISORY_BRIEF_RULE if brief_advisory else IMMUTABLE_BRIEF_RULE)
+        + PLAN_COMPLETION_RULE
+        + json.dumps(plan_view.get("plan_completion_policy", {}), ensure_ascii=False, sort_keys=True, default=str)
+    )
+    if retries > 0:
+        # Correction turns bury the question under previous code, the error,
+        # and table/plan JSON. Restating it last (closest to where the model
+        # actually writes the fix) keeps the full original ask in view instead
+        # of narrowing to "make this error go away."
+        sections += (
+            "\n\nORIGINAL QUESTION (verbatim, re-read before finalizing this "
+            f"correction):\n\"{query}\"\n"
+            "Fix only what the reported error requires. Do not silently drop, "
+            "simplify, or narrow any other filter, grouping, measure, ordering, "
+            "or limit that this question asks for and that the previous code "
+            "already computed correctly."
+        )
+    return sections
+
+
+def _blocked_before_start(coder_context: CoderContext, plan_view: dict[str, Any], initial_plan_status: str) -> Phase3Result:
+    """The selection-contract gate: the coder does not start on an unverified plan."""
+    status = str(plan_view.get("status") or "invalid")
+    audit = {
+        **coder_context.audit(),
+        **plan_view,
+        "semantic_plan_status": status,
+        "semantic_plan_initial_status": initial_plan_status,
+        "semantic_plan_final_status": status,
+        "semantic_plan_coder_start_status": "not_started",
+        "validation_diagnostics": list(plan_view.get("diagnostics") or []),
+        "evidence_count": len(plan_view.get("evidence") or []),
+        "coder_started_after_verified_plan": False,
+    }
+    return Phase3Result(
+        code_raw="", tokens=0,
+        error=f"Selection contract gate blocked coder startup: {status}.",
+        execution_error={
+            "stage": "selection_contract_gate",
+            "category": "coder_brief_not_verified",
+            "status": status,
+            "retryable": status in {"missing", "invalid", "needs_runtime_evidence"},
+            "diagnostics": audit["validation_diagnostics"],
+        },
+        coder_runs=0, coder_lifecycle="blocked_before_start",
+        stop_reason="selection_contract_gate",
+        coder_context_audit=audit,
+    )
+
+
+def _run_coder_agent(
+    llm: LLM, system_prompt: str, user_prompt: str, *, state: Any, manager: Any,
+    stream_placeholder: Any, cancel_check: Callable[[], None] | None,
+) -> tuple[str, bool]:
+    """The coder agent's turn: its response, and whether it ran out of iterations."""
+    from lakegen.agents.activity import Phase2AgentStall
+    from lakegen.agents.agent_runner import run_agent_workflow
+
+    def emit_stream(delta: str) -> None:
+        if not delta:
+            return
+        print(delta, end="", flush=True)
+        if stream_placeholder is not None:
+            stream_placeholder.markdown(delta)
+
+    try:
+        response = run_agent_workflow(
+            llm=llm, system_prompt=system_prompt, user_prompt=user_prompt, agent_name="coder",
+            emit_stream=emit_stream, cancel_check=cancel_check, tools=manager.get_tools(),
+            max_iterations=8, max_repeats=3, max_tool_calls=6, timeout_seconds=600,
+        )
+        return response, False
+    except Phase2AgentStall as exc:
+        state.stop_reason = str(exc)
+        if not state.error and state.raw_result is None:
+            state.error = f"Coder agent stalled: {exc}"
+        return "", False
+    except Exception as exc:
+        workflow_error = f"Coder agent failed: {type(exc).__name__}: {exc}"
+        # An orchestration limit must not invalidate a successful execution.
+        # Keep it as stop telemetry and let deterministic inspection decide
+        # whether the latest structured result can be finalized.
+        if state.raw_result is not None and state.structured_result is not None:
+            state.stop_reason = workflow_error
+            state.error = None
+        elif not state.error:
+            state.error = workflow_error
+        return "", "Max iterations" in str(exc)
+
+
+def _rejection_reason(state: Any, manager: Any, response: str, *, force_execution: bool) -> str:
+    """Why the coder rejected the tables, from its tool call or its free text; nothing under force."""
+    if force_execution:
+        return ""
+    if state.rejected_reason:
+        missing = state.rejection_details.get("missing_requirements", [])
+        evidence = state.rejection_details.get("inspected_evidence", "")
+        return f"{state.rejected_reason} Missing requirements: {missing}. Inspected evidence: {evidence}"
+    rejected_reason = _rejected_tables_reason(response)
+    if rejected_reason:
+        # This is the last-resort path: the model rejected in free text
+        # that didn't parse as the structured payload
+        # _recover_structured_rejection understands, so there is no
+        # ban_tables signal to trust. Ban nothing rather than banning the
+        # whole selected set on no evidence -- the safe default matches
+        # reject_tables' own "no justification, no ban" rule instead of
+        # excluding a table that was never actually proven irrelevant.
+        state.rejection_skip_tables = []
+        state.rejection_keep_tables = list(manager.tables)
+    return rejected_reason
+
+
+def _settle_run(state: Any, manager: Any, rejected_reason: str, *, workflow_exhausted: bool) -> None:
+    """What the coder left undone, done deterministically: the inspection, the finalization, the degraded finish."""
+    # A model can exhaust its normal reasoning turn immediately after inspection.
+    # Inspection is deterministic bookkeeping over the latest runtime result.
+    # Do it when the model executed successfully but omitted the protocol call.
+    if (
+        not state.finished
+        and state.lifecycle.value == "needs_inspection"
+        and state.raw_result is not None
+        and not rejected_reason
+    ):
+        try:
+            manager.inspect_result()
+        except Exception as exc:
+            state.stop_reason = f"automatic_inspection_failed: {type(exc).__name__}: {exc}"
+    # Deterministic validation is the terminal gate; no second LLM is needed.
+    if not state.finished and state.ready_for_finalization() and not rejected_reason:
+        manager.finalize_validated_result(
+            "Automatically finalized after a valid, structured, warning-free inspection."
+        )
+    # A latest inspected structured result remains useful even when semantic
+    # advisories could not be resolved within the bounded coder loop. Preserve
+    # it as a degraded completion; downstream evaluation still decides its
+    # correctness and the advisories remain attached to the review telemetry.
+    if (
+        not state.finished
+        and state.ready_for_degraded_finalization()
+        and (state.run_count >= state.max_runs or workflow_exhausted)
+        and not rejected_reason
+    ):
+        manager.recover_degraded_finish(
+            "System recovery preserved the latest inspected structured result "
+            "after the coder exhausted its correction/finalization budget or "
+            "agent-iteration budget."
+        )
+    if not state.finished and state.error is None and not rejected_reason:
+        state.error = STOP_WITHOUT_TERMINAL_STATE.get(
+            state.lifecycle.value, "Coder stopped without reaching a terminal coding state.",
+        )
+    if not state.finished and state.lifecycle.value == "needs_revision" and not state.execution_error:
+        state.execution_error = {
+            "stage": "result_validation",
+            "category": "result_needs_revision",
+            "message": state.error or "The inspected result requires revision.",
+            "retryable": state.run_count < state.max_runs,
+            "coverage_warnings": list(state.coverage_warnings),
+        }
+
+
+def _phase3_result(
+    state: Any, manager: Any, response: str, *, tokens: int, rejected_reason: str,
+    coder_context: CoderContext, initial_plan_status: str, require_semantic_plan: bool,
+) -> Phase3Result:
+    final_plan_view = manager.coder_plan_view()
+    return Phase3Result(
+        code_raw=state.code_raw or response,
+        tokens=tokens,
+        raw_result=state.raw_result,
+        error=state.error,
+        clean_code=state.clean_code,
+        rejected_reason=rejected_reason,
+        structured_result=state.structured_result,
+        structured_result_error=state.structured_result_error,
+        execution_error=state.execution_error or None,
+        coder_review=state.review or None,
+        coder_runs=state.run_count,
+        coder_lifecycle=state.lifecycle.value,
+        stop_reason=state.stop_reason,
+        finalization_mode=state.finalization_mode,
+        operation_trace=state.operation_trace or None,
+        coder_context_audit={
+            **coder_context.audit(),
+            **final_plan_view,
+            "semantic_plan_validated_before_lock": bool(state.plan_validation.get("valid")),
+            "semantic_plan_status": state.plan_validation.get("status"),
+            "semantic_plan_initial_status": initial_plan_status,
+            "semantic_plan_final_status": state.plan_validation.get("status"),
+            "semantic_plan_coder_start_status": initial_plan_status,
+            "validation_diagnostics": list(state.plan_validation.get("diagnostics", [])),
+            "evidence_count": len(state.plan_validation.get("evidence", [])),
+            "coder_started_after_verified_plan": (
+                not require_semantic_plan or initial_plan_status in RUNNABLE_PLAN_STATUSES
+            ),
+            "verified_requirements": list(state.coverage_requirements),
+            "inspect_result_executed": state.inspected_version > 0,
+            "plan_completion": dict((state.operation_trace or {}).get("inferred_plan_completion") or {}),
+        },
+        rejection_details=state.rejection_details or None,
+        rejection_keep_tables=list(state.rejection_keep_tables),
+        rejection_skip_tables=list(state.rejection_skip_tables),
+        coder_attempt_trace=list(state.execution_attempts),
+    )
+
+
 def phase3_generate_and_execute(
     query: str,
     tables: list[str],
@@ -890,11 +1221,10 @@ def phase3_generate_and_execute(
     allow_semantic_revision: bool = True,
     brief_advisory: bool = False,
 ) -> Phase3Result:
+    """The coder on one selection: a bounded tool-using agent over the sandbox, its result settled deterministically."""
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
     from lakegen.coding.tools import P3State, Phase3ToolsManager
-    from lakegen.agents.agent_runner import run_agent_workflow
-    from lakegen.agents.activity import Phase2AgentStall
 
     coder_context = CoderContext.build(
         question=query,
@@ -907,83 +1237,14 @@ def phase3_generate_and_execute(
     # From this point onward Phase 3 sees only the DTO's explicit allowlist.
     selection_plan = dict(coder_context.selection_plan)
     solr_meta = dict(coder_context.table_metadata)
-    context_level = CoderContextLevel(coder_context_level)
-    tables_info = _build_coder_tables_info(
-        tables, Path(csv_dir), context_level, solr_meta
+    tables_info = _build_coder_tables_info(tables, Path(csv_dir), CoderContextLevel(coder_context_level), solr_meta)
+    system_prompt = _coder_system_prompt(
+        pm, brief_advisory=brief_advisory, allow_semantic_revision=allow_semantic_revision,
     )
-    system_prompt = pm.render(
-        "code_generator", "agentic_system_prompt", brief_advisory=brief_advisory
-    ) + (
-        "\n\nYou are a bounded coding agent. A semantic plan is authoritative only "
-        "after deterministic runtime validation reports it locked. An invalid or "
-        "insufficiently evidenced plan must be resolved using inspect_data or "
-        "rejected with concrete evidence through reject_data. The validated coder "
-        "brief remains the sole semantic contract. "
-        "Treat a year that names a dataset edition or release (for example, "
-        "'using the 2024 ... dataset') as resource provenance, not as a row-level "
-        "filter: omit it from filters and do not require a year/date column. "
-        "The contract must preserve every semantic "
-        "qualifier from the question (for example Community, completed, distinct, "
-        "and the exact measure being averaged). Objective contract violations block "
-        "finalization and require corrected code. "
-        "Do not add filters, limits, distinct-count semantics, deduplication, or "
-        "temporal interpretations that the question does not request. Preserve every "
-        "requested measure and identifying dimension in the final structured output. "
-        "Do not invent bucket boundaries with qcut/cut, tertiles, or quantiles unless "
-        "the question explicitly defines that bucketing rule. Do not replace a named "
-        "measure with a nearby total, count, or identifier merely because it is easier "
-        "to compute. For a qualified filter, inspect the exact column values when its "
-        "encoding is unclear; a non-empty value is not evidence that a semantic "
-        "qualifier is satisfied. "
-        "For distinct counts of categories or types, use the column whose meaning "
-        "represents the requested category; do not automatically prefer an identifier "
-        "code when an explicit descriptive column is available. "
-        "You have exactly three tools: inspect_data, run_analysis, and reject_data. "
-        "Use inspect_data at most once and request all needed tables/columns together. "
-        "Then write a complete Python program and call run_analysis. That tool performs "
-        "preflight, execution, result inspection, adaptation, and finalization. If it "
-        "returns revision_required, correct every reported problem together and call "
-        "run_analysis once more. The second executed analysis is terminal, including "
-        "when warnings remain. Do not call any separate inspection, contract, or finish "
-        "tool. Call reject_data only when inspected evidence proves fundamental source "
-        "facts are absent. Never print diagnostic schemas from analysis code. Never "
-        "infer correctness from benchmark gold: it is not available. "
-        "Do not import sys; it is unnecessary and forbidden by the execution sandbox. "
-        "Do not merely describe code in chat."
+    user_prompt = _coder_user_prompt(
+        pm, query=query, retries=retries, error_msg=error_msg, previous_code=previous_code,
+        tables_info=tables_info, output_shape=coder_context.output_shape, seed=seed, force_execution=force_execution,
     )
-    if not allow_semantic_revision:
-        system_prompt += (
-            " For this experimental arm, semantic coverage warnings are terminal: "
-            "preserve the inspected result and do not revise code because of those "
-            "warnings. Technical execution and preflight errors remain actionable."
-        )
-    if retries == 0:
-        user_prompt = pm.render(
-            "code_generator", "agentic_initial_prompt", question=query,
-            arch_reasoning="", tables_info=tables_info,
-        )
-    else:
-        user_prompt = pm.render(
-            "code_generator", "agentic_correction_prompt", question=query,
-            error_message=error_msg, previous_code=previous_code,
-            arch_reasoning="", tables_info=tables_info,
-        )
-    user_prompt += (
-        "\n\nQUESTION-DERIVED ORDERING/LIMIT CUES (non-gold):\n"
-        + json.dumps(coder_context.output_shape, ensure_ascii=False, sort_keys=True)
-    )
-    user_prompt += (
-        "\n\n[REPRODUCIBILITY]\n"
-        f"Use seed {seed} for every stochastic operation. "
-        "Before finishing, inspect the actual output and check filters, measures, "
-        "group coverage, ordering/limits, and output shape."
-    )
-    user_prompt += evaluation_output_instruction()
-    if force_execution:
-        user_prompt += (
-            "\nThe selected tables must be used for the best possible executable "
-            "answer; do not reject them."
-        )
     if seed_instruction_recorder is not None:
         seed_instruction_recorder()
 
@@ -996,10 +1257,7 @@ def phase3_generate_and_execute(
         run_dir=run_dir,
         evaluation_result_type=None,
         question=query,
-        table_metadata={
-            table: solr_meta.get(table, solr_meta.get(Path(table).stem, {}))
-            for table in tables
-        },
+        table_metadata={table: solr_meta.get(table, solr_meta.get(Path(table).stem, {})) for table in tables},
         selection_plan=selection_plan,
         resolve_code=_resolve_and_validate_columns,
         execute_code=_execute_code,
@@ -1014,127 +1272,19 @@ def phase3_generate_and_execute(
     )
     plan_view = manager.coder_plan_view()
     initial_plan_status = str(plan_view.get("status") or "missing")
-    runnable_plan_statuses = {"verified", "executable_with_obligations"}
-    if require_semantic_plan and plan_view.get("status") not in runnable_plan_statuses:
-        status = str(plan_view.get("status") or "invalid")
-        audit = {
-            **coder_context.audit(),
-            **plan_view,
-            "semantic_plan_status": status,
-            "semantic_plan_initial_status": initial_plan_status,
-            "semantic_plan_final_status": status,
-            "semantic_plan_coder_start_status": "not_started",
-            "validation_diagnostics": list(plan_view.get("diagnostics") or []),
-            "evidence_count": len(plan_view.get("evidence") or []),
-            "coder_started_after_verified_plan": False,
-        }
-        return Phase3Result(
-            code_raw="", tokens=0,
-            error=f"Selection contract gate blocked coder startup: {status}.",
-            execution_error={
-                "stage": "selection_contract_gate",
-                "category": "coder_brief_not_verified",
-                "status": status,
-                "retryable": status in {"missing", "invalid", "needs_runtime_evidence"},
-                "diagnostics": audit["validation_diagnostics"],
-            },
-            coder_runs=0, coder_lifecycle="blocked_before_start",
-            stop_reason="selection_contract_gate",
-            coder_context_audit=audit,
-        )
-    user_prompt += (
-        "\n\nSELECTION CONTRACT RUNTIME VALIDATION (non-gold):\n"
-        + json.dumps(plan_view or {
-            "valid": False,
-            "locked": False,
-            "status": "missing",
-            "required_action": "inspect_table_then_set_analysis_contract_or_reject_tables",
-        }, ensure_ascii=False, sort_keys=True, default=str)
-    )
-    user_prompt += (
-        "\n\nPLAN COMPLETION RULE:\n"
-        + (
-            "Treat selected tables and evidenced join keys as fixed; verify the brief's "
-            "column choices, row filters and null policy against the data evidence. "
-            if brief_advisory else
-            "Treat selected tables, exact runtime columns, explicit question filters, and "
-            "evidenced join keys as immutable. "
-        )
-        + "The computational part of the brief may be "
-        "incomplete. Compare it with the complete question and add or refine any required "
-        "final aggregation, derived calculation, ratio, correlation, ordering, limit, or "
-        "output shaping. Do not stop at an intermediate grouped result. Call "
-        "run_analysis with the code only; completion is inferred automatically. "
-        "If the selected data cannot support an essential requirement, inspect once and "
-        "reject_data with concrete evidence instead of inventing it.\n"
-        + json.dumps(
-            plan_view.get("plan_completion_policy", {}),
-            ensure_ascii=False,
-            sort_keys=True,
-            default=str,
-        )
-    )
-    if retries > 0:
-        # Correction turns bury the question under previous code, the error,
-        # and table/plan JSON. Restating it last (closest to where the model
-        # actually writes the fix) keeps the full original ask in view instead
-        # of narrowing to "make this error go away."
-        user_prompt += (
-            "\n\nORIGINAL QUESTION (verbatim, re-read before finalizing this "
-            f"correction):\n\"{query}\"\n"
-            "Fix only what the reported error requires. Do not silently drop, "
-            "simplify, or narrow any other filter, grouping, measure, ordering, "
-            "or limit that this question asks for and that the previous code "
-            "already computed correctly."
-        )
+    if require_semantic_plan and plan_view.get("status") not in RUNNABLE_PLAN_STATUSES:
+        return _blocked_before_start(coder_context, plan_view, initial_plan_status)
+    user_prompt += _plan_sections(plan_view, brief_advisory=brief_advisory, retries=retries, query=query)
     reset_llm_token_usage(llm)
-
-    def emit_stream(delta: str) -> None:
-        if not delta:
-            return
-        print(delta, end="", flush=True)
-        if stream_placeholder is not None:
-            stream_placeholder.markdown(delta)
-
-    workflow_exhausted = False
-    try:
-        response = run_agent_workflow(
-            llm=llm,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            agent_name="coder",
-            emit_stream=emit_stream,
-            cancel_check=cancel_check,
-            tools=manager.get_tools(),
-            max_iterations=8,
-            max_repeats=3,
-            max_tool_calls=6,
-            timeout_seconds=600,
-        )
-    except Phase2AgentStall as exc:
-        response = ""
-        state.stop_reason = str(exc)
-        if not state.error and state.raw_result is None:
-            state.error = f"Coder agent stalled: {exc}"
-    except Exception as exc:
-        response = ""
-        workflow_error = f"Coder agent failed: {type(exc).__name__}: {exc}"
-        workflow_exhausted = "Max iterations" in str(exc)
-        # An orchestration limit must not invalidate a successful execution.
-        # Keep it as stop telemetry and let deterministic inspection decide
-        # whether the latest structured result can be finalized.
-        if state.raw_result is not None and state.structured_result is not None:
-            state.stop_reason = workflow_error
-            state.error = None
-        elif not state.error:
-            state.error = workflow_error
-
+    response, workflow_exhausted = _run_coder_agent(
+        llm, system_prompt, user_prompt, state=state, manager=manager,
+        stream_placeholder=stream_placeholder, cancel_check=cancel_check,
+    )
     # Some model turns emit the complete program in a fenced response instead
     # of invoking run_code. Route that program through the exact same bounded
     # preflight, sandbox, result extraction and inspection path as a tool call.
     _recover_fenced_agent_code(response, manager, state)
     _recover_structured_rejection(response, manager, state)
-
     # inspect_result is deterministic and does not consume a run_code attempt.
     # If the model stops immediately after a valid structured execution, apply
     # the same inspection tool programmatically so closure/revision routing is
@@ -1147,126 +1297,10 @@ def phase3_generate_and_execute(
     ):
         manager.inspect_result()
         state.stop_reason = state.stop_reason or "auto_inspected_latest_successful_result"
-
-    if force_execution:
-        rejected_reason = ""
-    elif state.rejected_reason:
-        missing = state.rejection_details.get("missing_requirements", [])
-        evidence = state.rejection_details.get("inspected_evidence", "")
-        rejected_reason = (
-            f"{state.rejected_reason} Missing requirements: {missing}. "
-            f"Inspected evidence: {evidence}"
-        )
-    else:
-        rejected_reason = _rejected_tables_reason(response)
-        if rejected_reason:
-            # This is the last-resort path: the model rejected in free text
-            # that didn't parse as the structured payload
-            # _recover_structured_rejection understands, so there is no
-            # ban_tables signal to trust. Ban nothing rather than banning the
-            # whole selected set on no evidence -- the safe default matches
-            # reject_tables' own "no justification, no ban" rule instead of
-            # excluding a table that was never actually proven irrelevant.
-            state.rejection_skip_tables = []
-            state.rejection_keep_tables = list(manager.tables)
-    # A model can exhaust its normal reasoning turn immediately after inspection.
-    # Inspection is deterministic bookkeeping over the latest runtime result.
-    # Do it when the model executed successfully but omitted the protocol call.
-    if (
-        not state.finished
-        and state.lifecycle.value == "needs_inspection"
-        and state.raw_result is not None
-        and not rejected_reason
-    ):
-        try:
-            manager.inspect_result()
-        except Exception as exc:
-            state.stop_reason = (
-                "automatic_inspection_failed: " f"{type(exc).__name__}: {exc}"
-            )
-
-    # Deterministic validation is the terminal gate; no second LLM is needed.
-    if not state.finished and state.ready_for_finalization() and not rejected_reason:
-        manager.finalize_validated_result(
-            "Automatically finalized after a valid, structured, warning-free inspection."
-        )
-
-    # A latest inspected structured result remains useful even when semantic
-    # advisories could not be resolved within the bounded coder loop. Preserve
-    # it as a degraded completion; downstream evaluation still decides its
-    # correctness and the advisories remain attached to the review telemetry.
-    if (
-        not state.finished
-        and state.ready_for_degraded_finalization()
-        and (state.run_count >= state.max_runs or workflow_exhausted)
-        and not rejected_reason
-    ):
-        manager.recover_degraded_finish(
-            "System recovery preserved the latest inspected structured result "
-            "after the coder exhausted its correction/finalization budget or "
-            "agent-iteration budget."
-        )
-
-    tokens = get_llm_token_usage(llm)
-    if not state.finished and state.error is None and not rejected_reason:
-        state.error = {
-            "needs_inspection": "Coder stopped after execution without inspecting the latest result.",
-            "needs_revision": "Coder stopped while the inspected result still required revision.",
-            "ready_to_finish": "Coder stopped before mandatory finalization.",
-        }.get(
-            state.lifecycle.value,
-            "Coder stopped without reaching a terminal coding state.",
-        )
-    if (
-        not state.finished
-        and state.lifecycle.value == "needs_revision"
-        and not state.execution_error
-    ):
-        state.execution_error = {
-            "stage": "result_validation",
-            "category": "result_needs_revision",
-            "message": state.error or "The inspected result requires revision.",
-            "retryable": state.run_count < state.max_runs,
-            "coverage_warnings": list(state.coverage_warnings),
-        }
-    final_plan_view = manager.coder_plan_view()
-    return Phase3Result(
-        code_raw=state.code_raw or response,
-        tokens=tokens,
-        raw_result=state.raw_result,
-        error=state.error,
-        clean_code=state.clean_code,
-        rejected_reason=rejected_reason,
-        structured_result=state.structured_result,
-        structured_result_error=state.structured_result_error,
-        execution_error=state.execution_error or None,
-        coder_review=state.review or None,
-        coder_runs=state.run_count,
-        coder_lifecycle=state.lifecycle.value,
-        stop_reason=state.stop_reason,
-        finalization_mode=state.finalization_mode,
-        operation_trace=state.operation_trace or None,
-        coder_context_audit={
-            **coder_context.audit(),
-            **final_plan_view,
-            "semantic_plan_validated_before_lock": bool(state.plan_validation.get("valid")),
-            "semantic_plan_status": state.plan_validation.get("status"),
-            "semantic_plan_initial_status": initial_plan_status,
-            "semantic_plan_final_status": state.plan_validation.get("status"),
-            "semantic_plan_coder_start_status": initial_plan_status,
-            "validation_diagnostics": list(state.plan_validation.get("diagnostics", [])),
-            "evidence_count": len(state.plan_validation.get("evidence", [])),
-            "coder_started_after_verified_plan": (
-                not require_semantic_plan or initial_plan_status in runnable_plan_statuses
-            ),
-            "verified_requirements": list(state.coverage_requirements),
-            "inspect_result_executed": state.inspected_version > 0,
-            "plan_completion": dict(
-                (state.operation_trace or {}).get("inferred_plan_completion") or {}
-            ),
-        },
-        rejection_details=state.rejection_details or None,
-        rejection_keep_tables=list(state.rejection_keep_tables),
-        rejection_skip_tables=list(state.rejection_skip_tables),
-        coder_attempt_trace=list(state.execution_attempts),
+    rejected_reason = _rejection_reason(state, manager, response, force_execution=force_execution)
+    _settle_run(state, manager, rejected_reason, workflow_exhausted=workflow_exhausted)
+    return _phase3_result(
+        state, manager, response, tokens=get_llm_token_usage(llm), rejected_reason=rejected_reason,
+        coder_context=coder_context, initial_plan_status=initial_plan_status,
+        require_semantic_plan=require_semantic_plan,
     )
