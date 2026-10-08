@@ -24,7 +24,7 @@ from lakegen.orchestrated_context import (
 )
 from lakegen.retrieval import RetrievalConfig
 from lakegen.retrieval.intent import RetrievalIntent, parse_retrieval_intent
-from prompts.prompt_manager import PromptManager
+from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.ui.state import WorkflowCancelled
 
 

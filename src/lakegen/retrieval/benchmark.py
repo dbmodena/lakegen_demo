@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-from src.client_solr import LocalSolrClient, resolve_solr_core
+from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 from lakegen.core.table_io import list_table_files
 from lakegen.experiment_config import load_experiment_config
 from lakegen.phases.utils import match_local_csv

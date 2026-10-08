@@ -13,7 +13,7 @@ from llama_index.core.llms import ChatMessage, LLM
 
 from lakegen.core.types import SolrMetadata
 from lakegen.experiment_config import CoderContextLevel
-from prompts.prompt_manager import PromptManager
+from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.core import paths
 from lakegen.core.table_io import read_table, table_load_command
 from lakegen.column_resolution import resolve_generated_code_columns

@@ -6,7 +6,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from src.client_solr import LocalSolrClient
+from lakegen.retrieval.solr_client import LocalSolrClient
 
 from lakegen.retrieval.config import RetrievalConfig
 from lakegen.retrieval.embeddings import EmbeddingModel

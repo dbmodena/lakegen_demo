@@ -32,8 +32,8 @@ from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.core.table_io import read_table
 from lakegen.ui.state import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
-from prompts.prompt_manager import PromptManager
-from src.client_solr import LocalSolrClient
+from lakegen.prompts.prompt_manager import PromptManager
+from lakegen.retrieval.solr_client import LocalSolrClient
 from lakegen.experiment_config import DiscoveryConfig
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
 from lakegen.agent_tools.requirement_ledger import (

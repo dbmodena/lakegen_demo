@@ -4,7 +4,7 @@ from collections.abc import Callable
 from llama_index.core.llms import ChatMessage, LLM
 from llama_index.core import Settings
 
-from prompts.prompt_manager import PromptManager
+from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.core.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,

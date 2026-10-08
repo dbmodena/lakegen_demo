@@ -8,7 +8,7 @@ import math
 import time
 from typing import Any
 
-from src.client_solr import LocalSolrClient
+from lakegen.retrieval.solr_client import LocalSolrClient
 
 from lakegen.retrieval.config import (
     FusionMethod,

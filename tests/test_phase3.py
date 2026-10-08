@@ -2446,7 +2446,7 @@ def test_snapshot_stamp_years_detects_constant_date_columns(tmp_path):
 
 
 def test_advisory_brief_prompt_is_opt_in():
-    from prompts.prompt_manager import PromptManager
+    from lakegen.prompts.prompt_manager import PromptManager
 
     pm = PromptManager()
     strict = pm.render("code_generator", "agentic_system_prompt")

@@ -13,7 +13,7 @@ from lakegen.core.token_usage import (
     get_llm_token_usage,
     reset_llm_token_usage,
 )
-from prompts.prompt_manager import PromptManager
+from lakegen.prompts.prompt_manager import PromptManager
 
 
 SEMANTIC_DISPOSITIONS = {

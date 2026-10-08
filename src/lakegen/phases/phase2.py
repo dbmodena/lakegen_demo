@@ -29,8 +29,8 @@ from lakegen.core.types import Phase2SelectionResult, SolrMetadata, StreamCallba
 from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.ui.state import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
-from prompts.prompt_manager import PromptManager
-from src.client_solr import LocalSolrClient
+from lakegen.prompts.prompt_manager import PromptManager
+from lakegen.retrieval.solr_client import LocalSolrClient
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
 

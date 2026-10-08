@@ -26,7 +26,7 @@ from lakegen.retrieval.models import RetrievalHit
 from lakegen.retrieval.intent import parse_retrieval_intent
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.service import run_question
-from prompts.prompt_manager import PromptManager
+from lakegen.prompts.prompt_manager import PromptManager
 
 
 def _intent(concepts, **overrides):

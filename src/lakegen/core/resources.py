@@ -28,8 +28,8 @@ from llama_index.llms.oci_genai.utils import CHAT_MODELS, PROVIDERS, XAIProvider
 from llama_index.llms.openai_like import OpenAILike
 import llama_index.llms.openai.base as _openai_base
 
-from prompts.prompt_manager import PromptManager
-from src.client_solr import LocalSolrClient, resolve_solr_core
+from lakegen.prompts.prompt_manager import PromptManager
+from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 from lakegen.core import groq_offload
 from lakegen.core.table_io import list_table_files
 from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
