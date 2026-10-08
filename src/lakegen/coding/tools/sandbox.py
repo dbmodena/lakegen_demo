@@ -73,25 +73,54 @@ class SandboxMixin:
 
     def run_code(self, code: str) -> str:
         """Execute analysis after a verified plan or an executable plan with obligations."""
+        refusal = self._refusal_before_run()
+        if refusal is not None:
+            return refusal
+        self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
+        self.state.code_raw = code
+        resolved, preflight_failure = self._preflight(code)
+        if preflight_failure is not None:
+            return preflight_failure
+        self.state.run_count += 1
+        raw_result, error, clean_code = self._execute_with_repair(resolved)
+        if error is not None:
+            return self._failed_run(error)
+        self._reset_result(raw_result)
+        manifest_failure = self._take_manifest(clean_code)
+        if manifest_failure is not None:
+            return manifest_failure
+        diagnostic_failure = self._take_payload()
+        if diagnostic_failure is not None:
+            return diagnostic_failure
+        self.state.result_version += 1
+        self.state.operation_trace = self._build_operation_trace(clean_code)
+        self.state.lifecycle = CoderLifecycle.NEEDS_INSPECTION
+        self._record_execution_attempt()
+        return json.dumps({
+            "ok": True,
+            "attempt": self.state.run_count,
+            "result_available": self.state.raw_result is not None,
+            "next_action": "Call inspect_result; finalization is automatic when validation passes.",
+        })
+
+    def _refusal_before_run(self) -> str | None:
+        """Why no run happens now: the run is over, the tables rejected, the plan not grounded, the runs spent."""
         if self.state.finished:
             return json.dumps({"ok": False, "error": {"category": "already_finished"}})
         if self.state.rejected_reason:
             return json.dumps({"ok": False, "error": {"category": "tables_already_rejected"}})
-        if (
-            self.require_semantic_plan
-            and (
-                not self.state.plan_validation.get("valid")
-                or self.state.plan_validation.get("status") not in {
-                    "verified", "executable_with_obligations",
-                }
-                or not self.state.architect_contract_locked
-            )
-        ):
+        validation = self.state.plan_validation
+        grounded = (
+            validation.get("valid")
+            and validation.get("status") in {"verified", "executable_with_obligations"}
+            and self.state.architect_contract_locked
+        )
+        if self.require_semantic_plan and not grounded:
             return json.dumps({
                 "ok": False,
                 "error": {
                     "category": "semantic_plan_not_grounded",
-                    "diagnostics": self.state.plan_validation.get("diagnostics", []),
+                    "diagnostics": validation.get("diagnostics", []),
                     "correction_required": (
                         "Call inspect_table first, then set_analysis_contract; "
                         "or call plan_conflict/reject_tables with evidence."
@@ -110,210 +139,196 @@ class SandboxMixin:
                 "category": "run_limit",
                 "message": f"Maximum of {self.state.max_runs} executions reached.",
             }})
+        return None
 
-        self.state.lifecycle = CoderLifecycle.NEEDS_REVISION
-        self.state.code_raw = code
+    def _not_consumed(self, error: dict[str, Any], **dumps: Any) -> str:
+        """A refusal before execution: the attempt is not spent."""
+        self.state.error = error["message"]
+        self.state.execution_error = error
+        return json.dumps({
+            "ok": False, "attempt": self.state.run_count,
+            "execution_consumed": False, "error": error,
+        }, **dumps)
+
+    def _preflight(self, code: str) -> tuple[str, str | None]:
+        """The code resolved for execution, or the refusal that stops it before any run."""
         path_error = self._validate_load_paths(code)
         if path_error:
-            self.state.error = path_error["message"]
-            self.state.execution_error = path_error
-            return json.dumps({
-                "ok": False, "attempt": self.state.run_count,
-                "execution_consumed": False, "error": path_error,
-            })
+            return "", self._not_consumed(path_error)
         edition_filter_error = self._validate_dataset_edition_filter(code)
         if edition_filter_error:
-            self.state.error = edition_filter_error["message"]
-            self.state.execution_error = edition_filter_error
-            return json.dumps({
-                "ok": False, "attempt": self.state.run_count,
-                "execution_consumed": False, "error": edition_filter_error,
-            })
+            return "", self._not_consumed(edition_filter_error)
         resolved, preflight_error = self.resolve_code(code, self.tables, self.csv_dir)
         self.state.clean_code = resolved
         self.state.contract_code_warnings = self._validate_contract_code(resolved)
         if preflight_error:
             self.state.error = preflight_error
             self.state.execution_error = classify_execution_error(preflight_error, stage="preflight")
-            return json.dumps({
+            return resolved, json.dumps({
                 "ok": False, "attempt": self.state.run_count,
                 "execution_consumed": False, "error": self.state.execution_error,
             })
-        contract_gaps = (
-            self._blocking_contract_code_warnings()
-            if self.require_semantic_plan else []
-        )
+        contract_gaps = self._blocking_contract_code_warnings() if self.require_semantic_plan else []
         if contract_gaps and not self.state.preflight_revision_used:
             self.state.preflight_revision_used = True
-            self.state.error = "Code does not yet satisfy the compiled runtime checklist."
-            self.state.execution_error = {
+            message = "Code does not yet satisfy the compiled runtime checklist."
+            return resolved, self._not_consumed({
                 "stage": "preflight", "category": "pre_execution_contract_gap",
-                "message": self.state.error, "missing": contract_gaps,
+                "message": message, "missing": contract_gaps,
                 "runtime_checklist": self._runtime_checklist(),
                 "retryable": True, "revision_budget_remaining": 0,
                 "repair_hint": "Correct every listed gap in one revision, then call run_code again.",
-            }
-            return json.dumps({
-                "ok": False, "attempt": self.state.run_count,
-                "execution_consumed": False, "error": self.state.execution_error,
             }, ensure_ascii=False, default=str)
+        return resolved, None
 
-        self.state.run_count += 1
+    def _execute_with_repair(self, resolved: str) -> tuple[str | None, str | None, str]:
+        """One execution; a renamed column that the code can be patched for is retried once."""
         raw_result, error, clean_code = self.execute_code(resolved, run_dir=self.run_dir)
         self.state.clean_code = clean_code
         if error is not None:
             patched = self._auto_repair_renamed_column(clean_code, error)
             if patched is not None:
-                retry_result, retry_error, retry_code = self.execute_code(
-                    patched, run_dir=self.run_dir
-                )
+                retry_result, retry_error, retry_code = self.execute_code(patched, run_dir=self.run_dir)
                 if retry_error is None:
                     raw_result, error, clean_code = retry_result, None, retry_code
                     self.state.clean_code = clean_code
                     self.state.result_adaptations.append("auto_repair_renamed_column")
-        if error is not None:
-            self.state.error = error
-            self.state.raw_result = None
-            self.state.execution_error = classify_execution_error(error)
-            self._enrich_column_error(self.state.execution_error)
-            self._enrich_join_error(self.state.execution_error)
-            self._enrich_type_error(self.state.execution_error)
-            self._reject_after_repeated_missing_column(self.state.execution_error)
-            decision = classify_revision(
-                execution_error=self.state.execution_error,
-                rejection_details=self.state.rejection_details,
-            )
-            if (
-                technical_repair_eligible(self.state.execution_error)
-                and not self.state.column_repair_credit_used
-                and not self.state.best_result_snapshot
-                and not self.state.rejected_reason
-            ):
-                self.state.column_repair_credit_used = True
-                self.state.run_count = max(0, self.state.run_count - 1)
-                self.state.execution_error["execution_consumed"] = False
-                self.state.execution_error["dedicated_technical_repair"] = True
-                self.state.execution_error["repair_runs_remaining"] = (
-                    self.state.max_runs - self.state.run_count
-                )
-                decision["credit_consumed"] = "technical"
-            self.state.revision_decisions.append(decision)
-            self._record_execution_attempt()
-            return json.dumps({"ok": False, "attempt": self.state.run_count, "error": self.state.execution_error})
+        return raw_result, error, clean_code
 
-        self.state.error = None
-        self.state.execution_error = {}
-        self.state.raw_result = raw_result
-        self.state.structured_result = None
-        self.state.structured_result_error = ""
-        self.state.result_adaptations = []
-        self.state.result_adaptation_notes = []
-        self.state.analysis_manifest = {}
-        self.state.analysis_manifest_validation = {}
-        if raw_result is not None:
-            manifest_match = re.search(
-                r"^__LAKEGEN_ANALYSIS_MANIFEST__(\{.*\})$",
-                raw_result, flags=re.MULTILINE,
-            )
-            if self.require_analysis_manifest and manifest_match:
-                try:
-                    candidate = json.loads(manifest_match.group(1))
-                    if isinstance(candidate, dict):
-                        allowed = {
-                            "used_tables", "used_columns", "filters", "joins",
-                            "grouping", "aggregations", "ordering", "limit",
-                            "output_columns", "result_type",
-                        }
-                        self.state.analysis_manifest = {
-                            key: candidate[key] for key in allowed if key in candidate
-                        }
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    self.state.analysis_manifest = {}
-                raw_result = re.sub(
-                    r"^__LAKEGEN_ANALYSIS_MANIFEST__\{.*\}\s*$", "",
-                    raw_result, flags=re.MULTILINE,
-                ).strip()
-                self.state.raw_result = raw_result
-            manifest_errors, manifest_warnings = self._validate_analysis_manifest(
-                self.state.analysis_manifest, clean_code
-            )
-            self.state.analysis_manifest_validation = {
-                "valid": not manifest_errors,
-                "errors": manifest_errors,
-                "warnings": manifest_warnings,
-            }
-            if self.require_analysis_manifest and manifest_errors:
-                self.state.error = (
-                    "A final analysis must emit a complete, trace-compatible "
-                    "__LAKEGEN_ANALYSIS_MANIFEST__."
-                )
-                self.state.raw_result = None
-                self.state.execution_error = {
-                    "stage": "result_validation",
-                    "category": (
-                        "manifest_missing" if not self.state.analysis_manifest
-                        else "manifest_invalid"
-                    ),
-                    "message": self.state.error,
-                    "diagnostics": manifest_errors,
-                    "retryable": self.state.run_count < self.state.max_runs,
-                    "repair_hint": (
-                        "Emit one compact JSON line prefixed by "
-                        "__LAKEGEN_ANALYSIS_MANIFEST__ before the evaluation payload."
-                    ),
-                }
-                self._record_execution_attempt()
-                return json.dumps({
-                    "ok": False, "attempt": self.state.run_count,
-                    "error": self.state.execution_error,
-                }, ensure_ascii=False)
-        if raw_result is not None:
-            display, structured, payload_error = self.extract_payload(raw_result)
-            structured, adaptations = self._adapt_structured_result(structured)
-            self.state.raw_result = display
-            self.state.structured_result = structured
-            self.state.result_adaptations = adaptations
-            self.state.result_adaptation_notes = self._result_adapter_notes(
-                structured, adaptations
-            )
-            self.state.structured_result_error = payload_error or ""
-            diagnostic_text = display.strip().casefold()
-            diagnostic_markers = (
-                "columns:", "unique ", "unique values", "sample values",
-                "matches count", "potential ", "roof cols:", "cellar cols:",
-                "empty dataframe", "dtype:", "length:",
-            )
-            if structured is None and any(
-                marker in diagnostic_text for marker in diagnostic_markers
-            ):
-                self.state.error = (
-                    "Diagnostic output is not a final answer. Use inspect_table "
-                    "for schema/value evidence, then choose run_code with corrected "
-                    "analysis or reject_tables if required data is unavailable."
-                )
-                self.state.execution_error = {
-                    "stage": "result_validation",
-                    "category": "diagnostic_output",
-                    "message": self.state.error,
-                    "retryable": self.state.run_count < self.state.max_runs,
-                    "next_actions": ["inspect_table", "run_code", "reject_tables"],
-                }
-                self.state.raw_result = None
-                self._record_execution_attempt()
-                return json.dumps({
-                    "ok": False,
-                    "attempt": self.state.run_count,
-                    "error": self.state.execution_error,
-                })
-        self.state.result_version += 1
-        self.state.operation_trace = self._build_operation_trace(clean_code)
-        self.state.lifecycle = CoderLifecycle.NEEDS_INSPECTION
+    def _failed_run(self, error: str) -> str:
+        """The error enriched for the coder, the revision decided, a technical repair credited once."""
+        state = self.state
+        state.error = error
+        state.raw_result = None
+        state.execution_error = classify_execution_error(error)
+        self._enrich_column_error(state.execution_error)
+        self._enrich_join_error(state.execution_error)
+        self._enrich_type_error(state.execution_error)
+        self._reject_after_repeated_missing_column(state.execution_error)
+        decision = classify_revision(
+            execution_error=state.execution_error,
+            rejection_details=state.rejection_details,
+        )
+        if (
+            technical_repair_eligible(state.execution_error)
+            and not state.column_repair_credit_used
+            and not state.best_result_snapshot
+            and not state.rejected_reason
+        ):
+            state.column_repair_credit_used = True
+            state.run_count = max(0, state.run_count - 1)
+            state.execution_error["execution_consumed"] = False
+            state.execution_error["dedicated_technical_repair"] = True
+            state.execution_error["repair_runs_remaining"] = state.max_runs - state.run_count
+            decision["credit_consumed"] = "technical"
+        state.revision_decisions.append(decision)
+        self._record_execution_attempt()
+        return json.dumps({"ok": False, "attempt": state.run_count, "error": state.execution_error})
+
+    def _reset_result(self, raw_result: str | None) -> None:
+        state = self.state
+        state.error = None
+        state.execution_error = {}
+        state.raw_result = raw_result
+        state.structured_result = None
+        state.structured_result_error = ""
+        state.result_adaptations = []
+        state.result_adaptation_notes = []
+        state.analysis_manifest = {}
+        state.analysis_manifest_validation = {}
+
+    def _take_manifest(self, clean_code: str) -> str | None:
+        """Read the analysis manifest out of the output when one is required; the failure when it is wrong."""
+        state = self.state
+        if state.raw_result is None:
+            return None
+        manifest_match = re.search(
+            r"^__LAKEGEN_ANALYSIS_MANIFEST__(\{.*\})$", state.raw_result, flags=re.MULTILINE,
+        )
+        if self.require_analysis_manifest and manifest_match:
+            try:
+                candidate = json.loads(manifest_match.group(1))
+                if isinstance(candidate, dict):
+                    allowed = {
+                        "used_tables", "used_columns", "filters", "joins",
+                        "grouping", "aggregations", "ordering", "limit",
+                        "output_columns", "result_type",
+                    }
+                    state.analysis_manifest = {key: candidate[key] for key in allowed if key in candidate}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                state.analysis_manifest = {}
+            state.raw_result = re.sub(
+                r"^__LAKEGEN_ANALYSIS_MANIFEST__\{.*\}\s*$", "", state.raw_result, flags=re.MULTILINE,
+            ).strip()
+        manifest_errors, manifest_warnings = self._validate_analysis_manifest(state.analysis_manifest, clean_code)
+        state.analysis_manifest_validation = {
+            "valid": not manifest_errors,
+            "errors": manifest_errors,
+            "warnings": manifest_warnings,
+        }
+        if not (self.require_analysis_manifest and manifest_errors):
+            return None
+        state.error = (
+            "A final analysis must emit a complete, trace-compatible "
+            "__LAKEGEN_ANALYSIS_MANIFEST__."
+        )
+        state.raw_result = None
+        state.execution_error = {
+            "stage": "result_validation",
+            "category": "manifest_missing" if not state.analysis_manifest else "manifest_invalid",
+            "message": state.error,
+            "diagnostics": manifest_errors,
+            "retryable": state.run_count < state.max_runs,
+            "repair_hint": (
+                "Emit one compact JSON line prefixed by "
+                "__LAKEGEN_ANALYSIS_MANIFEST__ before the evaluation payload."
+            ),
+        }
         self._record_execution_attempt()
         return json.dumps({
-            "ok": True,
-            "attempt": self.state.run_count,
-            "result_available": self.state.raw_result is not None,
-            "next_action": "Call inspect_result; finalization is automatic when validation passes.",
+            "ok": False, "attempt": state.run_count, "error": state.execution_error,
+        }, ensure_ascii=False)
+
+    DIAGNOSTIC_MARKERS = (
+        "columns:", "unique ", "unique values", "sample values",
+        "matches count", "potential ", "roof cols:", "cellar cols:",
+        "empty dataframe", "dtype:", "length:",
+    )
+    """What an output that only describes the data, not an answer, tends to say."""
+
+    def _take_payload(self) -> str | None:
+        """The structured result out of the output; the failure when the output is only a diagnostic."""
+        state = self.state
+        if state.raw_result is None:
+            return None
+        display, structured, payload_error = self.extract_payload(state.raw_result)
+        structured, adaptations = self._adapt_structured_result(structured)
+        state.raw_result = display
+        state.structured_result = structured
+        state.result_adaptations = adaptations
+        state.result_adaptation_notes = self._result_adapter_notes(structured, adaptations)
+        state.structured_result_error = payload_error or ""
+        diagnostic_text = display.strip().casefold()
+        if structured is not None or not any(marker in diagnostic_text for marker in self.DIAGNOSTIC_MARKERS):
+            return None
+        state.error = (
+            "Diagnostic output is not a final answer. Use inspect_table "
+            "for schema/value evidence, then choose run_code with corrected "
+            "analysis or reject_tables if required data is unavailable."
+        )
+        state.execution_error = {
+            "stage": "result_validation",
+            "category": "diagnostic_output",
+            "message": state.error,
+            "retryable": state.run_count < state.max_runs,
+            "next_actions": ["inspect_table", "run_code", "reject_tables"],
+        }
+        state.raw_result = None
+        self._record_execution_attempt()
+        return json.dumps({
+            "ok": False,
+            "attempt": state.run_count,
+            "error": state.execution_error,
         })
 
     def _validate_analysis_manifest(

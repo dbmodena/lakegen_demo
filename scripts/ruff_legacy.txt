@@ -35,7 +35,6 @@ src/lakegen/coding/tools/manager.py
 src/lakegen/coding/tools/plan_grounding.py
 src/lakegen/coding/tools/rejection.py
 src/lakegen/coding/tools/result_checks.py
-src/lakegen/coding/tools/sandbox.py
 src/lakegen/coding/tools/state.py
 src/lakegen/column_resolution.py
 src/lakegen/core/bootstrap.py
