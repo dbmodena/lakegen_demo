@@ -13,6 +13,54 @@ from enum import StrEnum
 from typing import Any
 
 
+class DiscoveryStatus(StrEnum):
+    """How a discovery round ended."""
+
+    SELECTED = "selected"
+    REJECT_KEYWORDS = "keywords_rejected"
+    """The architect asked for new keywords (its reasoning starts with ``REJECT_KEYWORDS:``)."""
+
+
+class SelectorKind(StrEnum):
+    """Who chose the tables of a discovery round."""
+
+    AGENT = "agent"
+    """The unified agent, which searches and selects in one conversation."""
+    LLM = "llm"
+    JEV = "jev"
+    NONE = "none"
+    """No selector ran: retrieval returned nothing to choose from."""
+
+
+@dataclass(frozen=True)
+class DiscoveryOutcome:
+    status: DiscoveryStatus
+    selected: list[str]
+    candidates: list[str]
+    """This round's retrieval list, for the last attempt's forced selection."""
+    keywords: list[str]
+    metadata: dict[str, Any]
+    reasoning: str
+    """The architect's reasoning, verbatim (the prompts ask for ``REJECT_KEYWORDS:``)."""
+    trace: str
+    tokens: int
+    phase_tokens: tuple[int, int] = (0, 0)
+    """(keywords, selection) tokens of the divided architecture; the unified agent's all count as keywords."""
+    selector: SelectorKind = SelectorKind.AGENT
+    keep_tables: list[str] = field(default_factory=list)
+    """Tables the architect found useful when rejecting a round; they carry into the next."""
+    skip_tables: list[str] = field(default_factory=list)
+    """Tables the architect proved unusable; excluded from later rounds."""
+    inspection_cache: dict[str, str] = field(default_factory=dict)
+    """The unified agent's cached inspections of the kept tables."""
+    prepared: Any = None
+    """The orchestrated context the tables were chosen from, when one was prepared."""
+
+    @property
+    def rejected(self) -> bool:
+        return self.status is DiscoveryStatus.REJECT_KEYWORDS
+
+
 class CodeStatus(StrEnum):
     """How a coding attempt ended."""
 

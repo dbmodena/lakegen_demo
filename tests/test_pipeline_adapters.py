@@ -5,8 +5,18 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from lakegen.domain.evaluation import EvaluationContext
-from lakegen.domain.outcomes import CodeStatus
-from lakegen.pipeline.adapters import CONTRACT_NOT_VERIFIED, code_outcome, sweep_outcome
+from lakegen.domain.outcomes import CodeStatus, DiscoveryStatus, SelectorKind
+from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
+from lakegen.pipeline.adapters import (
+    CONTRACT_NOT_VERIFIED,
+    NO_PREPARED_DATASETS,
+    code_outcome,
+    divided_agentic_outcome,
+    divided_orchestrated_outcome,
+    sweep_outcome,
+    unified_agentic_outcome,
+    unified_orchestrated_outcome,
+)
 
 
 def _generated(**overrides) -> SimpleNamespace:
@@ -84,3 +94,61 @@ def test_evaluation_context_parses_the_source_fields_and_keeps_every_field():
     assert empty.fields == {} and empty.expected_result_type == "" and empty.relevant_tables == []
     odd = EvaluationContext.from_log_context({"SOURCE_EVALUATION_CONTRACT": "x", "SOURCE_RELEVANT_TABLE_IDS": "a"})
     assert odd.evaluation_contract == {} and odd.relevant_tables == []
+
+
+# --- discovery -------------------------------------------------------------
+
+
+def _state(**overrides) -> SimpleNamespace:
+    base = dict(all_candidates=["a.csv", "b.csv"], rejection_keep_tables=[], rejection_skip_tables=[], inspection_cache={})
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def test_the_unified_agent_round_is_selected_or_rejected_by_its_reasoning():
+    raw = (["a.csv"], ["parks"], {"a.csv": {"title": "a"}}, "The table covers it.", "trace", 5)
+    outcome = unified_agentic_outcome(raw, _state())
+    assert outcome.status is DiscoveryStatus.SELECTED and not outcome.rejected
+    assert outcome.selected == ["a.csv"] and outcome.candidates == ["a.csv", "b.csv"] and outcome.tokens == 5
+    assert outcome.phase_tokens == (5, 0) and outcome.selector is SelectorKind.AGENT
+
+    state = _state(rejection_keep_tables=["a.csv"], rejection_skip_tables=["b.csv"], inspection_cache={"a.csv": "cols"})
+    rejected = unified_agentic_outcome(([], ["parks"], {}, "REJECT_KEYWORDS: nothing fits", "t", 2), state)
+    assert rejected.rejected and rejected.keep_tables == ["a.csv"] and rejected.skip_tables == ["b.csv"]
+    assert rejected.inspection_cache == {"a.csv": "cols"} and rejected.reasoning.startswith("REJECT_KEYWORDS:")
+
+
+def test_the_divided_rounds_compose_their_trace_and_name_the_selector():
+    keyword_round = (["parks"], "raw", 2, "phase 1 reasoning")
+    selection = (["a.csv"], ["a.csv", "b.csv"], {}, "Selected.", "phase 2 trace", 3)
+    outcome = divided_agentic_outcome(keyword_round, selection, _state())
+    assert outcome.status is DiscoveryStatus.SELECTED and outcome.tokens == 5 and outcome.phase_tokens == (2, 3)
+    assert outcome.trace == "--- Divided Phase 1 ---\nphase 1 reasoning\n--- Divided Phase 2 ---\nphase 2 trace"
+    assert outcome.selector is SelectorKind.LLM and outcome.candidates == ["a.csv", "b.csv"]
+    jev = divided_agentic_outcome(keyword_round, (["a.csv"], ["a.csv"], {}, "ok", JEV_TRACE_HEADER + " x", 0), _state())
+    assert jev.selector is SelectorKind.JEV
+
+
+def test_the_unified_orchestrated_result_rejects_when_it_asks_for_keywords():
+    result = SimpleNamespace(selected_datasets=["a.csv"], candidates=["a.csv"], keywords=["k"], metadata={},
+                             reasoning="Selected.", trace="", tokens=4, retry_keywords=False, prepared_context="ctx")
+    outcome = unified_orchestrated_outcome(result)
+    assert outcome.status is DiscoveryStatus.SELECTED and outcome.prepared == "ctx" and outcome.phase_tokens == (4, 0)
+    assert unified_orchestrated_outcome(SimpleNamespace(**{**vars(result), "retry_keywords": True})).rejected
+
+
+def test_the_divided_orchestrated_round_without_candidates_or_with_an_empty_selection_rejects():
+    keyword_round = (["k"], "raw", 2, "r")
+    empty = SimpleNamespace(candidates=[])
+    outcome = divided_orchestrated_outcome(keyword_round, empty, {}, None)
+    assert outcome.rejected and outcome.reasoning == NO_PREPARED_DATASETS and outcome.selector is SelectorKind.NONE
+    assert outcome.tokens == 2 and outcome.phase_tokens == (2, 0) and outcome.candidates == []
+
+    prepared = SimpleNamespace(candidates=[SimpleNamespace(dataset="a.csv"), SimpleNamespace(dataset="b.csv")])
+    chosen = divided_orchestrated_outcome(keyword_round, prepared, {"a.csv": {}}, (["a.csv"], "ok", "trace", 3))
+    assert chosen.status is DiscoveryStatus.SELECTED and chosen.selected == ["a.csv"] and chosen.tokens == 5
+    assert chosen.candidates == ["a.csv", "b.csv"] and chosen.selector is SelectorKind.LLM and chosen.prepared is prepared
+    nothing = divided_orchestrated_outcome(keyword_round, prepared, {}, ([], "I chose nothing", "trace", 3))
+    assert nothing.rejected and nothing.selected == [] and nothing.reasoning.startswith("REJECT_KEYWORDS:")
+    asked = divided_orchestrated_outcome(keyword_round, prepared, {}, (["a.csv"], "REJECT_KEYWORDS: try again", "t", 1))
+    assert asked.rejected and asked.selected == [] and asked.reasoning == "REJECT_KEYWORDS: try again"

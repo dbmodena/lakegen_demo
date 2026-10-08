@@ -24,7 +24,7 @@ from lakegen.core import paths
 from lakegen.core.config import BASE_DIR
 from lakegen.core.resources import capture_retrieval_runs, make_retrieval_run_observer
 from lakegen.domain.evaluation import EvaluationContext
-from lakegen.domain.outcomes import CodeStatus
+from lakegen.domain.outcomes import CodeStatus, SelectorKind
 from lakegen.experiment_config import CoderContextLevel, DiscoveryArchitecture, ToolAccess
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
@@ -36,15 +36,20 @@ from lakegen.keyword_memory import (
 )
 from lakegen.manifest import ExperimentManifest, create_manifest
 from lakegen.output_validation import AnswerDisposition, validate_answer
-from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
 from lakegen.phases.orchestrated_discovery import (
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
     RetrievalRequestProtocolError,
-    selector_retry_reason,
 )
 from lakegen.phases.utils import rejection_feedback_hint
-from lakegen.pipeline.adapters import code_outcome, sweep_outcome
+from lakegen.pipeline.adapters import (
+    code_outcome,
+    divided_agentic_outcome,
+    divided_orchestrated_outcome,
+    sweep_outcome,
+    unified_agentic_outcome,
+    unified_orchestrated_outcome,
+)
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.reproducibility import initialize_reproducibility
@@ -454,7 +459,6 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
         try:
             for table_attempt in range(MAX_TABLE_ATTEMPTS):
                 discovery_started = time.monotonic()
-                keywords_rejected = False
                 selection_record: dict[str, Any] = {
                     "attempt": table_attempt + 1,
                     "selected_datasets": [],
@@ -489,14 +493,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     selection_state.carried_metadata = dict(carried_metadata)
                     selection_state.inspection_cache = dict(carried_inspection)
                     selection_states.append(selection_state)
-                    (
-                        selected,
-                        keywords,
-                        solr_meta,
-                        reasoning,
-                        trace,
-                        architecture_tokens,
-                    ) = deps.phase12_agent(
+                    raw = deps.phase12_agent(
                         query=question,
                         llm=llm,
                         pm=prompt_manager,
@@ -544,116 +541,39 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     persisted_keyword_count = len(keyword_history)
                     phase_invocation_counts["discovery"] += 1
                     context_telemetry["llm_invocations"] += 1
-                    if reasoning.startswith("REJECT_KEYWORDS:"):
-                        attempted_keywords.extend(keywords)
-                        attempted_keywords = list(dict.fromkeys(attempted_keywords))
-                        for table in selection_state.rejection_skip_tables:
-                            excluded_tables.add(table.casefold())
-                        for table in selection_state.rejection_keep_tables:
-                            if table.casefold() in excluded_tables:
-                                continue
-                            if table not in carried_tables:
-                                carried_tables.append(table)
-                            if table in solr_meta:
-                                carried_metadata[table] = solr_meta[table]
-                            cached_inspection = selection_state.inspection_cache.get(
-                                table.casefold()
-                            )
-                            if cached_inspection:
-                                carried_inspection[table.casefold()] = cached_inspection
-                        carried_tables = [
-                            table for table in carried_tables
-                            if table.casefold() not in excluded_tables
-                        ]
-                        carried_inspection = {
-                            key: value for key, value in carried_inspection.items()
-                            if key not in excluded_tables
-                        }
-                        hint = rejection_feedback_hint(
-                            reasoning,
-                            selection_state.rejection_keep_tables,
-                            schemas_preloaded=True,
-                        )
-                        keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
-                        if not keywords_rejected:
-                            surviving_candidates = [
-                                table for table in selection_state.all_candidates
-                                if table.casefold() not in excluded_tables
-                            ]
-                            selected = (
-                                surviving_candidates
-                                or selection_state.all_candidates
-                                or all_files
-                            )[:3]
+                    outcome = unified_agentic_outcome(raw, selection_state)
                 elif (
                     experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED
                     and experiment.tool_access == ToolAccess.AGENTIC
                 ):
-                    keywords, raw_keywords, tokens_p1, reasoning_p1 = (
-                        deps.phase1_generate_keywords(
-                            query=question,
-                            llm=llm,
-                            pm=prompt_manager,
-                            hint=hint,
-                            portal_name=ctx.portal_name,
-                            avoid_keywords=attempted_keywords,
-                            value_search=ctx.retrieval.mode.value_keywords,
-                            verbatim_entities=ctx.retrieval.mode.verbatim_entities,
-                        )
+                    keyword_round = deps.phase1_generate_keywords(
+                        query=question,
+                        llm=llm,
+                        pm=prompt_manager,
+                        hint=hint,
+                        portal_name=ctx.portal_name,
+                        avoid_keywords=attempted_keywords,
+                        value_search=ctx.retrieval.mode.value_keywords,
+                        verbatim_entities=ctx.retrieval.mode.verbatim_entities,
                     )
                     phase_invocation_counts["discovery"] += 1
-                    (
-                        selected, candidates, solr_meta, reasoning, trace, tokens_p2,
-                    ) = deps.phase2_select_tables(
+                    selection_round = deps.phase2_select_tables(
                         query=question, llm=llm, pm=prompt_manager,
-                        all_files=all_files, keywords=keywords, solr_client=solr,
+                        all_files=all_files, keywords=keyword_round[0], solr_client=solr,
                         csv_dir=ctx.tables_dir, hint=hint,
                         portal_name=ctx.portal_name,
                         retrieval_config=ctx.retrieval,
                         selection_state=selection_state,
-                        entities=intent_entities(raw_keywords),
+                        entities=intent_entities(keyword_round[1]),
                         carried_tables=carried_tables,
                         carried_metadata=carried_metadata,
                         excluded_tables=excluded_tables,
                         discovery=experiment.discovery,
                     )
-                    selector_llm_calls = 0 if trace.startswith(JEV_TRACE_HEADER) else 1
+                    outcome = divided_agentic_outcome(keyword_round, selection_round, selection_state)
+                    selector_llm_calls = 0 if outcome.selector is SelectorKind.JEV else 1
                     phase_invocation_counts["discovery"] += selector_llm_calls
                     context_telemetry["llm_invocations"] += 1 + selector_llm_calls
-                    architecture_tokens = tokens_p1 + tokens_p2
-                    trace = f"--- Divided Phase 1 ---\n{reasoning_p1}\n--- Divided Phase 2 ---\n{trace}"
-                    if reasoning.startswith("REJECT_KEYWORDS:"):
-                        attempted_keywords.extend(keywords)
-                        attempted_keywords = list(dict.fromkeys(attempted_keywords))
-                        for table in selection_state.rejection_skip_tables:
-                            excluded_tables.add(table.casefold())
-                        for table in selection_state.rejection_keep_tables:
-                            if table.casefold() in excluded_tables:
-                                continue
-                            if table not in carried_tables:
-                                carried_tables.append(table)
-                            if table in solr_meta:
-                                carried_metadata[table] = solr_meta[table]
-                        carried_tables = [
-                            table for table in carried_tables
-                            if table.casefold() not in excluded_tables
-                        ]
-                        hint = rejection_feedback_hint(
-                            reasoning, selection_state.rejection_keep_tables
-                        )
-                        keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
-                        if not keywords_rejected:
-                            # This is the last allowed attempt. `candidates` is
-                            # this round's pre-judgment retrieval list; using it
-                            # as-is can hand Phase 3 exactly the tables the
-                            # architect just rejected above via
-                            # reject_selection. Filter those back out before
-                            # forcing a selection.
-                            surviving_candidates = [
-                                table for table in candidates
-                                if table.casefold() not in excluded_tables
-                            ]
-                            selected = (surviving_candidates or candidates or all_files)[:3]
                 elif experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED:
                     try:
                         discovery_result = deps.run_unified_orchestrated_discovery(
@@ -697,16 +617,9 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         mode = ctx.retrieval.mode.value
                         calls[mode] = calls.get(mode, 0) + 1
                         raise
-                    selected = discovery_result.selected_datasets
-                    keywords = discovery_result.keywords
-                    solr_meta = discovery_result.metadata
-                    reasoning = discovery_result.reasoning
-                    trace = discovery_result.trace
-                    architecture_tokens = discovery_result.tokens
+                    outcome = unified_orchestrated_outcome(discovery_result)
                     phase_invocation_counts["discovery"] += discovery_result.llm_invocations
                     context_telemetry["llm_invocations"] += discovery_result.llm_invocations
-                    prepared = discovery_result.prepared_context
-                    keywords_rejected = discovery_result.retry_keywords
                     if experiment.orchestrated_memory_enabled:
                         returned_bans = [
                             frozenset(item)
@@ -735,25 +648,23 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             )
                         )
                 else:
-                    keywords, raw_keywords, tokens_p1, reasoning_p1 = (
-                        deps.phase1_generate_keywords(
-                            query=question,
-                            llm=llm,
-                            pm=prompt_manager,
-                            hint=hint,
-                            portal_name=ctx.portal_name,
-                            avoid_keywords=attempted_keywords,
-                            value_search=ctx.retrieval.mode.value_keywords,
-                            verbatim_entities=ctx.retrieval.mode.verbatim_entities,
-                        )
+                    keyword_round = deps.phase1_generate_keywords(
+                        query=question,
+                        llm=llm,
+                        pm=prompt_manager,
+                        hint=hint,
+                        portal_name=ctx.portal_name,
+                        avoid_keywords=attempted_keywords,
+                        value_search=ctx.retrieval.mode.value_keywords,
+                        verbatim_entities=ctx.retrieval.mode.verbatim_entities,
                     )
                     phase_invocation_counts["discovery"] += 1
                     try:
-                        prepared, solr_meta = deps.prepare_discovery_context(
-                            query=question, keywords=keywords, solr_client=solr,
+                        prepared, prepared_metadata = deps.prepare_discovery_context(
+                            query=question, keywords=keyword_round[0], solr_client=solr,
                             all_files=all_files, retrieval_config=ctx.retrieval,
                             table_dir=ctx.tables_dir,
-                            entities=intent_entities(raw_keywords),
+                            entities=intent_entities(keyword_round[1]),
                         )
                     except Exception as preparation_error:
                         exc = OrchestratedContextPreparationError(str(preparation_error))
@@ -763,17 +674,10 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         mode = ctx.retrieval.mode.value
                         calls[mode] = calls.get(mode, 0) + 1
                         raise exc from preparation_error
-                    candidates = [item.dataset for item in prepared.candidates]
-                    selector_llm_calls = 0
-                    if not candidates:
-                        selected = []
-                        reasoning = "REJECT_KEYWORDS: No datasets found in the prepared context"
-                        trace = "--- Divided Orchestrated Retrieval ---\nNo datasets found."
-                        tokens_p2 = 0
-                        keywords_rejected = True
-                    else:
+                    selection = None
+                    if prepared.candidates:
                         try:
-                            selected, reasoning, trace, tokens_p2 = deps.select_from_prepared_context(
+                            selection = deps.select_from_prepared_context(
                                 query=question, llm=llm, context=prepared,
                                 all_files=all_files, architecture=experiment.discovery_architecture,
                                 hint=hint, discovery=experiment.discovery,
@@ -784,24 +688,69 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             context_telemetry["llm_invocations"] += 2
                             phase_invocation_counts["discovery"] += 1
                             raise
-                        selector_llm_calls = 0 if trace.startswith(JEV_TRACE_HEADER) else 1
-                        phase_invocation_counts["discovery"] += selector_llm_calls
-                        retry_reason = selector_retry_reason(selected, reasoning)
-                        if retry_reason is not None:
-                            selected = []
-                            reasoning = retry_reason
-                            keywords_rejected = True
+                    outcome = divided_orchestrated_outcome(
+                        keyword_round, prepared, prepared_metadata, selection
+                    )
+                    selector_llm_calls = 0 if outcome.selector in (SelectorKind.JEV, SelectorKind.NONE) else 1
+                    phase_invocation_counts["discovery"] += selector_llm_calls
                     context_telemetry["llm_invocations"] += 1 + selector_llm_calls
-                    architecture_tokens = tokens_p1 + tokens_p2
+                selected = outcome.selected
+                keywords = outcome.keywords
+                solr_meta = outcome.metadata
+                reasoning = outcome.reasoning
+                trace = outcome.trace
+                architecture_tokens = outcome.tokens
+                tokens_p1, tokens_p2 = outcome.phase_tokens
+                keywords_rejected = outcome.rejected
+                if experiment.tool_access == ToolAccess.AGENTIC and outcome.rejected:
+                    # The architect's own per-table judgment feeds the next
+                    # round: a table it proved unusable is excluded, one it
+                    # found useful carries forward with its metadata and, for
+                    # the unified agent, its cached inspection.
+                    attempted_keywords.extend(keywords)
+                    attempted_keywords = list(dict.fromkeys(attempted_keywords))
+                    for table in outcome.skip_tables:
+                        excluded_tables.add(table.casefold())
+                    for table in outcome.keep_tables:
+                        if table.casefold() in excluded_tables:
+                            continue
+                        if table not in carried_tables:
+                            carried_tables.append(table)
+                        if table in solr_meta:
+                            carried_metadata[table] = solr_meta[table]
+                        cached_inspection = outcome.inspection_cache.get(table.casefold())
+                        if cached_inspection:
+                            carried_inspection[table.casefold()] = cached_inspection
+                    carried_tables = [
+                        table for table in carried_tables
+                        if table.casefold() not in excluded_tables
+                    ]
+                    carried_inspection = {
+                        key: value for key, value in carried_inspection.items()
+                        if key not in excluded_tables
+                    }
+                    hint = rejection_feedback_hint(
+                        reasoning, outcome.keep_tables,
+                        schemas_preloaded=experiment.use_unified_agent,
+                    )
+                    keywords_rejected = table_attempt < MAX_TABLE_ATTEMPTS - 1
+                    if not keywords_rejected:
+                        # The last allowed attempt: force a selection from this
+                        # round's candidates, minus the tables rejected above.
+                        surviving_candidates = [
+                            table for table in outcome.candidates
+                            if table.casefold() not in excluded_tables
+                        ]
+                        selected = (surviving_candidates or outcome.candidates or all_files)[:3]
                 if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
                     calls = context_telemetry["orchestrator_retrieval_calls"]
                     mode = ctx.retrieval.mode.value
                     calls[mode] = calls.get(mode, 0) + 1
-                    if prepared is not None:
+                    if outcome.prepared is not None:
                         context_telemetry.update({
-                            "prepared_candidate_count": prepared.prepared_candidate_count,
-                            "retrieved_hit_count": prepared.retrieved_hit_count,
-                            "prepared_context_utf8_bytes": len(prepared.stable_json().encode("utf-8")),
+                            "prepared_candidate_count": outcome.prepared.prepared_candidate_count,
+                            "retrieved_hit_count": outcome.prepared.retrieved_hit_count,
+                            "prepared_context_utf8_bytes": len(outcome.prepared.stable_json().encode("utf-8")),
                             "preparation_error": None,
                         })
                     if keywords_rejected:
