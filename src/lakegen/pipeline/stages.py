@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -52,9 +52,20 @@ from lakegen.pipeline.adapters import (
     unified_agentic_outcome,
     unified_orchestrated_outcome,
 )
-from lakegen.pipeline.budgets import Attempt, Attempts, DedupeGuard
+from lakegen.pipeline.budgets import Attempt, DedupeGuard
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.deps import PipelineDeps
+from lakegen.pipeline.events import (
+    Answer,
+    Approve,
+    CoderRejected,
+    Force,
+    Rediscover,
+    Regenerate,
+    Request,
+    ReviewKeywords,
+    StageStarted,
+)
 from lakegen.pipeline.state import RunState
 from lakegen.retrieval.intent import intent_entities
 
@@ -298,18 +309,24 @@ class DiscoveryStage:
     def __init__(self, run: Run) -> None:
         self.run = run
 
-    def run_round(self, attempt: Attempt, selection_record: dict[str, Any]) -> bool:
-        """Run the round and record it; True when it asked for new keywords."""
+    def run_round(
+        self, attempt: Attempt, selection_record: dict[str, Any],
+    ) -> Generator[Request, Answer, tuple[DiscoveryOutcome, bool]]:
+        """Run the round and record it: its outcome, and whether it asked for new keywords.
+
+        In a gated run the divided architecture's keywords are reviewed
+        before the selection; the selection itself is reviewed by the engine.
+        """
         run, state, experiment = self.run, self.run.state, self.run.experiment
         started = time.monotonic()
         if experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED and experiment.tool_access == ToolAccess.AGENTIC:
             outcome = self._unified_agentic()
         elif experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED and experiment.tool_access == ToolAccess.AGENTIC:
-            outcome = self._divided_agentic()
+            outcome = self._divided_agentic((yield from self._keywords()))
         elif experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED:
             outcome = self._unified_orchestrated()
         else:
-            outcome = self._divided_orchestrated()
+            outcome = self._divided_orchestrated((yield from self._keywords()))
         state.selected = outcome.selected
         state.keywords = outcome.keywords
         state.solr_meta = outcome.metadata
@@ -324,7 +341,23 @@ class DiscoveryStage:
             outcome, state=state, selection_record=selection_record, keywords_rejected=keywords_rejected,
             attempt=attempt, elapsed=round(time.monotonic() - started, 6), retrieval_runs=run.retrieval_runs,
         )
-        return keywords_rejected
+        return outcome, keywords_rejected
+
+    def _keywords(self) -> Generator[Request, Answer, tuple[Any, ...]]:
+        """The divided architecture's keyword round; in a gated run, written until approved."""
+        state = self.run.state
+        while True:
+            keyword_round = self._keyword_round()
+            if not self.run.ctx.surface.human_gated:
+                return keyword_round
+            answer = yield ReviewKeywords(list(keyword_round[0]), keyword_round[2])
+            if isinstance(answer, Approve):
+                return keyword_round
+            if not isinstance(answer, Regenerate):
+                raise TypeError(f"a keyword review is answered with Approve or Regenerate, not {answer!r}")
+            state.attempted_keywords.extend(keyword_round[0])
+            state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
+            state.hint = answer.hint
 
     def _seeded_state(self) -> P12State:
         """A fresh agent state for the round, seeded with what earlier rounds learned.
@@ -408,9 +441,8 @@ class DiscoveryStage:
         run.recorder.phase_invocation_counts["discovery"] += 1
         return keyword_round
 
-    def _divided_agentic(self) -> DiscoveryOutcome:
+    def _divided_agentic(self, keyword_round: tuple[Any, ...]) -> DiscoveryOutcome:
         run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
-        keyword_round = self._keyword_round()
         selection_round = run.deps.phase2_select_tables(
             query=run.question, llm=run.llm, pm=run.prompt_manager,
             all_files=run.all_files, keywords=keyword_round[0], solr_client=run.solr,
@@ -491,10 +523,9 @@ class DiscoveryStage:
             )
         return outcome
 
-    def _divided_orchestrated(self) -> DiscoveryOutcome:
+    def _divided_orchestrated(self, keyword_round: tuple[Any, ...]) -> DiscoveryOutcome:
         run, state, ctx, experiment = self.run, self.run.state, self.run.ctx, self.run.experiment
         telemetry, counts = run.recorder.context_telemetry, run.recorder.phase_invocation_counts
-        keyword_round = self._keyword_round()
         try:
             prepared, prepared_metadata = run.deps.prepare_discovery_context(
                 query=run.question, keywords=keyword_round[0], solr_client=run.solr,
@@ -667,6 +698,7 @@ class _Coding:
             f"search only if none covers the missing requirement. Feedback: {outcome.error}"
         )
         state.error = outcome.error
+        state.after_coder_rejection = True
 
 
 class CoderSweep(_Coding):
@@ -699,7 +731,9 @@ class CoderSweep(_Coding):
             require_semantic_plan=experiment.require_semantic_plan,
         )
 
-    def run_coding(self, attempt: Attempt, selection_record: dict[str, Any], plan_signature: str) -> Verdict:
+    def run_coding(
+        self, attempt: Attempt, selection_record: dict[str, Any], plan_signature: str,
+    ) -> Generator[Request | StageStarted, Answer, Verdict]:
         run, state, result, experiment = self.run, self.run.state, self.run.result, self.run.experiment
         variants = self._sweep([CoderContextLevel.FULL])
         primary = variants[CoderContextLevel.FULL.value]
@@ -734,6 +768,7 @@ class CoderSweep(_Coding):
         result.raw_result = primary["raw_result"]
         result.code_evaluation = primary["code_evaluation"]
         if sweep.status is CodeStatus.SUCCESS:
+            yield StageStarted("answer")
             self.answer.run_answer(result.raw_result)
         else:
             result.pipeline_stages["code_execution"] = sweep.raw_status
@@ -745,11 +780,16 @@ class CoderSweep(_Coding):
 class CodingStage(_Coding):
     """Up to three coder attempts on the selection; the result or a reason to rediscover."""
 
-    def run_coding(self, attempt: Attempt, selection_record: dict[str, Any], plan_signature: str) -> Verdict:
+    def run_coding(
+        self, attempt: Attempt, selection_record: dict[str, Any], plan_signature: str,
+    ) -> Generator[Request | StageStarted, Answer, Verdict]:
         run, state, result, experiment = self.run, self.run.state, self.run.result, self.run.experiment
         previous_code = ""
         total_code_runs = 0
-        for code_attempt in Attempts(MAX_CODE_ATTEMPTS):
+        force = False
+        index = 0
+        while index < MAX_CODE_ATTEMPTS:
+            code_attempt = Attempt(index, MAX_CODE_ATTEMPTS)
             code_started = time.monotonic()
             generated = run.deps.phase3_generate_and_execute(
                 run.question,
@@ -774,6 +814,7 @@ class CodingStage(_Coding):
                 require_semantic_plan=experiment.require_semantic_plan,
                 allow_semantic_revision=(experiment.revision_experiment_mode.value == "current"),
                 brief_advisory=(experiment.coder_brief_mode.value == "advisory"),
+                **({"force_execution": True} if force else {}),
             )
             state.last_generated = generated
             outcome = code_outcome(generated, require_semantic_plan=experiment.require_semantic_plan)
@@ -791,6 +832,13 @@ class CodingStage(_Coding):
                 result.code_evaluation = run.attempt_evaluator.summarize(attempts)
                 result.code_evaluation["generation_attempt_count"] = code_attempt.number
             if outcome.status is CodeStatus.TABLES_REJECTED:
+                if run.ctx.surface.human_gated:
+                    answer = yield CoderRejected(outcome.error)
+                    if isinstance(answer, Force):
+                        force = True  # the same attempt again, the coder told to run anyway
+                        continue
+                    if not isinstance(answer, Rediscover):
+                        raise TypeError(f"a coder rejection is answered with Force or Rediscover, not {answer!r}")
                 # The coder's own per-table judgment feeds the same cross-round
                 # memory as an architect rejection: a table it proved unusable
                 # is banned outright, one it found partially useful carries
@@ -799,16 +847,20 @@ class CodingStage(_Coding):
                 state.carry(outcome.keep_tables, outcome.skip_tables)
                 return self._after_break(attempt)
             if outcome.status is CodeStatus.SUCCESS:
-                verdict = self._succeeded(outcome, generated)
+                verdict = yield from self._succeeded(outcome, generated)
                 if verdict is not None:
                     return verdict
+                index += 1
                 continue
             if self._failed(outcome, code_attempt):
+                index += 1
                 continue
             return self._after_break(attempt)
         return Verdict.STOP
 
-    def _succeeded(self, outcome: CodeOutcome, generated: Any) -> Verdict | None:
+    def _succeeded(
+        self, outcome: CodeOutcome, generated: Any,
+    ) -> Generator[StageStarted, Answer, Verdict | None]:
         """The code ran: an empty result tries again (None), anything else is final."""
         run, state, result = self.run, self.run.state, self.run.result
         result.raw_result = outcome.raw_result
@@ -826,6 +878,7 @@ class CodingStage(_Coding):
             return Verdict.RETURN
         if run.code_evaluation_enabled:
             result.code_evaluation = self.judge.adjudicate(result.code_evaluation, generated)
+        yield StageStarted("answer")
         self.answer.run_answer(outcome.raw_result)
         return Verdict.RETURN
 

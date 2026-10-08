@@ -58,6 +58,8 @@ class RunState:
 
     last_generated: Any = None
     """The coder's last result object, for the record."""
+    after_coder_rejection: bool = False
+    """The next discovery round follows a coder rejection (a gated review may only approve or abort)."""
 
     def carry(self, keep_tables: list[str], skip_tables: list[str], inspection_cache: dict[str, str] | None = None) -> None:
         """Apply a rejection's per-table judgment: exclude the skipped, carry the kept.
