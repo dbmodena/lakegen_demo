@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
+from lakegen.llm.token_usage import estimate_tokens, extract_total_tokens
 
 
 def test_extracts_oci_usage_objects_from_raw_response_shape():

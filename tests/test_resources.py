@@ -5,7 +5,7 @@ import pytest
 
 from lakegen.retrieval import factory as retrieval_factory
 from lakegen.retrieval import run_log
-from lakegen.core.token_usage import extract_total_tokens
+from lakegen.llm.token_usage import extract_total_tokens
 from lakegen.llm import factory, tool_calls
 from lakegen.llm.providers import oci as oci_llm
 from lakegen.llm.providers import ollama as ollama_llm
@@ -305,7 +305,7 @@ def test_retrieval_runs_are_logged_and_captured_for_the_api_csv(monkeypatch):
 
 from llama_index.core.llms import ChatMessage  # noqa: E402
 
-from lakegen.core import groq_offload  # noqa: E402
+from lakegen.llm import groq_offload  # noqa: E402
 
 
 class _FakeGroqResponse:

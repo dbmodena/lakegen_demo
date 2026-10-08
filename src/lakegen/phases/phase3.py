@@ -22,7 +22,7 @@ from lakegen.code_evaluation import (
     evaluation_output_instruction,
     extract_evaluation_payload,
 )
-from lakegen.core.token_usage import (
+from lakegen.llm.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
     reset_llm_token_usage,

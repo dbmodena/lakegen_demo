@@ -70,7 +70,7 @@ def _hermetic_state(tmp_path, monkeypatch):
     run_log = sys.modules.get("lakegen.retrieval.run_log")
     if run_log is not None:
         run_log.get_retrieval_run_logger.cache_clear()
-    groq = sys.modules.get("lakegen.core.groq_offload")
+    groq = sys.modules.get("lakegen.llm.groq_offload")
     if groq is not None:
         monkeypatch.setattr(groq, "_offload", None)
     yield

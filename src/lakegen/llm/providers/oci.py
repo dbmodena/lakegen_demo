@@ -19,9 +19,9 @@ from llama_index.llms.oci_genai.utils import CHAT_MODELS, PROVIDERS, XAIProvider
 
 from lakegen.config.registry import ModelSpec, get_model, models_by_provider
 from lakegen.config.settings import Settings, get_settings
-from lakegen.core import groq_offload
-from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
+from lakegen.llm import groq_offload
 from lakegen.llm.providers import register
+from lakegen.llm.token_usage import estimate_tokens, extract_total_tokens
 from lakegen.llm.tool_calls import (
     STREAM_END,
     finalized_stream_tool_calls,

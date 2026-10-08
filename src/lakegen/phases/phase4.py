@@ -1,6 +1,6 @@
 from llama_index.core.llms import ChatMessage, LLM
 from lakegen.prompts.prompt_manager import PromptManager
-from lakegen.core.token_usage import (
+from lakegen.llm.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
     reset_llm_token_usage,

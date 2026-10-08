@@ -26,7 +26,7 @@ from lakegen.phases.logging import (
     format_phase2_tool_result,
 )
 from lakegen.core.types import Phase2SelectionResult, SolrMetadata, StreamCallback
-from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
+from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.errors import WorkflowCancelled
 from lakegen.agents.instrumentation import ThinkingCapture
 from lakegen.prompts.prompt_manager import PromptManager

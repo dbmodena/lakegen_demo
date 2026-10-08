@@ -13,7 +13,7 @@ from llama_index.core.llms import ChatMessage, MessageRole, LLM
 from pydantic import BaseModel, ConfigDict, Field
 
 from lakegen.agents.agent_runner import run_agent_workflow
-from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
+from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector

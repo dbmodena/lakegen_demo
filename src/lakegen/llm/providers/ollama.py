@@ -8,8 +8,8 @@ from llama_index.llms.openai_like import OpenAILike
 
 from lakegen.config.registry import ModelSpec, get_model, models_by_provider
 from lakegen.config.settings import Settings
-from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
 from lakegen.llm.providers import register
+from lakegen.llm.token_usage import estimate_tokens, extract_total_tokens
 
 OLLAMA_MODELS = models_by_provider("ollama")
 OLLAMA_CONTEXT_SIZE = get_model("ollama.gpt-oss-20b").context_window
