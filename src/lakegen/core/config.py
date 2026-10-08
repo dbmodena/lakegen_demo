@@ -1,6 +1,7 @@
 import json
-import os
 from pathlib import Path
+
+from lakegen.config.settings import read
 
 _src_dir = Path(__file__).resolve()
 while _src_dir.name != "src" and _src_dir.parent != _src_dir:
@@ -40,7 +41,7 @@ def resolve_state_dir() -> Path:
     root, where they have always been. The test suite points the variable at
     a temporary directory so that no test touches the real state.
     """
-    value = os.environ.get("LAKEGEN_STATE_DIR", "").strip()
+    value = read("LAKEGEN_STATE_DIR")
     return Path(value).expanduser() if value else BASE_DIR
 
 

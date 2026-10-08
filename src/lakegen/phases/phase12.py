@@ -1,6 +1,5 @@
 import io
 import json
-import os
 import sys
 import asyncio
 import re
@@ -18,6 +17,7 @@ from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 from llama_index.core.tools import FunctionTool
 
+from lakegen.config.settings import get_settings
 from lakegen.phases.logging import (
     Phase2AgentStall,
     detect_phase2_agent_stall,
@@ -301,7 +301,7 @@ def phase12_agent(
         state_board=tools_manager.discovery.state_board,
         compact_history=tools_manager.discovery.compact_history,
     )
-    if os.getenv("LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT") == "1":
+    if get_settings().selection_cardinality_experiment:
         system_prompt += (
             "\n\nEXPERIMENTAL SELECTION CHECK: Before confirming, state the expected "
             "table count internally. Select one table unless the question has a "

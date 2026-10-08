@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from collections.abc import Sequence
 from typing import Any
 
 import requests
+
+from lakegen.config.settings import get_settings, solr_core_override
 
 KNN_METADATA_FIELDS = (
     "id",
@@ -45,8 +46,7 @@ def resolve_solr_core(portal: str) -> str:
     Only the query path calls this; ``index_retrieval.py`` writes to the core it
     is told to, so an admin run can never be redirected by the environment.
     """
-    override = os.environ.get(f"LAKEGEN_SOLR_CORE_{portal.strip().upper()}", "").strip()
-    return override or portal
+    return solr_core_override(portal) or portal
 
 
 class LocalSolrClient:
@@ -59,9 +59,7 @@ class LocalSolrClient:
         timeout: float = 30.0,
     ) -> None:
         self.core = core.strip("/")
-        resolved_base_url = base_url or os.environ.get(
-            "SOLR_BASE_URL", "http://localhost:8983/solr"
-        )
+        resolved_base_url = base_url or get_settings().solr_base_url
         self.base_url = resolved_base_url.rstrip("/")
         self.timeout = timeout
 

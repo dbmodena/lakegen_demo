@@ -15,6 +15,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+from lakegen.config.settings import get_settings
 from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 from lakegen.core.table_io import list_table_files
 from lakegen.experiment_config import load_experiment_config
@@ -648,7 +649,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--solr-base-url",
-        default=os.environ.get("SOLR_BASE_URL", "http://localhost:8983/solr"),
+        default=get_settings().solr_base_url,
         help="Solr base URL (default: SOLR_BASE_URL or localhost)",
     )
     parser.add_argument("--output", type=Path, required=True)

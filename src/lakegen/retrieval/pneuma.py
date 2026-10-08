@@ -84,7 +84,6 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 import json
 import math
-import os
 from pathlib import Path
 import re
 import time
@@ -95,6 +94,7 @@ import pyarrow.parquet as pq
 import requests
 
 from lakegen import cell_scan
+from lakegen.config.settings import together_api_key
 from lakegen.retrieval.config import (
     PneumaContentFusion,
     RetrievalConfig,
@@ -292,7 +292,7 @@ TOGETHER_CHAT_URL = "https://api.together.xyz/v1/chat/completions"
 @lru_cache(maxsize=512)
 def _together_entities(model: str, question: str) -> tuple[str, ...]:
     """The reference extraction on Together: same prompt, temperature 0, JSON-object reply."""
-    api_key = (os.environ.get("TOGETHERAI_API_KEY") or os.environ.get("TOGETHER_API_KEY") or "").strip()
+    api_key = together_api_key()
     if not api_key:
         raise RuntimeError(f"{model} needs a Together AI key: set TOGETHERAI_API_KEY")
     payload = {

@@ -45,90 +45,90 @@ SCRUBBED_PREFIXES = (
 # --- parse rules ------------------------------------------------------------
 # Each takes the raw string and the variable's default and returns the value.
 
-Parser = Callable[[str, Any], Any]
+Parser = Callable[[str, Any, str], Any]
 
 
-def text(raw: str, default: Any) -> str:
+def text(raw: str, default: Any, name: str = "") -> str:
     return raw
 
 
-def stripped(raw: str, default: Any) -> str:
+def stripped(raw: str, default: Any, name: str = "") -> str:
     return raw.strip()
 
 
-def optional_text(raw: str, default: Any) -> str | None:
+def optional_text(raw: str, default: Any, name: str = "") -> str | None:
     """The string, or the default when it is empty (``os.environ.get(x) or default``)."""
     return raw if raw else default
 
 
-def integer(raw: str, default: Any) -> int:
+def integer(raw: str, default: Any, name: str = "") -> int:
     return int(raw)
 
 
-def number(raw: str, default: Any) -> float:
+def number(raw: str, default: Any, name: str = "") -> float:
     return float(raw)
 
 
-def optional_int(raw: str, default: Any) -> int | None:
+def optional_int(raw: str, default: Any, name: str = "") -> int | None:
     """An integer, or None when blank: no cap."""
     value = raw.strip()
     return int(value) if value else None
 
 
-def positive_int_or_default(raw: str, default: Any) -> int:
+def positive_int_or_default(raw: str, default: Any, name: str = "") -> int:
     """A positive integer; anything else keeps the default with a warning."""
     try:
         value = int(raw)
     except ValueError:
-        logger.warning("Ignoring invalid value %r; using %s", raw, default)
+        logger.warning("Ignoring invalid %s=%r; using %s", name, raw, default)
         return default
     if value < 1:
-        logger.warning("Ignoring non-positive value %r; using %s", raw, default)
+        logger.warning("Ignoring non-positive %s=%r; using %s", name, raw, default)
         return default
     return value
 
 
-def non_negative_float_or_default(raw: str, default: Any) -> float:
+def non_negative_float_or_default(raw: str, default: Any, name: str = "") -> float:
     """A non-negative number; blank or anything else keeps the default."""
     if not raw.strip():
         return default
     try:
         value = float(raw)
     except ValueError:
-        logger.warning("Ignoring invalid value %r; using %s", raw, default)
+        logger.warning("Ignoring invalid %s=%r; using %s", name, raw, default)
         return default
     if value < 0:
-        logger.warning("Ignoring negative value %r; using %s", raw, default)
+        logger.warning("Ignoring negative %s=%r; using %s", name, raw, default)
         return default
     return value
 
 
-def non_negative_count_or_default(raw: str, default: Any) -> int:
-    return int(non_negative_float_or_default(raw, default))
+def non_negative_count_or_default(raw: str, default: Any, name: str = "") -> int:
+    return int(non_negative_float_or_default(raw, default, name))
 
 
-def share(raw: str, default: Any) -> float:
+def share(raw: str, default: Any, name: str = "") -> float:
     """A share in [0, 1]: non-negative, capped at 1."""
-    return min(non_negative_float_or_default(raw, default), 1.0)
+    return min(non_negative_float_or_default(raw, default, name), 1.0)
 
 
-def flag(raw: str, default: Any) -> bool:
+def flag(raw: str, default: Any, name: str = "") -> bool:
     return raw.strip().casefold() in {"1", "true", "yes"}
 
 
-def flag_or_on(raw: str, default: Any) -> bool:
+def flag_or_on(raw: str, default: Any, name: str = "") -> bool:
     return raw.strip().casefold() in {"1", "true", "yes", "on"}
 
 
-def not_disabled(raw: str, default: Any) -> bool:
+def not_disabled(raw: str, default: Any, name: str = "") -> bool:
     return raw.strip().casefold() not in {"0", "false", "no"}
 
 
-def not_zero(raw: str, default: Any) -> bool:
+def not_zero(raw: str, default: Any, name: str = "") -> bool:
     return raw.strip() != "0"
 
 
-def is_one(raw: str, default: Any) -> bool:
+def is_one(raw: str, default: Any, name: str = "") -> bool:
     return raw == "1"
 
 
@@ -148,7 +148,7 @@ class EnvVar:
         raw = os.environ.get(self.name)
         if raw is None:
             return self.default
-        return self.parse(raw, self.default)
+        return self.parse(raw, self.default, self.name)
 
 
 @dataclass(frozen=True)
@@ -318,6 +318,12 @@ _GROQ_KEY_NAME = re.compile(r"^GRO[QP]_API_KEY\d*$")
 def read(name: str) -> Any:
     """The parsed value of one registered variable."""
     return BY_NAME[name].read()
+
+
+def read_var(name: str, parse: Parser, default: Any) -> Any:
+    """Read a variable by name with one of the parse rules (the API's named helpers)."""
+    raw = os.environ.get(name)
+    return default if raw is None else parse(raw, default, name)
 
 
 def retrieval_env_values() -> dict[str, Any]:

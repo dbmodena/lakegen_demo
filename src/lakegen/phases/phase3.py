@@ -1,4 +1,3 @@
-import os
 import json
 import re
 import subprocess
@@ -14,6 +13,7 @@ from llama_index.core.llms import ChatMessage, LLM
 from lakegen.core.types import SolrMetadata
 from lakegen.experiment_config import CoderContextLevel
 from lakegen.prompts.prompt_manager import PromptManager
+from lakegen.config.settings import get_settings
 from lakegen.core import paths
 from lakegen.core.table_io import read_table, table_load_command
 from lakegen.column_resolution import resolve_generated_code_columns
@@ -170,12 +170,7 @@ _TABPFN_INTENT_KEYWORDS = {
 
 def _tabpfn_enabled() -> bool:
     """Return whether generated analyses may use the optional TabPFN stack."""
-    return os.getenv("LAKEGEN_ENABLE_TABPFN", "").strip().casefold() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return get_settings().enable_tabpfn
 
 
 def _detect_tabpfn_intent(query: str) -> str | None:

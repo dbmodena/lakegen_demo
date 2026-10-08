@@ -16,9 +16,9 @@ pointed elsewhere, which is how the test suite isolates each test.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
+from lakegen.config.settings import read
 from lakegen.core.config import LOGS_DIR_NAME, resolve_state_dir
 
 DEFAULT_JOBS_DIR_NAME = ".lakegen_jobs"
@@ -43,7 +43,7 @@ def coding_dir() -> Path:
 
 def jobs_dir() -> Path:
     """The API's job folder. ``LAKEGEN_JOB_DIR`` gives an API instance its own."""
-    return resolve_state_dir() / (os.environ.get("LAKEGEN_JOB_DIR") or DEFAULT_JOBS_DIR_NAME)
+    return resolve_state_dir() / (read("LAKEGEN_JOB_DIR") or DEFAULT_JOBS_DIR_NAME)
 
 
 def keyword_memory_path() -> Path:

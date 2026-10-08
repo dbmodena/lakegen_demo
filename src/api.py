@@ -11,7 +11,6 @@ import hashlib
 import json
 import logging
 import math
-import os
 import time
 import statistics
 import sys
@@ -32,6 +31,9 @@ for _path in (_SRC_DIR, _ROOT_DIR):
         sys.path.insert(0, str(_path))
 
 from lakegen.core.bootstrap import bootstrap_nltk_data
+from lakegen.config.settings import (
+    get_settings, non_negative_float_or_default, positive_int_or_default, read_var,
+)
 from lakegen.core import paths
 from lakegen.core.config import BASE_DIR, LOG_DIR
 from lakegen.service import (
@@ -115,16 +117,7 @@ class BatchAccepted(StrictModel):
 def _positive_int_from_env(name: str, default: int) -> int:
     """Read a positive worker limit without making API startup fragile."""
 
-    raw = os.environ.get(name, str(default))
-    try:
-        value = int(raw)
-    except ValueError:
-        logger.warning("Ignoring invalid %s=%r; using %s", name, raw, default)
-        return default
-    if value < 1:
-        logger.warning("Ignoring non-positive %s=%r; using %s", name, raw, default)
-        return default
-    return value
+    return read_var(name, positive_int_or_default, default)
 
 
 # A workflow may already parallelise table scans internally. Keep the safe
@@ -139,18 +132,7 @@ _workflow_lock = threading.BoundedSemaphore(WORKFLOW_WORKERS)
 
 
 def _non_negative_float_from_env(name: str, default: float) -> float:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        logger.warning("Ignoring invalid %s=%r; using %s", name, raw, default)
-        return default
-    if value < 0:
-        logger.warning("Ignoring negative %s=%r; using %s", name, raw, default)
-        return default
-    return value
+    return read_var(name, non_negative_float_or_default, default)
 
 
 # A breather inside long batches: after every LAKEGEN_BATCH_PAUSE_EVERY finished
@@ -168,7 +150,7 @@ BATCH_TOKENS_PER_MINUTE = _non_negative_float_from_env("LAKEGEN_BATCH_TOKENS_PER
 # A file holding the rate overrides it and is read before every rest, so a long
 # run can be sped up or slowed down without a restart; a missing or unreadable
 # file falls back to the variable.
-BATCH_TOKENS_PER_MINUTE_FILE = os.environ.get("LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE", "").strip()
+BATCH_TOKENS_PER_MINUTE_FILE = get_settings().batch_tokens_per_minute_file
 
 
 def _tokens_per_minute() -> float:
@@ -231,8 +213,8 @@ def _token_pause_seconds(
 # with that model wherever the job's config names the job's model (pipeline, code
 # judge, Pneuma entity extraction). The hash depends on the question id only, so
 # a question gets the same model in every job of a grid. Off by default.
-SPLIT_MODEL = os.environ.get("LAKEGEN_SPLIT_MODEL", "").strip()
-SPLIT_SHARE = min(_non_negative_float_from_env("LAKEGEN_SPLIT_SHARE", 0.0), 1.0)
+SPLIT_MODEL = get_settings().split_model
+SPLIT_SHARE = get_settings().split_share
 
 
 def _split_fraction(source_id: Any) -> float:

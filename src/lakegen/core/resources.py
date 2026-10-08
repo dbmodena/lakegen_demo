@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from functools import lru_cache
 import json
 import logging
-import os
 from pathlib import Path
 import random
 import re
@@ -33,6 +32,7 @@ from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 from lakegen.core import groq_offload
 from lakegen.core.table_io import list_table_files
 from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
+from lakegen.config.settings import get_settings
 from lakegen.core.config import LOG_DIR
 from lakegen.retrieval import RetrievalConfig, RetrievalRunLogger, TableRetrievalService
 from lakegen.retrieval.models import RetrievalRun
@@ -559,13 +559,13 @@ class _LakeGenTogetherLLM(_LakeGenOllamaLLM):
         # Asking for no parallel calls makes Together's gpt-oss write more tool
         # calls as plain text, so by default the request allows them and
         # get_tool_calls_from_response keeps the first.
-        parallel = os.environ.get("LAKEGEN_TOGETHER_PARALLEL_TOOL_CALLS", "1").strip() != "0"
+        parallel = get_settings().together_parallel_tool_calls
         return super()._prepare_chat_with_tools(
             tools, user_msg=user_msg, chat_history=chat_history, verbose=verbose,
             allow_parallel_tool_calls=parallel, **kwargs)
 
     def get_tool_calls_from_response(self, response, error_on_no_tool_call=True, **kwargs):
-        if os.environ.get("LAKEGEN_TOGETHER_RECOVER_LEAKS", "1").strip() != "0":
+        if get_settings().together_recover_leaks:
             _recover_leaked_tool_call(response)
         _keep_first_tool_call(response)
         return super().get_tool_calls_from_response(
@@ -675,10 +675,9 @@ PROVIDERS["meta"] = _OCIGenericProvider()
 
 
 def _oci_runtime_config() -> tuple[Path, str, str, str]:
-    config_file = Path(
-        os.environ.get("OCI_CONFIG_FILE", "~/.oci/config")
-    ).expanduser()
-    profile = os.environ.get("OCI_PROFILE", OCI_DEFAULT_PROFILE)
+    env = get_settings()
+    config_file = Path(env.oci_config_file).expanduser()
+    profile = env.oci_profile
 
     try:
         config = oci.config.from_file(
@@ -692,7 +691,7 @@ def _oci_runtime_config() -> tuple[Path, str, str, str]:
         ) from exc
 
     compartment_id = (
-        os.environ.get("OCI_COMPARTMENT_ID")
+        env.oci_compartment_id
         or config.get("oci_compartment_id")
         or ""
     ).strip()
@@ -703,7 +702,7 @@ def _oci_runtime_config() -> tuple[Path, str, str, str]:
         )
 
     service_endpoint = (
-        os.environ.get("OCI_SERVICE_ENDPOINT")
+        env.oci_service_endpoint
         or f"https://inference.generativeai.{config['region']}.oci.oraclecloud.com"
     )
     return config_file, profile, compartment_id, service_endpoint
@@ -714,9 +713,10 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
         tokenizer=tiktoken.encoding_for_model("gpt-3.5-turbo").encode
     )
     Settings.callback_manager = CallbackManager([token_counter])
+    env = get_settings()
 
     if model in OLLAMA_MODELS:
-        base_url = os.environ.get("LAKEGEN_OLLAMA_BASE_URL", "http://localhost:11434")
+        base_url = env.ollama_base_url
         llm = _LakeGenOllamaLLM(
             model=OLLAMA_MODELS[model],
             api_base=f"{base_url.rstrip('/')}/v1",
@@ -732,18 +732,18 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
         return llm, token_counter
 
     if model in TOGETHER_MODELS:
-        api_key = (os.environ.get("TOGETHERAI_API_KEY") or os.environ.get("TOGETHER_API_KEY") or "").strip()
+        api_key = env.together_api_key
         if not api_key:
             raise RuntimeError(f"{model} needs a Together AI key: set TOGETHERAI_API_KEY")
         llm = _LakeGenTogetherLLM(
             model=TOGETHER_MODELS[model],
-            api_base=os.environ.get("LAKEGEN_TOGETHER_BASE_URL", TOGETHER_BASE_URL),
+            api_base=env.together_base_url,
             api_key=api_key,
             context_window=OPENAI_GPT_OSS_CONTEXT_SIZE,
             is_chat_model=True,
             is_function_calling_model=True,
             # LakeGen's 0.1 by default; Together recommends 1.0 for reasoning models.
-            temperature=float(os.environ.get("LAKEGEN_TOGETHER_TEMPERATURE", "0.1")),
+            temperature=env.together_temperature,
             max_tokens=OPENAI_GPT_OSS_MAX_OUTPUT_TOKENS,
             timeout=TOGETHER_TIMEOUT_SECONDS,
             max_retries=0,  # _LakeGenTogetherLLM retries as Together asks
@@ -782,7 +782,7 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
 def get_solr(core):
     return LocalSolrClient(
         core=resolve_solr_core(core),
-        base_url=os.environ.get("SOLR_BASE_URL", "http://localhost:8983/solr"),
+        base_url=get_settings().solr_base_url,
     )
 
 

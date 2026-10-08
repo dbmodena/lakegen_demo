@@ -9,7 +9,6 @@ table in a separate request made look-alike tables pass (experiments/jev_selecto
 from __future__ import annotations
 
 import json
-import os
 import re
 import threading
 import time
@@ -19,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from lakegen.config.settings import jev_api_key
 from lakegen.core.types import SolrMetadata
 from lakegen.experiment_config import DiscoveryConfig
 
@@ -230,10 +230,10 @@ def build_request(
 
 
 def _api_key() -> str:
-    for name in KEY_NAMES:
-        if os.environ.get(name):
-            return os.environ[name]
-    raise JevSelectorError(f"no Jev API key: set one of {', '.join(KEY_NAMES)}")
+    key = jev_api_key()
+    if key is None:
+        raise JevSelectorError(f"no Jev API key: set one of {', '.join(KEY_NAMES)}")
+    return key
 
 
 def post_request(payload: dict[str, Any], retries: int = 4) -> dict[str, Any]:

@@ -22,9 +22,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
-import os
 from pathlib import Path
-import re
 import threading
 import time
 from typing import Any, Sequence
@@ -32,6 +30,7 @@ from typing import Any, Sequence
 import requests
 from llama_index.core.llms import ChatMessage, ChatResponse, MessageRole
 
+from lakegen.config.settings import get_settings, groq_api_keys
 from lakegen.core.config import LOG_DIR
 from lakegen.core.token_usage import estimate_tokens
 
@@ -48,7 +47,6 @@ MIN_OUTPUT_TOKENS = 2_500
 MAX_OUTPUT_TOKENS = 6_000
 TIMEOUT_SECONDS = 120.0
 ERROR_COOLDOWN_SECONDS = 60.0
-_KEY_NAME = re.compile(r"^GRO[QP]_API_KEY\d*$")
 _PLAIN_ROLES = {MessageRole.SYSTEM, MessageRole.USER, MessageRole.ASSISTANT}
 # Request options that do not change a plain chat call (see the OCI client).
 _IGNORED_KWARGS = {"think"}
@@ -199,13 +197,11 @@ _offload_lock = threading.Lock()
 
 
 def _keys_from_env() -> list[str]:
-    return [os.environ[name].strip() for name in sorted(os.environ)
-            if _KEY_NAME.match(name) and os.environ[name].strip()]
+    return list(groq_api_keys())
 
 
 def enabled_for(model: str) -> bool:
-    return (os.environ.get("LAKEGEN_GROQ_OFFLOAD", "").strip().lower() in {"1", "true", "yes"}
-            and model in GROQ_MODELS and bool(_keys_from_env()))
+    return get_settings().groq_offload and model in GROQ_MODELS and bool(_keys_from_env())
 
 
 def chat(model: str, messages: Sequence[Any], kwargs: dict[str, Any],
@@ -216,6 +212,6 @@ def chat(model: str, messages: Sequence[Any], kwargs: dict[str, Any],
         return None
     with _offload_lock:
         if _offload is None:
-            ledger = Path(os.environ.get("LAKEGEN_GROQ_LEDGER") or LOG_DIR / "groq_calls.jsonl")
+            ledger = Path(get_settings().groq_ledger or LOG_DIR / "groq_calls.jsonl")
             _offload = GroqOffload(_keys_from_env(), ledger)
     return _offload.chat(model, messages, kwargs, temperature)
