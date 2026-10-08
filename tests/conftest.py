@@ -25,9 +25,6 @@ import pytest
 
 collect_ignore = ["needs_testing_grounds"]
 
-_SCRUBBED_PREFIXES = (
-    "LAKEGEN_", "GROQ_", "GROP_", "TOGETHER", "OPENAI_", "OCI_", "JEV_", "TYPESAFE_",
-)
 _state_root: str | None = None
 
 
@@ -47,8 +44,10 @@ def _no_dotenv(*args, **kwargs) -> bool:
 
 def pytest_configure(config: pytest.Config) -> None:
     global _state_root
+    from lakegen.config.settings import SCRUBBED_PREFIXES  # stdlib-only module
+
     for name in list(os.environ):
-        if name.startswith(_SCRUBBED_PREFIXES):
+        if name.startswith(SCRUBBED_PREFIXES) or name.startswith("OPENAI_"):
             del os.environ[name]
     _state_root = tempfile.mkdtemp(prefix="lakegen-tests-")
     os.environ["LAKEGEN_STATE_DIR"] = _state_root

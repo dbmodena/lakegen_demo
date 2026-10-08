@@ -43,6 +43,7 @@ scripts/*
 !scripts/park_jobs.py
 !scripts/hooks/
 !scripts/ruff_legacy.txt
+!scripts/gen_config_docs.py
 
 # Pneuma local runtime, virtual environment, and generated indexes.
 .pneuma/
