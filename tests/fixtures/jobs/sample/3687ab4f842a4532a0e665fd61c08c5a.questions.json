@@ -1,0 +1,72 @@
+[
+  {
+    "question": "What is the average overtime for the month of April for employees whose overtime in February is greater than 1715.50 and whose December overtime is exactly 827.01?",
+    "source_id": "986ceec7-8cc",
+    "source_path": "$.cases[5].question",
+    "log_fields": {
+      "SOURCE_ID": "986ceec7-8cc",
+      "SOURCE_PATH": "$.cases[5].question",
+      "SOURCE_QUESTION": "What is the average overtime for the month of April for employees whose overtime in February is greater than 1715.50 and whose December overtime is exactly 827.01?",
+      "SOURCE_RELEVANT_TABLE_IDS": [
+        "table_530"
+      ],
+      "SOURCE_EXPECTED_RESULT_TYPE": "table"
+    }
+  },
+  {
+    "question": "Which fund descriptions correspond to the Chicago Department of Public Health?",
+    "source_id": "863d38c2-f6b",
+    "source_path": "$.cases[6].question",
+    "log_fields": {
+      "SOURCE_ID": "863d38c2-f6b",
+      "SOURCE_PATH": "$.cases[6].question",
+      "SOURCE_QUESTION": "Which fund descriptions correspond to the Chicago Department of Public Health?",
+      "SOURCE_RELEVANT_TABLE_IDS": [
+        "table_401",
+        "table_45",
+        "table_618",
+        "table_32",
+        "table_754",
+        "table_782",
+        "table_445",
+        "table_440",
+        "table_308",
+        "table_785",
+        "table_243",
+        "table_568"
+      ],
+      "SOURCE_EXPECTED_RESULT_TYPE": "table"
+    }
+  },
+  {
+    "question": "How much is the total of the target uptime percentages?",
+    "source_id": "21a96975-7ba",
+    "source_path": "$.cases[0].question",
+    "log_fields": {
+      "SOURCE_ID": "21a96975-7ba",
+      "SOURCE_PATH": "$.cases[0].question",
+      "SOURCE_QUESTION": "How much is the total of the target uptime percentages?",
+      "SOURCE_RELEVANT_TABLE_IDS": [
+        "table_677",
+        "table_128",
+        "table_284",
+        "table_758"
+      ],
+      "SOURCE_EXPECTED_RESULT_TYPE": "table"
+    }
+  },
+  {
+    "question": "Which annual salary is the maximum for the Department of Streets and Sanitation with an hourly rate of 45.68?",
+    "source_id": "b32411a5-ebd",
+    "source_path": "$.cases[1].question",
+    "log_fields": {
+      "SOURCE_ID": "b32411a5-ebd",
+      "SOURCE_PATH": "$.cases[1].question",
+      "SOURCE_QUESTION": "Which annual salary is the maximum for the Department of Streets and Sanitation with an hourly rate of 45.68?",
+      "SOURCE_RELEVANT_TABLE_IDS": [
+        "table_801"
+      ],
+      "SOURCE_EXPECTED_RESULT_TYPE": "table"
+    }
+  }
+]

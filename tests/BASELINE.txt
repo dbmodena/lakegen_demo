@@ -1,3 +1,6 @@
+tests/golden/test_analysis_golden.py::test_batch_report_of_a_stored_job[3687ab4f]
+tests/golden/test_analysis_golden.py::test_batch_report_of_a_stored_job[f438db7b]
+tests/golden/test_analysis_golden.py::test_the_api_wrapper_returns_the_report_summary
 tests/golden/test_cli_golden.py::test_cli_golden[coder_rejection_force]
 tests/golden/test_cli_golden.py::test_cli_golden[coder_rejection_rediscover_abort]
 tests/golden/test_cli_golden.py::test_cli_golden[coder_rejection_rediscover_accept]

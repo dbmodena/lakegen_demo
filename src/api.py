@@ -10,9 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import math
 import time
-import statistics
 import sys
 import threading
 import uuid
@@ -49,7 +47,7 @@ from lakegen.runtime import (
 )
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode, check_embedding_health
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
-from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
+from lakegen.analysis.metrics import batch_cases, batch_report, report_summary
 from lakegen.analysis.results import final_ranking
 from lakegen.code_evaluation import summarize_code_evaluations
 from lakegen.domain.tables import resource_id, table_id
@@ -426,288 +424,11 @@ def _append_batch_table_metrics(
     than producing partial or misleading aggregate metrics.
     """
 
-    if not questions or len(questions) != len(results):
+    cases = batch_cases(questions, results)
+    if cases is None:
         return None
-
-    case_rows: list[dict[str, Any]] = []
-    metric_rows: list[dict[str, float]] = []
-    successful_metric_rows: list[dict[str, float]] = []
-    selection_metric_rows: list[dict[str, float]] = []
-    augmented_case_rows: list[dict[str, Any]] = []
-    expansion_query_count = 0
-    expansion_contribution_count = 0
-    for source, entry in zip(questions, results, strict=True):
-        gold = source.get("log_fields", {}).get("SOURCE_RELEVANT_TABLE_IDS")
-        if not isinstance(gold, list) or not gold:
-            return None
-        relevant = list(dict.fromkeys(_resource_id(value) for value in gold))
-        result = entry.get("result", {})
-        ranking = _retrieval_ranking(result)
-        metrics = evaluate_ranking(ranking, relevant, k_values=(1, 5, 10, 15, 20))
-        metric_rows.append(metrics)
-        selected = list(dict.fromkeys(
-            _resource_id(value) for value in result.get("tables", [])
-        ))
-        relevant_set = set(relevant)
-        selected_set = set(selected)
-        for k in (1, 5, 10, 15, 20):
-            metrics[f"FullCoverage@{k}"] = float(
-                relevant_set.issubset(set(ranking[:k]))
-            )
-        matches = len(relevant_set & selected_set)
-        selection_metric_rows.append({
-            "SelectionHit": float(matches > 0),
-            "SelectionRecall": matches / len(relevant_set),
-            "SelectionPrecision": matches / len(selected_set) if selected_set else 0.0,
-            "ExactSelection": float(selected_set == relevant_set),
-        })
-        raw_alternatives = source.get("log_fields", {}).get(
-            "SOURCE_ACCEPTED_TABLE_ALTERNATIVES", {}
-        )
-        alternative_lookup = {
-            _resource_id(key): {
-                _resource_id(value) for value in values
-                if str(value).strip()
-            }
-            for key, values in raw_alternatives.items()
-            if isinstance(values, list)
-        } if isinstance(raw_alternatives, dict) else {}
-        accepted_groups = [
-            {resource_id, *alternative_lookup.get(resource_id, set())}
-            for resource_id in relevant
-        ]
-        has_alternatives = any(len(group) > 1 for group in accepted_groups)
-        if has_alternatives:
-            augmented_retrieval: dict[str, float] = {}
-            for k in (1, 5, 10, 15, 20):
-                candidates = set(ranking[:k])
-                covered = sum(bool(group & candidates) for group in accepted_groups)
-                augmented_retrieval[f"AlternativeHit@{k}"] = float(covered > 0)
-                augmented_retrieval[f"AlternativeRecall@{k}"] = covered / len(accepted_groups)
-                augmented_retrieval[f"AlternativeFullCoverage@{k}"] = float(
-                    covered == len(accepted_groups)
-                )
-            first_rank = next(
-                (rank for rank, value in enumerate(ranking, 1)
-                 if any(value in group for group in accepted_groups)),
-                None,
-            )
-            augmented_retrieval["AlternativeMRR"] = (
-                1.0 / first_rank if first_rank else 0.0
-            )
-            covered_groups = sum(bool(group & selected_set) for group in accepted_groups)
-            strict_hit = bool(relevant_set & selected_set)
-            augmented_selection = {
-                "AlternativeSelectionHit": float(covered_groups > 0),
-                "AlternativeSelectionRecall": covered_groups / len(accepted_groups),
-                "AlternativeSelectionPrecision": (
-                    covered_groups / len(selected_set) if selected_set else 0.0
-                ),
-                "AlternativeExactSelection": float(
-                    covered_groups == len(accepted_groups)
-                    and len(selected_set) == len(accepted_groups)
-                ),
-                "AlternativeOnlySelection": float(
-                    covered_groups > 0 and not strict_hit
-                ),
-                "StrictMissRescued": float(
-                    not strict_hit and covered_groups > 0
-                ),
-            }
-            augmented_case_rows.append({
-                "case_id": str(source.get("source_id") or source.get("source_path")),
-                "question": source["question"],
-                "gold_table_ids": relevant,
-                "accepted_table_groups": [sorted(group) for group in accepted_groups],
-                "selected_table_ids": selected,
-                "retrieval_metrics": augmented_retrieval,
-                "selection_metrics": augmented_selection,
-            })
-        if result.get("discovery", {}).get("expansion_used"):
-            expansion_query_count += 1
-            ranks = {resource_id: rank for rank, resource_id in enumerate(ranking, 1)}
-            contributed = any(
-                resource_id in relevant_set
-                and resource_id in selected_set
-                and ranks.get(resource_id, 0) > 10
-                for resource_id in selected_set
-            )
-            expansion_contribution_count += int(contributed)
-        error = str(result.get("error") or "")
-        if not error:
-            successful_metric_rows.append(metrics)
-        case_rows.append({
-            "case_id": str(source.get("source_id") or source.get("source_path")),
-            "question": source["question"],
-            "relevant_table_ids": relevant,
-            "ranking": ranking,
-            "metrics": metrics,
-            "gold_table_count": len(relevant_set),
-            "selected_table_count": len(selected_set),
-            "selection_metrics": selection_metric_rows[-1],
-            "selection_outcome": (
-                "exact" if selected_set == relevant_set
-                else "miss" if not matches
-                else "over_selection" if relevant_set.issubset(selected_set)
-                else "partial"
-            ),
-            "expansion_used": bool(result.get("discovery", {}).get("expansion_used")),
-            "elapsed_seconds": float(result.get("elapsed_seconds") or 0.0),
-            "error": error,
-        })
-
     resolved = settings["resolved_config"]
-    retrieval = resolved["retrieval"]
-    base_label = str(resolved.get("experiment_id") or "batch")
-    automatic_test_coder = bool(resolved.get("automatic_test_coder"))
-    levels = (
-        list(CoderContextLevel)
-        if automatic_test_coder
-        else [CoderContextLevel(resolved.get("coder_context_level", "full"))]
-    )
-    experiments: dict[str, Any] = {}
-    query_elapsed = [
-        float(entry.get("result", {}).get("elapsed_seconds") or 0.0)
-        for entry in results
-    ]
-    token_keys = ("p1_p2", "p3", "p4")
-    token_totals = {
-        key: sum(int(entry.get("result", {}).get("tokens", {}).get(key, 0) or 0) for entry in results)
-        for key in token_keys
-    }
-    coder_contexts = ("full", "schema_only", "minimal")
-    coder_token_totals = {
-        context: sum(
-            int(
-                entry.get("result", {}).get("coder_context_experiment", {})
-                .get("variants", {}).get(context, {}).get("tokens", 0) or 0
-            )
-            for entry in results
-        )
-        for context in coder_contexts
-    }
-    coder_token_totals["unattributed"] = max(
-        0, token_totals["p3"] - sum(coder_token_totals.values())
-    )
-    performance_metrics = {
-        "query_count": len(results),
-        "total_query_elapsed_seconds": sum(query_elapsed),
-        "mean_query_elapsed_seconds": statistics.mean(query_elapsed),
-        "median_query_elapsed_seconds": statistics.median(query_elapsed),
-        "p90_query_elapsed_seconds": sorted(query_elapsed)[
-            max(0, math.ceil(0.9 * len(query_elapsed)) - 1)
-        ],
-        "token_totals": token_totals,
-        "mean_tokens_per_query": {
-            key: total / len(results) for key, total in token_totals.items()
-        },
-        "coder_token_totals_by_context": coder_token_totals,
-        "mean_coder_tokens_per_query_by_context": {
-            key: total / len(results) for key, total in coder_token_totals.items()
-        },
-    }
-    for level in levels:
-        label = (
-            f"{base_label}-coder-{level.value}"
-            if automatic_test_coder
-            else base_label
-        )
-        code_metrics = summarize_code_evaluations(
-            results,
-            coder_context_level=(level.value if automatic_test_coder else None),
-        )
-        cardinality_groups: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
-        for case, result_entry in zip(case_rows, results, strict=True):
-            count = int(case["gold_table_count"])
-            bucket = str(count) if count < 4 else "4+"
-            cardinality_groups.setdefault(bucket, []).append((case, result_entry))
-        table_count_analysis: dict[str, Any] = {}
-        for bucket in ("1", "2", "3", "4+"):
-            group = cardinality_groups.get(bucket, [])
-            if not group:
-                continue
-            group_cases = [case for case, _ in group]
-            evaluations = []
-            for _, result_entry in group:
-                result = result_entry.get("result", {})
-                if automatic_test_coder:
-                    evaluation = (
-                        result.get("coder_context_experiment", {})
-                        .get("variants", {}).get(level.value, {})
-                        .get("code_evaluation", {})
-                    )
-                else:
-                    evaluation = result.get("code_evaluation", {})
-                if evaluation.get("applicable"):
-                    evaluations.append(evaluation)
-            elapsed = sorted(case["elapsed_seconds"] for case in group_cases)
-            p90_index = max(0, math.ceil(0.9 * len(elapsed)) - 1)
-            outcomes = {
-                outcome: sum(case["selection_outcome"] == outcome for case in group_cases)
-                for outcome in ("exact", "partial", "over_selection", "miss")
-            }
-            expansion_count = sum(case["expansion_used"] for case in group_cases)
-            table_count_analysis[bucket] = {
-                "case_count": len(group_cases),
-                "mean_gold_table_count": sum(case["gold_table_count"] for case in group_cases) / len(group_cases),
-                "retrieval": mean_metrics([case["metrics"] for case in group_cases]),
-                "selection": mean_metrics([case["selection_metrics"] for case in group_cases]),
-                "selection_outcomes": outcomes,
-                "code_applicable_count": len(evaluations),
-                "exact_result_match_rate": sum(bool(e.get("exact_result_match")) for e in evaluations) / len(evaluations) if evaluations else 0.0,
-                "supported_result_rate": sum(bool(e.get("supported_correct")) for e in evaluations) / len(evaluations) if evaluations else 0.0,
-                "execution_success_rate": sum(bool(e.get("execution_success")) for e in evaluations) / len(evaluations) if evaluations else 0.0,
-                "mean_elapsed_seconds": statistics.mean(elapsed),
-                "median_elapsed_seconds": statistics.median(elapsed),
-                "p90_elapsed_seconds": elapsed[p90_index],
-                "expansion_usage_rate": expansion_count / len(group_cases),
-            }
-        experiments[label] = {
-            "config": {
-                **retrieval,
-                "mode": retrieval["mode"],
-                "fusion_method": retrieval["fusion_method"],
-                "coder_context_level": level.value,
-                "semantic_code_judge_model": resolved.get(
-                    "semantic_code_judge_model", ""
-                ),
-            },
-            "mean_metrics": mean_metrics(metric_rows),
-            "mean_metrics_successful_queries": mean_metrics(
-                successful_metric_rows
-            ),
-            "mean_selection_metrics": mean_metrics(selection_metric_rows),
-            "augmented_retrieval": {
-                "eligible_case_count": len(augmented_case_rows),
-                "mean_retrieval_metrics": mean_metrics([
-                    case["retrieval_metrics"] for case in augmented_case_rows
-                ]),
-                "mean_selection_metrics": mean_metrics([
-                    case["selection_metrics"] for case in augmented_case_rows
-                ]),
-                "cases": augmented_case_rows,
-            },
-            "expansion_metrics": {
-                "query_count": expansion_query_count,
-                "gold_selected_beyond_initial_count": expansion_contribution_count,
-                "gold_selected_beyond_initial_rate": (
-                    expansion_contribution_count / expansion_query_count
-                    if expansion_query_count else 0.0
-                ),
-            },
-            "successful_case_count": len(successful_metric_rows),
-            "failed_case_count": len(case_rows) - len(successful_metric_rows),
-            "code_metrics": code_metrics,
-            "table_count_analysis": table_count_analysis,
-            "performance_metrics": performance_metrics,
-            "cases": case_rows,
-        }
-    report = {
-        "benchmark_type": "batch-table-selection",
-        "created_at": _now(),
-        "case_count": len(case_rows),
-        "experiments": experiments,
-    }
+    report = batch_report(cases, results, resolved, created_at=_now())
     if append_log:
         append_benchmark_metrics_log(
             report,
@@ -715,7 +436,7 @@ def _append_batch_table_metrics(
             run_id=job_id,
             core=str(resolved["core"]),
             source_path=questions[0]["source_path"],
-            source_job_ids={label: job_id for label in experiments},
+            source_job_ids={label: job_id for label in report["experiments"]},
             model=str(resolved.get("model") or ""),
             architecture=str(resolved.get("discovery_architecture") or ""),
             portal_name=str(
@@ -723,21 +444,7 @@ def _append_batch_table_metrics(
                 or SOLR_CORE_PORTAL_NAMES.get(str(resolved["core"]), resolved["core"])
             ),
         )
-    experiment_report = next(iter(experiments.values()))
-    return {
-        "case_count": len(case_rows),
-        "successful_case_count": experiment_report["successful_case_count"],
-        "failed_case_count": experiment_report["failed_case_count"],
-        "mean_metrics": experiment_report["mean_metrics"],
-        "mean_metrics_successful_queries": experiment_report[
-            "mean_metrics_successful_queries"
-        ],
-        "mean_selection_metrics": experiment_report["mean_selection_metrics"],
-        "augmented_retrieval": experiment_report["augmented_retrieval"],
-        "expansion_metrics": experiment_report["expansion_metrics"],
-        "table_count_analysis": experiment_report["table_count_analysis"],
-        "performance_metrics": experiment_report["performance_metrics"],
-    }
+    return report_summary(report)
 
 
 def _snapshot_job(job_id: str, *, include_results: bool = True) -> dict[str, Any] | None:

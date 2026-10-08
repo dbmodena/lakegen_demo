@@ -1,0 +1,62 @@
+[
+  {
+    "question": "Tally the toxicology element of the 4th atom of each molecule that was carcinogenic.",
+    "source_id": "bird_281",
+    "source_path": "$.cases[0].question",
+    "log_fields": {
+      "SOURCE_ID": "bird_281",
+      "SOURCE_PATH": "$.cases[0].question",
+      "SOURCE_QUESTION": "Tally the toxicology element of the 4th atom of each molecule that was carcinogenic.",
+      "SOURCE_RELEVANT_TABLE_IDS": [
+        "toxicology_atom",
+        "toxicology_molecule"
+      ],
+      "SOURCE_EXPECTED_RESULT_TYPE": "table"
+    }
+  },
+  {
+    "question": "For the branch which located in the south Bohemia with biggest number of inhabitants, what is the percentage of the male clients?",
+    "source_id": "bird_115",
+    "source_path": "$.cases[1].question",
+    "log_fields": {
+      "SOURCE_ID": "bird_115",
+      "SOURCE_PATH": "$.cases[1].question",
+      "SOURCE_QUESTION": "For the branch which located in the south Bohemia with biggest number of inhabitants, what is the percentage of the male clients?",
+      "SOURCE_RELEVANT_TABLE_IDS": [
+        "financial_client",
+        "financial_district"
+      ],
+      "SOURCE_EXPECTED_RESULT_TYPE": "table"
+    }
+  },
+  {
+    "question": "Among products comments with 0 score, what is the total number of users ages 40 years old?",
+    "source_id": "bird_711",
+    "source_path": "$.cases[82].question",
+    "log_fields": {
+      "SOURCE_ID": "bird_711",
+      "SOURCE_PATH": "$.cases[82].question",
+      "SOURCE_QUESTION": "Among products comments with 0 score, what is the total number of users ages 40 years old?",
+      "SOURCE_RELEVANT_TABLE_IDS": [
+        "codebase_community_users",
+        "codebase_community_comments"
+      ],
+      "SOURCE_EXPECTED_RESULT_TYPE": "table"
+    }
+  },
+  {
+    "question": "What is the average fastest lap time of the top 10 drivers in the 2006 United States Grand Prix?",
+    "source_id": "bird_987",
+    "source_path": "$.cases[83].question",
+    "log_fields": {
+      "SOURCE_ID": "bird_987",
+      "SOURCE_PATH": "$.cases[83].question",
+      "SOURCE_QUESTION": "What is the average fastest lap time of the top 10 drivers in the 2006 United States Grand Prix?",
+      "SOURCE_RELEVANT_TABLE_IDS": [
+        "formula_1_results",
+        "formula_1_races"
+      ],
+      "SOURCE_EXPECTED_RESULT_TYPE": "table"
+    }
+  }
+]
