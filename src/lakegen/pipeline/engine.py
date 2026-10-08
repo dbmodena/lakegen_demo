@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from collections.abc import Generator, Mapping
 from typing import Any
 
@@ -200,7 +199,7 @@ class Pipeline:
         run = Run(
             question=question, ctx=ctx, deps=deps, benchmark=benchmark, recorder=recorder,
             state=state, guard=DedupeGuard(), llm=llm, solr=solr, prompt_manager=prompt_manager,
-            all_files=all_files, run_dir=paths.coding_dir() / uuid.uuid4().hex,
+            all_files=all_files, run_dir=paths.coding_dir() / manifest.run_id,
             reproducibility=reproducibility, attempt_evaluator=attempt_evaluator,
             hooks=hooks or StageHooks(),
         )

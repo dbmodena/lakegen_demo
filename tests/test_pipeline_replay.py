@@ -110,3 +110,17 @@ def test_catalogue_metadata_reads_each_tables_document_from_solr():
     assert metadata["ds___r1.parquet"]["title"] == "First" and metadata["ds___r1.parquet"]["columns.name"] == ["year"]
     assert metadata["missing.csv"] == {}
     assert SelectorKind.STORED.value == "stored"
+
+
+def test_the_generated_code_lives_under_the_manifests_run_id(monkeypatch, tmp_path):
+    """The manifest file and the coding directory of a run carry the same id, so one leads to the other."""
+    from lakegen.manifest import create_manifest
+
+    case = Case(experiment(), Script(phase12=[SELECTED], phase3=[phase3_result()], phase4=[ANSWER]), files=FILES)
+    _replacements, log, capture = prepare_run(monkeypatch, tmp_path, service, case, SERVICE_NAMES)
+    ctx = RunContext.from_runtime(make_runtime(case.experiment, tmp_path))
+    manifest = create_manifest(case.experiment, base_dir=tmp_path, question=case.question, run_id="run-1")
+    result = Pipeline(ctx, service.pipeline_deps()).run(case.question, manifest=manifest)
+    assert result.status == "completed" and result.manifest["run_id"] == "run-1"
+    phase3 = next(call for call in log.calls if call["call"] == "phase3_generate_and_execute")
+    assert phase3["kwargs"]["run_dir"].endswith("/coding/run-1")

@@ -51,3 +51,7 @@ branch moves code without changing what a run does.
   the specs and `LAKEGEN_PNEUMA_<LAKE>_BASE_URL` reached ours. The lakes
   now route to 8774 and 8767, `config/services.yaml` no longer needs its
   port override, and the example configs name the same routes.
+- **A run's generated code lives under its manifest's id.** The engine
+  named the coding directory with a fresh uuid unrelated to the manifest
+  it wrote for the same run, so neither could be found from the other.
+  The directory is now `coding/<manifest run_id>/`.
