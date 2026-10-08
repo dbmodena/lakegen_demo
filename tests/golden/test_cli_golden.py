@@ -74,9 +74,15 @@ def _():
     return Case(unified(tool_access="orchestrated_context"), script, files=FILES), ["y"]
 
 
-@scenario("unified_empty_retries_fail")
+@scenario("unified_empty_retries_use_best_available")
 def _():
-    script = Script(phase12=[([], ["parks"], {}, "REJECT_KEYWORDS: nothing matched", "trace", 5)])
+    # Three rejected rounds: the last one forces a selection from the lake's
+    # tables, which is coded without a review (the engine's policy since the
+    # CLI adopted it; the CLI used to give up here).
+    script = Script(
+        phase12=[([], ["parks"], {}, "REJECT_KEYWORDS: nothing matched", "trace", 5)],
+        phase3=[phase3_result()], phase4=[ANSWER],
+    )
     return Case(unified(), script, files=FILES), []
 
 

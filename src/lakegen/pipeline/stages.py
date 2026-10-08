@@ -64,6 +64,7 @@ from lakegen.pipeline.events import (
     Regenerate,
     Request,
     ReviewKeywords,
+    StageFinished,
     StageStarted,
 )
 from lakegen.pipeline.state import RunState
@@ -355,6 +356,7 @@ class DiscoveryStage:
                 return keyword_round
             if not isinstance(answer, Regenerate):
                 raise TypeError(f"a keyword review is answered with Approve or Regenerate, not {answer!r}")
+            self.run.recorder.discarded_keywords(keyword_round[2])
             state.attempted_keywords.extend(keyword_round[0])
             state.attempted_keywords = list(dict.fromkeys(state.attempted_keywords))
             state.hint = answer.hint
@@ -400,7 +402,8 @@ class DiscoveryStage:
             require_semantic_plan=experiment.require_semantic_plan,
             discovery_config=experiment.discovery,
         )
-        self._persist_agent_memory(state.selection_state)
+        if state.keyword_memory_path is not None:
+            self._persist_agent_memory(state.selection_state)
         run.recorder.phase_invocation_counts["discovery"] += 1
         run.recorder.context_telemetry["llm_invocations"] += 1
         return unified_agentic_outcome(raw, state.selection_state)
@@ -503,7 +506,7 @@ class DiscoveryStage:
         outcome = unified_orchestrated_outcome(discovery_result)
         counts["discovery"] += discovery_result.llm_invocations
         telemetry["llm_invocations"] += discovery_result.llm_invocations
-        if memory:
+        if memory and state.keyword_memory_path is not None:
             returned_bans = [
                 frozenset(item) for item in discovery_result.failed_keyword_combinations if item
             ]
@@ -579,6 +582,7 @@ class DiscoveryStage:
         if attempt.last:
             surviving = [t for t in outcome.candidates if t.casefold() not in state.excluded_tables]
             state.selected = (surviving or outcome.candidates or self.run.all_files)[:3]
+            state.forced_selection = True
             return False
         return True
 
@@ -637,6 +641,22 @@ class AnswerStage:
         else:
             result.status = "failed"
             result.error = validation.reason
+
+
+    def run_fallback(self, raw_result: str) -> None:
+        """No code succeeded: synthesise an answer from the failure, the status unchanged."""
+        run, result = self.run, self.run.result
+        synthesis_started = time.monotonic()
+        answer, synthesis_tokens = run.deps.phase4_synthesize(
+            run.question, raw_result, run.llm, run.prompt_manager
+        )
+        run.recorder.phase_invocation_counts["result"] += 1
+        result.answer = answer
+        result.tokens["p4"] = synthesis_tokens
+        result.phase_metrics["result"] = {
+            "latency_seconds": round(time.monotonic() - synthesis_started, 6),
+            "retries": 0,
+        }
 
 
 class _Coding:
@@ -790,6 +810,7 @@ class CodingStage(_Coding):
         index = 0
         while index < MAX_CODE_ATTEMPTS:
             code_attempt = Attempt(index, MAX_CODE_ATTEMPTS)
+            yield StageStarted("code", code_attempt.number)
             code_started = time.monotonic()
             generated = run.deps.phase3_generate_and_execute(
                 run.question,
@@ -825,6 +846,7 @@ class CodingStage(_Coding):
 
             if outcome.status is CodeStatus.BLOCKED_BY_SELECTION:
                 self.blocked(outcome, selection_record, plan_signature)
+                yield StageFinished("code", code_attempt.number, "blocked_by_selection", state.error)
                 return self._after_break(attempt)
             if run.code_evaluation_enabled:
                 attempts = result.code_evaluation["attempts"]
@@ -845,22 +867,28 @@ class CodingStage(_Coding):
                 # forward. (The sweep does not carry yet: see phase 5.3.)
                 self.rejected(outcome, selection_record, who="The code generator", level=None)
                 state.carry(outcome.keep_tables, outcome.skip_tables)
+                yield StageFinished("code", code_attempt.number, "tables_rejected", outcome.error)
                 return self._after_break(attempt)
             if outcome.status is CodeStatus.SUCCESS:
-                verdict = yield from self._succeeded(outcome, generated)
+                verdict = yield from self._succeeded(outcome, generated, code_attempt)
                 if verdict is not None:
                     return verdict
                 index += 1
                 continue
-            if self._failed(outcome, code_attempt):
+            more = self._failed(outcome, code_attempt)
+            # The person sees the coder's own words; the structured repair
+            # context stays with the next attempt.
+            bare_error = str(getattr(generated, "error", "") or "Code execution returned no output.")
+            yield StageFinished("code", code_attempt.number, "failed", bare_error, more=more)
+            if more:
                 index += 1
                 continue
             return self._after_break(attempt)
         return Verdict.STOP
 
     def _succeeded(
-        self, outcome: CodeOutcome, generated: Any,
-    ) -> Generator[StageStarted, Answer, Verdict | None]:
+        self, outcome: CodeOutcome, generated: Any, code_attempt: Attempt,
+    ) -> Generator[StageStarted | StageFinished, Answer, Verdict | None]:
         """The code ran: an empty result tries again (None), anything else is final."""
         run, state, result = self.run, self.run.state, self.run.result
         result.raw_result = outcome.raw_result
@@ -868,6 +896,7 @@ class CodingStage(_Coding):
         if raw_validation.disposition == AnswerDisposition.EMPTY:
             result.pipeline_stages["code_execution"] = "empty"
             state.error = raw_validation.reason
+            yield StageFinished("code", code_attempt.number, "empty", state.error, more=not code_attempt.last)
             return None
         if raw_validation.disposition == AnswerDisposition.REJECTED:
             result.pipeline_stages["code_execution"] = "rejected"
@@ -875,9 +904,11 @@ class CodingStage(_Coding):
             result.answer_disposition = raw_validation.disposition.value
             result.status = "rejected"
             result.error = raw_validation.reason
+            yield StageFinished("code", code_attempt.number, "rejected", state.error)
             return Verdict.RETURN
         if run.code_evaluation_enabled:
             result.code_evaluation = self.judge.adjudicate(result.code_evaluation, generated)
+        yield StageFinished("code", code_attempt.number, "succeeded", str(outcome.raw_result))
         yield StageStarted("answer")
         self.answer.run_answer(outcome.raw_result)
         return Verdict.RETURN

@@ -40,7 +40,7 @@ from lakegen.pipeline.budgets import (
     rejected_selection_signature,
     selection_plan_signature,
 )
-from lakegen.pipeline.context import RunContext
+from lakegen.pipeline.context import MemoryScope, RunContext
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.pipeline.events import (
     Abort,
@@ -49,6 +49,7 @@ from lakegen.pipeline.events import (
     Reject,
     Request,
     ReviewTables,
+    RunStarted,
     Signal,
     StageFinished,
     StageStarted,
@@ -57,6 +58,7 @@ from lakegen.pipeline.stages import (
     CORRECTION_HEADER,
     MAX_CODE_ATTEMPTS,
     MAX_TABLE_ATTEMPTS,
+    AnswerStage,
     CoderSweep,
     CodingStage,
     DiscoveryStage,
@@ -86,8 +88,11 @@ def _open_keyword_memory(state: RunState, ctx: RunContext, question: str) -> Non
     Unified lexical memory belongs to the whole question, not one selection
     round: zero-result knowledge survives coder and selection retries.
     Historical searches are audit data and do not consume the per-question
-    retry budget; only failed combinations affect future runs.
+    retry budget; only failed combinations affect future runs. A run whose
+    surface wants no memory starts blank and persists nothing.
     """
+    if ctx.surface.memory_scope is not MemoryScope.DURABLE:
+        return
     state.keyword_memory_path = paths.keyword_memory_path()
     state.keyword_memory_scope = "|".join((
         ctx.lake,
@@ -111,6 +116,8 @@ class Pipeline:
     def __init__(self, ctx: RunContext, deps: PipelineDeps) -> None:
         self.ctx = ctx
         self.deps = deps
+        self.last_discovery_tokens: tuple[int, int] = (0, 0)
+        """The last run's discovery tokens by phase (keywords, selection), for a driver's summary."""
 
     def run(
         self,
@@ -125,7 +132,7 @@ class Pipeline:
         try:
             event = next(steps)
             while True:
-                if not isinstance(event, StageStarted | StageFinished):
+                if not isinstance(event, RunStarted | StageStarted | StageFinished):
                     raise RuntimeError(f"an autonomous run cannot answer {event!r}")
                 event = steps.send(None)
         except StopIteration as stop:
@@ -138,8 +145,13 @@ class Pipeline:
         question_id: str | int | None = None,
         log_context: Mapping[str, Any] | None = None,
         manifest: ExperimentManifest | None = None,
+        interventions: Any = None,
     ) -> Generator[Signal | Request, Answer | None, QueryResult]:
-        """The run, step by step; see the module docstring."""
+        """The run, step by step; see the module docstring.
+
+        ``interventions`` is the driver's ``HumanInterventionRecorder``; what
+        it records goes into the result.
+        """
         ctx, deps = self.ctx, self.deps
         recorder = Recorder(question, ctx, deps)
         result = recorder.result
@@ -168,6 +180,7 @@ class Pipeline:
         all_files = deps.get_all_table_files(ctx.tables_dir)
         if not all_files:
             raise RuntimeError(f"No CSV or Parquet tables found in {ctx.tables_dir}")
+        yield RunStarted(tables=len(all_files))
 
         state = RunState()
         _open_keyword_memory(state, ctx, question)
@@ -200,7 +213,13 @@ class Pipeline:
                     state.selection_attempts.append(selection_record)
                     yield StageStarted("discovery", table_attempt.number)
                     outcome, keywords_rejected = yield from discovery.run_round(table_attempt, selection_record)
-                    yield StageFinished("discovery", table_attempt.number, "keywords_rejected" if keywords_rejected else "selected")
+                    yield StageFinished(
+                        "discovery", table_attempt.number,
+                        "keywords_rejected" if keywords_rejected
+                        else "forced_selection" if state.forced_selection else "selected",
+                        message=state.reasoning,
+                    )
+                    state.forced_selection = False
                     if keywords_rejected:
                         index += 1
                         continue
@@ -228,9 +247,9 @@ class Pipeline:
                         plan_signature = selection_plan_signature(state.selected, state.selection_state.selection_plan)
                         verdict = _repeated_plan(run, table_attempt, selection_record, plan_signature)
                     if verdict is None:
-                        yield StageStarted("code", table_attempt.number)
+                        yield StageStarted("coding", table_attempt.number)
                         verdict = yield from coding.run_coding(table_attempt, selection_record, plan_signature)
-                        yield StageFinished("code", table_attempt.number, verdict.value)
+                        yield StageFinished("coding", table_attempt.number, verdict.value)
                     if verdict is Verdict.RETURN:
                         return result
                     if verdict is Verdict.STOP:
@@ -242,6 +261,13 @@ class Pipeline:
                     else "failed"
                 )
                 result.error = state.error or "LakeGen could not produce an executable answer."
+                if ctx.surface.answer_on_failure and state.last_generated is not None:
+                    # The step-by-step surfaces still want an answer: synthesise
+                    # one from the failure, the status staying failed.
+                    yield StageStarted("answer")
+                    AnswerStage(run).run_fallback(
+                        f"Execution failed after {MAX_CODE_ATTEMPTS} attempts. Last error: {state.error}"
+                    )
                 return result
             except Exception as exc:
                 result.status = "failed"
@@ -249,6 +275,10 @@ class Pipeline:
                 result.errors.append({"phase": "pipeline", "message": result.error})
                 return result
             finally:
+                if interventions is not None:
+                    result.human_interventions = interventions.to_list()
+                tokens = recorder.discovery_phase_tokens
+                self.last_discovery_tokens = (tokens["p1"], tokens["p2"])
                 recorder.finish(
                     retrieval_runs=retrieval_runs,
                     retrieval_log_context=retrieval_log_context,

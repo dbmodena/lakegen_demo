@@ -33,6 +33,7 @@
         "pm": "<object>",
         "portal_name": "Test portal",
         "query": "How many parks are there per district?",
+        "require_semantic_plan": true,
         "retrieval_config": {
           "alpha": 0.5,
           "candidate_multiplier": 5,
@@ -76,7 +77,52 @@
           "top_k": 20,
           "vector_field": "table_embedding"
         },
-        "solr_client": "<object>"
+        "retrieval_memory": "",
+        "retrieval_observer": "<observe>",
+        "solr_client": "<object>",
+        "state": {
+          "<type>": "P12State",
+          "all_candidates": [],
+          "banned_table_keyword_combinations": [],
+          "best_ranks": {},
+          "blocked_selection": {},
+          "candidate_scores": {},
+          "carried_metadata": {},
+          "carried_tables": [],
+          "confirm_blocks": 0,
+          "confirmed_tables": [],
+          "excluded_tables": [],
+          "expansion_count": 0,
+          "expansion_requirements": [],
+          "failed_keyword_combinations": [],
+          "initial_stall_reason": null,
+          "inspection_cache": {},
+          "inspection_counts": {},
+          "keyword_history": [],
+          "last_confirm_error": null,
+          "plan_failure": null,
+          "proposed_tables": [],
+          "recovery_started": false,
+          "recovery_stop_reason": null,
+          "rejected_selections": [],
+          "rejection_keep_tables": [],
+          "rejection_skip_tables": [],
+          "retrieval_memory_events": [],
+          "search_attempts": [],
+          "search_cache": {},
+          "search_calls": 0,
+          "selection_advisories": [],
+          "selection_plan": {},
+          "selection_plan_source": "none",
+          "selection_reasoning": "",
+          "selection_requirements": {},
+          "semantic_draft": {},
+          "semantic_failure": null,
+          "semantic_planner_attempts": 0,
+          "solr_meta": {},
+          "used_keywords": [],
+          "visible_candidate_count": 0
+        }
       }
     },
     {
@@ -100,15 +146,20 @@
       },
       "call": "phase3_generate_and_execute",
       "kwargs": {
+        "allow_semantic_revision": true,
+        "brief_advisory": true,
         "coder_context_level": "full",
         "error_msg": "",
-        "force_execution": false,
-        "reasoning_placeholder": null,
+        "evaluation_result_type": null,
+        "max_run_calls": 3,
+        "previous_code": "",
+        "require_semantic_plan": true,
         "retries": 0,
         "run_dir": "<TMP>/state/coding/<hex32>",
         "seed": 0,
         "seed_instruction_recorder": "<record_seed_instruction>",
-        "stream_placeholder": null
+        "selection_plan": {},
+        "source_field_names": []
       }
     },
     {
@@ -132,15 +183,20 @@
       },
       "call": "phase3_generate_and_execute",
       "kwargs": {
+        "allow_semantic_revision": true,
+        "brief_advisory": true,
         "coder_context_level": "full",
-        "error_msg": "KeyError: 'district'",
-        "force_execution": false,
-        "reasoning_placeholder": null,
+        "error_msg": "KeyError: 'district'\n\nSTRUCTURED_REPAIR_CONTEXT (authoritative JSON):\n{\"category\": \"runtime_error\", \"retryable\": true, \"stage\": \"execution\"}\nApply repair_hint and rename_hints exactly when present. Do not repeat the failing downstream column label.",
+        "evaluation_result_type": null,
+        "max_run_calls": 2,
+        "previous_code": "print(42)",
+        "require_semantic_plan": true,
         "retries": 1,
         "run_dir": "<TMP>/state/coding/<hex32>",
         "seed": 0,
         "seed_instruction_recorder": "<record_seed_instruction>",
-        "stream_placeholder": null
+        "selection_plan": {},
+        "source_field_names": []
       }
     },
     {
@@ -157,10 +213,20 @@
     {
       "architecture": "unified",
       "code": "print(42)",
-      "debug_raw": "",
+      "csv_filename": "api_experiments_log.csv",
       "elapsed_seconds": 0,
       "error": "",
       "extra_fields": {
+        "ANSWER_DISPOSITION": "valid",
+        "CANDIDATE_MULTIPLIER": 5,
+        "CORE": "nyc",
+        "EMBEDDING_BASE_URL": "http://localhost:11434",
+        "EMBEDDING_MODEL": "cohere.embed-v4.0",
+        "EXPERIMENT_ID": "golden",
+        "FUSION_METHOD": "weighted",
+        "HYBRID_ALPHA": 0.5,
+        "LEXICAL_QUERY_FIELDS": null,
+        "MANIFEST_ID": "<hex32>",
         "MANIFEST_JSON": {
           "core": "nyc",
           "dataset": "nyc",
@@ -345,8 +411,27 @@
           "seed": 0,
           "timestamp": "<timestamp>"
         },
+        "MISSING_SIGNAL_POLICY": "zero",
+        "PIPELINE_STAGES_JSON": {
+          "code_execution": "succeeded",
+          "final_answer": "valid",
+          "retrieval": "no_hits",
+          "table_selection": "selected"
+        },
+        "PORTAL_NAME": "Test portal",
+        "REPRESENTATION_VERSION": "metadata-v1",
+        "RETRIEVAL_MODE": "keyword",
+        "RETRIEVAL_RUNS_JSON": [],
+        "RRF_K": 60,
         "RUN_TRACE_JSON": {
-          "code": "print(42)",
+          "architecture": "unified",
+          "code_evaluation": {
+            "applicable": false,
+            "attempts": [],
+            "final_execution_success": true,
+            "reason": "expected_result_type and reference_result are required"
+          },
+          "coder_context_experiment": {},
           "configuration": {
             "automatic_test_coder": false,
             "benchmark": {
@@ -444,19 +529,68 @@
             "tool_access": "agentic"
           },
           "discovery": {
+            "expansion_requirements": [],
+            "expansion_used": false,
             "keywords": [
               "parks"
             ],
+            "outcome": "selected",
+            "reasoning_available_to_coder": false,
+            "search_attempt_count": 0,
             "selected_datasets": [
               "gold.csv"
             ],
-            "unused_concepts": []
+            "selection_attempts": [
+              {
+                "attempt": 1,
+                "initial_stall_reason": null,
+                "kept_tables": [],
+                "keywords": [
+                  "parks"
+                ],
+                "outcome": "selected",
+                "reasoning_available_to_coder": false,
+                "recovery_started": false,
+                "recovery_stop_reason": null,
+                "rejection_feedback": "",
+                "selected_datasets": [
+                  "gold.csv"
+                ],
+                "selection_advisories": [],
+                "selection_plan": {},
+                "selection_plan_source": "none",
+                "semantic_draft_present": false,
+                "semantic_plan_failure": null,
+                "semantic_planner_attempts": 0,
+                "skipped_tables": []
+              }
+            ]
           },
-          "errors": [],
+          "errors": [
+            {
+              "details": {
+                "category": "runtime_error",
+                "retryable": true,
+                "stage": "execution"
+              },
+              "message": "KeyError: 'district'\n\nSTRUCTURED_REPAIR_CONTEXT (authoritative JSON):\n{\"category\": \"runtime_error\", \"retryable\": true, \"stage\": \"execution\"}\nApply repair_hint and rename_hints exactly when present. Do not repeat the failing downstream column label.",
+              "phase": "code",
+              "type": "runtime_error"
+            }
+          ],
           "execution_outcome": {
-            "error": null,
+            "code_evaluation": {
+              "applicable": false,
+              "attempts": [],
+              "final_execution_success": true,
+              "reason": "expected_result_type and reference_result are required"
+            },
+            "coder_context_experiment": {},
+            "coder_review": null,
+            "coder_runs": 1,
+            "error": "",
             "raw_result": "42",
-            "status": "completed"
+            "status": "succeeded"
           },
           "human_interventions": [
             {
@@ -502,19 +636,23 @@
           ],
           "phase_metrics": {
             "code": {
-              "latency_seconds": 0
+              "latency_seconds": 0,
+              "retries": 1
             },
             "discovery": {
-              "latency_seconds": 0
+              "latency_seconds": 0,
+              "retries": 0
             },
             "result": {
-              "latency_seconds": 0
+              "latency_seconds": 0,
+              "retries": 0
             },
             "total": {
-              "latency_seconds": 0
+              "latency_seconds": 0,
+              "retries": 1
             }
           },
-          "phase_reached": "result",
+          "ranking": [],
           "reproducibility": {
             "configured_seed": 0,
             "deterministic_llm_generation": false,
@@ -533,11 +671,10 @@
               "oci_llm_generation"
             ]
           },
-          "retries": 1,
-          "status": "completed",
           "tool_access": {
             "agent_count": 1,
             "agent_direct_tools": [],
+            "coder_context_audit": null,
             "configured_tool_access": "agentic",
             "discovery_architecture": "unified",
             "empty_context_retries": 0,
@@ -549,11 +686,16 @@
             "prepared_context_utf8_bytes": 0,
             "request_protocol_error": null,
             "retrieval_mode": "keyword",
-            "retrieved_hit_count": 0,
             "selector_error": null
           },
           "tool_calls": []
-        }
+        },
+        "TOKENS_CODE_FULL": 0,
+        "TOKENS_CODE_MINIMAL": 0,
+        "TOKENS_CODE_SCHEMA_ONLY": 0,
+        "TOKENS_CODE_UNATTRIBUTED": 12,
+        "TOP_K": 20,
+        "VECTOR_FIELD": "table_embedding"
       },
       "final_keywords": [
         "parks"
@@ -562,7 +704,6 @@
       "full_trace": "trace",
       "model": "openai.gpt-oss-120b",
       "question": "How many parks are there per district?",
-      "raw_keywords": "",
       "reasoning": "The table covers the question.",
       "result": "42",
       "retries": 1,

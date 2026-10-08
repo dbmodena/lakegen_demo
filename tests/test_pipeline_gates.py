@@ -34,6 +34,7 @@ from lakegen.pipeline.events import (
     Reject,
     ReviewKeywords,
     ReviewTables,
+    RunStarted,
     StageFinished,
     StageStarted,
 )
@@ -56,7 +57,7 @@ def _drive(monkeypatch, tmp_path, case: Case, answers: list, *, gated: bool = Tr
     event = next(steps)
     try:
         while True:
-            if isinstance(event, StageStarted | StageFinished):
+            if isinstance(event, RunStarted | StageStarted | StageFinished):
                 signals.append(event)
                 event = steps.send(None)
                 continue
@@ -72,10 +73,13 @@ def test_an_autonomous_run_asks_nothing_and_a_gated_one_reviews_the_tables(monke
     case = Case(experiment(), Script(phase12=[SELECTED], phase3=[phase3_result()], phase4=[ANSWER]), files=FILES)
     asked, signals, result, _ = _drive(monkeypatch, tmp_path, case, [], gated=False)
     assert asked == [] and result.status == "completed"
-    assert [(s.stage, type(s).__name__) for s in signals] == [
-        ("discovery", "StageStarted"), ("discovery", "StageFinished"), ("code", "StageStarted"),
-        ("answer", "StageStarted"), ("code", "StageFinished"),
+    assert signals[0] == RunStarted(tables=2)
+    assert [(s.stage, type(s).__name__) for s in signals[1:]] == [
+        ("discovery", "StageStarted"), ("discovery", "StageFinished"),
+        ("coding", "StageStarted"), ("code", "StageStarted"), ("code", "StageFinished"),
+        ("answer", "StageStarted"), ("coding", "StageFinished"),
     ]
+    assert signals[2].detail == "selected" and signals[5].detail == "succeeded" and signals[5].message == "42"
     asked, _, result, _ = _drive(monkeypatch, tmp_path, case, [Approve()])
     assert asked == [ReviewTables(keywords=["parks"], selected=["gold.csv"], reasoning="The table covers the question.", tokens=5)]
     assert result.status == "completed" and result.answer == "There are 42 parks."

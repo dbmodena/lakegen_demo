@@ -59,6 +59,8 @@ class RunState:
     last_generated: Any = None
     """The coder's last result object, for the record."""
     after_coder_rejection: bool = False
+    forced_selection: bool = False
+    """The last round's selection was forced on the last attempt, not chosen."""
     """The next discovery round follows a coder rejection (a gated review may only approve or abort)."""
 
     def carry(self, keep_tables: list[str], skip_tables: list[str], inspection_cache: dict[str, str] | None = None) -> None:

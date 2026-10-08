@@ -13,9 +13,15 @@ from dataclasses import dataclass, field
 # --- signals -----------------------------------------------------------------
 
 @dataclass(frozen=True)
+class RunStarted:
+    tables: int
+    """How many tables the lake holds."""
+
+
+@dataclass(frozen=True)
 class StageStarted:
     stage: str
-    """``discovery``, ``code`` or ``answer``."""
+    """``discovery`` (a round), ``coding`` (a round), ``code`` (an attempt) or ``answer``."""
     attempt: int = 1
 
 
@@ -24,7 +30,11 @@ class StageFinished:
     stage: str
     attempt: int = 1
     detail: str = ""
-    """The discovery outcome's status or the coding verdict."""
+    """Discovery: ``selected``, ``keywords_rejected`` or ``forced_selection``; code: the attempt's status."""
+    message: str = ""
+    """Discovery: the architect's reason; code: the result or the error."""
+    more: bool = False
+    """Another attempt of the same stage follows."""
 
 
 # --- requests and their answers ----------------------------------------------
@@ -90,6 +100,6 @@ class Abort:
     reason: str = field(default="Workflow cancelled by user")
 
 
-Signal = StageStarted | StageFinished
+Signal = RunStarted | StageStarted | StageFinished
 Request = ReviewKeywords | ReviewTables | CoderRejected
 Answer = Approve | Regenerate | Reject | Force | Rediscover | Abort

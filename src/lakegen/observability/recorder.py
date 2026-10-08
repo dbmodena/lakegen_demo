@@ -162,6 +162,11 @@ class Recorder:
         )
         result.pipeline_stages["table_selection"] = "selected" if state.selected else "empty"
 
+    def discarded_keywords(self, tokens: int) -> None:
+        """A keyword round a person sent back still spent its tokens."""
+        self.result.tokens["p1_p2"] += tokens
+        self.discovery_phase_tokens["p1"] += tokens
+
     def code_attempt(self, outcome: Any, *, attempt: Any, elapsed: float) -> None:
         """A coder attempt ended: its invocation, audit, tokens and time."""
         result = self.result

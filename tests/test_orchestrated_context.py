@@ -697,8 +697,8 @@ def test_cli_unified_empty_retries_write_exactly_one_terminal_log(monkeypatch, t
 
     assert len(logs) == 1
     assert logs[0]["status"] == "failed"
+    assert logs[0]["extra_fields"]["PIPELINE_STAGES_JSON"]["code_execution"] == "not_run"
     run_trace = logs[0]["extra_fields"]["RUN_TRACE_JSON"]
-    assert run_trace["phase_reached"] == "discovery"
     assert run_trace["tool_access"]["empty_context_retries"] == 3
     assert run_trace["tool_access"]["orchestrator_retrieval_calls"] == {"keyword": 3}
 
