@@ -31,6 +31,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from lakegen.core import config as core_config
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.orchestrated_context import PreparedCandidate, PreparedDiscoveryContext
 from lakegen.phases.orchestrated_discovery import DiscoveryResult
@@ -312,6 +313,9 @@ SERVICE_NAMES = {**COMMON_NAMES, "judge": "judge_semantic_code_result", "log_ret
 def prepare_run(monkeypatch, tmp_path: Path, module, case: Case, names: dict[str, str]):
     """Install the fakes for ``case`` on ``module`` and return the recorders."""
     replacements = {str(tmp_path): "<TMP>"}
+    # The manifest records the lake's paths; under the temporary root they are
+    # the same on every machine and masked with it.
+    monkeypatch.setattr(core_config, "BASE_DIR", tmp_path)
     log = CallLog(replacements)
     capture = Capture(replacements)
     for name in case.files:

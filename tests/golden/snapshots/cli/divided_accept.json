@@ -150,6 +150,21 @@
         "MANIFEST_JSON": {
           "core": "nyc",
           "dataset": "nyc",
+          "effective": {
+            "model": "openai.gpt-oss-120b",
+            "pneuma_base_url": "http://localhost:8765",
+            "pneuma_index_name": "lakegen-cohere-v4-1024",
+            "solr_core": "nyc",
+            "switches": {
+              "enable_tabpfn": false,
+              "groq_offload": false,
+              "selection_cardinality_experiment": false,
+              "together_parallel_tool_calls": true,
+              "together_recover_leaks": true
+            },
+            "tables_dir": "<TMP>/data/nyc/datasets/parquets"
+          },
+          "env_overrides": {},
           "experiment_id": "golden",
           "git_version": "<git>",
           "model": "openai.gpt-oss-120b",
@@ -562,6 +577,21 @@
     {
       "core": "nyc",
       "dataset": "nyc",
+      "effective": {
+        "model": "openai.gpt-oss-120b",
+        "pneuma_base_url": "http://localhost:8765",
+        "pneuma_index_name": "lakegen-cohere-v4-1024",
+        "solr_core": "nyc",
+        "switches": {
+          "enable_tabpfn": false,
+          "groq_offload": false,
+          "selection_cardinality_experiment": false,
+          "together_parallel_tool_calls": true,
+          "together_recover_leaks": true
+        },
+        "tables_dir": "<TMP>/data/nyc/datasets/parquets"
+      },
+      "env_overrides": {},
       "experiment_id": "golden",
       "git_version": "<git>",
       "model": "openai.gpt-oss-120b",

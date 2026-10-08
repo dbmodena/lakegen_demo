@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import ConfigDict, BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
+from lakegen.config.registry import get_lake
+from lakegen.config.settings import get_settings, retrieval_env_overrides
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.reproducibility import initialize_reproducibility
 
@@ -88,6 +90,12 @@ class ExperimentManifest(BaseModel):
     retrieval_parameters: dict[str, Any]
     resolved_config: dict[str, Any]
     reproducibility: dict[str, Any]
+    # LAKEGEN_* retrieval variables set when the config was loaded (flat key -> value).
+    env_overrides: dict[str, Any] = Field(default_factory=dict)
+    # What the run actually used, resolved from the config, the registries and the
+    # environment: the model, the Solr core, the tables directory, the Pneuma
+    # route and the behaviour switches that are not part of the config.
+    effective: dict[str, Any] = Field(default_factory=dict)
 
 
 def create_manifest(
@@ -117,7 +125,30 @@ def create_manifest(
         retrieval_parameters=retrieval,
         resolved_config=resolved,
         reproducibility=initialize_reproducibility(config.seed).telemetry(),
+        env_overrides=redact_secrets(retrieval_env_overrides()),
+        effective=effective_settings(config),
     )
+
+
+def effective_settings(config: ExperimentConfig) -> dict[str, Any]:
+    """What a run of ``config`` uses, beyond what the config itself says."""
+    lake = get_lake(config.core)
+    pneuma_url, pneuma_index = lake.pneuma_route()
+    env = get_settings()
+    return redact_secrets({
+        "model": config.model,
+        "solr_core": lake.solr_core,
+        "tables_dir": str(lake.tables_dir),
+        "pneuma_base_url": pneuma_url,
+        "pneuma_index_name": pneuma_index,
+        "switches": {
+            "selection_cardinality_experiment": env.selection_cardinality_experiment,
+            "enable_tabpfn": env.enable_tabpfn,
+            "groq_offload": env.groq_offload,
+            "together_parallel_tool_calls": env.together_parallel_tool_calls,
+            "together_recover_leaks": env.together_recover_leaks,
+        },
+    })
 
 
 def persist_manifest(manifest: ExperimentManifest, directory: Path) -> Path:
