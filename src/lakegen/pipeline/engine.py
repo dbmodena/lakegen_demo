@@ -19,10 +19,12 @@ from typing import Any
 
 from lakegen.agent_tools.tools_p12 import P12State
 from lakegen.code_attempts import CodeAttemptEvaluator
-from lakegen.coder_experiment import run_coder_context_sweep, serialize_retry_error
+from lakegen.coder_experiment import run_coder_context_sweep
 from lakegen.core import paths
 from lakegen.core.config import BASE_DIR
 from lakegen.core.resources import capture_retrieval_runs, make_retrieval_run_observer
+from lakegen.domain.evaluation import EvaluationContext
+from lakegen.domain.outcomes import CodeStatus
 from lakegen.experiment_config import CoderContextLevel, DiscoveryArchitecture, ToolAccess
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
@@ -42,6 +44,7 @@ from lakegen.phases.orchestrated_discovery import (
     selector_retry_reason,
 )
 from lakegen.phases.utils import rejection_feedback_hint
+from lakegen.pipeline.adapters import code_outcome, sweep_outcome
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.reproducibility import initialize_reproducibility
@@ -220,35 +223,21 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
 
     started = time.monotonic()
     result = QueryResult(question=question, status="running")
-    expected_result_type = (
-        str(log_context.get("SOURCE_EXPECTED_RESULT_TYPE"))
-        if log_context and log_context.get("SOURCE_EXPECTED_RESULT_TYPE")
-        else ""
-    )
-    reference_result = (
-        log_context.get("SOURCE_REFERENCE_RESULT") if log_context else None
-    )
-    expected_result_description = (
-        str(log_context.get("SOURCE_EXPECTED_RESULT_DESCRIPTION") or "")
-        if log_context
-        else ""
-    )
-    evaluation_contract = (
-        log_context.get("SOURCE_EVALUATION_CONTRACT", {}) if log_context else {}
-    )
-    if not isinstance(evaluation_contract, Mapping):
-        evaluation_contract = {}
+    benchmark = EvaluationContext.from_log_context(log_context)
+    expected_result_type = benchmark.expected_result_type
+    reference_result = benchmark.reference_result
+    expected_result_description = benchmark.expected_description
     attempt_evaluator = CodeAttemptEvaluator(
         expected_result_type=expected_result_type,
         reference_result=reference_result,
         expected_description=expected_result_description,
-        evaluation_contract=dict(evaluation_contract),
+        evaluation_contract=dict(benchmark.evaluation_contract),
     )
     code_evaluation_enabled = attempt_evaluator.enabled
     result.code_evaluation = attempt_evaluator.initial_evaluation()
     discovery_phase_tokens = {"p1": 0, "p2": 0}
     experiment = ctx.experiment
-    source_id = log_context.get("SOURCE_ID") if log_context else None
+    source_id = benchmark.source_id
     reproducibility = initialize_reproducibility(experiment.seed)
     manifest = manifest or create_manifest(
         experiment,
@@ -454,7 +443,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
         generated_code_seed_instruction_provided = True
 
     retrieval_log_context = {
-        **dict(log_context or {}),
+        **benchmark.to_log_fields(),
         "EXPERIMENT_ID": experiment.experiment_id,
     }
     with capture_retrieval_runs(retrieval_log_context) as retrieval_runs:
@@ -934,14 +923,15 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         max_attempts=MAX_CODE_ATTEMPTS,
                         context_levels=[CoderContextLevel.FULL],
                         selection_plan=dict(selection_state.selection_plan),
-                        source_field_names=list((log_context or {}).keys()),
+                        source_field_names=benchmark.field_names,
                         require_semantic_plan=experiment.require_semantic_plan,
                     )
                     primary = variants[CoderContextLevel.FULL.value]
-                    _record_semantic_plan_telemetry(
-                        result, primary.get("coder_context_audit")
+                    sweep = sweep_outcome(
+                        primary, require_semantic_plan=experiment.require_semantic_plan
                     )
-                    coder_audit = primary.get("coder_context_audit") or {}
+                    _record_semantic_plan_telemetry(result, sweep.audit)
+                    coder_audit = sweep.audit or {}
                     selection_record["coder_brief_status"] = str(
                         coder_audit.get("effective_coder_brief_status")
                         or coder_audit.get("status") or "missing"
@@ -949,18 +939,15 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     selection_record["coder_started"] = bool(
                         coder_audit.get("coder_started_after_verified_plan")
                     )
-                    selection_record["coder_outcome"] = primary.get("status")
-                    if (
-                        experiment.require_semantic_plan
-                        and (primary.get("execution_error") or {}).get("stage") == "selection_contract_gate"
-                    ):
+                    selection_record["coder_outcome"] = sweep.raw_status
+                    if sweep.status is CodeStatus.BLOCKED_BY_SELECTION:
                         selection_record["outcome"] = "selection_contract_blocked"
                         result.pipeline_stages["code_execution"] = "blocked_by_selection"
                         result.code_evaluation.update({
                             "evaluation_disposition": "blocked",
                             "error_category": "selection_contract_gate",
                         })
-                        error = primary["error"]
+                        error = sweep.error
                         if (
                             coder_audit.get("status") == "missing"
                             and last_coder_rejection
@@ -971,7 +958,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             error = (
                                 "Selection recovery produced no contract. Original "
                                 f"coder rejection: {last_coder_rejection['reason']} "
-                                f"Current gate: {primary['error']}"
+                                f"Current gate: {sweep.error}"
                             )
                         feedback = _selection_retry_feedback(
                             selected, coder_audit, error
@@ -986,17 +973,17 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         if table_attempt < MAX_TABLE_ATTEMPTS - 1:
                             continue
                         break
-                    if primary["status"] == "tables_rejected":
-                        rejection_reason = primary["error"]
+                    if sweep.status is CodeStatus.TABLES_REJECTED:
+                        rejection_reason = sweep.error
                         last_coder_rejection = {
                             "reason": rejection_reason,
-                            "details": primary.get("rejection_details") or {},
+                            "details": sweep.rejection_details,
                             "tables": list(selected),
                         }
                         rejected_selection_keys.add(selection_key)
                         rejected_selection_signatures.append(
                             _rejected_selection_signature(
-                                selected, primary.get("rejection_details"), rejection_reason
+                                selected, sweep.rejection_details, rejection_reason
                             )
                         )
                         selection_record["outcome"] = "tables_rejected"
@@ -1046,7 +1033,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             CoderContextLevel.MINIMAL,
                         ],
                         selection_plan=dict(selection_state.selection_plan),
-                        source_field_names=list((log_context or {}).keys()),
+                        source_field_names=benchmark.field_names,
                         require_semantic_plan=experiment.require_semantic_plan,
                     ))
                     result.coder_context_experiment = {
@@ -1058,11 +1045,10 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         "variants": variants,
                     }
                     selection_record["outcome"] = "accepted"
-                    result.code = primary["code"]
+                    result.code = sweep.code
                     result.raw_result = primary["raw_result"]
                     result.code_evaluation = primary["code_evaluation"]
-                    primary_status = primary["status"]
-                    if primary_status == "completed":
+                    if sweep.status is CodeStatus.SUCCESS:
                         result.pipeline_stages["code_execution"] = "succeeded"
                         result.code_evaluation["final_execution_success"] = True
                         synthesis_started = time.monotonic()
@@ -1093,11 +1079,11 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             result.status = "failed"
                             result.error = validation.reason
                     else:
-                        result.pipeline_stages["code_execution"] = primary_status
+                        result.pipeline_stages["code_execution"] = sweep.raw_status
                         result.status = (
-                            "rejected" if primary_status == "rejected" else "failed"
+                            "rejected" if sweep.raw_status == "rejected" else "failed"
                         )
-                        result.error = primary["error"]
+                        result.error = sweep.error
                     return result
 
                 previous_code = ""
@@ -1123,7 +1109,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         evaluation_result_type=None,
                         max_run_calls=max(1, MAX_CODE_ATTEMPTS - total_code_runs),
                         selection_plan=dict(selection_state.selection_plan),
-                        source_field_names=list((log_context or {}).keys()),
+                        source_field_names=benchmark.field_names,
                         require_semantic_plan=experiment.require_semantic_plan,
                         allow_semantic_revision=(
                             experiment.revision_experiment_mode.value == "current"
@@ -1132,11 +1118,12 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             experiment.coder_brief_mode.value == "advisory"
                         ),
                     )
-                    phase_invocation_counts["code"] += 1
-                    _record_semantic_plan_telemetry(
-                        result, getattr(generated, "coder_context_audit", None)
+                    outcome = code_outcome(
+                        generated, require_semantic_plan=experiment.require_semantic_plan
                     )
-                    result.tokens["p3"] += generated.tokens
+                    phase_invocation_counts["code"] += 1
+                    _record_semantic_plan_telemetry(result, outcome.audit)
+                    result.tokens["p3"] += outcome.tokens
                     code_metric = result.phase_metrics.setdefault(
                         "code", {"latency_seconds": 0.0, "retries": 0}
                     )
@@ -1147,22 +1134,19 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     )
                     code_metric["retries"] = code_attempt
                     result.retries += int(code_attempt > 0)
-                    total_code_runs += int(getattr(generated, "coder_runs", 0) or 0)
-                    previous_code = generated.clean_code or generated.code_raw
+                    total_code_runs += outcome.coder_runs
+                    previous_code = outcome.code
                     result.code = previous_code
 
-                    if (
-                        experiment.require_semantic_plan
-                        and (getattr(generated, "execution_error", None) or {}).get("stage") == "selection_contract_gate"
-                    ):
+                    if outcome.status is CodeStatus.BLOCKED_BY_SELECTION:
                         selection_record["outcome"] = "selection_contract_blocked"
                         result.pipeline_stages["code_execution"] = "blocked_by_selection"
                         result.code_evaluation.update({
                             "evaluation_disposition": "blocked",
                             "error_category": "selection_contract_gate",
                         })
-                        error = generated.error or "The selection contract was not verified."
-                        audit = getattr(generated, "coder_context_audit", None) or {}
+                        error = outcome.error
+                        audit = outcome.audit or {}
                         if audit.get("status") == "missing" and last_coder_rejection:
                             selection_record["recovery_from_rejection"] = dict(
                                 last_coder_rejection
@@ -1190,17 +1174,16 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         result.code_evaluation = attempt_evaluator.summarize(attempts)
                         result.code_evaluation["generation_attempt_count"] = code_attempt + 1
 
-                    if generated.rejected_reason:
+                    if outcome.status is CodeStatus.TABLES_REJECTED:
                         last_coder_rejection = {
-                            "reason": generated.rejected_reason,
-                            "details": generated.rejection_details or {},
+                            "reason": outcome.error,
+                            "details": outcome.rejection_details,
                             "tables": list(selected),
                         }
                         rejected_selection_keys.add(selection_key)
                         rejected_selection_signatures.append(
                             _rejected_selection_signature(
-                                selected, generated.rejection_details,
-                                generated.rejected_reason,
+                                selected, outcome.rejection_details, outcome.error,
                             )
                         )
                         # The coder's own per-table judgment feeds the same
@@ -1208,9 +1191,9 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         # table it proved unusable is banned outright, and
                         # one it found partially useful carries forward
                         # instead of being lost with the rest of the set.
-                        for table in generated.rejection_skip_tables:
+                        for table in outcome.skip_tables:
                             excluded_tables.add(table.casefold())
-                        for table in generated.rejection_keep_tables:
+                        for table in outcome.keep_tables:
                             if table.casefold() in excluded_tables:
                                 continue
                             if table not in carried_tables:
@@ -1224,7 +1207,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         result.errors.append({
                             "phase": "code",
                             "type": "tables_rejected",
-                            "message": generated.rejected_reason,
+                            "message": outcome.error,
                         })
                         result.pipeline_stages["code_execution"] = "tables_rejected"
                         previous_visible = [
@@ -1239,14 +1222,14 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             f"retrieval returns them again: {previous_visible}. Select a "
                             "different combination. Start a genuinely new search only if "
                             "none covers the missing requirement. Feedback: "
-                            f"{generated.rejected_reason}"
+                            f"{outcome.error}"
                         )
-                        error = generated.rejected_reason
+                        error = outcome.error
                         break
 
-                    if generated.error is None and generated.raw_result is not None:
-                        result.raw_result = generated.raw_result
-                        raw_validation = validate_answer(generated.raw_result)
+                    if outcome.status is CodeStatus.SUCCESS:
+                        result.raw_result = outcome.raw_result
+                        raw_validation = validate_answer(outcome.raw_result)
                         if raw_validation.disposition == AnswerDisposition.EMPTY:
                             result.pipeline_stages["code_execution"] = "empty"
                             error = raw_validation.reason
@@ -1267,7 +1250,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         result.code_evaluation["final_execution_success"] = True
                         synthesis_started = time.monotonic()
                         answer, synthesis_tokens = deps.phase4_synthesize(
-                            question, generated.raw_result, llm, prompt_manager
+                            question, outcome.raw_result, llm, prompt_manager
                         )
                         phase_invocation_counts["result"] += 1
                         result.answer = answer
@@ -1278,7 +1261,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             ),
                             "retries": 0,
                         }
-                        validation = validate_answer(generated.raw_result, answer)
+                        validation = validate_answer(outcome.raw_result, answer)
                         result.answer_disposition = validation.disposition.value
                         result.pipeline_stages["final_answer"] = validation.disposition.value
                         if validation.disposition == AnswerDisposition.VALID:
@@ -1292,15 +1275,13 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             result.error = validation.reason
                         return result
 
-                    error = serialize_retry_error(generated)
+                    error = outcome.error
                     error_record = {
                         "phase": "code",
                         "type": "execution_error",
                         "message": error,
                     }
-                    structured_execution_error = getattr(
-                        generated, "execution_error", None
-                    )
+                    structured_execution_error = outcome.execution_error
                     if structured_execution_error:
                         error_record["details"] = structured_execution_error
                         error_record["type"] = structured_execution_error.get(
@@ -1308,11 +1289,8 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         )
                     result.errors.append(error_record)
                     result.pipeline_stages["code_execution"] = "failed"
-                    if getattr(generated, "coder_runs", 0):
-                        retryable = bool(
-                            (structured_execution_error or {}).get("retryable")
-                        )
-                        if retryable and code_attempt < MAX_CODE_ATTEMPTS - 1:
+                    if outcome.coder_runs:
+                        if outcome.retryable and code_attempt < MAX_CODE_ATTEMPTS - 1:
                             continue
                         break
                 else:
@@ -1496,10 +1474,9 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     "coder_context_experiment": result.coder_context_experiment,
                 },
             }
-            if log_context:
-                extra_fields.update(log_context)
-            gold_tables = extra_fields.get("SOURCE_RELEVANT_TABLE_IDS")
-            if isinstance(gold_tables, list) and gold_tables:
+            extra_fields.update(benchmark.to_log_fields())
+            gold_tables = benchmark.relevant_tables
+            if gold_tables:
                 ranking_entries = [
                     entry for entry in getattr(result, "ranking", [])
                     if isinstance(entry, dict)
