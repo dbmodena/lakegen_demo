@@ -31,7 +31,7 @@ from lakegen.phases import (
     phase4_synthesize,
 )
 from lakegen.phases.utils import rejection_feedback_hint
-from lakegen.ui.state import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
+from lakegen.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode, evaluate_ranking
 from lakegen.retrieval.intent import intent_entities
 from lakegen.output_validation import AnswerDisposition, validate_answer

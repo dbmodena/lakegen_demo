@@ -41,7 +41,7 @@ from lakegen.phases import (
 from lakegen.core.logger import save_experiment_log
 from lakegen.core import paths
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
-from lakegen.ui.state import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
+from lakegen.runtime import RuntimeSettings, SOLR_CORE_OPTIONS, MODEL_OPTIONS
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
 from lakegen.experiment_config import load_experiment_config, ToolAccess
 from lakegen.manifest import create_manifest, persist_manifest

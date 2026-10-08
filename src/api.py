@@ -42,7 +42,7 @@ from lakegen.service import (
     make_runtime_settings,
     run_question,
 )
-from lakegen.ui.state import (
+from lakegen.runtime import (
     MODEL_OPTIONS,
     SOLR_CORE_OPTIONS,
     SOLR_CORE_PORTAL_NAMES,
