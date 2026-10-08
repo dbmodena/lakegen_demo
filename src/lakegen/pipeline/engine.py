@@ -35,6 +35,7 @@ from lakegen.keyword_memory import (
     question_memory_key,
 )
 from lakegen.manifest import ExperimentManifest, create_manifest
+from lakegen.observability.recorder import Recorder, record_semantic_plan_telemetry
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.phases.orchestrated_discovery import (
     OrchestratedContextPreparationError,
@@ -53,10 +54,11 @@ from lakegen.pipeline.adapters import (
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.reproducibility import initialize_reproducibility
-from lakegen.retrieval import evaluate_ranking
 from lakegen.retrieval.intent import intent_entities
 from lakegen.service_models import QueryResult
-from lakegen.tracing import build_llm_phase_records, summarize_final_ranking, summarize_tool_calls
+
+# The helper the tests import from here; it lives with the recorder now.
+_record_semantic_plan_telemetry = record_semantic_plan_telemetry
 
 MAX_CODE_ATTEMPTS = 3
 MAX_TABLE_ATTEMPTS = 3
@@ -164,57 +166,6 @@ def _selection_retry_feedback(
     }
 
 
-def _record_semantic_plan_telemetry(result: QueryResult, audit: Mapping[str, Any] | None) -> None:
-    audit = audit or {}
-    status = str(
-        audit.get("semantic_plan_final_status")
-        or audit.get("semantic_plan_status") or audit.get("status") or "missing"
-    )
-    initial_status = str(audit.get("semantic_plan_initial_status") or status)
-    coder_start_status = str(
-        audit.get("semantic_plan_coder_start_status")
-        or (initial_status if audit.get("coder_started_after_verified_plan") else "not_started")
-    )
-    if result.semantic_plan_initial_status == "missing" and not result.semantic_plan_present:
-        result.semantic_plan_initial_status = initial_status
-    result.semantic_plan_final_status = status
-    result.semantic_plan_present = bool(audit.get("semantic_plan_present"))
-    result.semantic_plan_status = status
-    result.semantic_plan_locked = bool(audit.get("semantic_plan_locked"))
-    result.semantic_plan_revised = bool(audit.get("semantic_plan_revised"))
-    result.semantic_plan_rejected = bool(audit.get("semantic_plan_rejected"))
-    result.semantic_plan_validation_diagnostics = list(
-        audit.get("validation_diagnostics") or audit.get("diagnostics") or []
-    )
-    result.validation_diagnostics = list(result.semantic_plan_validation_diagnostics)
-    result.semantic_plan_evidence_count = int(
-        audit.get("evidence_count", len(audit.get("evidence") or []))
-    )
-    result.evidence_count = result.semantic_plan_evidence_count
-    brief = audit.get("coder_brief")
-    result.coder_brief_present = isinstance(brief, Mapping) and bool(brief)
-    result.selection_brief_status = str(
-        audit.get("selection_brief_status") or initial_status
-    )
-    result.effective_coder_brief_status = str(
-        audit.get("effective_coder_brief_status") or status
-    )
-    result.effective_coder_brief_source = str(
-        audit.get("effective_coder_brief_source") or ""
-    )
-    if result.coder_brief_present or audit.get("contract_type") == "coder_brief":
-        result.coder_brief_status = result.effective_coder_brief_status
-    result.coder_started_after_verified_plan = bool(
-        audit.get("coder_started_after_verified_plan")
-    )
-    if result.coder_started_after_verified_plan:
-        result.semantic_plan_coder_start_status = coder_start_status
-        if result.coder_brief_present or audit.get("contract_type") == "coder_brief":
-            result.coder_brief_coder_start_status = coder_start_status
-    if audit and not result.coder_started_after_verified_plan:
-        result.coder_blocked_before_start_count += 1
-
-
 def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it into stages)
     question: str,
     ctx: RunContext,
@@ -226,8 +177,8 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
 ) -> QueryResult:
     """Run the autonomous LakeGen workflow for one question."""
 
-    started = time.monotonic()
-    result = QueryResult(question=question, status="running")
+    recorder = Recorder(question, ctx, deps)
+    result = recorder.result
     benchmark = EvaluationContext.from_log_context(log_context)
     expected_result_type = benchmark.expected_result_type
     reference_result = benchmark.reference_result
@@ -240,7 +191,6 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
     )
     code_evaluation_enabled = attempt_evaluator.enabled
     result.code_evaluation = attempt_evaluator.initial_evaluation()
-    discovery_phase_tokens = {"p1": 0, "p2": 0}
     experiment = ctx.experiment
     source_id = benchmark.source_id
     reproducibility = initialize_reproducibility(experiment.seed)
@@ -313,25 +263,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
     # inspection budget on re-verifying what was already known.
     carried_inspection: dict[str, str] = {}
     excluded_tables: set[str] = set()
-    phase_invocation_counts = {"discovery": 0, "code": 0, "result": 0}
-    generated_code_seed_instruction_provided = False
-    context_telemetry: dict[str, Any] = {
-        "configured_tool_access": experiment.tool_access.value,
-        "execution_path": experiment.tool_access.value,
-        "discovery_architecture": experiment.discovery_architecture.value,
-        "agent_count": 1 if experiment.use_unified_agent else 2,
-        "llm_invocations": 0,
-        "retrieval_mode": ctx.retrieval.mode.value,
-        "prepared_candidate_count": 0,
-        "prepared_context_utf8_bytes": 0,
-        "agent_direct_tools": [],
-        "orchestrator_retrieval_calls": {},
-        "empty_context_retries": 0,
-        "request_protocol_error": None,
-        "preparation_error": None,
-        "selector_error": None,
-    }
-
+    last_generated = None
     def adjudicate_code_evaluation(
         evaluation: dict[str, Any], generated
     ) -> dict[str, Any]:
@@ -443,10 +375,6 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
         })
         return evaluation
 
-    def record_seed_instruction() -> None:
-        nonlocal generated_code_seed_instruction_provided
-        generated_code_seed_instruction_provided = True
-
     retrieval_log_context = {
         **benchmark.to_log_fields(),
         "EXPERIMENT_ID": experiment.experiment_id,
@@ -539,8 +467,8 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         )
                     )
                     persisted_keyword_count = len(keyword_history)
-                    phase_invocation_counts["discovery"] += 1
-                    context_telemetry["llm_invocations"] += 1
+                    recorder.phase_invocation_counts["discovery"] += 1
+                    recorder.context_telemetry["llm_invocations"] += 1
                     outcome = unified_agentic_outcome(raw, selection_state)
                 elif (
                     experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED
@@ -556,7 +484,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         value_search=ctx.retrieval.mode.value_keywords,
                         verbatim_entities=ctx.retrieval.mode.verbatim_entities,
                     )
-                    phase_invocation_counts["discovery"] += 1
+                    recorder.phase_invocation_counts["discovery"] += 1
                     selection_round = deps.phase2_select_tables(
                         query=question, llm=llm, pm=prompt_manager,
                         all_files=all_files, keywords=keyword_round[0], solr_client=solr,
@@ -572,8 +500,8 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     )
                     outcome = divided_agentic_outcome(keyword_round, selection_round, selection_state)
                     selector_llm_calls = 0 if outcome.selector is SelectorKind.JEV else 1
-                    phase_invocation_counts["discovery"] += selector_llm_calls
-                    context_telemetry["llm_invocations"] += 1 + selector_llm_calls
+                    recorder.phase_invocation_counts["discovery"] += selector_llm_calls
+                    recorder.context_telemetry["llm_invocations"] += 1 + selector_llm_calls
                 elif experiment.discovery_architecture == DiscoveryArchitecture.UNIFIED:
                     try:
                         discovery_result = deps.run_unified_orchestrated_discovery(
@@ -597,29 +525,29 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         memory_enabled=experiment.orchestrated_memory_enabled,
                         )
                     except RetrievalRequestProtocolError as exc:
-                        context_telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
-                        context_telemetry["llm_invocations"] += 1
-                        phase_invocation_counts["discovery"] += 1
+                        recorder.context_telemetry["request_protocol_error"] = f"{type(exc).__name__}: {exc}"
+                        recorder.context_telemetry["llm_invocations"] += 1
+                        recorder.phase_invocation_counts["discovery"] += 1
                         raise
                     except OrchestratedContextPreparationError as exc:
-                        context_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
-                        context_telemetry["llm_invocations"] += 1
-                        phase_invocation_counts["discovery"] += 1
-                        calls = context_telemetry["orchestrator_retrieval_calls"]
+                        recorder.context_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                        recorder.context_telemetry["llm_invocations"] += 1
+                        recorder.phase_invocation_counts["discovery"] += 1
+                        calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
                         mode = ctx.retrieval.mode.value
                         calls[mode] = calls.get(mode, 0) + 1
                         raise
                     except OrchestratedSelectorError as exc:
-                        context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
-                        context_telemetry["llm_invocations"] += 2
-                        phase_invocation_counts["discovery"] += 2
-                        calls = context_telemetry["orchestrator_retrieval_calls"]
+                        recorder.context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                        recorder.context_telemetry["llm_invocations"] += 2
+                        recorder.phase_invocation_counts["discovery"] += 2
+                        calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
                         mode = ctx.retrieval.mode.value
                         calls[mode] = calls.get(mode, 0) + 1
                         raise
                     outcome = unified_orchestrated_outcome(discovery_result)
-                    phase_invocation_counts["discovery"] += discovery_result.llm_invocations
-                    context_telemetry["llm_invocations"] += discovery_result.llm_invocations
+                    recorder.phase_invocation_counts["discovery"] += discovery_result.llm_invocations
+                    recorder.context_telemetry["llm_invocations"] += discovery_result.llm_invocations
                     if experiment.orchestrated_memory_enabled:
                         returned_bans = [
                             frozenset(item)
@@ -658,7 +586,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         value_search=ctx.retrieval.mode.value_keywords,
                         verbatim_entities=ctx.retrieval.mode.verbatim_entities,
                     )
-                    phase_invocation_counts["discovery"] += 1
+                    recorder.phase_invocation_counts["discovery"] += 1
                     try:
                         prepared, prepared_metadata = deps.prepare_discovery_context(
                             query=question, keywords=keyword_round[0], solr_client=solr,
@@ -668,9 +596,9 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         )
                     except Exception as preparation_error:
                         exc = OrchestratedContextPreparationError(str(preparation_error))
-                        context_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
-                        context_telemetry["llm_invocations"] += 1
-                        calls = context_telemetry["orchestrator_retrieval_calls"]
+                        recorder.context_telemetry["preparation_error"] = f"{type(exc).__name__}: {exc}"
+                        recorder.context_telemetry["llm_invocations"] += 1
+                        calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
                         mode = ctx.retrieval.mode.value
                         calls[mode] = calls.get(mode, 0) + 1
                         raise exc from preparation_error
@@ -684,16 +612,16 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                                 table_dir=ctx.tables_dir,
                             )
                         except OrchestratedSelectorError as exc:
-                            context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
-                            context_telemetry["llm_invocations"] += 2
-                            phase_invocation_counts["discovery"] += 1
+                            recorder.context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
+                            recorder.context_telemetry["llm_invocations"] += 2
+                            recorder.phase_invocation_counts["discovery"] += 1
                             raise
                     outcome = divided_orchestrated_outcome(
                         keyword_round, prepared, prepared_metadata, selection
                     )
                     selector_llm_calls = 0 if outcome.selector in (SelectorKind.JEV, SelectorKind.NONE) else 1
-                    phase_invocation_counts["discovery"] += selector_llm_calls
-                    context_telemetry["llm_invocations"] += 1 + selector_llm_calls
+                    recorder.phase_invocation_counts["discovery"] += selector_llm_calls
+                    recorder.context_telemetry["llm_invocations"] += 1 + selector_llm_calls
                 selected = outcome.selected
                 keywords = outcome.keywords
                 solr_meta = outcome.metadata
@@ -743,11 +671,11 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         ]
                         selected = (surviving_candidates or outcome.candidates or all_files)[:3]
                 if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    calls = context_telemetry["orchestrator_retrieval_calls"]
+                    calls = recorder.context_telemetry["orchestrator_retrieval_calls"]
                     mode = ctx.retrieval.mode.value
                     calls[mode] = calls.get(mode, 0) + 1
                     if outcome.prepared is not None:
-                        context_telemetry.update({
+                        recorder.context_telemetry.update({
                             "prepared_candidate_count": outcome.prepared.prepared_candidate_count,
                             "retrieved_hit_count": outcome.prepared.retrieved_hit_count,
                             "prepared_context_utf8_bytes": len(outcome.prepared.stable_json().encode("utf-8")),
@@ -756,7 +684,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     if keywords_rejected:
                         attempted_keywords.extend(keywords)
                         attempted_keywords = list(dict.fromkeys(attempted_keywords))
-                        context_telemetry["empty_context_retries"] += 1
+                        recorder.context_telemetry["empty_context_retries"] += 1
                         hint = f"The previous keywords returned no datasets. Generate different keywords. Attempted: {attempted_keywords}"
                 result.tokens["p1_p2"] += architecture_tokens
                 selection_record.update({
@@ -777,12 +705,12 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     "skipped_tables": sorted(excluded_tables),
                 })
                 if experiment.discovery_architecture == DiscoveryArchitecture.DIVIDED:
-                    discovery_phase_tokens["p1"] += tokens_p1
-                    discovery_phase_tokens["p2"] += tokens_p2
+                    recorder.discovery_phase_tokens["p1"] += tokens_p1
+                    recorder.discovery_phase_tokens["p2"] += tokens_p2
                 else:
                     # A unified agent owns both logical phases, so its usage is
                     # intentionally kept together in the Phase 1 log column.
-                    discovery_phase_tokens["p1"] += architecture_tokens
+                    recorder.discovery_phase_tokens["p1"] += architecture_tokens
                 discovery_elapsed = round(time.monotonic() - discovery_started, 6)
                 discovery_metric = result.phase_metrics.setdefault(
                     "discovery", {"latency_seconds": 0.0, "retries": 0}
@@ -861,14 +789,14 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         solr_meta=solr_meta, reasoning=reasoning, llm=llm,
                         prompt_manager=prompt_manager, csv_dir=ctx.tables_dir,
                         run_dir=run_dir, seed=reproducibility.effective_seed,
-                        record_seed_instruction=record_seed_instruction,
+                        record_seed_instruction=recorder.record_seed_instruction,
                         expected_result_type=expected_result_type,
                         evaluation_enabled=code_evaluation_enabled,
                         evaluator=attempt_evaluator,
                         adjudicate=adjudicate_code_evaluation,
                         generate_and_execute=deps.phase3_generate_and_execute,
                         result=result,
-                        phase_invocation_counts=phase_invocation_counts,
+                        phase_invocation_counts=recorder.phase_invocation_counts,
                         max_attempts=MAX_CODE_ATTEMPTS,
                         context_levels=[CoderContextLevel.FULL],
                         selection_plan=dict(selection_state.selection_plan),
@@ -879,7 +807,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                     sweep = sweep_outcome(
                         primary, require_semantic_plan=experiment.require_semantic_plan
                     )
-                    _record_semantic_plan_telemetry(result, sweep.audit)
+                    recorder.semantic_plan(sweep.audit)
                     coder_audit = sweep.audit or {}
                     selection_record["coder_brief_status"] = str(
                         coder_audit.get("effective_coder_brief_status")
@@ -968,14 +896,14 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         solr_meta=solr_meta, reasoning=reasoning, llm=llm,
                         prompt_manager=prompt_manager, csv_dir=ctx.tables_dir,
                         run_dir=run_dir, seed=reproducibility.effective_seed,
-                        record_seed_instruction=record_seed_instruction,
+                        record_seed_instruction=recorder.record_seed_instruction,
                         expected_result_type=expected_result_type,
                         evaluation_enabled=code_evaluation_enabled,
                         evaluator=attempt_evaluator,
                         adjudicate=adjudicate_code_evaluation,
                         generate_and_execute=deps.phase3_generate_and_execute,
                         result=result,
-                        phase_invocation_counts=phase_invocation_counts,
+                        phase_invocation_counts=recorder.phase_invocation_counts,
                         max_attempts=MAX_CODE_ATTEMPTS,
                         context_levels=[
                             CoderContextLevel.SCHEMA_ONLY,
@@ -1004,7 +932,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         answer, synthesis_tokens = deps.phase4_synthesize(
                             question, result.raw_result, llm, prompt_manager
                         )
-                        phase_invocation_counts["result"] += 1
+                        recorder.phase_invocation_counts["result"] += 1
                         result.answer = answer
                         result.tokens["p4"] = synthesis_tokens
                         result.phase_metrics["result"] = {
@@ -1053,7 +981,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         previous_code=previous_code,
                         run_dir=run_dir,
                         seed=reproducibility.effective_seed,
-                        seed_instruction_recorder=record_seed_instruction,
+                        seed_instruction_recorder=recorder.record_seed_instruction,
                         coder_context_level=experiment.coder_context_level,
                         evaluation_result_type=None,
                         max_run_calls=max(1, MAX_CODE_ATTEMPTS - total_code_runs),
@@ -1067,11 +995,12 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                             experiment.coder_brief_mode.value == "advisory"
                         ),
                     )
+                    last_generated = generated
                     outcome = code_outcome(
                         generated, require_semantic_plan=experiment.require_semantic_plan
                     )
-                    phase_invocation_counts["code"] += 1
-                    _record_semantic_plan_telemetry(result, outcome.audit)
+                    recorder.phase_invocation_counts["code"] += 1
+                    recorder.semantic_plan(outcome.audit)
                     result.tokens["p3"] += outcome.tokens
                     code_metric = result.phase_metrics.setdefault(
                         "code", {"latency_seconds": 0.0, "retries": 0}
@@ -1201,7 +1130,7 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
                         answer, synthesis_tokens = deps.phase4_synthesize(
                             question, outcome.raw_result, llm, prompt_manager
                         )
-                        phase_invocation_counts["result"] += 1
+                        recorder.phase_invocation_counts["result"] += 1
                         result.answer = answer
                         result.tokens["p4"] = synthesis_tokens
                         result.phase_metrics["result"] = {
@@ -1270,250 +1199,11 @@ def run_pipeline(  # noqa: C901, PLR0915  (one function until 3.1(c) splits it i
             result.errors.append({"phase": "pipeline", "message": result.error})
             return result
         finally:
-            for run in retrieval_runs:
-                run["selected_tables"] = list(selected)
-                run["selection_reason"] = reasoning or error
-            try:
-                deps.log_retrieval_decision(
-                    question=question,
-                    selected_tables=selected,
-                    reason=reasoning or error,
-                    context=retrieval_log_context,
-                    mode=ctx.retrieval.mode.value,
-                    keywords=keywords,
-                    retrieval_attempt=len(selection_state.search_attempts),
-                )
-            except Exception:
-                logger.exception("Could not persist the retrieval selection decision")
-            result.elapsed_seconds = round(time.monotonic() - started, 3)
-            result.phase_metrics["total"] = {
-                "latency_seconds": result.elapsed_seconds,
-                "retries": result.retries,
-            }
-            p12_states = selection_states or [selection_state]
-            result.discovery = {
-                "outcome": result.pipeline_stages["table_selection"],
-                "keywords": list(keywords),
-                "selected_datasets": list(selected),
-                "reasoning_available_to_coder": False,
-                "search_attempt_count": sum(
-                    len(state.search_attempts) for state in p12_states
-                ),
-                "expansion_used": any(state.expansion_count for state in p12_states),
-                "expansion_requirements": list(dict.fromkeys(
-                    requirement
-                    for state in p12_states
-                    for requirement in state.expansion_requirements
-                )),
-                "selection_attempts": selection_attempts,
-            }
-            result.ranking = summarize_final_ranking(retrieval_runs, selected)
-            result.llm_calls = build_llm_phase_records(
-                total_tokens={
-                    "discovery": result.tokens["p1_p2"],
-                    "code": result.tokens["p3"],
-                    "result": result.tokens["p4"],
-                },
-                phase_invocations=phase_invocation_counts,
+            recorder.finish(
+                retrieval_runs=retrieval_runs,
+                retrieval_log_context=retrieval_log_context,
+                selected=selected, keywords=keywords, reasoning=reasoning, trace=trace, error=error,
+                selection_state=selection_state, selection_states=selection_states,
+                selection_attempts=selection_attempts, last_generated=last_generated,
+                manifest=manifest, reproducibility=reproducibility, benchmark=benchmark,
             )
-            tool_counts: dict[str, int] = {}
-            for run in retrieval_runs:
-                tool_type = f"retrieval:{run.get('mode', 'unknown')}"
-                tool_counts[tool_type] = tool_counts.get(tool_type, 0) + 1
-            for item in summarize_tool_calls(trace):
-                tool_name = str(item["type"])
-                tool_counts[tool_name] = tool_counts.get(tool_name, 0) + int(item["count"])
-            result.tool_calls = []
-            for tool_type, count in sorted(tool_counts.items()):
-                is_retrieval = tool_type.startswith("retrieval:")
-                if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
-                    actor = "orchestrator" if is_retrieval else "agent"
-                elif experiment.use_unified_agent:
-                    actor = "agent"
-                else:
-                    actor = "orchestrator" if is_retrieval else "agent"
-                result.tool_calls.append({
-                    "phase": "discovery",
-                    "type": tool_type,
-                    "count": count,
-                    "actor": actor,
-                })
-            context_telemetry["agent_direct_tools"] = [
-                item["type"]
-                for item in result.tool_calls
-                if item["actor"] == "agent"
-            ]
-            if result.coder_context_experiment:
-                context_telemetry["coder_context_audit"] = {
-                    level: variant.get("coder_context_audit")
-                    for level, variant in result.coder_context_experiment.get(
-                        "variants", {}
-                    ).items()
-                }
-            else:
-                context_telemetry["coder_context_audit"] = getattr(
-                    locals().get("generated"), "coder_context_audit", None
-                )
-            if experiment.tool_access != ToolAccess.ORCHESTRATED_CONTEXT:
-                orchestrator_calls: dict[str, int] = {}
-                for item in result.tool_calls:
-                    if item["actor"] != "orchestrator":
-                        continue
-                    tool_type = str(item["type"])
-                    if not tool_type.startswith("retrieval:"):
-                        continue
-                    mode = tool_type.split(":", 1)[1]
-                    orchestrator_calls[mode] = (
-                        orchestrator_calls.get(mode, 0) + int(item["count"])
-                    )
-                context_telemetry["orchestrator_retrieval_calls"] = orchestrator_calls
-            if result.error and not result.errors:
-                result.errors.append({"phase": "pipeline", "message": result.error})
-            result.execution_outcome = {
-                "status": result.pipeline_stages["code_execution"],
-                "raw_result": result.raw_result,
-                "error": result.error,
-                "code_evaluation": result.code_evaluation,
-                "coder_context_experiment": result.coder_context_experiment,
-                "coder_runs": getattr(locals().get("generated"), "coder_runs", 0),
-                "coder_review": getattr(
-                    locals().get("generated"), "coder_review", None
-                ),
-            }
-            retrieval = ctx.retrieval
-            extra_fields: dict[str, Any] = {
-                "EXPERIMENT_ID": experiment.experiment_id,
-                "MANIFEST_ID": manifest.run_id,
-                "CORE": ctx.lake,
-                "PORTAL_NAME": ctx.portal_name,
-                "RETRIEVAL_MODE": retrieval.mode.value,
-                "TOP_K": retrieval.top_k,
-                "HYBRID_ALPHA": retrieval.alpha,
-                "CANDIDATE_MULTIPLIER": retrieval.candidate_multiplier,
-                "REPRESENTATION_VERSION": retrieval.representation_version,
-                "EMBEDDING_MODEL": retrieval.embedding_model,
-                "EMBEDDING_BASE_URL": retrieval.embedding_base_url,
-                "VECTOR_FIELD": retrieval.vector_field,
-                "LEXICAL_QUERY_FIELDS": retrieval.lexical_query_fields,
-                "MISSING_SIGNAL_POLICY": retrieval.missing_signal_policy.value,
-                "FUSION_METHOD": retrieval.fusion_method.value,
-                "RRF_K": retrieval.rrf_k,
-                "RETRIEVAL_RUNS_JSON": retrieval_runs,
-                "PIPELINE_STAGES_JSON": result.pipeline_stages,
-                "ANSWER_DISPOSITION": result.answer_disposition,
-                "MANIFEST_JSON": result.manifest,
-                "RUN_TRACE_JSON": {
-                    "architecture": experiment.architecture_name,
-                    "tool_access": context_telemetry,
-                    "configuration": result.configuration,
-                    "reproducibility": reproducibility.telemetry(
-                        generated_code_seed_instruction_provided=(
-                            generated_code_seed_instruction_provided
-                        )
-                    ),
-                    "discovery": result.discovery,
-                    "ranking": result.ranking,
-                    "llm_calls": result.llm_calls,
-                    "phase_metrics": result.phase_metrics,
-                    "tool_calls": result.tool_calls,
-                    "errors": result.errors,
-                    "human_interventions": result.human_interventions,
-                    "execution_outcome": result.execution_outcome,
-                    "code_evaluation": result.code_evaluation,
-                    "coder_context_experiment": result.coder_context_experiment,
-                },
-            }
-            extra_fields.update(benchmark.to_log_fields())
-            gold_tables = benchmark.relevant_tables
-            if gold_tables:
-                ranking_entries = [
-                    entry for entry in getattr(result, "ranking", [])
-                    if isinstance(entry, dict)
-                ]
-                if ranking_entries:
-                    final_attempt = max(
-                        int(entry.get("attempt", 1)) for entry in ranking_entries
-                    )
-                    ranking = [
-                        str(entry["resource_id"])
-                        for entry in sorted(
-                            (
-                                entry for entry in ranking_entries
-                                if int(entry.get("attempt", 1)) == final_attempt
-                            ),
-                            key=lambda entry: int(entry.get("rank", 0)),
-                        )
-                        if entry.get("resource_id")
-                    ]
-                else:
-                    ranking = [
-                        re.sub(r"\.(?:parquet|pq|csv)$", "", table, flags=re.I)
-                        .rsplit("___", 1)[-1]
-                        for table in selected
-                    ]
-                normalized_gold = [str(table).rsplit("___", 1)[-1] for table in gold_tables]
-                metrics = evaluate_ranking(
-                    ranking, normalized_gold, k_values=(1, 5, 10, 15, 20)
-                )
-                extra_fields.update({
-                    "HIT_AT_1": metrics["Hit@1"],
-                    "HIT_AT_5": metrics["Hit@5"],
-                    "HIT_AT_10": metrics["Hit@10"],
-                    "HIT_AT_15": metrics["Hit@15"],
-                    "HIT_AT_20": metrics["Hit@20"],
-                    "RECALL_AT_1": metrics["Recall@1"],
-                    "RECALL_AT_5": metrics["Recall@5"],
-                    "RECALL_AT_10": metrics["Recall@10"],
-                    "RECALL_AT_15": metrics["Recall@15"],
-                    "RECALL_AT_20": metrics["Recall@20"],
-                    "MRR": metrics["MRR"],
-                    "NDCG_AT_1": metrics["nDCG@1"],
-                    "NDCG_AT_5": metrics["nDCG@5"],
-                    "NDCG_AT_10": metrics["nDCG@10"],
-                    "NDCG_AT_15": metrics["nDCG@15"],
-                    "NDCG_AT_20": metrics["nDCG@20"],
-                })
-            searched_keywords, unused_concepts = retrieval.mode.split_keywords(keywords)
-            coder_variants = (
-                result.coder_context_experiment.get("variants", {})
-                if isinstance(result.coder_context_experiment, dict)
-                else {}
-            )
-            coder_variant_tokens = {
-                name: int(coder_variants.get(name, {}).get("tokens", 0) or 0)
-                for name in ("full", "schema_only", "minimal")
-            }
-            extra_fields.update({
-                "TOKENS_CODE_FULL": coder_variant_tokens["full"],
-                "TOKENS_CODE_SCHEMA_ONLY": coder_variant_tokens["schema_only"],
-                "TOKENS_CODE_MINIMAL": coder_variant_tokens["minimal"],
-                "TOKENS_CODE_UNATTRIBUTED": max(
-                    0, int(result.tokens.get("p3", 0) or 0) - sum(coder_variant_tokens.values())
-                ),
-            })
-            try:
-                deps.save_experiment_log(
-                    question=question,
-                    code=result.code,
-                    result=result.raw_result,
-                    retries=result.retries,
-                    reasoning=reasoning,
-                    tables=selected,
-                    final_keywords=searched_keywords,
-                    unused_concepts=unused_concepts,
-                    final_result=result.answer,
-                    full_trace=trace,
-                    tokens_phase1=discovery_phase_tokens["p1"],
-                    tokens_phase2=discovery_phase_tokens["p2"],
-                    tokens_phase3=result.tokens["p3"],
-                    tokens_phase4=result.tokens["p4"],
-                    error=result.error,
-                    csv_filename="api_experiments_log.csv",
-                    model=ctx.model_name,
-                    architecture=experiment.architecture_name,
-                    status=result.status,
-                    elapsed_seconds=result.elapsed_seconds,
-                    extra_fields=extra_fields,
-                )
-            except Exception:
-                logger.exception("Could not persist the LakeGen experiment log")
