@@ -1,22 +1,16 @@
 """The selection tools of the unified agent: confirm the tables with a plan, reject them with a reason, draft the plan."""
 
-import json
 
 from lakegen.agent_tools.requirement_ledger import (
     build_requirement_ledger,
-    requirement_ledger_block_message,
 )
 from lakegen.agent_tools.tools_p2 import (
     MIN_BAN_JUSTIFICATION_CHARS,
-    _temporal_coverage_issue,
 )
 from lakegen.core.table_io import read_table
+from lakegen.discovery.tools import confirmation
 from lakegen.discovery.tools.plan_models import (
     SemanticAnalysisPlan,
-    _derive_output_columns,
-    _normalize_requirement_coverage,
-    _normalize_semantic_plan,
-    _resolve_partition_table_aliases,
     compile_semantic_plan_draft,
 )
 
@@ -40,319 +34,23 @@ class SelectionMixin:
         Confirm the selected tables once inspection has verified that they
         cover every essential requirement. Ends discovery.
         """
-        normalized_tables = list(dict.fromkeys(str(table).strip() for table in tables))
-        if not normalized_tables:
-            raise ValueError("Selection blocked: at least one inspected table is required.")
-        visible_candidates = self.state.all_candidates[
-            : self.state.visible_candidate_count
-        ]
-        unknown = [table for table in normalized_tables if table not in visible_candidates]
-        if unknown:
-            raise ValueError(
-                "Selection blocked: only currently visible candidates may be "
-                f"selected. Unknown table(s): {unknown}."
-            )
-
-        inspected = {table.casefold() for table in self.state.inspected_candidates()}
-        uninspected = [
-            table for table in normalized_tables if table.casefold() not in inspected
-        ]
-        if uninspected:
-            raise ValueError(
-                "Selection blocked: inspect_columns is mandatory for every selected "
-                f"table. Inspect {uninspected}, verify requirement and temporal "
-                "coverage, then confirm again."
-            )
-
-        selection_key = tuple(sorted(table.casefold() for table in normalized_tables))
-        if selection_key in self.state.rejected_selections:
-            raise ValueError(
-                "Selection blocked: this exact table combination was already "
-                "rejected by the full-context coder. Select at least one different "
-                "table or reject the keywords if no alternative exists."
-            )
-
-        coverage_issue = _temporal_coverage_issue(
-            self.question,
-            normalized_tables,
-            self.state.inspection_cache,
+        selected = confirmation.admissible_tables(self.state, self.question, tables)
+        proposal = confirmation.proposal(
+            selected, reasoning, requirement_coverage=requirement_coverage, table_roles=table_roles,
+            combination_strategy=combination_strategy, uncovered_requirements=uncovered_requirements,
+            alternatives_rejected=alternatives_rejected, requirements=requirements,
         )
-        if coverage_issue:
-            raise ValueError(
-                "Selection blocked by temporal validation: " + coverage_issue + "."
-            )
-        for table in normalized_tables:
-            if table not in self.state.proposed_tables:
-                self.state.proposed_tables.append(table)
-
-        requirement_coverage = _normalize_requirement_coverage(
-            requirement_coverage or {}, normalized_tables
-        )
-        table_roles = table_roles or {}
-        uncovered_requirements = list(dict.fromkeys(
-            str(item).strip() for item in (uncovered_requirements or [])
-            if str(item).strip()
-        ))
-        normalized_alternatives: dict[str, dict[str, object]] = {}
-        for raw_table, raw_evidence in (alternatives_rejected or {}).items():
-            table = str(raw_table).strip()
-            if not table:
-                continue
-            if isinstance(raw_evidence, dict):
-                matched = list(dict.fromkeys(
-                    str(item).strip()
-                    for item in raw_evidence.get("matched_requirements", [])
-                    if str(item).strip()
-                ))
-                missing = str(raw_evidence.get("missing_requirement", "")).strip()
-            else:
-                matched = []
-                missing = str(raw_evidence).strip()
-            normalized_alternatives[table] = {
-                "matched_requirements": matched,
-                "missing_requirement": missing,
-            }
-        alternatives_rejected = normalized_alternatives
-        selected_set = set(normalized_tables)
-        advisories: list[str] = []
-
-        contract_first = semantic_plan is not None
-        if isinstance(semantic_plan, SemanticAnalysisPlan):
-            semantic_plan = semantic_plan.model_dump()
-        if contract_first:
-            if isinstance(semantic_plan, dict) and not semantic_plan.get("table_roles"):
-                semantic_plan = {**semantic_plan, "table_roles": dict(table_roles)}
-            if isinstance(semantic_plan, dict):
-                semantic_plan = _normalize_semantic_plan(
-                    semantic_plan, normalized_tables
-                )
-                if not semantic_plan.get("output_columns"):
-                    semantic_plan["output_columns"] = _derive_output_columns(semantic_plan)
-            try:
-                semantic_plan = SemanticAnalysisPlan.model_validate(semantic_plan).model_dump()
-            except Exception as exc:
-                self.state.plan_failure = str(exc)
-                raise ValueError(
-                    "Selection blocked: invalid semantic_plan: "
-                    f"{exc}\nCorrect the listed fields and call "
-                    "confirm_unified_selection again. Do not return the corrected "
-                    "JSON only as assistant text."
-                ) from exc
-
-            schema_by_table: dict[str, set[str]] = {}
-            for table in normalized_tables:
-                try:
-                    schema_by_table[table] = {
-                        str(column) for column in read_table(
-                            self.csv_dir / table, nrows=0
-                        ).columns
-                    }
-                except Exception as exc:
-                    raise ValueError(
-                        f"Selection blocked: cannot validate schema for {table}: {exc}"
-                    ) from exc
-            semantic_plan = _resolve_partition_table_aliases(
-                semantic_plan, normalized_tables, table_roles,
-                schema_by_table, combination_strategy,
-            )
-            invalid_bindings: list[str] = []
-            bindings = [
-                *semantic_plan["filters"],
-                *semantic_plan["temporal_filters"],
-                *semantic_plan["dimensions"],
-                *semantic_plan["measures"],
-            ]
-            for binding in bindings:
-                table = str(binding.get("table", ""))
-                columns = binding.get("columns", [binding.get("column", "")])
-                if table not in selected_set:
-                    invalid_bindings.append(f"{table}: table is not selected")
-                    continue
-                for column in columns:
-                    if str(column) not in schema_by_table.get(table, set()):
-                        invalid_bindings.append(f"{table}.{column}: column not found")
-                if not str(binding.get("evidence", "")).strip():
-                    invalid_bindings.append(f"{table}: missing binding evidence")
-            if invalid_bindings:
-                raise ValueError(
-                    "Selection blocked: semantic bindings are not supported by the "
-                    "selected schemas: " + "; ".join(invalid_bindings)
-                )
-
-        missing_roles = [table for table in normalized_tables if not table_roles.get(table)]
-        if missing_roles:
-            advisories.append(
-                "Selected table(s) without an explicit role: " + ", ".join(missing_roles)
-            )
-
-        role_extras = [table for table in table_roles if table not in selected_set]
-        if role_extras:
-            advisories.append(
-                "Table role(s) refer to unselected tables: " + ", ".join(role_extras)
-            )
-
-        covered_tables: set[str] = set()
-        malformed_requirements: list[str] = []
-        for requirement, evidence in requirement_coverage.items():
-            if not isinstance(evidence, dict):
-                malformed_requirements.append(requirement)
-                continue
-            table = str(evidence.get("table", "")).strip()
-            columns = evidence.get("columns", [])
-            if table in selected_set:
-                covered_tables.add(table)
-            if table not in selected_set or not isinstance(columns, list) or not columns:
-                malformed_requirements.append(requirement)
-        if not requirement_coverage:
-            advisories.append("No explicit requirement coverage was supplied.")
-        elif malformed_requirements:
-            advisories.append(
-                "Requirement coverage lacks selected-table/column evidence for: "
-                + ", ".join(malformed_requirements)
-            )
-
-        uncovered_tables = [table for table in normalized_tables if table not in covered_tables]
-        if uncovered_tables:
-            advisories.append(
-                "Selected table(s) cover no explicit requirement: "
-                + ", ".join(uncovered_tables)
-            )
-
-        if len(normalized_tables) > 1 and combination_strategy == "single_table":
-            advisories.append(
-                "Multiple tables were selected but the combination strategy is single_table."
-            )
-        elif len(normalized_tables) == 1 and combination_strategy != "single_table":
-            advisories.append(
-                "One table was selected but the combination strategy is "
-                f"{combination_strategy}."
-            )
-        if uncovered_requirements:
-            advisories.append(
-                "Selection was confirmed with requirements still marked uncovered: "
-                + ", ".join(uncovered_requirements)
-            )
-        if len(alternatives_rejected) > 2:
-            advisories.append(
-                "More than two rejected alternatives were supplied; keep only the "
-                "strongest inspected alternatives in future confirmations."
-            )
-        inspected_names = set(self.state.inspected_candidates())
-        unsupported_alternatives = [
-            table for table in alternatives_rejected
-            if table not in inspected_names
-        ]
-        if unsupported_alternatives:
-            advisories.append(
-                "Rejected alternative(s) were not inspected: "
-                + ", ".join(unsupported_alternatives)
-            )
-        vague_missing = {
-            "", "less relevant", "not relevant", "not needed", "weaker match",
-            "lower ranked", "redundant", "inferior",
-        }
-        for table, evidence in alternatives_rejected.items():
-            matched = evidence.get("matched_requirements", [])
-            missing = str(evidence.get("missing_requirement", "")).casefold()
-            if len(matched) >= 2 and missing in vague_missing:
-                advisories.append(
-                    f"{table} matches multiple essential requirements but no "
-                    "concrete missing requirement justifies excluding it. Reconsider "
-                    "including or preferring this inspected alternative."
-                )
-
-        selection_blockers: list[str] = []
-        if missing_roles:
-            selection_blockers.append("every selected table needs an explicit role")
-        if not requirement_coverage:
-            selection_blockers.append("requirement_coverage is required")
-        if malformed_requirements:
-            selection_blockers.append(
-                "requirement coverage must bind selected tables and columns"
-            )
-        if uncovered_tables:
-            selection_blockers.append(
-                "every selected table must support at least one requirement"
-            )
-        if uncovered_requirements:
-            selection_blockers.append(
-                "uncovered_requirements must be resolved before confirmation"
-            )
-        if (
-            len(normalized_tables) > 1
-            and combination_strategy == "single_table"
-        ) or (
-            len(normalized_tables) == 1
-            and combination_strategy != "single_table"
-        ):
-            selection_blockers.append(
-                "combination_strategy must match the selected table count"
-            )
-        if contract_first and selection_blockers:
+        if semantic_plan is not None:
+            proposal.semantic_plan = confirmation.bound_plan(self.state, self.csv_dir, proposal, semantic_plan)
+        advisories, blockers = confirmation.review(self.state, proposal)
+        proposal.advisories = advisories
+        if proposal.contract_first and blockers:
             raise ValueError(
                 "Selection blocked by contract-first validation: "
-                + "; ".join(selection_blockers)
+                + "; ".join(blockers)
                 + ". Inspect/expand the existing ranked candidates and confirm again."
             )
-
-        normalized_requirements = dict(requirements or {})
-        coder_brief = self._build_coder_brief(
-            normalized_tables,
-            requirement_coverage,
-            normalized_requirements,
-            combination_strategy,
-            table_roles,
-            semantic_plan if isinstance(semantic_plan, dict) else None,
-        )
-        requirement_ledger = self._build_requirement_ledger(
-            requirement_coverage,
-            normalized_requirements,
-            uncovered_requirements,
-            semantic_plan if isinstance(semantic_plan, dict) else None,
-        )
-        selection_plan = {
-            "requirement_coverage": requirement_coverage,
-            "table_roles": table_roles,
-            "combination_strategy": combination_strategy,
-            "uncovered_requirements": uncovered_requirements,
-            "alternatives_rejected": alternatives_rejected,
-            "requirements": normalized_requirements,
-            "requirement_ledger": requirement_ledger,
-            "coder_brief": coder_brief,
-            **({"semantic_plan": semantic_plan} if contract_first else {}),
-        }
-        block_message = requirement_ledger_block_message(
-            requirement_ledger, normalized_tables
-        )
-        if block_message:
-            # Kept so an attempt that ends without a terminal tool call falls
-            # back to the architect's own bindings, not to bare top candidates.
-            self.state.blocked_selection = {
-                "tables": list(normalized_tables),
-                "reasoning": reasoning,
-                "block_message": block_message,
-                "selection_plan": selection_plan,
-            }
-            raise ValueError(block_message)
-        self.state.selection_plan = selection_plan
-        self.state.plan_failure = None
-        self.state.selection_plan_source = (
-            "confirm_unified_selection" if contract_first else "selection_only"
-        )
-        self.state.confirmed_tables = list(normalized_tables)
-        self.state.selection_reasoning = reasoning
-        self.state.selection_requirements = normalized_requirements
-        self.state.selection_advisories = advisories
-
-        final_tables = ", ".join(normalized_tables)
-
-        dati_uscita = {
-            "tables": final_tables,
-            "reasoning": reasoning,
-            "selection_plan": self.state.selection_plan,
-            "advisories": advisories,
-        }
-        return f"FINAL_PAYLOAD: {json.dumps(dati_uscita)}"
+        return confirmation.commit(self, proposal)
 
     def reject_unified_selection(
         self, reasoning: str, suggestion: str, ban_tables: dict[str, str] | None = None
