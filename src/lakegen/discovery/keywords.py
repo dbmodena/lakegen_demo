@@ -1,15 +1,15 @@
 import re
 from collections.abc import Callable
 
-from llama_index.core.llms import ChatMessage, LLM
 from llama_index.core import Settings
+from llama_index.core.llms import LLM, ChatMessage
 
-from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.llm.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
     reset_llm_token_usage,
 )
+from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval.intent import parse_retrieval_intent
 
 
@@ -38,6 +38,116 @@ def split_thinking_blocks(text: str) -> tuple[str, str]:
     return visible_text.strip(), thinking_text.strip()
 
 
+REPEAT_WINDOW = 200
+"""The tail of the reasoning the loop guard looks for, in characters."""
+REPEAT_THRESHOLD = 5
+"""How many times the tail must occur in the reasoning for it to count as a loop."""
+LOOP_WARNING = "\n\n⚠️ **[Phase 1] The model looped; retrieval intent is unresolved.**"
+
+
+class _IntentStream:
+    """The model's streamed answer: its visible text, its reasoning, its tokens, and the loop guard.
+
+    The reasoning arrives as thinking deltas (when the backend supports the
+    ``think`` option) and as tagged blocks in the text; both reach the
+    placeholders as they stream. A reasoning that repeats its own tail is a
+    loop: the stream stops, and the intent is left unresolved.
+    """
+
+    def __init__(self, stream_placeholder, reasoning_placeholder, cancel_check: Callable[[], None] | None) -> None:
+        self.stream_placeholder = stream_placeholder
+        self.reasoning_placeholder = reasoning_placeholder
+        self.cancel_check = cancel_check
+        self.raw = ""
+        self.structured_reasoning = ""
+        self.tokens = 0
+        self.loop_detected = False
+
+    def _show(self) -> None:
+        visible, tagged = split_thinking_blocks(self.raw)
+        reasoning = "\n\n".join(part.strip() for part in (self.structured_reasoning, tagged) if part.strip())
+        if self.stream_placeholder is not None:
+            self.stream_placeholder.markdown(visible or self.raw)
+        if self.reasoning_placeholder is not None and reasoning:
+            self.reasoning_placeholder.markdown(reasoning)
+
+    def _looping(self) -> bool:
+        """Whether the reasoning repeats its own tail; the placeholder says so when it does."""
+        cleaned = self.structured_reasoning.strip()
+        if len(cleaned) <= REPEAT_WINDOW or cleaned.count(cleaned[-REPEAT_WINDOW:]) < REPEAT_THRESHOLD:
+            return False
+        print("\n[phase1] Repetition loop detected in reasoning – breaking stream.")
+        self.loop_detected = True
+        if self.reasoning_placeholder is not None:
+            self.reasoning_placeholder.markdown(
+                self.structured_reasoning
+                + "\n\n⚠️ **[Phase 1] Warning: A repetition loop was detected in the model reasoning. "
+                "The stream was stopped to prevent it from hanging.**"
+            )
+        return True
+
+    def consume(self, chunks, *, with_thinking: bool) -> None:
+        for chunk in chunks:
+            if self.cancel_check is not None:
+                self.cancel_check()
+            thinking = chunk.additional_kwargs.get("thinking_delta") if with_thinking else None
+            if thinking:
+                self.structured_reasoning += thinking
+                print(thinking, end="", flush=True)
+                if self._looping():
+                    break
+                self._show()
+            delta = chunk.delta or ""
+            if delta:
+                self.raw += delta
+                print(delta, end="", flush=True)
+                self._show()
+            self.tokens = max(
+                self.tokens, extract_total_tokens(chunk.raw), extract_total_tokens(chunk.additional_kwargs),
+            )
+
+    def read(self, llm: LLM, messages: list[ChatMessage], *, stream_reasoning: bool) -> None:
+        """Stream the answer, asking for the reasoning; a backend that refuses the option gets a plain request."""
+        try:
+            self.consume(llm.stream_chat(messages, **({"think": True} if stream_reasoning else {})), with_thinking=True)
+        except Exception:
+            if self.raw or self.structured_reasoning or not stream_reasoning:
+                raise
+            self.consume(llm.stream_chat(messages), with_thinking=False)
+
+    def reasoning(self) -> str:
+        """The thinking deltas, the tagged blocks and any ``<reasoning>`` the text holds, together."""
+        _visible, tagged = split_thinking_blocks(self.raw)
+        for block in re.findall(r"<reasoning>(.*?)</reasoning>", self.raw, re.IGNORECASE | re.DOTALL):
+            if block.strip():
+                tagged += "\n" + block.strip()
+        return "\n\n".join(part.strip() for part in (self.structured_reasoning, tagged) if part.strip())
+
+    def visible(self) -> str:
+        return split_thinking_blocks(self.raw)[0].strip()
+
+
+def _token_count(stream: _IntentStream, token_counter, llm: LLM, system_prompt: str, user_prompt: str) -> int:
+    """The stream's usage, else the callback counter's, else the model's own, else an estimate."""
+    tokens = stream.tokens
+    if token_counter and tokens == 0:
+        tokens = token_counter.prompt_llm_token_count + token_counter.completion_llm_token_count
+    tokens = max(tokens, get_llm_token_usage(llm))
+    if tokens == 0:
+        # Fallback estimation if stream skipped token tracking completely
+        tokens = int((len(system_prompt.split()) + len(user_prompt.split()) + len(stream.raw.split())) * 1.3)
+    return tokens
+
+
+def _intent_terms(raw_content: str, value_search: bool) -> list[str]:
+    """The search terms of a resolved intent; none for an unresolved or unparsable one."""
+    try:
+        intent = parse_retrieval_intent(raw_content)
+    except ValueError:
+        return []
+    return intent.search_terms(value_search) if intent.status == "resolved" else []
+
+
 def phase1_generate_keywords(
     query: str,
     llm: LLM,
@@ -52,152 +162,36 @@ def phase1_generate_keywords(
     value_search: bool = False,
     verbatim_entities: bool = False,
 ) -> tuple[list[str], str, int, str]:
+    """The keyword writer's turn: its search terms, its raw intent, its tokens and its reasoning."""
     system_prompt = pm.render(
-        "retrieval_intent",
-        "system_prompt",
+        "retrieval_intent", "system_prompt",
         # Cell-value retrieval needs terms the rows store, not dataset topics.
         value_search=value_search,
         # Content search scans for entities, so they must be named as written.
         verbatim_entities=verbatim_entities,
     )
-
-    avoid_keywords_str = ", ".join(avoid_keywords) if avoid_keywords else ""
-
     user_prompt = pm.render(
-        "retrieval_intent",
-        "user_prompt",
-        question=query,
-        catalog=portal_name,
-        schema="not supplied",
-        avoid_keywords_str=avoid_keywords_str,
-        hint=hint,
+        "retrieval_intent", "user_prompt", question=query, catalog=portal_name, schema="not supplied",
+        avoid_keywords_str=", ".join(avoid_keywords) if avoid_keywords else "", hint=hint,
     )
-
     messages = [
         ChatMessage(role="system", content=system_prompt),
         ChatMessage(role="user", content=user_prompt),
     ]
-
-    raw_stream = ""
-    structured_reasoning = ""
-    tokens = 0
-
     token_counter = next(
-        (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")),
-        None,
+        (h for h in Settings.callback_manager.handlers if hasattr(h, "reset_counts")), None,
     )
     if token_counter:
         token_counter.reset_counts()
     reset_llm_token_usage(llm)
-
-    def update_placeholders() -> None:
-        visible_stream, tagged_reasoning = split_thinking_blocks(raw_stream)
-        reasoning_parts = [
-            part.strip()
-            for part in (structured_reasoning, tagged_reasoning)
-            if part.strip()
-        ]
-        reasoning_stream = "\n\n".join(reasoning_parts)
-
-        if stream_placeholder is not None:
-            stream_placeholder.markdown(visible_stream or raw_stream)
-        if reasoning_placeholder is not None and reasoning_stream:
-            reasoning_placeholder.markdown(reasoning_stream)
-
     print("[phase1 keyword stream] ", end="", flush=True)
-
-    _REPEAT_WINDOW = 200        # chars – tail window for repetition check
-    _REPEAT_THRESHOLD = 5       # how many times the tail must repeat
-    loop_detected = False
-
-    stream_kwargs = {"think": True} if stream_reasoning else {}
-    try:
-        chunk_stream = llm.stream_chat(messages, **stream_kwargs)
-        for chunk in chunk_stream:
-            if cancel_check is not None:
-                cancel_check()
-            thinking_delta = chunk.additional_kwargs.get("thinking_delta")
-            if thinking_delta:
-                structured_reasoning += thinking_delta
-                print(thinking_delta, end="", flush=True)
-
-                # ── Repetition loop detection (No max length constraint) ──
-                cleaned = structured_reasoning.strip()
-                if len(cleaned) > _REPEAT_WINDOW:
-                    tail = cleaned[-_REPEAT_WINDOW:]
-                    if cleaned.count(tail) >= _REPEAT_THRESHOLD:
-                        print("\n[phase1] Repetition loop detected in reasoning – breaking stream.")
-                        loop_detected = True
-                        if reasoning_placeholder is not None:
-                            reasoning_placeholder.markdown(
-                                structured_reasoning + "\n\n⚠️ **[Phase 1] Warning: A repetition loop was detected in the model reasoning. The stream was stopped to prevent it from hanging.**"
-                            )
-                        break
-                # ──────────────────────────────────────────────────────────
-
-                update_placeholders()
-
-            delta = chunk.delta or ""
-            if delta:
-                raw_stream += delta
-                print(delta, end="", flush=True)
-                update_placeholders()
-
-            tokens = max(
-                tokens,
-                extract_total_tokens(chunk.raw),
-                extract_total_tokens(chunk.additional_kwargs),
-            )
-    except Exception:
-        if raw_stream or structured_reasoning or not stream_reasoning:
-            raise
-        chunk_stream = llm.stream_chat(messages)
-        for chunk in chunk_stream:
-            if cancel_check is not None:
-                cancel_check()
-            delta = chunk.delta or ""
-            if delta:
-                raw_stream += delta
-                print(delta, end="", flush=True)
-                update_placeholders()
-
-            tokens = max(
-                tokens,
-                extract_total_tokens(chunk.raw),
-                extract_total_tokens(chunk.additional_kwargs),
-            )
+    stream = _IntentStream(stream_placeholder, reasoning_placeholder, cancel_check)
+    stream.read(llm, messages, stream_reasoning=stream_reasoning)
     print("", flush=True)
-
-    if token_counter and tokens == 0:
-        tokens = token_counter.prompt_llm_token_count + token_counter.completion_llm_token_count
-    tokens = max(tokens, get_llm_token_usage(llm))
-    if tokens == 0:
-        # Fallback estimation if stream skipped token tracking completely
-        tokens = int((len(system_prompt.split()) + len(user_prompt.split()) + len(raw_stream.split())) * 1.3)
-
-    visible_content, tagged_reasoning = split_thinking_blocks(raw_stream)
-
-    reasoning_blocks = re.findall(r"<reasoning>(.*?)</reasoning>", raw_stream, re.IGNORECASE | re.DOTALL)
-    for block in reasoning_blocks:
-        if block.strip():
-            tagged_reasoning += "\n" + block.strip()
-
-    reasoning_content = "\n\n".join(
-        part.strip()
-        for part in (structured_reasoning, tagged_reasoning)
-        if part.strip()
-    )
-
-    raw_content = visible_content.strip()
-    try:
-        intent = parse_retrieval_intent(raw_content)
-        extracted = (
-            intent.search_terms(value_search) if intent.status == "resolved" else []
-        )
-    except ValueError:
-        extracted = []
-
-    if loop_detected:
-        reasoning_content += "\n\n⚠️ **[Phase 1] The model looped; retrieval intent is unresolved.**"
-
-    return extracted, raw_content, tokens, reasoning_content
+    tokens = _token_count(stream, token_counter, llm, system_prompt, user_prompt)
+    reasoning = stream.reasoning()
+    raw_content = stream.visible()
+    extracted = _intent_terms(raw_content, value_search)
+    if stream.loop_detected:
+        reasoning += LOOP_WARNING
+    return extracted, raw_content, tokens, reasoning
