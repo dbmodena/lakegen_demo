@@ -1,4 +1,11 @@
 build_benchmark.py
+experiments/paper_analysis/build_section.py
+experiments/paper_analysis/failures.py
+experiments/paper_analysis/latex.py
+experiments/paper_analysis/metrics.py
+experiments/paper_analysis/question_meta.py
+experiments/paper_analysis/rerank_compare.py
+experiments/paper_analysis/section_tables.py
 index_retrieval.py
 prompts/prompt_manager.py
 scripts/submit_parallel_batches.py

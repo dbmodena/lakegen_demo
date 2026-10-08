@@ -84,6 +84,8 @@ Thumbs.db
 .lakegen_jobs_v2
 /experiments/*
 !/experiments/specs/
+!/experiments/paper_analysis/
+/experiments/paper_analysis/results
 
 # Temporary coder experiments
 benchmark/tmp/

@@ -64,6 +64,8 @@ class Run:
     expansion_used: bool
     timestamp: str | None
     run_id: str | None
+    result: dict[str, Any] | None = None
+    """The stored result itself, for analyses that read more than the columns; see ``include_results``."""
 
 
 def _effective_models(job: StoredJob, entry: dict[str, Any], timestamp: str | None) -> dict[str, str | None]:
@@ -86,7 +88,13 @@ def _gold(question: dict[str, Any] | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(resource_id(value) for value in gold))
 
 
-def runs_of_job(job: StoredJob, *, experiment: str | None = None, cell_id: str | None = None) -> list[Run]:
+def runs_of_job(
+    job: StoredJob,
+    *,
+    experiment: str | None = None,
+    cell_id: str | None = None,
+    include_results: bool = False,
+) -> list[Run]:
     config = job.config
     runs = []
     for index, entry in enumerate(job.results):
@@ -130,6 +138,7 @@ def runs_of_job(job: StoredJob, *, experiment: str | None = None, cell_id: str |
             expansion_used=stored.expansion_used(result),
             timestamp=timestamp,
             run_id=manifest.get("run_id"),
+            result=result if include_results else None,
         ))
     return runs
 
@@ -139,6 +148,7 @@ def iter_runs(
     *,
     job_dirs: Iterable[Path | str] = (),
     store: RunStore | None = None,
+    include_results: bool = False,
 ) -> Iterator[Run]:
     """The runs of an experiment's indexed cells, then those of every job in ``job_dirs``."""
     if experiment is not None:
@@ -148,10 +158,15 @@ def iter_runs(
                 continue
             path = Path(record.job_dir) / f"{record.job_id}.json"
             if path.is_file():
-                yield from runs_of_job(read_job(path), experiment=experiment, cell_id=record.cell_id)
+                yield from runs_of_job(
+                    read_job(path), experiment=experiment, cell_id=record.cell_id, include_results=include_results,
+                )
     for job_dir in job_dirs:
         for job in iter_jobs(Path(job_dir)):
-            yield from runs_of_job(job)
+            yield from runs_of_job(job, include_results=include_results)
+
+
+COLUMNS = tuple(name for name in Run.__dataclass_fields__ if name != "result")
 
 
 def load_runs(
@@ -159,7 +174,14 @@ def load_runs(
     *,
     job_dirs: Iterable[Path | str] = (),
     store: RunStore | None = None,
+    include_results: bool = False,
 ) -> pd.DataFrame:
-    """One row per stored result; see the module docstring for the columns."""
-    rows = [asdict(run) for run in iter_runs(experiment, job_dirs=job_dirs, store=store)]
-    return pd.DataFrame(rows, columns=[name for name in Run.__dataclass_fields__])
+    """One row per stored result; see the module docstring for the columns.
+
+    With ``include_results`` the frame also carries each stored result as a
+    ``result`` column of dicts, for analyses that read beyond the columns.
+    """
+    runs = iter_runs(experiment, job_dirs=job_dirs, store=store, include_results=include_results)
+    rows = [asdict(run) for run in runs]
+    columns = [*COLUMNS, "result"] if include_results else list(COLUMNS)
+    return pd.DataFrame([{key: row[key] for key in columns} for row in rows], columns=columns)
