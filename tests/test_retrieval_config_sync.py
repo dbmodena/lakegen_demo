@@ -2,9 +2,9 @@
 
 ``RetrievalConfig`` (a dataclass, used at run time) and
 ``RetrievalExperimentConfig`` (a pydantic model, used by the experiment
-config) list the same fields. Their defaults differ on exactly two fields,
-and ``RetrievalConfig.from_env`` differs from the dataclass on exactly three:
-these are the production defaults. This test pins all of that, so a field
+config) list the same fields. Their defaults differ on exactly three fields,
+which are also exactly where ``RetrievalConfig.from_env`` differs from the
+dataclass: the production defaults. This test pins all of that, so a field
 added to one class without the other, or a changed default, fails here.
 """
 
@@ -20,6 +20,7 @@ from lakegen.retrieval.config import RetrievalConfig
 EXPERIMENT_OVERRIDES = {
     "scan_workers": (8, 16),
     "rerank_model": (None, "cohere.rerank-v4.0-fast"),
+    "pneuma_index_name": ("lakegen", "lakegen-cohere-v4-1024"),
 }
 # field -> (dataclass default, from_env default)
 ENVIRONMENT_OVERRIDES = {
@@ -68,4 +69,8 @@ def test_from_env_defaults_differ_only_where_documented():
 def test_round_trip_between_the_two_classes():
     production = RetrievalConfig.from_env()
     assert RetrievalExperimentConfig.from_runtime(production).to_runtime() == production
-    assert RetrievalExperimentConfig().to_runtime() == RetrievalConfig(scan_workers=16, rerank_model="cohere.rerank-v4.0-fast")
+    assert RetrievalExperimentConfig().to_runtime() == RetrievalConfig(
+        scan_workers=16, rerank_model="cohere.rerank-v4.0-fast", pneuma_index_name="lakegen-cohere-v4-1024",
+    )
+    # The experiment config's static defaults are the production defaults.
+    assert RetrievalExperimentConfig().to_runtime() == RetrievalConfig.from_env()

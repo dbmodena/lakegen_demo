@@ -12,9 +12,11 @@ from lakegen.config.files import (
     deep_merge,
     flatten_document,
     load_document,
+    nest,
     parse_document,
     translate_override,
 )
+from lakegen.config.settings import retrieval_env_overrides
 
 from lakegen.config.registry import lake_names, model_names
 from lakegen.retrieval import (
@@ -105,7 +107,8 @@ class RetrievalExperimentConfig(FrozenModel):
     missing_signal_policy: MissingSignalPolicy = MissingSignalPolicy.ZERO
     fusion_method: FusionMethod = FusionMethod.WEIGHTED
     rrf_k: int = Field(default=60, gt=0)
-    pneuma_index_name: str = Field(default="lakegen", min_length=1)
+    # The production index name; RetrievalConfig itself defaults to "lakegen".
+    pneuma_index_name: str = Field(default="lakegen-cohere-v4-1024", min_length=1)
     pneuma_base_url: str = Field(default="http://localhost:8767", min_length=1)
     pneuma_timeout_seconds: float = Field(default=120.0, gt=0)
     pneuma_content_weight: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -263,7 +266,8 @@ class BenchmarkConfig(FrozenModel):
 
 
 def _default_retrieval() -> RetrievalExperimentConfig:
-    return RetrievalExperimentConfig.from_runtime(RetrievalConfig.from_env())
+    """The static production defaults; the environment applies in load_experiment_config."""
+    return RetrievalExperimentConfig()
 
 
 class ExperimentConfig(FrozenModel):
@@ -394,6 +398,9 @@ def load_experiment_config(
     """
 
     data = (base or ExperimentConfig()).model_dump(mode="json")
+    # LAKEGEN_* retrieval variables that are set override the static defaults
+    # and nothing else; the manifest records them as env_overrides.
+    data = deep_merge(data, nest(retrieval_env_overrides()))
     if path is not None:
         data = deep_merge(data, load_document(path))
     if data_override:

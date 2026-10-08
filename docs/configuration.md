@@ -67,43 +67,43 @@ retrieval benchmark; variables already set in the environment win over it.
 
 | Variable | Default | Meaning | Read |
 |---|---|---|---|
-| `LAKEGEN_RETRIEVAL_MODE` | `'keyword'` | Retrieval mode. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_RETRIEVAL_TOP_K` | `20` | Ranked pool size. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_HYBRID_ALPHA` | `0.5` | Lexical weight of weighted hybrid fusion. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_CANDIDATE_MULTIPLIER` | `5` | Per-branch pool size as a multiple of top_k. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_REPRESENTATION_VERSION` | `'metadata-v1'` | Version of the indexed representation. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_EMBEDDING_MODEL` | `'cohere.embed-v4.0'` | Embedding model of semantic retrieval. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_EMBEDDING_BASE_URL` | `'http://localhost:11434'` | Ollama URL for Ollama embedding models. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_VECTOR_FIELD` | `'table_embedding'` | Solr dense-vector field. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_BM25_QUERY_FIELDS` | unset | BM25 fields and boosts in Solr qf format. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_MISSING_SIGNAL_POLICY` | `'zero'` | How hybrid fusion treats a signal missing from one branch. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_FUSION_METHOD` | `'weighted'` | Hybrid fusion method: weighted or rrf. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_RRF_K` | `60` | RRF smoothing constant. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_INDEX_NAME` | `'lakegen-cohere-v4-1024'` | Pneuma index name when the lake has no route. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_BASE_URL` | `'http://localhost:8767'` | Pneuma service URL when the lake has no route. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_TIMEOUT_SECONDS` | `120.0` | Pneuma request timeout. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_CONTENT_WEIGHT` | `0.5` | Pneuma-Seeker: weight of content search against Pneuma's ranking. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_CONTENT_FUSION` | `'weighted'` | Pneuma-Seeker: weighted or fill. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_ENTITY_MODEL` | unset | Pneuma-Seeker: chat model that extracts entities when the caller gives none. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_ENUMERATE_TABLES` | `True` | Pneuma-Seeker: pull in tables whose names form a family (0, false or no turns it off). | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_TABLE_NAME_WEIGHT` | `3.0` | Pneuma-Seeker: weight of a title match. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_COLUMN_NAME_WEIGHT` | `2.0` | Pneuma-Seeker: weight of a column-name match. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_CELL_WEIGHT` | `1.0` | Pneuma-Seeker: weight of a cell match. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_PNEUMA_VALUE_SCAN_WEIGHT` | `0.0` | Plain pneuma: weight of a value scan of the returned tables; 0 scans nothing. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_DUCKDB_MAX_FILES` | `250` | duckdb_agentic: files scanned. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_DUCKDB_MAX_COLUMNS_PER_FILE` | `40` | duckdb_agentic: columns scanned per file. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_DUCKDB_SAMPLE_ROWS` | `3` | duckdb_agentic: sample rows per file. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_DUCKDB_MAX_SCAN_ROWS_PER_FILE` | `100000` | duckdb_agentic: rows scanned per file. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_DUCKDB_PROBE_FILES` | `25` | duckdb_agentic: following files probed for value-only terms. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_DUCKDB_PROBE_ROWS_PER_FILE` | `1000` | duckdb_agentic: rows per probed file. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_GREP_MAX_FILES` | unset | Pneuma-Seeker content scan: file cap; blank scans the whole lake. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_GREP_MAX_COLUMNS_PER_FILE` | `40` | Content scan: columns per file. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_GREP_MAX_SCAN_ROWS_PER_FILE` | `100000` | Content scan: rows per file. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_GREP_SAMPLE_ROWS` | `3` | Content scan: sample rows. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_GREP_PROBE_FILES` | `25` | Content scan: probed files. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_SCAN_WORKERS` | `16` | Worker processes of the content scan. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_GREP_VALUE_WEIGHT` | `1.0` | Content scan: weight of value evidence. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_GREP_METADATA_WEIGHT` | `1.0` | Content scan: weight of metadata evidence. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_GREP_PROBE_ROWS_PER_FILE` | `1000` | Content scan: rows per probed file. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_RERANK_MODEL` | `'cohere.rerank-v4.0-fast'` | Second-stage reranker; empty turns reranking off. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
-| `LAKEGEN_RERANK_DEPTH` | `20` | How many top hits the reranker reorders. | RetrievalConfig.from_env: every experiment config load, the CLI and the UI |
+| `LAKEGEN_RETRIEVAL_MODE` | `'keyword'` | Retrieval mode. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_RETRIEVAL_TOP_K` | `20` | Ranked pool size. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_HYBRID_ALPHA` | `0.5` | Lexical weight of weighted hybrid fusion. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_CANDIDATE_MULTIPLIER` | `5` | Per-branch pool size as a multiple of top_k. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_REPRESENTATION_VERSION` | `'metadata-v1'` | Version of the indexed representation. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_EMBEDDING_MODEL` | `'cohere.embed-v4.0'` | Embedding model of semantic retrieval. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_EMBEDDING_BASE_URL` | `'http://localhost:11434'` | Ollama URL for Ollama embedding models. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_VECTOR_FIELD` | `'table_embedding'` | Solr dense-vector field. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_BM25_QUERY_FIELDS` | unset | BM25 fields and boosts in Solr qf format. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_MISSING_SIGNAL_POLICY` | `'zero'` | How hybrid fusion treats a signal missing from one branch. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_FUSION_METHOD` | `'weighted'` | Hybrid fusion method: weighted or rrf. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_RRF_K` | `60` | RRF smoothing constant. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_INDEX_NAME` | `'lakegen-cohere-v4-1024'` | Pneuma index name when the lake has no route. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_BASE_URL` | `'http://localhost:8767'` | Pneuma service URL when the lake has no route. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_TIMEOUT_SECONDS` | `120.0` | Pneuma request timeout. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_CONTENT_WEIGHT` | `0.5` | Pneuma-Seeker: weight of content search against Pneuma's ranking. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_CONTENT_FUSION` | `'weighted'` | Pneuma-Seeker: weighted or fill. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_ENTITY_MODEL` | unset | Pneuma-Seeker: chat model that extracts entities when the caller gives none. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_ENUMERATE_TABLES` | `True` | Pneuma-Seeker: pull in tables whose names form a family (0, false or no turns it off). | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_TABLE_NAME_WEIGHT` | `3.0` | Pneuma-Seeker: weight of a title match. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_COLUMN_NAME_WEIGHT` | `2.0` | Pneuma-Seeker: weight of a column-name match. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_CELL_WEIGHT` | `1.0` | Pneuma-Seeker: weight of a cell match. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_PNEUMA_VALUE_SCAN_WEIGHT` | `0.0` | Plain pneuma: weight of a value scan of the returned tables; 0 scans nothing. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_DUCKDB_MAX_FILES` | `250` | duckdb_agentic: files scanned. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_DUCKDB_MAX_COLUMNS_PER_FILE` | `40` | duckdb_agentic: columns scanned per file. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_DUCKDB_SAMPLE_ROWS` | `3` | duckdb_agentic: sample rows per file. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_DUCKDB_MAX_SCAN_ROWS_PER_FILE` | `100000` | duckdb_agentic: rows scanned per file. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_DUCKDB_PROBE_FILES` | `25` | duckdb_agentic: following files probed for value-only terms. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_DUCKDB_PROBE_ROWS_PER_FILE` | `1000` | duckdb_agentic: rows per probed file. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_GREP_MAX_FILES` | unset | Pneuma-Seeker content scan: file cap; blank scans the whole lake. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_GREP_MAX_COLUMNS_PER_FILE` | `40` | Content scan: columns per file. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_GREP_MAX_SCAN_ROWS_PER_FILE` | `100000` | Content scan: rows per file. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_GREP_SAMPLE_ROWS` | `3` | Content scan: sample rows. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_GREP_PROBE_FILES` | `25` | Content scan: probed files. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_SCAN_WORKERS` | `16` | Worker processes of the content scan. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_GREP_VALUE_WEIGHT` | `1.0` | Content scan: weight of value evidence. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_GREP_METADATA_WEIGHT` | `1.0` | Content scan: weight of metadata evidence. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_GREP_PROBE_ROWS_PER_FILE` | `1000` | Content scan: rows per probed file. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_RERANK_MODEL` | `'cohere.rerank-v4.0-fast'` | Second-stage reranker; empty turns reranking off. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |
+| `LAKEGEN_RERANK_DEPTH` | `20` | How many top hits the reranker reorders. | RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the static default and is recorded in the manifest's env_overrides |

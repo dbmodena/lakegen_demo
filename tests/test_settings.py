@@ -20,6 +20,7 @@ from lakegen.config.settings import (
     optional_int,
     positive_int_or_default,
     render_markdown,
+    retrieval_env_overrides,
     retrieval_env_values,
     share,
 )
@@ -123,3 +124,10 @@ def test_configuration_docs_are_current():
     assert (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8") == generated, (
         "run scripts/gen_config_docs.py"
     )
+
+
+def test_only_set_variables_count_as_overrides(monkeypatch):
+    assert retrieval_env_overrides() == {}
+    monkeypatch.setenv("LAKEGEN_RETRIEVAL_TOP_K", "7")
+    monkeypatch.setenv("LAKEGEN_RERANK_MODEL", "")
+    assert retrieval_env_overrides() == {"retrieval.top_k": 7, "retrieval.rerank_model": ""}

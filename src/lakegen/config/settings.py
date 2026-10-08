@@ -161,7 +161,10 @@ class EnvFamily:
     read_at: str = "call"
 
 
-RETRIEVAL_READ_AT = "RetrievalConfig.from_env: every experiment config load, the CLI and the UI"
+RETRIEVAL_READ_AT = (
+    "RetrievalConfig.from_env, and load_experiment_config, where a set variable overrides the "
+    "static default and is recorded in the manifest's env_overrides"
+)
 
 
 def _retrieval(name: str, field: str, default: Any, parse: Parser, help: str) -> EnvVar:
@@ -329,6 +332,20 @@ def read_var(name: str, parse: Parser, default: Any) -> Any:
 def retrieval_env_values() -> dict[str, Any]:
     """The retrieval knobs as ``{RetrievalConfig field: value}``."""
     return {v.field: v.read() for v in VARIABLES if v.field is not None}
+
+
+def retrieval_env_overrides() -> dict[str, Any]:
+    """The retrieval knobs set in the environment, as ``{"retrieval.<field>": value}``.
+
+    Only variables that are set count: these are the overrides an experiment
+    config load applies on top of its static defaults, and what the manifest
+    records as ``env_overrides``.
+    """
+    return {
+        f"retrieval.{v.field}": v.read()
+        for v in VARIABLES
+        if v.field is not None and v.name in os.environ
+    }
 
 
 def solr_core_override(lake: str) -> str | None:

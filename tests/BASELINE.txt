@@ -1006,6 +1006,7 @@ tests/test_settings.py::test_non_negative_float_keeps_the_default_on_bad_input[-
 tests/test_settings.py::test_non_negative_float_keeps_the_default_on_bad_input[-7.0]
 tests/test_settings.py::test_non_negative_float_keeps_the_default_on_bad_input[2.5-2.5]
 tests/test_settings.py::test_non_negative_float_keeps_the_default_on_bad_input[x-7.0]
+tests/test_settings.py::test_only_set_variables_count_as_overrides
 tests/test_settings.py::test_optional_int_reads_blank_as_no_cap
 tests/test_settings.py::test_positive_int_keeps_the_default_on_bad_input[-2-1]
 tests/test_settings.py::test_positive_int_keeps_the_default_on_bad_input[0-1]
