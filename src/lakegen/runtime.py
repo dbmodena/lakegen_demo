@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
+from lakegen.config.registry import get_lake, lake_names, lakes, model_names
+from lakegen.core.config import resolve_portal_tables_dir
 from lakegen.experiment_config import (
     DiscoveryArchitecture,
     DiscoveryConfig,
@@ -22,24 +23,10 @@ from lakegen.experiment_config import (
 )
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
-MODEL_OPTIONS = [
-    "openai.gpt-oss-120b",
-    "meta.llama-3.3-70b-instruct",
-    "ollama.gpt-oss-20b",
-    "ollama.qwen3.8-27b",
-    "together.gpt-oss-120b",
-]
-SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris", "uk", "kramabench", "target_bird", "chicago"]
-SOLR_CORE_PORTAL_NAMES = {
-    "nyc": "New York City Open Data portal",
-    "valencia": "Valencia Open Data portal",
-    "bologna": "Bologna Open Data portal",
-    "paris": "Paris Open Data portal",
-    "uk": "UK Open Data portal",
-    "kramabench": "KramaBench data lake (archaeology, astronomy, biomedical, environment, legal, wildfire)",
-    "target_bird": "BIRD databases (TARGET benchmark)",
-    "chicago": "City of Chicago Open Data portal",
-}
+# The option lists the interfaces show come from the registries.
+MODEL_OPTIONS = list(model_names())
+SOLR_CORE_OPTIONS = list(lake_names())
+SOLR_CORE_PORTAL_NAMES = {lake.name: lake.title for lake in lakes()}
 RETRIEVAL_MODE_OPTIONS = [mode.value for mode in RetrievalMode]
 # Dropdown label -> mode value; the label is what people see.
 RETRIEVAL_MODE_ITEMS = {mode.label: mode.value for mode in RetrievalMode}
@@ -50,7 +37,7 @@ class RuntimeSettings:
     model_name: str = MODEL_OPTIONS[0]
     solr_core: str = SOLR_CORE_OPTIONS[0]
     csv_dir: Path = field(default_factory=lambda: resolve_portal_tables_dir("nyc"))
-    db_path: Path = BASE_DIR / "data/blend_nyc.db"
+    db_path: Path = field(default_factory=lambda: get_lake("nyc").blend_db_path)
     use_unified_agent: bool = True
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig.from_env)
     experiment: ExperimentConfig | None = None
@@ -129,7 +116,7 @@ class RuntimeSettings:
             model_name=model_name,
             solr_core=selected_solr_core,
             csv_dir=resolve_portal_tables_dir(selected_solr_core),
-            db_path=BASE_DIR / f"data/blend_{selected_solr_core}.db",
+            db_path=get_lake(selected_solr_core).blend_db_path,
             use_unified_agent=bool(use_unified_agent),
             retrieval=retrieval,
             experiment=experiment,

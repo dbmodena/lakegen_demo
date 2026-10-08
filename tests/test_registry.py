@@ -14,6 +14,7 @@ from lakegen.config.registry import (
     models_by_provider,
     pneuma_routes,
 )
+from lakegen.core import config as core_config
 from lakegen.core.config import BASE_DIR
 
 LAKES = ("nyc", "valencia", "bologna", "paris", "uk", "kramabench", "target_bird", "chicago")
@@ -64,7 +65,7 @@ def test_lake_paths_follow_the_rules_the_code_used():
 
 
 def test_tables_dir_prefers_a_directory_that_holds_tables(monkeypatch, tmp_path):
-    monkeypatch.setattr(registry, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(core_config, "BASE_DIR", tmp_path)
     lake = get_lake("uk")
     (tmp_path / "data" / "uk" / "clean_datasets" / "parquets").mkdir(parents=True)
     (tmp_path / "data" / "uk" / "datasets" / "parquets").mkdir(parents=True)

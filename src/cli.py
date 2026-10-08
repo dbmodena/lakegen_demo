@@ -29,6 +29,7 @@ if str(_SRC_DIR) not in sys.path:
 if str(_ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(_ROOT_DIR))
 
+from lakegen.config.registry import get_lake
 from lakegen.core.bootstrap import bootstrap_nltk_data
 from lakegen.core.resources import get_all_table_files, get_llm, get_prompt_manager, get_solr
 from lakegen.phases import (
@@ -898,7 +899,7 @@ def main() -> None:
         model_name=experiment.model,
         solr_core=experiment.core,
         csv_dir=resolve_portal_tables_dir(experiment.core),
-        db_path=BASE_DIR / f"data/blend_{experiment.core}.db",
+        db_path=get_lake(experiment.core).blend_db_path,
         use_unified_agent=experiment.use_unified_agent,
         retrieval=experiment.retrieval.to_runtime(),
         experiment=experiment,

@@ -22,9 +22,9 @@ from typing import Any
 import yaml
 
 from lakegen.config.settings import pneuma_override, solr_core_override
-from lakegen.core.config import BASE_DIR
+from lakegen.core import config as core_config
 
-CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR = core_config.BASE_DIR / "config"
 TABLE_SUFFIXES = {".parquet", ".pq", ".csv"}
 PROVIDERS = ("oci", "ollama", "together")
 
@@ -49,7 +49,7 @@ class Lake:
 
     @property
     def data_dir(self) -> Path:
-        return BASE_DIR / "data" / self.name
+        return core_config.BASE_DIR / "data" / self.name
 
     def pneuma_route(self) -> tuple[str, str]:
         """The lake's Pneuma (base URL, index name), with the environment's overrides."""
@@ -85,15 +85,15 @@ class Lake:
 
     @property
     def blend_db_path(self) -> Path:
-        return BASE_DIR / "data" / f"blend_{self.name}.db"
+        return core_config.BASE_DIR / "data" / f"blend_{self.name}.db"
 
     @property
     def starters_path(self) -> Path | None:
-        return BASE_DIR / self.starters if self.starters else None
+        return core_config.BASE_DIR / self.starters if self.starters else None
 
     @property
     def reference_questions_path(self) -> Path | None:
-        return BASE_DIR / self.reference_questions if self.reference_questions else None
+        return core_config.BASE_DIR / self.reference_questions if self.reference_questions else None
 
 
 @dataclass(frozen=True)

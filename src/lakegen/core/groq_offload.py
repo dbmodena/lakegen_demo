@@ -30,12 +30,13 @@ from typing import Any, Sequence
 import requests
 from llama_index.core.llms import ChatMessage, ChatResponse, MessageRole
 
+from lakegen.config.registry import groq_models
 from lakegen.config.settings import get_settings, groq_api_keys
 from lakegen.core.config import LOG_DIR
 from lakegen.core.token_usage import estimate_tokens
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODELS = {"openai.gpt-oss-120b": "openai/gpt-oss-120b"}
+GROQ_MODELS = groq_models()
 TOKENS_PER_MINUTE = 8_000
 TOKENS_PER_DAY = 200_000
 REQUESTS_PER_DAY = 1_000

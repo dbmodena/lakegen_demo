@@ -94,6 +94,7 @@ import pyarrow.parquet as pq
 import requests
 
 from lakegen import cell_scan
+from lakegen.config.registry import models_by_provider
 from lakegen.config.settings import together_api_key
 from lakegen.retrieval.config import (
     PneumaContentFusion,
@@ -285,7 +286,7 @@ def _oci_entities(model_id: str, question: str) -> tuple[str, ...]:
 
 # Together AI models for the same extraction (pneuma_entity_model "together.*"),
 # so Pneuma-Seeker needs no OCI chat model: LakeGen model name -> Together id.
-TOGETHER_ENTITY_MODELS = {"together.gpt-oss-120b": "openai/gpt-oss-120b"}
+TOGETHER_ENTITY_MODELS = models_by_provider("together")
 TOGETHER_CHAT_URL = "https://api.together.xyz/v1/chat/completions"
 
 

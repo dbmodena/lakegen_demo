@@ -27,6 +27,7 @@ from llama_index.llms.oci_genai.utils import CHAT_MODELS, PROVIDERS, XAIProvider
 from llama_index.llms.openai_like import OpenAILike
 import llama_index.llms.openai.base as _openai_base
 
+from lakegen.config.registry import ModelSpec, get_model, models_by_provider
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 from lakegen.core import groq_offload
@@ -39,27 +40,16 @@ from lakegen.retrieval.models import RetrievalRun
 
 
 OCI_DEFAULT_PROFILE = "DEFAULT"
-OCI_MAX_OUTPUT_TOKENS = 4000
 OPENAI_GPT_OSS_MODEL = "openai.gpt-oss-120b"
-OPENAI_GPT_OSS_CONTEXT_SIZE = 128_000
-OPENAI_GPT_OSS_MAX_OUTPUT_TOKENS = 16_000
 META_LLAMA_MODEL = "meta.llama-3.3-70b-instruct"
-GENERIC_CHAT_MODELS = {OPENAI_GPT_OSS_MODEL, META_LLAMA_MODEL}
-# Local models served through Ollama's OpenAI-compatible endpoint: LakeGen
-# model name -> Ollama tag.
-OLLAMA_MODELS = {
-    "ollama.gpt-oss-20b": "gpt-oss:20b",
-    "ollama.qwen3.8-27b": "qwen3.8:27b",
-}
-# The local Ollama servers load models with a 32k window, not their native
-# 128k (gpt-oss) or 256k (qwen3.8).
-OLLAMA_CONTEXT_SIZE = 32_768
-OLLAMA_TIMEOUT_SECONDS = 600.0
-# Hosted models on Together AI's OpenAI-compatible endpoint (key TOGETHERAI_API_KEY):
-# LakeGen model name -> Together model id. Same open weights as OCI's gpt-oss-120b.
-TOGETHER_MODELS = {"together.gpt-oss-120b": "openai/gpt-oss-120b"}
-TOGETHER_BASE_URL = "https://api.together.xyz/v1"
-TOGETHER_TIMEOUT_SECONDS = 300.0
+# The models, their providers and their limits come from config/models.yaml
+# (lakegen.config.registry); these names are kept for the OCI provider class
+# and the tests.
+GENERIC_CHAT_MODELS = set(models_by_provider("oci"))
+OLLAMA_MODELS = models_by_provider("ollama")
+TOGETHER_MODELS = models_by_provider("together")
+OPENAI_GPT_OSS_CONTEXT_SIZE = get_model(OPENAI_GPT_OSS_MODEL).context_window
+OLLAMA_CONTEXT_SIZE = get_model("ollama.gpt-oss-20b").context_window
 # Together sets no fixed limits: it answers 429 (over the account's dynamic
 # request or token rate) or 503 (platform at capacity), suggests a wait in
 # x-ratelimit-reset and asks for exponential backoff. A call keeps retrying for
@@ -708,44 +698,60 @@ def _oci_runtime_config() -> tuple[Path, str, str, str]:
     return config_file, profile, compartment_id, service_endpoint
 
 
+def _spec_for(model: str) -> ModelSpec:
+    """The registered model, or an OCI model id the registry does not list.
+
+    An unlisted id goes to OCI with the limits it always had: 4,000 output
+    tokens and no context size.
+    """
+    try:
+        return get_model(model)
+    except KeyError:
+        return ModelSpec(
+            name=model, provider="oci", provider_model=model, context_window=None,
+            max_output_tokens=4000, temperature=0.1, timeout_seconds=None, groq_model=None,
+        )
+
+
 def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
     token_counter = TokenCountingHandler(
         tokenizer=tiktoken.encoding_for_model("gpt-3.5-turbo").encode
     )
     Settings.callback_manager = CallbackManager([token_counter])
     env = get_settings()
+    spec = _spec_for(model)
 
-    if model in OLLAMA_MODELS:
+    if spec.provider == "ollama":
         base_url = env.ollama_base_url
         llm = _LakeGenOllamaLLM(
-            model=OLLAMA_MODELS[model],
+            model=spec.provider_model,
             api_base=f"{base_url.rstrip('/')}/v1",
             api_key="ollama",
-            context_window=OLLAMA_CONTEXT_SIZE,
+            context_window=spec.context_window,
             is_chat_model=True,
             is_function_calling_model=True,
-            temperature=0.1,
-            max_tokens=OPENAI_GPT_OSS_MAX_OUTPUT_TOKENS,
-            timeout=OLLAMA_TIMEOUT_SECONDS,
+            temperature=spec.temperature,
+            max_tokens=spec.max_output_tokens,
+            timeout=spec.timeout_seconds,
             callback_manager=Settings.callback_manager,
         )
         return llm, token_counter
 
-    if model in TOGETHER_MODELS:
+    if spec.provider == "together":
         api_key = env.together_api_key
         if not api_key:
             raise RuntimeError(f"{model} needs a Together AI key: set TOGETHERAI_API_KEY")
         llm = _LakeGenTogetherLLM(
-            model=TOGETHER_MODELS[model],
+            model=spec.provider_model,
             api_base=env.together_base_url,
             api_key=api_key,
-            context_window=OPENAI_GPT_OSS_CONTEXT_SIZE,
+            context_window=spec.context_window,
             is_chat_model=True,
             is_function_calling_model=True,
             # LakeGen's 0.1 by default; Together recommends 1.0 for reasoning models.
             temperature=env.together_temperature,
-            max_tokens=OPENAI_GPT_OSS_MAX_OUTPUT_TOKENS,
-            timeout=TOGETHER_TIMEOUT_SECONDS,
+            max_tokens=spec.max_output_tokens,
+            timeout=spec.timeout_seconds,
             max_retries=0,  # _LakeGenTogetherLLM retries as Together asks
             # Streams then end with a usage chunk, which the token accounting reads.
             additional_kwargs={"stream_options": {"include_usage": True}},
@@ -754,23 +760,18 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
         return llm, token_counter
 
     config_file, profile, compartment_id, service_endpoint = _oci_runtime_config()
-    max_tokens = (
-        OPENAI_GPT_OSS_MAX_OUTPUT_TOKENS
-        if model == OPENAI_GPT_OSS_MODEL
-        else OCI_MAX_OUTPUT_TOKENS
-    )
     model_kwargs = {}
-    if model == OPENAI_GPT_OSS_MODEL:
-        model_kwargs["context_size"] = OPENAI_GPT_OSS_CONTEXT_SIZE
+    if spec.context_window:
+        model_kwargs["context_size"] = spec.context_window
     llm = _LakeGenOCIGenAI(
-        model=model,
+        model=spec.provider_model,
         compartment_id=compartment_id,
         service_endpoint=service_endpoint,
         auth_type="API_KEY",
         auth_profile=profile,
         auth_file_location=str(config_file),
-        temperature=0.1,
-        max_tokens=max_tokens,
+        temperature=spec.temperature,
+        max_tokens=spec.max_output_tokens,
         callback_manager=Settings.callback_manager,
         **model_kwargs,
     )

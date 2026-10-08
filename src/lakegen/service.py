@@ -9,6 +9,7 @@ import time
 import uuid
 from typing import Any, Mapping
 
+from lakegen.config.registry import get_lake
 from lakegen.core import paths
 from lakegen.core.config import BASE_DIR, resolve_portal_tables_dir
 from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
@@ -282,7 +283,7 @@ def make_runtime_settings(
         model_name=model,
         solr_core=core,
         csv_dir=resolve_portal_tables_dir(core),
-        db_path=BASE_DIR / f"data/blend_{core}.db",
+        db_path=get_lake(core).blend_db_path,
         use_unified_agent=use_unified_agent,
         retrieval=retrieval,
         experiment=resolved_config,

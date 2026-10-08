@@ -6,29 +6,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
-from lakegen.config.settings import pneuma_override, retrieval_env_values
+from lakegen.config.registry import get_lake
+from lakegen.config.settings import retrieval_env_values
 
 DEFAULT_TOP_K = 20
 # Second-stage reranker of production retrieval (retrieval.rerank); see
 # RetrievalConfig.rerank_model.
 DEFAULT_RERANK_MODEL = "cohere.rerank-v4.0-fast"
 DEFAULT_RERANK_DEPTH = 20
-PNEUMA_PORTAL_ROUTES = {
-    "nyc": ("http://localhost:8765", "lakegen-cohere-v4-1024"),
-    "uk": ("http://localhost:8766", "lakegen-cohere-v4-1024"),
-    # One Pneuma service per portal: a server holds one index folder. 8765 and
-    # 8766 are taken by the NYC and UK services, so the portals rebuilt in
-    # September get their own ports (experiments/portal_grid/start_services.sh
-    # starts them). LAKEGEN_PNEUMA_<PORTAL>_BASE_URL / _INDEX_NAME override.
-    "valencia": ("http://localhost:8771", "lakegen-cohere-v4-1024"),
-    "paris": ("http://localhost:8772", "lakegen-cohere-v4-1024"),
-    "bologna": ("http://localhost:8773", "lakegen-cohere-v4-1024"),
-    # Benchmark lakes (experiments/benchmark_lakes): KramaBench, TARGET's BIRD
-    # and Pneuma's Chicago Open Data, data on /data/bilel/lakegen_benchmarks.
-    "kramabench": ("http://localhost:8781", "lakegen-cohere-v4-1024"),
-    "target_bird": ("http://localhost:8782", "lakegen-cohere-v4-1024"),
-    "chicago": ("http://localhost:8783", "lakegen-cohere-v4-1024"),
-}
 
 
 class RetrievalMode(StrEnum):
@@ -329,17 +314,12 @@ class RetrievalConfig:
 
     def for_portal(self, portal: str) -> "RetrievalConfig":
         """Select the independent Pneuma service belonging to a portal."""
-        normalized = portal.strip().casefold()
-        route = PNEUMA_PORTAL_ROUTES.get(normalized)
-        if route is None:
+        try:
+            lake = get_lake(portal.strip().casefold())
+        except KeyError:
             return self
-        default_url, default_index = route
-        url, index = pneuma_override(normalized)
-        return replace(
-            self,
-            pneuma_index_name=default_index if index is None else index,
-            pneuma_base_url=default_url if url is None else url,
-        )
+        url, index = lake.pneuma_route()
+        return replace(self, pneuma_index_name=index, pneuma_base_url=url)
 
     @classmethod
     def from_env(

@@ -7,17 +7,14 @@ from typing import Any, Iterator
 
 import chainlit as cl
 
-from lakegen.core.config import BASE_DIR
+from lakegen.config.registry import lakes
 
 
 STARTER_LIMIT = 3
 LABEL_LIMIT = 72
 
 CORE_QUERY_FILES: dict[str, Path] = {
-    "nyc": BASE_DIR / "queries/generated_queries_new_york.json",
-    "valencia": BASE_DIR / "queries/generated_queries_valencia.json",
-    "bologna": BASE_DIR / "queries/generated_queries_bologna.json",
-    "paris": BASE_DIR / "queries/generated_queries_paris.json",
+    lake.name: lake.starters_path for lake in lakes() if lake.starters_path
 }
 
 

@@ -10,6 +10,7 @@ from typing import Any, Mapping
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from lakegen.config.registry import lake_names, model_names
 from lakegen.retrieval import (
     DEFAULT_RERANK_DEPTH,
     DEFAULT_RERANK_MODEL,
@@ -24,14 +25,9 @@ from lakegen.retrieval import (
 
 DEFAULT_MODEL = "openai.gpt-oss-120b"
 DEFAULT_CORE = "nyc"
-SUPPORTED_MODELS = (
-    DEFAULT_MODEL,
-    "meta.llama-3.3-70b-instruct",
-    "ollama.gpt-oss-20b",
-    "ollama.qwen3.8-27b",
-    "together.gpt-oss-120b",
-)
-SUPPORTED_CORES = ("nyc", "valencia", "bologna", "paris", "uk", "kramabench", "target_bird", "chicago")
+# What exists comes from config/models.yaml and config/lakes.yaml.
+SUPPORTED_MODELS = model_names()
+SUPPORTED_CORES = lake_names()
 
 
 class FrozenModel(BaseModel):

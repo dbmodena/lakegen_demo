@@ -16,10 +16,11 @@ from typing import Any
 import chainlit as cl
 from chainlit.config import FILES_DIRECTORY
 
-from lakegen.core.config import BASE_DIR
+from lakegen.config.registry import get_lake
+
 from lakegen.ui.i18n import t
 
-UK_REFERENCE_FILE: Path = BASE_DIR / "benchmark/generated_queries_semantic_uk.json"
+UK_REFERENCE_FILE: Path | None = get_lake("uk").reference_questions_path
 DESCRIPTION_LIMIT = 220
 
 
@@ -95,7 +96,7 @@ SIDEBAR_ELEMENT_SESSION_KEY = "uk_benchmark_sidebar_element"
 
 @lru_cache(maxsize=1)
 def load_uk_reference_questions() -> tuple[dict[str, Any], ...]:
-    if not UK_REFERENCE_FILE.exists():
+    if UK_REFERENCE_FILE is None or not UK_REFERENCE_FILE.exists():
         return ()
     try:
         payload = json.loads(UK_REFERENCE_FILE.read_text(encoding="utf-8"))

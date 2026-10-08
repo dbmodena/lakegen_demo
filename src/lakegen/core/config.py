@@ -51,43 +51,21 @@ LOG_DIR = STATE_DIR / LOGS_DIR_NAME
 
 
 def resolve_portal_tables_dir(portal: str) -> Path:
-    portal_dir = BASE_DIR / "data" / portal
-    dataset_roots = (
-        portal_dir / "clean_datasets",
-        portal_dir / "datasets",
-    ) if portal.casefold() == "uk" else (portal_dir / "datasets",)
-    candidates = tuple(
-        root / name
-        for root in dataset_roots
-        for name in ("parquets", "parquet", "csv")
-    )
-    supported_suffixes = {".parquet", ".pq", ".csv"}
-    for candidate in candidates:
-        if candidate.is_dir() and any(
-            entry.is_file() and entry.suffix.casefold() in supported_suffixes
-            for entry in candidate.iterdir()
-        ):
-            return candidate
-    return next((candidate for candidate in candidates if candidate.is_dir()), candidates[0])
+    """The lake's tables directory; the rules live in config/lakes.yaml."""
+    from lakegen.config.registry import get_lake  # the registry imports BASE_DIR from here
+
+    return get_lake(portal).tables_dir
 
 
 def resolve_portal_metadata_path(portal: str) -> Path:
-    """Return the filtered metadata catalog, preferring cleaned UK metadata."""
-    metadata_dir = BASE_DIR / "data" / portal / "metadata"
-    names = (
-        "metadata_retrieved_cleaned.json",
-        "metadata_retrieved_only.json",
-        "metadata.json",
-    ) if portal.casefold() == "uk" else (
-        "metadata_retrieved_only.json",
-        "metadata.json",
-    )
-    return next(
-        (metadata_dir / name for name in names if (metadata_dir / name).is_file()),
-        metadata_dir / names[0],
-    )
+    """The lake's metadata catalogue (the cleaned one for the UK)."""
+    from lakegen.config.registry import get_lake
+
+    return get_lake(portal).metadata_path
 
 
 def resolve_portal_dataset_statistics_path(portal: str) -> Path:
-    """Return the cleaned per-table statistics CSV for a portal."""
-    return BASE_DIR / "data" / portal / "metadata" / "datasets_metadata.csv"
+    """The lake's per-table statistics CSV."""
+    from lakegen.config.registry import get_lake
+
+    return get_lake(portal).statistics_path
