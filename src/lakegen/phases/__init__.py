@@ -1,10 +1,11 @@
-"""Public phase API without eager imports.
+"""The phase functions by their historical names, resolved on first access.
 
-Importing a phase helper (for example ``lakegen.phases.utils``) must not load
-every workflow phase.  In particular, Phase 12 imports its tools while those
-tools also use the shared phase utilities.  Resolving the public functions on
-first access keeps that dependency graph acyclic while preserving the existing
-``from lakegen.phases import ...`` API.
+The phases live in their packages now: ``lakegen.discovery`` (keywords,
+divided, unified, orchestrated), ``lakegen.coding.agent`` and
+``lakegen.answer.synthesize``; the modules of this package alias them for
+the scripts that still import ``lakegen.coding.agent`` and the like.
+Resolving the functions on first access keeps importing one phase from
+loading the others.
 """
 
 from __future__ import annotations
@@ -12,17 +13,16 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-
 _EXPORTS = {
-    "phase1_generate_keywords": ("lakegen.phases.phase1", "phase1_generate_keywords"),
-    "phase2_select_tables": ("lakegen.phases.phase2", "phase2_select_tables"),
-    "phase12_agent": ("lakegen.phases.phase12", "phase12_agent"),
-    "Phase3Result": ("lakegen.phases.phase3", "Phase3Result"),
+    "phase1_generate_keywords": ("lakegen.discovery.keywords", "phase1_generate_keywords"),
+    "phase2_select_tables": ("lakegen.discovery.divided", "phase2_select_tables"),
+    "phase12_agent": ("lakegen.discovery.unified", "phase12_agent"),
+    "Phase3Result": ("lakegen.coding.agent", "Phase3Result"),
     "phase3_generate_and_execute": (
-        "lakegen.phases.phase3",
+        "lakegen.coding.agent",
         "phase3_generate_and_execute",
     ),
-    "phase4_synthesize": ("lakegen.phases.phase4", "phase4_synthesize"),
+    "phase4_synthesize": ("lakegen.answer.synthesize", "phase4_synthesize"),
 }
 
 __all__ = list(_EXPORTS)

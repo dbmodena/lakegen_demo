@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from lakegen.experiment_config import load_experiment_config
 from lakegen.manifest import create_manifest
-from lakegen.phases.phase3 import phase3_generate_code
+from lakegen.coding.agent import phase3_generate_code
 from lakegen.reproducibility import initialize_reproducibility
 
 
@@ -72,8 +72,8 @@ def test_coder_receives_effective_seed_without_hardcoded_42(monkeypatch, tmp_pat
                 delta="print(1)", additional_kwargs={}, raw=None
             )])
 
-    monkeypatch.setattr("lakegen.phases.phase3._detect_tabpfn_intent", lambda _q: "prediction")
-    monkeypatch.setattr("lakegen.phases.phase3._tabpfn_enabled", lambda: True)
+    monkeypatch.setattr("lakegen.coding.agent._detect_tabpfn_intent", lambda _q: "prediction")
+    monkeypatch.setattr("lakegen.coding.agent._tabpfn_enabled", lambda: True)
 
     instruction_events = []
     code, _tokens = phase3_generate_code(

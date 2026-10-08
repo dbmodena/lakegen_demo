@@ -18,6 +18,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from lakegen.discovery.orchestrated import (
+    OrchestratedContextPreparationError,
+    OrchestratedSelectorError,
+    RetrievalRequestProtocolError,
+)
 from lakegen.domain.outcomes import DiscoveryOutcome, SelectorKind
 from lakegen.experiment_config import DiscoveryArchitecture, ToolAccess
 from lakegen.keyword_memory import (
@@ -25,11 +30,6 @@ from lakegen.keyword_memory import (
     load_question_retrieval_memory,
     persist_keyword_memory,
     persist_question_retrieval_memory,
-)
-from lakegen.phases.orchestrated_discovery import (
-    OrchestratedContextPreparationError,
-    OrchestratedSelectorError,
-    RetrievalRequestProtocolError,
 )
 from lakegen.pipeline.adapters import (
     divided_agentic_outcome,

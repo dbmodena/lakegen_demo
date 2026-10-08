@@ -32,9 +32,9 @@ from types import SimpleNamespace
 from typing import Any
 
 from lakegen.core import config as core_config
+from lakegen.discovery.orchestrated import DiscoveryResult
 from lakegen.experiment_config import ExperimentConfig
 from lakegen.orchestrated_context import PreparedCandidate, PreparedDiscoveryContext
-from lakegen.phases.orchestrated_discovery import DiscoveryResult
 
 _HEX32 = re.compile(r"\b[0-9a-f]{32}\b")
 _TIMESTAMP = re.compile(

@@ -16,8 +16,8 @@ from lakegen.discovery.selectors import (
 from lakegen.discovery.selectors import (
     jev as jev_selectors,
 )
+from lakegen.discovery.selectors.jev_service import JevSelection, JevSelectorError
 from lakegen.experiment_config import DiscoveryConfig, TableSelector
-from lakegen.phases.jev_selector import JevSelection, JevSelectorError
 
 
 def test_every_selector_but_the_architectures_own_llm_is_registered():

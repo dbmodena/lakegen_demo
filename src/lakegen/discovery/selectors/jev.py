@@ -9,8 +9,8 @@ from lakegen.discovery.selectors import (
     SelectorUnavailable,
     register,
 )
+from lakegen.discovery.selectors.jev_service import JevSelectorError, select_with_jev
 from lakegen.experiment_config import DiscoveryConfig, TableSelector
-from lakegen.phases.jev_selector import JevSelectorError, select_with_jev
 
 
 @register(TableSelector.JEV)

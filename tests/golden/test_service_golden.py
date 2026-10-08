@@ -28,7 +28,7 @@ from golden.harness import (
     prepare_run,
     prepared,
 )
-from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
+from lakegen.discovery.selectors.jev_service import TRACE_HEADER as JEV_TRACE_HEADER
 
 SCENARIOS: dict[str, Callable[[], Case]] = {}
 

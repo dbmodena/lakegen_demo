@@ -212,7 +212,7 @@ class DiscoveryConfig(FrozenModel):
     compact_history: bool = True
     # Who picks tables among the retrieved candidates in the divided
     # architecture: the LLM judge, or TypeSafe's Jev decision model
-    # (lakegen.phases.jev_selector), which falls back to the LLM judge when
+    # (lakegen.discovery.selectors.jev_service), which falls back to the LLM judge when
     # its API fails. jev_model is pinned so a model release cannot move the
     # thresholds, which were tuned on jev-1.13.0.
     selector: TableSelector = TableSelector.LLM

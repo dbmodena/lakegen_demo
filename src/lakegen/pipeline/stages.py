@@ -21,6 +21,7 @@ from typing import Any
 
 from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.coder_experiment import run_coder_context_sweep
+from lakegen.discovery.candidates import rejection_feedback_hint
 from lakegen.discovery.tools import P12State
 from lakegen.domain.evaluation import EvaluationContext
 from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome
@@ -36,7 +37,6 @@ from lakegen.keyword_memory import (
 )
 from lakegen.observability.recorder import Recorder
 from lakegen.output_validation import AnswerDisposition, validate_answer
-from lakegen.phases.utils import rejection_feedback_hint
 from lakegen.pipeline.adapters import (
     code_outcome,
     sweep_outcome,

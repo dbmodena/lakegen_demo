@@ -1,8 +1,9 @@
 """Table discovery: which tables of the lake answer the question.
 
-The architectures themselves (the unified agent, the divided keyword writer
-and judge, the orchestrated selectors) still live in ``lakegen.phases``
-until phase 4.7 moves them here; ``selectors`` already holds the protocol
-and the registry of the table selectors they can run instead of their own
-LLM judge.
+``keywords`` writes the divided architecture's keywords, ``divided`` judges
+the retrieved candidates with tools, ``unified`` searches, inspects and
+selects in one agent, ``orchestrated`` runs the tool-free paths over a
+prepared context; ``candidates`` holds what they share. ``tools`` holds the
+unified agent's tools and ``selectors`` the table selectors a run may
+configure instead of an architecture's own LLM judge.
 """

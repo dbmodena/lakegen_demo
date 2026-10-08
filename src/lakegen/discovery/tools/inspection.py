@@ -8,7 +8,7 @@ from lakegen.agent_tools.tools_p2 import (
     _rank_for_missing_requirements,
     _requirement_terms,
 )
-from lakegen.phases.utils import format_candidate_context
+from lakegen.discovery.candidates import format_candidate_context
 
 
 class InspectionMixin:

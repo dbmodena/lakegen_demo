@@ -1,4 +1,4 @@
-from lakegen.phases.phase2 import _solr_and_search
+from lakegen.discovery.divided import _solr_and_search
 from lakegen.retrieval.config import RetrievalConfig
 from lakegen.retrieval.models import RetrievalHit
 
@@ -27,7 +27,7 @@ def test_solr_and_search_drops_excluded_and_carries_kept_tables(monkeypatch):
         ),
     ]
     monkeypatch.setattr(
-        "lakegen.phases.phase2.get_table_retrieval_service",
+        "lakegen.discovery.divided.get_table_retrieval_service",
         lambda *_a, **_kw: _FakeRetriever(hits),
     )
 
@@ -62,7 +62,7 @@ def test_solr_and_search_respects_top_k_after_prepending_carried_tables(monkeypa
         ),
     ]
     monkeypatch.setattr(
-        "lakegen.phases.phase2.get_table_retrieval_service",
+        "lakegen.discovery.divided.get_table_retrieval_service",
         lambda *_a, **_kw: _FakeRetriever(hits),
     )
 
@@ -99,7 +99,7 @@ def test_solr_and_search_backfills_from_beyond_the_original_cutoff(monkeypatch):
     ]
     retriever = _FakeRetriever(hits)
     monkeypatch.setattr(
-        "lakegen.phases.phase2.get_table_retrieval_service",
+        "lakegen.discovery.divided.get_table_retrieval_service",
         lambda *_a, **_kw: retriever,
     )
 

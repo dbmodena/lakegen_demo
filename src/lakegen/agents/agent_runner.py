@@ -10,7 +10,7 @@ from llama_index.core.agent.workflow import (
 from llama_index.core.llms import LLM, ChatMessage
 from pydantic import Field
 
-from lakegen.phases.logging import (
+from lakegen.agents.activity import (
     Phase2AgentStall,
     detect_phase2_agent_stall,
     format_phase2_tool_args,

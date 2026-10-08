@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from lakegen.coder_experiment import serialize_retry_error
+from lakegen.discovery.orchestrated import selector_retry_reason
+from lakegen.discovery.selectors.jev_service import TRACE_HEADER as JEV_TRACE_HEADER
 from lakegen.domain.outcomes import (
     CodeOutcome,
     CodeStatus,
@@ -20,8 +22,6 @@ from lakegen.domain.outcomes import (
     DiscoveryStatus,
     SelectorKind,
 )
-from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
-from lakegen.phases.orchestrated_discovery import selector_retry_reason
 
 CONTRACT_GATE_STAGE = "selection_contract_gate"
 CONTRACT_NOT_VERIFIED = "The selection contract was not verified."

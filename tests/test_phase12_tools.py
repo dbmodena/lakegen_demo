@@ -73,7 +73,7 @@ from lakegen.agent_tools.requirement_ledger import (
     _period_years, build_minimal_selection_fallback, build_requirement_ledger,
     requirement_ledger_blockers,
 )
-from lakegen.phases.phase12 import (
+from lakegen.discovery.unified import (
     _conservative_draft_from_requirements,
     _extract_plausible_json,
     _inspected_runtime_evidence,
@@ -2048,7 +2048,7 @@ def test_catalogue_text_is_plain_words_with_real_less_than_signs_kept():
 
 
 def test_candidate_context_serves_the_description_without_portal_html():
-    from lakegen.phases.utils import format_candidate_context, solr_metadata_from_doc
+    from lakegen.discovery.candidates import format_candidate_context, solr_metadata_from_doc
 
     metadata = solr_metadata_from_doc({
         "title": "CSV",

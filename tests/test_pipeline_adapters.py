@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from lakegen.discovery.selectors.jev_service import TRACE_HEADER as JEV_TRACE_HEADER
 from lakegen.domain.evaluation import EvaluationContext
 from lakegen.domain.outcomes import CodeStatus, DiscoveryStatus, SelectorKind
-from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
 from lakegen.pipeline.adapters import (
     CONTRACT_NOT_VERIFIED,
     NO_PREPARED_DATASETS,

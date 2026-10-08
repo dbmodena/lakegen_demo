@@ -65,6 +65,10 @@ class PipelineDeps:
     def default(cls) -> PipelineDeps:
         """The real phases, resources and sinks."""
         from lakegen.core import logger as core_logger
+        from lakegen.discovery.orchestrated import (
+            run_unified_orchestrated_discovery,
+            select_from_prepared_context,
+        )
         from lakegen.lakes import get_all_table_files
         from lakegen.llm import get_llm
         from lakegen.manifest import persist_manifest
@@ -75,10 +79,6 @@ class PipelineDeps:
             phase3_generate_and_execute,
             phase4_synthesize,
             phase12_agent,
-        )
-        from lakegen.phases.orchestrated_discovery import (
-            run_unified_orchestrated_discovery,
-            select_from_prepared_context,
         )
         from lakegen.prompts import get_prompt_manager
         from lakegen.retrieval.factory import get_solr

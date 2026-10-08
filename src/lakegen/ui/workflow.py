@@ -37,7 +37,7 @@ from lakegen.phases import (  # noqa: F401
     phase4_synthesize,
     phase12_agent,
 )
-from lakegen.phases.orchestrated_discovery import (  # noqa: F401
+from lakegen.discovery.orchestrated import (  # noqa: F401
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )

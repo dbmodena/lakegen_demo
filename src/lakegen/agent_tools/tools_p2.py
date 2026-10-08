@@ -16,7 +16,7 @@ from lakegen.core.table_io import (
     table_row_count,
 )
 from lakegen.core.types import SolrMetadata
-from lakegen.phases.utils import format_candidate_context
+from lakegen.discovery.candidates import format_candidate_context
 from lakegen.agent_tools.requirement_ledger import (
     build_requirement_ledger,
     requirement_ledger_block_message,

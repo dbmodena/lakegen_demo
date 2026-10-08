@@ -1,4 +1,4 @@
-from lakegen.phases.utils import match_local_csv
+from lakegen.discovery.candidates import match_local_csv
 
 
 def test_match_local_csv_picks_the_resource_not_its_datasets_first_file():

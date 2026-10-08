@@ -10,7 +10,7 @@ from lakegen.orchestrated_context import (
     PreparedDiscoveryContext,
     prepare_discovery_context,
 )
-from lakegen.phases.orchestrated_discovery import (
+from lakegen.discovery.orchestrated import (
     DiscoveryResult,
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
@@ -48,7 +48,7 @@ def test_tool_free_turn_allows_function_agent_to_finalize(monkeypatch):
         return "RETRIEVAL_INTENT: {}"
 
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.run_agent_workflow", fake_workflow
+        "lakegen.discovery.orchestrated.run_agent_workflow", fake_workflow
     )
     response, _trace, _tokens = _run_tool_free_turn(
         llm=object(), system_prompt="system", user_prompt="user", agent_name="agent"
@@ -65,7 +65,7 @@ def test_tool_free_turn_prefers_verbatim_stream_to_agent_wrapper(monkeypatch):
         return "AgentOutput(response=...)"
 
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.run_agent_workflow", fake_workflow
+        "lakegen.discovery.orchestrated.run_agent_workflow", fake_workflow
     )
     response, trace, _tokens = _run_tool_free_turn(
         llm=object(), system_prompt="system", user_prompt="user", agent_name="agent"
@@ -367,10 +367,10 @@ def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
         return 'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}'
 
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.run_agent_workflow", fake_agent
+        "lakegen.discovery.orchestrated.run_agent_workflow", fake_agent
     )
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.get_llm_token_usage", lambda _llm: 0
+        "lakegen.discovery.orchestrated.get_llm_token_usage", lambda _llm: 0
     )
     selected, reasoning, _trace, _tokens = select_from_prepared_context(
         query="question",
@@ -435,11 +435,11 @@ def test_unresolved_intent_is_structured_and_skips_retrieval(monkeypatch):
     calls = []
     response = _intent([], status="unresolved", missing_evidence=["dataset subject"])
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        "lakegen.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: (response, "trace", 1),
     )
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        "lakegen.discovery.orchestrated.prepare_discovery_context",
         lambda **kwargs: calls.append(kwargs),
     )
     result = run_unified_orchestrated_discovery(
@@ -463,7 +463,7 @@ def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monke
         return next(responses), "trace", 3
 
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn", fake_turn
+        "lakegen.discovery.orchestrated._run_tool_free_turn", fake_turn
     )
     prepared = PreparedDiscoveryContext(
         query="question", retrieval_mode="keyword",
@@ -473,7 +473,7 @@ def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monke
         )], retrieved_hit_count=1, prepared_candidate_count=1,
     )
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        "lakegen.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: (prepared, {"table.csv": {}}),
     )
     result = run_unified_orchestrated_discovery(
@@ -494,7 +494,7 @@ def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monke
 def test_unified_empty_context_skips_second_turn(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        "lakegen.discovery.orchestrated._run_tool_free_turn",
         lambda **kwargs: (calls.append(kwargs) or (_intent(["x"]), "", 1)),
     )
     prepared = PreparedDiscoveryContext(
@@ -502,7 +502,7 @@ def test_unified_empty_context_skips_second_turn(monkeypatch):
         retrieved_hit_count=0, prepared_candidate_count=0,
     )
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        "lakegen.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: (prepared, {}),
     )
     result = run_unified_orchestrated_discovery(
@@ -522,7 +522,7 @@ def test_orchestrated_memory_rejects_banned_intent_without_retrieval(monkeypatch
         'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
     ])
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        "lakegen.discovery.orchestrated._run_tool_free_turn",
         lambda **kwargs: (calls.append(kwargs) or (next(responses), "", 1)),
     )
     prepared = PreparedDiscoveryContext(
@@ -534,7 +534,7 @@ def test_orchestrated_memory_rejects_banned_intent_without_retrieval(monkeypatch
     )
     retrievals = []
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        "lakegen.discovery.orchestrated.prepare_discovery_context",
         lambda **kwargs: (retrievals.append(kwargs) or (prepared, {})),
     )
 
@@ -560,7 +560,7 @@ def test_orchestrated_memory_retries_zero_results_and_persists_ban(monkeypatch):
         'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
     ])
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        "lakegen.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: (next(responses), "", 1),
     )
     empty = PreparedDiscoveryContext(
@@ -576,7 +576,7 @@ def test_orchestrated_memory_retries_zero_results_and_persists_ban(monkeypatch):
     )
     contexts = iter([(empty, {}), (populated, {})])
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        "lakegen.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: next(contexts),
     )
 
@@ -607,7 +607,7 @@ def test_unified_selector_without_valid_datasets_requests_retry(
         _intent(["roads"]), selector_response,
     ])
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        "lakegen.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: (next(responses), "", 1),
     )
     prepared = PreparedDiscoveryContext(
@@ -618,7 +618,7 @@ def test_unified_selector_without_valid_datasets_requests_retry(
         )], retrieved_hit_count=1, prepared_candidate_count=1,
     )
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        "lakegen.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: (prepared, {}),
     )
     result = run_unified_orchestrated_discovery(
@@ -632,7 +632,7 @@ def test_unified_selector_without_valid_datasets_requests_retry(
 
 def test_unified_errors_are_typed_by_stage(monkeypatch):
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        "lakegen.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: ("bad request", "", 1),
     )
     with pytest.raises(RetrievalRequestProtocolError):
@@ -643,11 +643,11 @@ def test_unified_errors_are_typed_by_stage(monkeypatch):
 
     responses = iter([_intent(["x"])])
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery._run_tool_free_turn",
+        "lakegen.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: (next(responses), "", 1),
     )
     monkeypatch.setattr(
-        "lakegen.phases.orchestrated_discovery.prepare_discovery_context",
+        "lakegen.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("solr failed")),
     )
     with pytest.raises(OrchestratedContextPreparationError):

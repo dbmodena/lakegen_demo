@@ -21,7 +21,7 @@ from lakegen.config.settings import get_settings
 from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 from lakegen.core.table_io import list_table_files
 from lakegen.experiment_config import load_experiment_config
-from lakegen.phases.utils import match_local_csv
+from lakegen.discovery.candidates import match_local_csv
 from lakegen.retrieval.config import FusionMethod, RetrievalConfig, RetrievalMode
 from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
