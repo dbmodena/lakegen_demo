@@ -13,6 +13,9 @@
 # 2. ruff on the Python files staged for this commit.
 # 3. Import smoke: the entry points still import and parse their arguments.
 set -euo pipefail
+# Byte-order sorting everywhere (sort, comm, and the baseline file), so the
+# comparison does not depend on the locale of whoever runs the gate.
+export LC_ALL=C
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 # The launchers' interpreter (Python 3.13). venv/ holds an unrelated 3.11.
