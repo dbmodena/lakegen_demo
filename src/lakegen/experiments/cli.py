@@ -1,10 +1,10 @@
-"""Plan, run and follow experiment specs, until the ``lakegen`` command exists.
+"""Plan, run and follow experiment specs (``lakegen exp``, ``lakegen runs``, ``lakegen services``).
 
-    python -m lakegen.experiments.cli plan   SPEC            # the cells, and which already ran
-    python -m lakegen.experiments.cli run    SPEC [--count N] [--dry-run] [--only TEXT]
-    python -m lakegen.experiments.cli status SPEC
-    python -m lakegen.experiments.cli index-legacy JOB_DIR... [--spec SPEC...]
-    python -m lakegen.experiments.cli services status|up|down [NAME...] [--wait SECONDS]
+    lakegen exp plan   SPEC            # the cells, and which already ran
+    lakegen exp run    SPEC [--count N] [--dry-run] [--only TEXT]
+    lakegen exp status SPEC
+    lakegen runs index-legacy JOB_DIR... [--spec SPEC...]
+    lakegen services status|up|down [NAME...] [--wait SECONDS]
 
 ``run`` is idempotent: a cell already in the run store's index is skipped, so a
 crashed or stopped submission can be restarted. Cells are submitted

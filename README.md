@@ -7,9 +7,14 @@ textual answer.
 LakeGen can be used through:
 
 - a Chainlit web interface;
-- a command-line interface;
+- the `lakegen` command (one question step by step, experiments, services, benchmarks);
 - an HTTP API for single questions and batches;
 - standalone retrieval benchmarks.
+
+The code is one package, `src/lakegen`, whose layout and rules are described in
+[CONTRIBUTING.md](CONTRIBUTING.md); `docs/CHANGELOG.md` records the behaviour
+changes of the 2026 refactor and `docs/configuration.md` every environment
+variable.
 
 ## 1. Requirements
 
@@ -24,6 +29,9 @@ Install the Python dependencies from the project root:
 ```bash
 uv sync
 ```
+
+This installs the package in editable mode and puts the `lakegen` command in
+the virtual environment (`.venv/bin/lakegen`; `uv run lakegen ...` also works).
 
 ## 2. Configuration
 
@@ -121,16 +129,19 @@ cause Chainlit to restart the active chat.
 
 ### Command-line interface
 
+`lakegen ask` runs one question step by step in the terminal (the keywords
+and the tables are reviewed before the code runs); with a configuration whose
+`interaction_mode` is `autonomous` it runs without questions, as the API does.
 Run a question with the default settings:
 
 ```bash
-uv run python src/cli.py "Which districts have the highest number of parks?"
+lakegen ask "Which districts have the highest number of parks?"
 ```
 
 Select a portal and retrieval mode:
 
 ```bash
-uv run python src/cli.py \
+lakegen ask \
   --core nyc \
   --retrieval-mode hybrid \
   "Which districts have the highest number of parks?"
@@ -139,7 +150,7 @@ uv run python src/cli.py \
 Run with an experiment configuration:
 
 ```bash
-uv run python src/cli.py \
+lakegen ask \
   --config config/experiment.example.yaml \
   "The question to analyze"
 ```
@@ -147,16 +158,22 @@ uv run python src/cli.py \
 Individual configuration values can be overridden with `--set`:
 
 ```bash
-uv run python src/cli.py \
+lakegen ask \
   --config config/experiment.example.yaml \
   --set retrieval.top_k=20 \
   "The question to analyze"
 ```
 
-List every CLI option with:
+List every option with `lakegen ask --help`; `lakegen --help` lists the other
+commands (`config`, `exp`, `runs`, `services`, `bench`). `python src/cli.py`
+still runs the same command.
+
+Configuration files are checked and compared with:
 
 ```bash
-uv run python src/cli.py --help
+lakegen config show config/experiment.example.yaml --format v2
+lakegen config validate config/*.yaml
+lakegen config diff config/experiment.example_uk_keyword.yaml config/experiment.example_uk_semantic.yaml
 ```
 
 ### HTTP API
@@ -164,15 +181,18 @@ uv run python src/cli.py --help
 Start the API locally:
 
 ```bash
-uv run uvicorn src.api:app --host 127.0.0.1 --port 8000
+python -m lakegen.interfaces.api --host 127.0.0.1 --port 8000
 ```
+
+(`uvicorn lakegen.interfaces.api.app:app` and the old `uvicorn src.api:app`
+start the same application.)
 
 By default the API executes one workflow at a time. To execute up to two
 independent questions or batch jobs concurrently, set the limit before starting
 Uvicorn:
 
 ```bash
-LAKEGEN_WORKFLOW_WORKERS=2 uv run uvicorn src.api:app --host 127.0.0.1 --port 8000
+LAKEGEN_WORKFLOW_WORKERS=2 python -m lakegen.interfaces.api --port 8000
 ```
 
 Each workflow can itself use `scan_workers` processes for retrieval. Start with
@@ -246,6 +266,20 @@ jobs and submits those jobs concurrently:
 `--parallelism` controls only request submission; actual execution is bounded
 by `LAKEGEN_WORKFLOW_WORKERS`. The tool accepts a root JSON list or an envelope
 with `questions`, `queries`, or `cases`, and preserves any inline `config`.
+
+### Experiments as specs
+
+A grid of runs is an experiment spec in `experiments/specs/`: the base
+configuration files, the values that vary (`grid`), the question set per lake,
+how to execute (through a running API or in-process) and the services it needs.
+`lakegen exp plan SPEC` lists the cells and which already ran, `lakegen exp run
+SPEC` submits the rest (it can be restarted: a cell in the run store is
+skipped), `lakegen exp status SPEC` follows them. The run store under the state
+root (`runs/<experiment>/`) records what each cell submitted;
+`lakegen.analysis.load_runs("bench-grid")` reads every result of an experiment
+as one table, and `python -m lakegen.interfaces.dashboard` shows the rates
+live. `lakegen services status|up|down` manages the services of
+`config/services.yaml` (Pneuma per lake, Ollama, the API, dashboards).
 
 ## 5. Retrieval modes
 
@@ -642,6 +676,13 @@ Run the test suite with:
 uv run pytest
 ```
 
+The suite is hermetic (every test writes under a temporary state root).
+`scripts/check.sh` is the commit gate: the suite against `tests/BASELINE.txt`,
+the golden snapshots in `tests/golden/` (`pytest --update-golden` re-records
+them, for a listed behaviour change only), ruff on the staged files, the
+import contracts of `pyproject.toml` and an import smoke test; the pre-commit
+hook in `scripts/hooks` runs it (`git config core.hooksPath scripts/hooks`).
+
 The main generated outputs are:
 
 - `logs/experiments_log.csv`: CLI and Chainlit runs;
@@ -649,7 +690,11 @@ The main generated outputs are:
 - `logs/retrieval_rankings.jsonl`: ordered retrieval candidates and scores;
 - `logs/retrieval_benchmarks_log.csv`: benchmark metrics;
 - `.lakegen_jobs/`: API batch state and results;
+- `runs/`: the run store of the experiment specs, and each experiment's keyword memory;
 - `coding/`: Python programs generated while answering questions.
+
+All of them live under the state root (`LAKEGEN_STATE_DIR`, the repository by
+default); see `docs/configuration.md`.
 
 For detailed experiment parameters, use `config/experiment.example.yaml` and
 the `--help` option of the relevant command.
