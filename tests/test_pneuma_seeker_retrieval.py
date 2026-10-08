@@ -8,6 +8,7 @@ unchanged by their presence.
 import pandas as pd
 import pytest
 
+from lakegen.experiment_config import RetrievalExperimentConfig
 from lakegen.retrieval import (
     PneumaRetriever,
     RetrievalConfig,
@@ -15,8 +16,8 @@ from lakegen.retrieval import (
     TableRetrievalService,
 )
 from lakegen.retrieval.intent import intent_entities
-from lakegen.experiment_config import RetrievalExperimentConfig
-from lakegen.retrieval.pneuma import _entity_pattern, _enumeration_pattern
+from lakegen.retrieval.pneuma.enumeration import _enumeration_pattern
+from lakegen.retrieval.pneuma.seeker import _entity_pattern
 
 
 class FakePneuma:
@@ -146,7 +147,7 @@ def test_entities_are_used_as_listed_and_none_means_no_content_search(
 ):
     """The reference implementation boosts only with entities: the question's own
     words are never scanned for."""
-    from lakegen.retrieval import pneuma as pneuma_module
+    from lakegen.retrieval.pneuma import seeker as pneuma_module
 
     _table(tmp_path, "rivers", {"place": ["East River crossing"]})
     retriever = PneumaRetriever(
@@ -523,7 +524,7 @@ def test_resolver_documents_are_never_mutated(tmp_path):
 
 
 def test_the_content_scan_is_bounded_by_the_file_cap(tmp_path, monkeypatch):
-    from lakegen.retrieval import pneuma as pneuma_module
+    from lakegen.retrieval.pneuma import seeker as pneuma_module
 
     for index in range(12):
         _table(tmp_path, f"t{index:02d}", {"note": ["ferry"]})
@@ -629,7 +630,7 @@ def test_zero_content_weight_never_scans_and_equals_plain_pneuma(tmp_path, monke
     should return precisely what plain `pneuma` returns, not pneuma's results
     padded with zero-scored tables nobody can rank.
     """
-    from lakegen.retrieval import pneuma as pneuma_module
+    from lakegen.retrieval.pneuma import seeker as pneuma_module
 
     _table(tmp_path, "pneuma_hit", {"note": ["nothing"]})
     _table(tmp_path, "content_hit", {"note": ["ferry ferry"]})
@@ -819,7 +820,7 @@ def test_the_service_passes_the_extractor_through(tmp_path):
 
 
 def test_parse_entities_keeps_strings_from_the_json_object():
-    from lakegen.retrieval.pneuma import _parse_entities
+    from lakegen.retrieval.pneuma.entities import _parse_entities
 
     assert _parse_entities('{"entities": ["Belfast", "2007", 3, " "]}') == [
         "Belfast", "2007",

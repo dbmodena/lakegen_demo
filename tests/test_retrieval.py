@@ -1909,7 +1909,7 @@ def test_pneuma_value_scan_off_or_without_terms_is_plain_pneuma(tmp_path):
 
 def test_count_matching_rows_reads_parquet_and_csv_and_reports_unreadable(tmp_path):
     from lakegen.retrieval.duckdb_agentic import count_matching_rows
-    from lakegen.retrieval.pneuma import _entity_pattern
+    from lakegen.retrieval.pneuma.seeker import _entity_pattern
 
     (tmp_path / "t.csv").write_text("city;year\nNew York;2007\nNEW-YORK;2008\nYork;2007\n")
     patterns = [_entity_pattern("New York"), _entity_pattern("2007")]
@@ -1930,7 +1930,7 @@ def test_pneuma_routes_cover_the_rebuilt_portals(monkeypatch):
 
 
 def test_seeker_entity_extraction_can_run_on_together(monkeypatch):
-    from lakegen.retrieval import pneuma
+    from lakegen.retrieval.pneuma import entities as pneuma
 
     sent = {}
 

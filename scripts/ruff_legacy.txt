@@ -84,7 +84,12 @@ src/lakegen/retrieval/indexing.py
 src/lakegen/retrieval/__init__.py
 src/lakegen/retrieval/intent.py
 src/lakegen/retrieval/models.py
-src/lakegen/retrieval/pneuma.py
+src/lakegen/retrieval/pneuma/client.py
+src/lakegen/retrieval/pneuma/entities.py
+src/lakegen/retrieval/pneuma/enumeration.py
+src/lakegen/retrieval/pneuma/resolver.py
+src/lakegen/retrieval/pneuma/retriever.py
+src/lakegen/retrieval/pneuma/seeker.py
 src/lakegen/retrieval/representation.py
 src/lakegen/retrieval/rerank.py
 src/lakegen/retrieval/retrievers.py

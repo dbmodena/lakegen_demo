@@ -1,101 +1,18 @@
-"""Optional adapter for the original MIT-licensed Pneuma implementation.
-
-Two modalities share this module, selected by :class:`RetrievalMode`:
-
-``pneuma``
-    The original system: one query against the external Pneuma index, whose
-    ordered table IDs become hits.
-``pneuma_seeker``
-    Pneuma augmented as in *Pneuma-Seeker* (§5.3) -- "Pneuma + content search +
-    table enumeration":
-
-    * **content search** (after Octopus): entities likely to appear verbatim in
-      tables are scanned for across the local Parquet with case-insensitive
-      regexes, scoring matches in column names and cell values; raw counts are
-      damped by ``log(1 + tf)`` and normalized per keyword, and the result is
-      fused with Pneuma's own ranking;
-    * **table enumeration**: once a table is retrieved, siblings whose
-      identifiers match the same pattern (``water_body_testing_2020`` ->
-      ``water_body_testing_\\d{4}``) are pulled in, which is what top-k
-      retrieval structurally cannot do when a question needs a whole family of
-      identically-schema'd tables.
-
-Where the paper is silent, the content search follows its reference
-implementation (``TheDataStation/pneuma-seeker``, branch
-``task-improve-answer-quality``, ``PneumaRetriever.__keyword_relevance_by_table``):
-
-* an entity becomes a word-bounded pattern (:func:`_entity_pattern`), not a
-  substring, so ``art`` does not match ``Department``;
-* per entity, a table's raw score is ``pneuma_table_name_weight`` x a match in
-  its name + ``pneuma_column_name_weight`` x matching column names +
-  ``pneuma_cell_weight`` x matching cells, damped as a whole;
-* a table's content score is its mean normalized score over the entities times
-  the fraction of entities it matched;
-* a question that names no entity gets no content search: the ranking stays
-  Pneuma's own rather than one guessed from the question's words;
-* the entities a table matched are shown to the agent, in its description.
-
-Deviations, all visible in the results rather than hidden:
-
-* **Pneuma exposes no scores.** Its ``/query`` response is an ordered list of
-  table IDs (see :func:`_table_ids`), so the paper's "combine with Pneuma's
-  retrieval scores" is necessarily a combination with a *rank-derived* score,
-  ``1/rank``. A confident first place and a marginal one are indistinguishable
-  here, so ``pneuma_content_weight`` has to be swept rather than transplanted
-  from the paper.
-* **Fusion is a weighted sum by default.** The paper combines the two scores;
-  the reference code instead keeps Pneuma's top-k and lets content-ranked tables
-  fill only the slots its deduplication left over. The weighted sum is the
-  paper's reading, and it lets a table Pneuma ranked 30th surface on content
-  alone; ``pneuma_content_fusion: fill`` selects the reference merge, except
-  that only tables matching an entity fill a slot (the reference pads with
-  zero-score tables in name order).
-* **A table's name is its catalog title.** The reference code matches the
-  DuckDB table name. The lakes here name files by opaque id (``43nn-pn8j``), so
-  the title the resolver returns for the file is matched instead -- counted,
-  like the reference's name match, once per text column.
-
-As in the reference, only text (String) columns are searched, for cells and
-column names alike, every row is read (the grep modality's per-file row and
-column caps do not apply), and every regex occurrence counts, so a cell naming
-an entity twice counts twice. A table without text columns scores nothing.
-* **Enumeration is an agent action in the paper**, invoked on demand by the
-  Conductor. Retrieval here is a single call, so enumeration runs automatically
-  from the fused ranking instead.
-
-Under this mode the discovery prompts ask the agent for the entities with the
-reference code's extraction rules -- specific, named, canonical strings written
-as the question writes them, never general concepts -- in
-``RetrievalIntent.entities`` or the search tool's ``entities``. A caller that
-passes no entities at all, such as the retrieval benchmark, gets them from
-``pneuma_entity_model`` instead: one chat call per question with the reference
-code's own prompt (:data:`ENTITY_EXTRACTION_PROMPT`), as its retriever makes.
-
-The reference retriever's Pneuma is its hybrid search alone, with the LLM
-relevance judge switched off (``RerankingMode.NONE``). The Pneuma service here
-always judges, so even ``fill`` with extracted entities is not the reference
-retriever exactly.
-"""
+"""The Pneuma retriever: Pneuma's ranking, and with the Seeker mode the content search and enumeration fused in."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from functools import lru_cache
-import json
 import math
-from pathlib import Path
 import re
 import time
-from typing import Any, Protocol
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import requests
 
-from lakegen import cell_scan
-from lakegen.config.registry import models_by_provider
-from lakegen.config.settings import together_api_key
 from lakegen.retrieval.config import (
     PneumaContentFusion,
     RetrievalConfig,
@@ -103,405 +20,20 @@ from lakegen.retrieval.config import (
 )
 from lakegen.retrieval.duckdb_agentic import count_matching_rows
 from lakegen.retrieval.models import RetrievalHit, document_key, min_max_normalize
-from lakegen.retrieval.rerank import _oci_client
-
-# Text columns are scanned in isolated worker processes, one file and one
-# bounded chunk at a time. This keeps Pneuma-Seeker's content scan independent
-# from any optional retrieval implementation.
-ScanResult = tuple[dict[str, dict[str, int]], tuple[str, ...], int]
-
-
-def _patterns(
-    terms: Sequence[str], pattern: Callable[[str], str]
-) -> list[tuple[str, str]]:
-    return [(term, pattern(term)) for term in terms]
-
-
-def scan_many(
-    paths: Sequence[Path],
-    terms: Sequence[str],
-    *,
-    max_columns: int | None,
-    max_rows: int | None,
-    workers: int,
-    pattern: Callable[[str], str],
-) -> list[ScanResult | None]:
-    patterns = _patterns(terms, pattern)
-    return cell_scan.run(
-        "scan_text",
-        [(str(path), patterns, max_columns, max_rows) for path in paths],
-        workers=workers,
-    )
-
-
-def probe_many(
-    paths: Sequence[Path],
-    terms: Sequence[str],
-    *,
-    max_columns: int | None,
-    max_rows: int,
-    workers: int,
-    pattern: Callable[[str], str],
-) -> list[int]:
-    patterns = _patterns(terms, pattern)
-    return [
-        count or 0
-        for count in cell_scan.run(
-            "probe",
-            [(str(path), patterns, max_columns, max_rows) for path in paths],
-            workers=workers,
-        )
-    ]
-
-
-class PneumaClient(Protocol):
-    def query_index(
-        self, index_name: str, queries: str, *, k: int, n: int, alpha: float
-    ) -> str | dict[str, Any]: ...
-
-
-DocumentResolver = Callable[[str], dict[str, Any] | None]
-
-
-# More entities than a question plausibly names; each one is another regex per
-# scanned column.
-_MAX_SCAN_TERMS = 12
-
-_NON_ALNUM_RUN = re.compile(r"[^A-Za-z0-9]+")
-_DIGIT_RUN = re.compile(r"\d+")
-_ALPHA_RUN = re.compile(r"[^\W\d_]+", re.UNICODE)
-# An identifier with no real word in it is an opaque id, not a series name.
-_ENUMERATION_MIN_WORD = 3
-# More siblings than this is a filename convention, not a table family.
-_ENUMERATION_MAX_SIBLINGS = 25
-# A sibling carries no evidence of its own, so it must stay below its seed.
-_ENUMERATION_DECAY = 0.9
-
-
-def create_pneuma_client(config: RetrievalConfig) -> PneumaClient:
-    """Create a lightweight client for the independently hosted backend."""
-    return HttpPneumaClient(
-        config.pneuma_base_url, timeout=config.pneuma_timeout_seconds
-    )
-
-
-class HttpPneumaClient:
-    def __init__(self, base_url: str, *, timeout: float) -> None:
-        self.query_url = base_url.rstrip("/") + "/query"
-        self.timeout = timeout
-
-    def query_index(
-        self, index_name: str, queries: str, *, k: int, n: int, alpha: float
-    ) -> dict[str, Any]:
-        try:
-            response = requests.post(
-                self.query_url,
-                json={
-                    "index_name": index_name,
-                    "query": queries,
-                    "k": k,
-                    "n": n,
-                    "alpha": alpha,
-                },
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
-            return response.json()
-        except (requests.RequestException, ValueError) as exc:
-            raise RuntimeError(
-                f"Pneuma service unavailable at {self.query_url}: {exc}"
-            ) from exc
-
-
-# The reference code's entity-extraction system prompt, verbatim
-# (PneumaRetriever.__get_entity_extraction_sys_prompt); the question is the user
-# message.
-ENTITY_EXTRACTION_PROMPT = """You are an information extraction system.
-
-Your task is to analyze a natural-language query and extract **explicitly mentioned, concrete entities** that are suitable for direct lookup in a structured dataset.
-
-**Extraction rules:**
-
-* Only extract entities that are **specific, named, and canonical**, such as identifiers, symbols, or codes that would typically appear verbatim in a database.
-* Do **not** extract general concepts or categories.
-* If the query does **not** contain any extractable entities under these rules, return an empty list ({"entities": []}).
-
-**Output requirements:**
-
-* Output **only** a JSON object.
-* The JSON object must contain a single key `"entities"` whose value is a list of strings.
-* Each string must exactly match how the entity appears in the query.
-* Preserve original casing and punctuation.
-* Do not include duplicates.
-* Do not include any explanation, comments, formatting, or additional text outside the JSON object.
-
-**Output format:**
-{"entities": [...]}"""
-
-
-class EntityExtractor(Protocol):
-    def entities(self, question: str) -> list[str]:
-        """The entities the question names, as written; may be empty."""
-
-
-def _parse_entities(text: str) -> list[str]:
-    """The ``entities`` list of a model's JSON reply, strings only."""
-    match = re.search(r"\{.*\}", text, re.S)
-    decoded = json.loads(match.group(0) if match else text)
-    values = decoded.get("entities") if isinstance(decoded, dict) else None
-    if not isinstance(values, list):
-        raise ValueError(f"no entities list in {text[:200]!r}")
-    return [value for value in values if isinstance(value, str) and value.strip()]
-
-
-@lru_cache(maxsize=512)
-def _oci_entities(model_id: str, question: str) -> tuple[str, ...]:
-    from oci.generative_ai_inference import models
-
-    client, compartment = _oci_client()
-    response = client.chat(
-        models.ChatDetails(
-            compartment_id=compartment,
-            serving_mode=models.OnDemandServingMode(model_id=model_id),
-            chat_request=models.GenericChatRequest(
-                messages=[
-                    models.SystemMessage(
-                        content=[models.TextContent(text=ENTITY_EXTRACTION_PROMPT)]
-                    ),
-                    models.UserMessage(content=[models.TextContent(text=question)]),
-                ],
-                # Room for a reasoning model's thinking before the JSON.
-                max_tokens=4096,
-                temperature=0.0,
-                response_format=models.JsonObjectResponseFormat(),
-            ),
-        )
-    )
-    message = response.data.chat_response.choices[0].message
-    text = "".join(
-        getattr(part, "text", None) or "" for part in message.content or ()
-    )
-    return tuple(_parse_entities(text))
-
-
-# Together AI models for the same extraction (pneuma_entity_model "together.*"),
-# so Pneuma-Seeker needs no OCI chat model: LakeGen model name -> Together id.
-TOGETHER_ENTITY_MODELS = models_by_provider("together")
-TOGETHER_CHAT_URL = "https://api.together.xyz/v1/chat/completions"
-
-
-@lru_cache(maxsize=512)
-def _together_entities(model: str, question: str) -> tuple[str, ...]:
-    """The reference extraction on Together: same prompt, temperature 0, JSON-object reply."""
-    api_key = together_api_key()
-    if not api_key:
-        raise RuntimeError(f"{model} needs a Together AI key: set TOGETHERAI_API_KEY")
-    payload = {
-        "model": TOGETHER_ENTITY_MODELS[model],
-        "messages": [
-            {"role": "system", "content": ENTITY_EXTRACTION_PROMPT},
-            {"role": "user", "content": question},
-        ],
-        # Room for a reasoning model's thinking before the JSON, as on OCI.
-        "max_tokens": 4096,
-        "temperature": 0.0,
-        "response_format": {"type": "json_object"},
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    started = time.monotonic()
-    for attempt in range(10_000):
-        response = requests.post(TOGETHER_CHAT_URL, headers=headers, json=payload, timeout=120)
-        if response.status_code == 402 and time.monotonic() - started < 86400:
-            time.sleep(300)  # credit limit reached: wait for credit, as the LLM client does
-            continue
-        if response.status_code in (429, 500, 502, 503, 504) and attempt < 5:
-            # Together's dynamic limits: wait at least its suggested interval.
-            try:
-                suggested = float(response.headers.get("x-ratelimit-reset") or 0)
-            except ValueError:
-                suggested = 0.0
-            time.sleep(max(suggested, min(60.0, 2.0 * 2 ** attempt)))
-            continue
-        response.raise_for_status()
-        text = (response.json()["choices"][0]["message"].get("content") or "")
-        return tuple(_parse_entities(text))
-    raise RuntimeError("Together kept refusing the entity extraction")
-
-
-class TogetherEntityExtractor:
-    """The reference entity extraction through Together AI, cached per process."""
-
-    def __init__(self, model: str) -> None:
-        if model not in TOGETHER_ENTITY_MODELS:
-            raise ValueError(f"unknown Together entity model {model!r}")
-        self.model = model
-
-    def entities(self, question: str) -> list[str]:
-        return list(_together_entities(self.model, question))
-
-
-def entity_extractor_for(model: str) -> EntityExtractor:
-    """Together for ``together.*`` names, OCI for OCI model ids."""
-    return TogetherEntityExtractor(model) if model in TOGETHER_ENTITY_MODELS else OCIEntityExtractor(model)
-
-
-class OCIEntityExtractor:
-    """The reference code's entity extraction, one OCI chat call per question.
-
-    Answers are cached per process, so a question retrieved twice is extracted
-    once.
-    """
-
-    def __init__(self, model_id: str) -> None:
-        self.model_id = model_id
-
-    def entities(self, question: str) -> list[str]:
-        return list(_oci_entities(self.model_id, question))
-
-
-def _table_ids(payload: str | dict[str, Any]) -> list[str]:
-    try:
-        decoded = json.loads(payload) if isinstance(payload, str) else payload
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("Pneuma returned invalid JSON") from exc
-    if not isinstance(decoded, dict) or decoded.get("status") != "SUCCESS":
-        message = decoded.get("message") if isinstance(decoded, dict) else None
-        raise RuntimeError(f"Pneuma query failed: {message or 'invalid response'}")
-    data = decoded.get("data")
-    if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
-        raise RuntimeError("Pneuma returned an unexpected query response")
-    tables = data[0].get("retrieved_tables")
-    if not isinstance(tables, list):
-        raise RuntimeError("Pneuma response has no retrieved_tables list")
-    return [str(value) for value in tables if str(value).strip()]
-
-
-def _entity_pattern(entity: str) -> str:
-    """The reference implementation's pattern for one entity, or ``""`` for none.
-
-    The entity is split on every run of characters other than ASCII letters and
-    digits, and the parts are joined by exactly one arbitrary character, so
-    ``New York`` also matches ``NEW-YORK`` and ``new_york``. A match must start
-    and end at a boundary -- the edge of the text, or a character that is not a
-    letter, digit, underscore, or hyphen -- so ``art`` does not match
-    ``Department`` and ``2020`` does not match ``120201``. One consequence the
-    reference code shares: ``borough`` does not match a column named
-    ``borough_name``, because an underscore is not a boundary. Case is ignored.
-
-    Only letters and digits reach the pattern, so nothing an agent supplies can
-    act as regex syntax, and an entity with neither (``.*``) has no pattern.
-    """
-    parts = [re.escape(part) for part in _NON_ALNUM_RUN.split(entity) if part]
-    if not parts:
-        return ""
-    return "(?i)(^|[^A-Za-z0-9_-])" + ".".join(parts) + "($|[^A-Za-z0-9_-])"
-
-
-def _scan_terms(entities: Sequence[str] | None) -> list[str]:
-    """The entities to scan for, as listed, each once.
-
-    Only whitespace is normalized: the pattern ignores case anyway, and the
-    entity is shown back to the agent as written. Entities sharing a pattern
-    (``New York``, ``new-york``) are one entity, or it would count twice in the
-    mean and in the coverage.
-    """
-    terms: list[str] = []
-    seen: set[str] = set()
-    for value in entities or ():
-        term = " ".join(str(value).split())
-        pattern = _entity_pattern(term).casefold()
-        if pattern and pattern not in seen:
-            seen.add(pattern)
-            terms.append(term)
-    return terms[:_MAX_SCAN_TERMS]
-
-
-def _enumeration_pattern(stem: str) -> str | None:
-    """Generalize the digit runs of a table identifier into a sibling pattern.
-
-    ``water_body_testing_2020`` becomes ``water_body_testing_\\d{4}``, the
-    paper's own example. Everything outside a digit run is regex-escaped, so an
-    identifier can never act as a pattern.
-
-    Returns ``None`` for identifiers that carry no real word, which is what
-    keeps a lake of opaque Socrata ids out of this: ``43nn-pn8j`` would
-    otherwise generalize to a shape matching unrelated datasets. The word test
-    runs on the original stem, never on the digit-stripped one -- stripping
-    joins ``pn`` and ``j`` into a three-letter "word" and invents a family.
-    """
-    if not _DIGIT_RUN.search(stem):
-        return None
-    if not any(len(word) >= _ENUMERATION_MIN_WORD for word in _ALPHA_RUN.findall(stem)):
-        return None
-    parts: list[str] = []
-    index = 0
-    for match in _DIGIT_RUN.finditer(stem):
-        parts.append(re.escape(stem[index : match.start()]))
-        parts.append(f"\\d{{{len(match.group())}}}")
-        index = match.end()
-    parts.append(re.escape(stem[index:]))
-    return "".join(parts)
-
-
-class SolrPneumaDocumentResolver:
-    """Map Pneuma's path-like table IDs back to LakeGen catalog documents."""
-
-    FIELDS = (
-        "id", "resource_id", "dataset_id", "title", "description", "tags",
-        "columns.name", "columns.description", "columns.type", "schema",
-        "dataset_url", "download_url", "url", "permalink", "link", "source",
-        "portal", "provenance",
-    )
-
-    ALIAS_FIELDS = (
-        "id", "resource_id", "dataset_id", "download_url", "url", "source"
-    )
-
-    def __init__(self, solr: Any) -> None:
-        # Indexed by alias rather than scanned per lookup: content search asks
-        # this question once per candidate file, not once per Pneuma hit. The
-        # catalog position is kept so a contested alias still resolves to the
-        # document a linear scan would have found first -- ``_aliases`` returns a
-        # set, whose iteration order is not stable across processes.
-        self._index: dict[str, tuple[int, dict[str, Any]]] = {}
-        for position, document in enumerate(
-            solr.iter_documents(fields=self.FIELDS, sort_field="resource_id")
-        ):
-            for field_name in self.ALIAS_FIELDS:
-                for alias in self._aliases(document.get(field_name)):
-                    self._index.setdefault(alias, (position, document))
-            # Lakes that group resources under a dataset (UK) name each file
-            # ``<dataset_id>___<resource_id>``, a stem no single field holds.
-            # Pneuma returns that file's path, so the pair is an alias too.
-            file_stem = self._file_stem(document)
-            if file_stem:
-                self._index.setdefault(file_stem, (position, document))
-
-    @staticmethod
-    def _file_stem(document: dict[str, Any]) -> str:
-        dataset_id = str(document.get("dataset_id") or "").strip()
-        resource_id = str(document.get("resource_id") or "").strip()
-        if not dataset_id or not resource_id:
-            return ""
-        return f"{dataset_id}___{resource_id}".casefold()
-
-    @staticmethod
-    def _aliases(value: Any) -> set[str]:
-        if value is None or not str(value).strip():
-            return set()
-        text = str(value).strip()
-        path = Path(text)
-        return {text.casefold(), path.name.casefold(), path.stem.casefold()}
-
-    def __call__(self, table_id: str) -> dict[str, Any] | None:
-        found = [
-            self._index[alias]
-            for alias in self._aliases(table_id)
-            if alias in self._index
-        ]
-        if not found:
-            return None
-        return min(found, key=lambda item: item[0])[1]
+from lakegen.retrieval.pneuma import entities, seeker
+from lakegen.retrieval.pneuma.client import PneumaClient, _table_ids
+from lakegen.retrieval.pneuma.entities import EntityExtractor
+from lakegen.retrieval.pneuma.enumeration import (
+    _ENUMERATION_DECAY,
+    _ENUMERATION_MAX_SIBLINGS,
+    _enumeration_pattern,
+)
+from lakegen.retrieval.pneuma.resolver import DocumentResolver
+from lakegen.retrieval.pneuma.seeker import (
+    ScanResult,
+    _entity_pattern,
+    _scan_terms,
+)
 
 
 @dataclass
@@ -568,13 +100,13 @@ class PneumaRetriever:
     ) -> None:
         self.config = config
         self.resolver = resolver
-        self.client = client or create_pneuma_client(config)
+        self.client = client or client.create_pneuma_client(config)
         self.content_search = config.mode is RetrievalMode.PNEUMA_SEEKER
         # Pneuma-Seeker only: entities for callers that pass none (see
         # pneuma_entity_model).
         self.entity_extractor: EntityExtractor | None = None
         if self.content_search and config.pneuma_entity_model:
-            self.entity_extractor = entity_extractor or entity_extractor_for(
+            self.entity_extractor = entity_extractor or entities.entity_extractor_for(
                 config.pneuma_entity_model
             )
         # Plain pneuma's optional value scan of its own pool (see
@@ -710,7 +242,7 @@ class PneumaRetriever:
         # One batch of probes in worker processes, then the same in-order take.
         # A probe is a prefix by nature, so it keeps its row budget; like the
         # scan, it reads every column.
-        counts = probe_many(
+        counts = seeker.probe_many(
             [facts.path for facts in remaining],
             terms,
             max_columns=None,
@@ -757,7 +289,7 @@ class PneumaRetriever:
         # A family weighted 0 cannot change any ranking, so its work is skipped:
         # with no weight on cells, no cell is read.
         scanned: list[ScanResult | None] = (
-            scan_many(
+            seeker.scan_many(
                 [facts.path for facts in pool],
                 terms,
                 max_columns=None,
