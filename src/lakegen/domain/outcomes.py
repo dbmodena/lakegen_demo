@@ -30,6 +30,8 @@ class SelectorKind(StrEnum):
     JEV = "jev"
     NONE = "none"
     """No selector ran: retrieval returned nothing to choose from."""
+    STORED = "stored"
+    """A replay: the selection of an earlier run, taken as it was recorded."""
 
 
 @dataclass(frozen=True)

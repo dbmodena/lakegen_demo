@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
 from lakegen.experiment_config import ExperimentConfig, InteractionMode
+from lakegen.pipeline.replay import Replay
 from lakegen.service import QueryResult, make_runtime_settings, run_question
 
 
@@ -44,6 +45,7 @@ class ExperimentRunner:
         approval_adapter: ApprovalAdapter | None = None,
         runtime_factory=make_runtime_settings,
         executor=run_question,
+        replay: Replay | None = None,
     ) -> QueryResult:
         if self.config.interaction_mode != InteractionMode.AUTONOMOUS:
             raise ValueError(
@@ -73,4 +75,5 @@ class ExperimentRunner:
             runtime,
             question_id=question_id,
             log_context=log_context,
+            **({"replay": replay} if replay is not None else {}),
         )

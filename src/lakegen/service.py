@@ -56,6 +56,7 @@ from lakegen.pipeline.engine import (  # noqa: F401
     _selection_retry_feedback,
     run_pipeline,
 )
+from lakegen.pipeline.replay import Replay
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,7 @@ def run_question(
     question_id: str | int | None = None,
     log_context: Mapping[str, Any] | None = None,
     manifest: ExperimentManifest | None = None,
+    replay: Replay | None = None,
 ) -> QueryResult:
     """Run the autonomous LakeGen workflow for one question.
 
@@ -138,4 +140,5 @@ def run_question(
         question_id=question_id,
         log_context=log_context,
         manifest=manifest,
+        replay=replay,
     )

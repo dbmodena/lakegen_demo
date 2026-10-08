@@ -55,6 +55,7 @@ from lakegen.pipeline.events import (
     StageStarted,
 )
 from lakegen.pipeline.hooks import StageHooks
+from lakegen.pipeline.replay import Replay, ReplayedDiscovery
 from lakegen.pipeline.stages import (
     CORRECTION_HEADER,
     MAX_CODE_ATTEMPTS,
@@ -128,9 +129,12 @@ class Pipeline:
         question_id: str | int | None = None,
         log_context: Mapping[str, Any] | None = None,
         manifest: ExperimentManifest | None = None,
+        replay: Replay | None = None,
     ) -> QueryResult:
         """The autonomous run: every step, no questions asked."""
-        steps = self.steps(question, question_id=question_id, log_context=log_context, manifest=manifest)
+        steps = self.steps(
+            question, question_id=question_id, log_context=log_context, manifest=manifest, replay=replay,
+        )
         try:
             event = next(steps)
             while True:
@@ -149,12 +153,14 @@ class Pipeline:
         manifest: ExperimentManifest | None = None,
         interventions: Any = None,
         hooks: StageHooks | None = None,
+        replay: Replay | None = None,
     ) -> Generator[Signal | Request, Answer | None, QueryResult]:
         """The run, step by step; see the module docstring.
 
         ``interventions`` is the driver's ``HumanInterventionRecorder``; what
         it records goes into the result. ``hooks`` are the driver's streams
-        and stop check, passed to the phases while they run.
+        and stop check, passed to the phases while they run. ``replay`` names
+        what an earlier run recorded that this run starts from.
         """
         ctx, deps = self.ctx, self.deps
         recorder = Recorder(question, ctx, deps)
@@ -188,6 +194,9 @@ class Pipeline:
 
         state = RunState()
         _open_keyword_memory(state, ctx, question)
+        if replay is not None and replay.keywords is not None:
+            state.last_keyword_round = replay.keywords.round()
+            state.reuse_keywords = True
         run = Run(
             question=question, ctx=ctx, deps=deps, benchmark=benchmark, recorder=recorder,
             state=state, guard=DedupeGuard(), llm=llm, solr=solr, prompt_manager=prompt_manager,
@@ -196,7 +205,11 @@ class Pipeline:
             hooks=hooks or StageHooks(),
         )
         judge = SemanticJudge(run)
-        discovery = DiscoveryStage(run)
+        discovery = (
+            ReplayedDiscovery(run, replay.selection)
+            if replay is not None and replay.selection is not None
+            else DiscoveryStage(run)
+        )
         coding = CoderSweep(run, judge) if experiment.automatic_test_coder else CodingStage(run, judge)
         gated = ctx.surface.human_gated
 
@@ -327,9 +340,12 @@ def run_pipeline(
     question_id: str | int | None = None,
     log_context: Mapping[str, Any] | None = None,
     manifest: ExperimentManifest | None = None,
+    replay: Replay | None = None,
 ) -> QueryResult:
     """Run the autonomous LakeGen workflow for one question."""
-    return Pipeline(ctx, deps).run(question, question_id=question_id, log_context=log_context, manifest=manifest)
+    return Pipeline(ctx, deps).run(
+        question, question_id=question_id, log_context=log_context, manifest=manifest, replay=replay,
+    )
 
 
 def next_round_hint(architect_feedback: str, user_hint: str) -> str:
