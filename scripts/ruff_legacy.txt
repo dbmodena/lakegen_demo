@@ -52,7 +52,6 @@ src/lakegen/discovery/divided.py
 src/lakegen/discovery/keywords.py
 src/lakegen/discovery/orchestrated.py
 src/lakegen/discovery/selectors/jev_service.py
-src/lakegen/discovery/tools/brief.py
 src/lakegen/discovery/tools/inspection.py
 src/lakegen/discovery/tools/manager.py
 src/lakegen/discovery/tools/plan_models.py
