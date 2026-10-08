@@ -1,0 +1,3379 @@
+{
+  "sample_metadata": {
+    "source": "/home/bilel/gits/orqa/data/bologna/candidates_discovery/generated_queries_semantic.json",
+    "sampling_seed": 42,
+    "count": 100,
+    "status_filter": "success",
+    "selection": "balanced_by_difficulty_and_table_scope",
+    "difficulty_quotas": {
+      "easy": 34,
+      "medium": 33,
+      "hard": 33
+    },
+    "table_scope_requirements": {
+      "multi_table": 34,
+      "single_table": 66
+    },
+    "strata": {
+      "easy": {
+        "multi_table": 11,
+        "single_table": 23
+      },
+      "medium": {
+        "multi_table": 11,
+        "single_table": 22
+      },
+      "hard": {
+        "multi_table": 12,
+        "single_table": 21
+      }
+    },
+    "skipped_invalid_generated_records": 36
+  },
+  "cases": [
+    {
+      "id": "dea73799",
+      "question": "Nel bilancio comunale di Bologna, qual era l'importo previsto per le spese in conto capitale della missione \"Assetto del territorio ed edilizia abitativa\" nel 2018, e qual è stato l'importo effettivamente speso nello stesso anno?",
+      "keywords": [
+        "missione"
+      ],
+      "relevant_table_ids": [
+        "bilancio-di-previsione-previsione-uscite",
+        "rendiconto-di-gestione-rendiconto-uscite"
+      ],
+      "table_aliases": {
+        "Table_0": "bilancio-di-previsione-previsione-uscite",
+        "Table_1": "rendiconto-di-gestione-rendiconto-uscite"
+      },
+      "reference_code": "forecast = (\n    Table_0\n    .loc[\n        lambda df: (\n            (df['anno_di_riferimento'] == 2018) &\n            (df['missione0'] == 'Assetto del territorio ed edilizia abitativa') &\n            (df['titolo0'] == 'Spese in conto capitale')\n        ),\n        [\n            'anno_di_riferimento',\n            'missione',\n            'programma',\n            'titolo',\n            'macroaggregato',\n            'previsioni_di_competenza_primo_anno',\n        ]\n    ]\n)\nactual = (\n    Table_1\n    .loc[\n        lambda df: (\n            (df['anno'] == 2018) &\n            (df['descrizione_missione'] == 'Assetto del territorio ed edilizia abitativa') &\n            (df['descrizione_titolo'] == 'Spese in conto capitale')\n        ),\n        [\n            'anno',\n            'missione',\n            'programma',\n            'titolo',\n            'macroaggregato',\n            'pagamenti_in_c_competenza',\n        ]\n    ]\n)\nmerged = forecast.merge(\n    actual,\n    left_on=['anno_di_riferimento', 'missione', 'programma', 'titolo', 'macroaggregato'],\n    right_on=['anno', 'missione', 'programma', 'titolo', 'macroaggregato'],\n    how='inner',\n)\nresult = pd.DataFrame({\n    'forecast_total': [merged['previsioni_di_competenza_primo_anno'].sum()],\n    'actual_total': [merged['pagamenti_in_c_competenza'].sum()],\n})\nresult",
+      "reference_result": [
+        {
+          "forecast_total": 26368718.76,
+          "actual_total": 4262409.14
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the summed forecasted capital expenditure and the summed actual amount spent in 2018 for the \"Assetto del territorio ed edilizia abitativa\" mission, expressed in euros."
+    },
+    {
+      "id": "60dba784",
+      "question": "Qual è stata la lunghezza media dei percorsi pedonali costruiti ogni anno a Bologna e in quale anno la media è risultata più lunga?",
+      "keywords": [
+        "pedonali"
+      ],
+      "relevant_table_ids": [
+        "carta-tecnica-comunale-percorsi-pedonali"
+      ],
+      "table_aliases": {
+        "Table_0": "carta-tecnica-comunale-percorsi-pedonali"
+      },
+      "reference_code": "result = (\n    Table_0.assign(year=pd.to_datetime(Table_0['data_istit'], errors='coerce').dt.year)\n          .groupby('year', as_index=False)['lunghez']\n          .mean()\n          .rename(columns={'lunghez': 'avg_lunghez'})\n          .sort_values(by='avg_lunghez', ascending=False)\n)",
+      "reference_result": [
+        {
+          "year": 2019,
+          "avg_lunghez": 240.0
+        },
+        {
+          "year": 2013,
+          "avg_lunghez": 161.4545454545
+        },
+        {
+          "year": 2022,
+          "avg_lunghez": 152.75
+        },
+        {
+          "year": 2004,
+          "avg_lunghez": 116.67752443
+        },
+        {
+          "year": 2007,
+          "avg_lunghez": 114.3214285714
+        },
+        {
+          "year": 2009,
+          "avg_lunghez": 84.6363636364
+        },
+        {
+          "year": 2005,
+          "avg_lunghez": 73.3333333333
+        },
+        {
+          "year": 2017,
+          "avg_lunghez": 65.5
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per year showing the average length of pedestrian routes built that year (metres), sorted descending so the first row is the year with the longest average length."
+    },
+    {
+      "id": "3e27058f",
+      "question": "Quante schede contestate sono state registrate nelle elezioni politiche del Senato del 2013 a Bologna?",
+      "keywords": [
+        "politiche",
+        "contestate"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-2013-affluenza-votanti-senato-della-repubblica"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-2013-affluenza-votanti-senato-della-repubblica"
+      },
+      "reference_code": "total_disputed = Table_0['contestate'].sum()",
+      "reference_result": [
+        {
+          "0": 9
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of disputed (contested) ballots recorded across all polling sections in Bologna for the 2013 Senate election."
+    },
+    {
+      "id": "fc774a51",
+      "question": "Nel 1986, quale zona di Bologna ha registrato il più alto numero di famiglie con almeno un componente di 65 anni o più, e qual è stato quel numero?",
+      "keywords": [
+        "65"
+      ],
+      "relevant_table_ids": [
+        "famiglie-con-almeno-un-componente-maggiore-di-64-anni-per-tipologia-dimensione-f"
+      ],
+      "table_aliases": {
+        "Table_0": "famiglie-con-almeno-un-componente-maggiore-di-64-anni-per-tipologia-dimensione-f"
+      },
+      "reference_code": "(Table_0[Table_0['anno'] == 1986]\n .groupby('zona', as_index=False)['numero_famiglie'].sum()\n .rename(columns={'numero_famiglie': 'families_in_zone'})\n .sort_values(by='families_in_zone', ascending=False)\n .head(1))",
+      "reference_result": [
+        {
+          "zona": "Bolognina",
+          "families_in_zone": 6531
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the zone (zona) with the highest number of families that include at least one senior in 1986 and the corresponding family count."
+    },
+    {
+      "id": "aac5798c",
+      "question": "For question 01 of the 2003 Bologna referendum, which three zones had the highest share of null votes out of total votes, and what was the average number of valid votes in those zones?",
+      "keywords": [
+        "01",
+        "2003"
+      ],
+      "relevant_table_ids": [
+        "referendum-2003-affluenza-quesito-01"
+      ],
+      "table_aliases": {
+        "Table_0": "referendum-2003-affluenza-quesito-01"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(total_votes=Table_0['voti_validi'] + Table_0['voti_nulli'] + Table_0['voti_contestati'] + Table_0['schede_bianche'] + Table_0['schede_nulle'])\n    .groupby('zona', as_index=False)\n    .agg(\n        sum_voti_nulli=('voti_nulli', 'sum'),\n        sum_total_votes=('total_votes', 'sum'),\n        avg_valid_votes=('voti_validi', 'mean')\n    )\n    .assign(null_share=lambda df: df['sum_voti_nulli'] / df['sum_total_votes'])\n    .sort_values('null_share', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "zona": "L",
+          "sum_voti_nulli": 5,
+          "sum_total_votes": 2396,
+          "avg_valid_votes": 143.25,
+          "null_share": 0.0020868114
+        },
+        {
+          "zona": "C",
+          "sum_voti_nulli": 7,
+          "sum_total_votes": 8020,
+          "avg_valid_votes": 288.037037037,
+          "null_share": 0.000872818
+        },
+        {
+          "zona": "H",
+          "sum_voti_nulli": 2,
+          "sum_total_votes": 2802,
+          "avg_valid_votes": 149.1666666667,
+          "null_share": 0.0007137759
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each representing a zone with the highest proportion of null votes (null votes divided by total votes) for question 01 of the 2003 Bologna referendum, showing the zone code, its null_share, and the average number of valid votes per polling station in that zone."
+    },
+    {
+      "id": "699fcb8e",
+      "question": "Per ciascun sesso, qual è stata la media del numero di immigrati, della popolazione immigrata e delle iscrizione per anno a Bologna tra il 1991 e il 1995?",
+      "keywords": [
+        "immigrati",
+        "immigrata",
+        "iscrizione"
+      ],
+      "relevant_table_ids": [
+        "immigrati_00003_stranieri_seriecittaprovenienza",
+        "popolazione-residente-dalla-nascita-e-popolazione-immigrata-per-provenienza-epoc",
+        "immigrati_00001_serie_storica"
+      ],
+      "table_aliases": {
+        "Table_0": "immigrati_00003_stranieri_seriecittaprovenienza",
+        "Table_1": "popolazione-residente-dalla-nascita-e-popolazione-immigrata-per-provenienza-epoc",
+        "Table_2": "immigrati_00001_serie_storica"
+      },
+      "reference_code": "import pandas as pd\nimmigrati_year = (\n    Table_0\n    .loc[lambda df: (df['anno'] >= 1991) & (df['anno'] <= 1995)]\n    .groupby(['anno', 'sesso'], as_index=False)['numero_immigrati']\n    .sum()\n    .rename(columns={'numero_immigrati': 'immigrati'})\n)\nresidenti_year = (\n    Table_1\n    .loc[lambda df: (df['anno'] >= 1991) & (df['anno'] <= 1995) & (df['provincia_provenienza'].str.lower() == 'bologna')]\n    .groupby(['anno', 'sesso'], as_index=False)['residenti']\n    .sum()\n)\nregistrazioni_year = (\n    Table_2\n    .loc[lambda df: (df['anno_iscrizione_imm'] >= 1991) & (df['anno_iscrizione_imm'] <= 1995)]\n    .groupby(['anno_iscrizione_imm', 'sesso'], as_index=False)['numero_immigrati']\n    .sum()\n    .rename(columns={'anno_iscrizione_imm': 'anno', 'numero_immigrati': 'registrazioni'})\n)\nmerged = (\n    immigrati_year\n    .merge(residenti_year, on=['anno', 'sesso'], how='inner')\n    .merge(registrazioni_year, on=['anno', 'sesso'], how='inner')\n)\nresult = (\n    merged\n    .groupby('sesso', as_index=False)\n    .agg(\n        avg_immigrati=('immigrati', 'mean'),\n        avg_residenti=('residenti', 'mean'),\n        avg_registrazioni=('registrazioni', 'mean')\n    )\n)",
+      "reference_result": [
+        {
+          "sesso": "Femmine",
+          "avg_immigrati": 511.8,
+          "avg_residenti": 65924.0,
+          "avg_registrazioni": 3802.8
+        },
+        {
+          "sesso": "Maschi",
+          "avg_immigrati": 747.6,
+          "avg_residenti": 51088.8,
+          "avg_registrazioni": 4236.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per sex (Femmine, Maschi) with the average number of immigrants, the average resident population, and the average registrations per year in Bologna between 1991 and 1995."
+    },
+    {
+      "id": "eae8e760",
+      "question": "What total number of valid \"yes\" votes appears in the referendum 07 risultati for Bologna in 2000?",
+      "keywords": [
+        "07",
+        "risultati"
+      ],
+      "relevant_table_ids": [
+        "referendum-2000-risultati-quesito-07"
+      ],
+      "table_aliases": {
+        "Table_0": "referendum-2000-risultati-quesito-07"
+      },
+      "reference_code": "total_yes_votes = Table_0.loc[Table_0['risposta'] == 'SI', 'voti_validi'].sum()",
+      "reference_result": [
+        {
+          "0": 74206
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total count of valid \"SI\" (yes) votes recorded for the 2000 referendum question 07 across all polling stations in Bologna."
+    },
+    {
+      "id": "f7a4dcc2",
+      "question": "Nel polo di Bologna, nella descrizione del quartiere nel 2009, quali tre candidati — uno del Terzo Polo Centro, uno del Partito Democratico e uno dell'Altra Città — hanno registrato il maggior numero di preferenze individuali, e che percentuale delle preferenze totali della loro lista rappresentano ciascuno in modo democratico?",
+      "keywords": [
+        "polo",
+        "2009",
+        "democratico",
+        "descrizione",
+        "altra"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-pd",
+        "elezioni-amministrative-2009-preferenze-lista-altra-citta"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-pd",
+        "Table_2": "elezioni-amministrative-2009-preferenze-lista-altra-citta"
+      },
+      "reference_code": "import pandas as pd\nunion_df = pd.concat([Table_0, Table_1, Table_2], ignore_index=True)\ncandidate_totals = (\n    union_df\n    .groupby(['lista', 'candidato', 'nome_candidato'], as_index=False)['preferenze']\n    .sum()\n    .rename(columns={'preferenze': 'candidate_total'})\n)\nlist_totals = (\n    union_df\n    .groupby(['lista'], as_index=False)['preferenze']\n    .sum()\n    .rename(columns={'preferenze': 'list_total'})\n)\nmerged = candidate_totals.merge(list_totals, on='lista', how='inner')\nmerged['percent_of_list'] = (merged['candidate_total'] / merged['list_total']) * 100\nmerged['candidate_rank'] = merged.groupby('lista')['candidate_total'].rank(method='dense', ascending=False)\ntop_candidates = merged[merged['candidate_rank'] == 1]\nresult = top_candidates[['lista', 'nome_candidato', 'candidate_total', 'percent_of_list']]",
+      "reference_result": [
+        {
+          "lista": 7,
+          "nome_candidato": "Cevenini Maurizio",
+          "candidate_total": 4054,
+          "percent_of_list": 17.4418104376
+        },
+        {
+          "lista": 15,
+          "nome_candidato": "Ciciriello Savino",
+          "candidate_total": 128,
+          "percent_of_list": 66.6666666667
+        },
+        {
+          "lista": 19,
+          "nome_candidato": "Massa Lucia detta Luki",
+          "candidate_total": 140,
+          "percent_of_list": 50.5415162455
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows (one per list: Terzo Polo Centro, Partito Democratico, Altra Città) showing the top candidate name, their total preference votes, and the percentage that this total represents of the list's overall preference total."
+    },
+    {
+      "id": "961efb19",
+      "question": "Nel 2026, per ciascun mese, qual è stato il totale dei veicoli che sono passati in direzione est attraverso il varco 39 (Mille) e attraverso il varco liberazione, e quale dei due varchi ha registrato il più alto incremento percentuale rispetto al mese precedente?",
+      "keywords": [
+        "39",
+        "liberazione"
+      ],
+      "relevant_table_ids": [
+        "varco-n-39-dei-mille-direzione-est",
+        "varco-n-31-liberazione-direzione-est"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-39-dei-mille-direzione-est",
+        "Table_1": "varco-n-31-liberazione-direzione-est"
+      },
+      "reference_code": "import pandas as pd\ndf = pd.concat([Table_0, Table_1], ignore_index=True)\ndf = df[df['data'].str.startswith('2026')]\ndf['month'] = pd.to_datetime(df['data']).dt.month\nagg = (\n    df.groupby(['month', 'varco'], as_index=False)['totale_passaggi']\n      .sum()\n      .rename(columns={'totale_passaggi': 'total_passaggi_sum'})\n)\nagg['pct_change'] = (\n    agg.sort_values(['varco', 'month'])\n       .groupby('varco')['total_passaggi_sum']\n       .pct_change()\n)\nagg['higher_increase'] = agg['pct_change'] == agg.groupby('month')['pct_change'].transform('max')\nresult = agg[['month', 'varco', 'total_passaggi_sum', 'pct_change', 'higher_increase']]",
+      "reference_result": [
+        {
+          "month": 1,
+          "varco": 31,
+          "total_passaggi_sum": 0,
+          "pct_change": null,
+          "higher_increase": false
+        },
+        {
+          "month": 1,
+          "varco": 39,
+          "total_passaggi_sum": 2,
+          "pct_change": null,
+          "higher_increase": false
+        },
+        {
+          "month": 2,
+          "varco": 31,
+          "total_passaggi_sum": 0,
+          "pct_change": null,
+          "higher_increase": false
+        },
+        {
+          "month": 2,
+          "varco": 39,
+          "total_passaggi_sum": 0,
+          "pct_change": -1.0,
+          "higher_increase": true
+        },
+        {
+          "month": 3,
+          "varco": 31,
+          "total_passaggi_sum": 0,
+          "pct_change": null,
+          "higher_increase": false
+        },
+        {
+          "month": 3,
+          "varco": 39,
+          "total_passaggi_sum": 0,
+          "pct_change": null,
+          "higher_increase": false
+        },
+        {
+          "month": 4,
+          "varco": 31,
+          "total_passaggi_sum": 0,
+          "pct_change": null,
+          "higher_increase": false
+        },
+        {
+          "month": 4,
+          "varco": 39,
+          "total_passaggi_sum": 0,
+          "pct_change": null,
+          "higher_increase": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per month in 2026 showing the gate (Mille or Liberazione) that had the larger month‑over‑month percentage increase in total eastbound vehicle passages, together with that month’s total passages for the gate and the percentage increase value."
+    },
+    {
+      "id": "947e9c75",
+      "question": "Qual è il totale delle entrate preventivate nel rendiconto del 2013 per Bologna?",
+      "keywords": [
+        "rendiconto"
+      ],
+      "relevant_table_ids": [
+        "rendiconto-di-gestione-rendiconto-entrate"
+      ],
+      "table_aliases": {
+        "Table_0": "rendiconto-di-gestione-rendiconto-entrate"
+      },
+      "reference_code": "total_budget = Table_0.loc[Table_0['anno'] == 2013, 'previsioni_definitive_di_competenza'].sum()",
+      "reference_result": [
+        {
+          "result": 823152198.45
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total budgeted revenue (previsioni definitive di competenza) for Bologna in the 2013 rendiconto, expressed in euros."
+    },
+    {
+      "id": "73a39da4",
+      "question": "Nel 1995, quanti immigrati sono arrivati a Bologna e quanti nati vivi sono stati registrati per bambini con almeno un genitore straniero?",
+      "keywords": [
+        "immigrati",
+        "vivi"
+      ],
+      "relevant_table_ids": [
+        "immigrati_00003_stranieri_seriecittaprovenienza",
+        "nati_residenti_stranieri"
+      ],
+      "table_aliases": {
+        "Table_0": "immigrati_00003_stranieri_seriecittaprovenienza",
+        "Table_1": "nati_residenti_stranieri"
+      },
+      "reference_code": "immigrati_total = Table_0.loc[Table_0['anno'] == 1995, 'numero_immigrati'].sum()\nbirths_total = Table_1.loc[Table_1['anno'] == 1995, 'nati_residenti'].sum()\nresult = [immigrati_total, births_total]",
+      "reference_result": [
+        {
+          "0": 1146
+        },
+        {
+          "0": 174
+        }
+      ],
+      "expected_result_type": "list",
+      "expected_result_description": "A two‑element list where the first element is the total number of immigrants that arrived in Bologna in 1995 and the second element is the total number of live births to children with at least one foreign parent recorded in the same year."
+    },
+    {
+      "id": "371529d8",
+      "question": "Qual è stato il numero medio di dispositivi Wi‑Fi rilevati nella zona di Piazza Porta Ravegnana mercoledì nel 2026, secondo bolognawifi?",
+      "keywords": [
+        "bolognawifi"
+      ],
+      "relevant_table_ids": [
+        "iperbole-wifi-affollamento"
+      ],
+      "table_aliases": {
+        "Table_0": "iperbole-wifi-affollamento"
+      },
+      "reference_code": "result = Table_0.loc[(Table_0['codice_zona'] == 'piazza_porta_ravegnana') & (Table_0['giorno'] == '3-Mercoledi'), 'affollamento_medio'].mean()",
+      "reference_result": [
+        {
+          "result": 118.9583333333
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average number of Wi‑Fi devices detected in the Piazza Porta Ravegnana zone on Wednesdays throughout 2026."
+    },
+    {
+      "id": "50bf6152",
+      "question": "Qual è stata la differenza nel numero totale di veicoli tra il varco 39 e il varco farini durante agosto 2026?",
+      "keywords": [
+        "39",
+        "farini"
+      ],
+      "relevant_table_ids": [
+        "varco-n-39-dei-mille-direzione-est",
+        "varco-n-25-farini-direzione-ovest"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-39-dei-mille-direzione-est",
+        "Table_1": "varco-n-25-farini-direzione-ovest"
+      },
+      "reference_code": "import pandas as pd\nTable_0['data'] = pd.to_datetime(Table_0['data'])\nTable_1['data'] = pd.to_datetime(Table_1['data'])\nmask_0 = (Table_0['data'].dt.year == 2026) & (Table_0['data'].dt.month == 8)\nmask_1 = (Table_1['data'].dt.year == 2026) & (Table_1['data'].dt.month == 8)\ntotal_39 = Table_0.loc[mask_0, 'totale_passaggi'].sum()\ntotal_25 = Table_1.loc[mask_1, 'totale_passaggi'].sum()\nvehicle_difference = total_39 - total_25\nresult = pd.DataFrame({'vehicle_difference': [vehicle_difference]})",
+      "reference_result": [
+        {
+          "vehicle_difference": -26453
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The numeric difference (Varco 39 total minus Farini total) of vehicle counts for August 2026."
+    },
+    {
+      "id": "70faaca3",
+      "question": "Quante domande di attualita ha presentato ogni consigliere nel 2023?",
+      "keywords": [
+        "attualita"
+      ],
+      "relevant_table_ids": [
+        "domande-di-attualita-a-risposta-scritta"
+      ],
+      "table_aliases": {
+        "Table_0": "domande-di-attualita-a-risposta-scritta"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(year=pd.to_datetime(Table_0['data_di_invio'], errors='coerce').dt.year)\n    .loc[lambda df: df['year'] == 2023]\n    .groupby('consigliere_interpellante')\n    .size()\n    .reset_index(name='cnt')\n)",
+      "reference_result": [
+        {
+          "consigliere_interpellante": "BEGAJ DETJON",
+          "cnt": 7
+        },
+        {
+          "consigliere_interpellante": "BERNAGOZZI GIULIA",
+          "cnt": 1
+        },
+        {
+          "consigliere_interpellante": "BRINATI FABIO",
+          "cnt": 12
+        },
+        {
+          "consigliere_interpellante": "CARACCIOLO FELICE",
+          "cnt": 18
+        },
+        {
+          "consigliere_interpellante": "CAVEDAGNA STEFANO",
+          "cnt": 68
+        },
+        {
+          "consigliere_interpellante": "CIMA FRANCO",
+          "cnt": 1
+        },
+        {
+          "consigliere_interpellante": "DE BIASE GIAN MARCO",
+          "cnt": 19
+        },
+        {
+          "consigliere_interpellante": "DE MARTINO MERY",
+          "cnt": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per councilor with the number of attualita questions they submitted in 2023."
+    },
+    {
+      "id": "ecc069e9",
+      "question": "Quanti dispositivi rossi stars sono presenti a Bologna?",
+      "keywords": [
+        "stars"
+      ],
+      "relevant_table_ids": [
+        "stars-controllo-rosso-semaforico"
+      ],
+      "table_aliases": {
+        "Table_0": "stars-controllo-rosso-semaforico"
+      },
+      "reference_code": "count_devices = Table_0['semaforo_stars_bologna'].count()",
+      "reference_result": [
+        {
+          "0": 21
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of STARS red‑light traffic signal devices in Bologna."
+    },
+    {
+      "id": "14aa69d2",
+      "question": "Il 31 August 2026, quale tra i varchi Varco 39 (Mille), Varco 43 (Lavoro), Varco 62 (Filopanti) e Varco 66 (Pietramellara) ha registrato il più alto numero totale di passaggi di veicoli, e qual è stato tale totale?",
+      "keywords": [
+        "39",
+        "43",
+        "62",
+        "66"
+      ],
+      "relevant_table_ids": [
+        "varco-n-39-dei-mille-direzione-est",
+        "varco-n-43-del-lavoro-direzione-nord-ovest",
+        "varco-n-62-viale-filopanti-direzione-nord",
+        "varco-n-66-viale-pietramellara-direzione-ovest"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-39-dei-mille-direzione-est",
+        "Table_1": "varco-n-43-del-lavoro-direzione-nord-ovest",
+        "Table_2": "varco-n-62-viale-filopanti-direzione-nord",
+        "Table_3": "varco-n-66-viale-pietramellara-direzione-ovest"
+      },
+      "reference_code": "import pandas as pd\ncombined = pd.concat([\n    Table_0[['data', 'varco', 'totale_passaggi']],\n    Table_1[['data', 'varco', 'totale_passaggi']],\n    Table_2[['data', 'varco', 'totale_passaggi']],\n    Table_3[['data', 'varco', 'totale_passaggi']]\n], ignore_index=True)\nfiltered = combined[\n    (pd.to_datetime(combined['data']).dt.date == pd.to_datetime('2026-08-31').date()) &\n    (combined['varco'].isin([39, 43, 62, 66]))\n]\nagg = (\n    filtered\n    .groupby('varco', as_index=False)['totale_passaggi']\n    .sum()\n    .rename(columns={'totale_passaggi': 'total_passaggi'})\n    .sort_values('total_passaggi', ascending=False)\n    .head(1)\n)\nresult = agg",
+      "reference_result": [
+        {
+          "varco": 62,
+          "total_passaggi": 544
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row with columns varco (gate number) and total_passaggi (total vehicle passages) for the gate that recorded the highest total passages on 31 August 2026."
+    },
+    {
+      "id": "8c7ea419",
+      "question": "Quante schede valide sono state espresse nel quartiere Saragozza durante le elezioni della camera del 1996 a Bologna?",
+      "keywords": [
+        "1996",
+        "camera"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-1996-affluenza-votanti-camera-dei-deputati-uninominale"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-1996-affluenza-votanti-camera-dei-deputati-uninominale"
+      },
+      "reference_code": "total_valid_votes = Table_0.loc[Table_0['descrizione_quartiere'] == 'Saragozza', 'voti_validi'].sum()",
+      "reference_result": [
+        {
+          "0": 28859
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of valid votes cast in the Saragozza neighbourhood during the 1996 Camera election in Bologna."
+    },
+    {
+      "id": "13399e8c",
+      "question": "Per ogni tipo di condotto, quanti condotti scoperti e quanti condotti coperti d'acqua sono registrati a Bologna nel dataset Origini di Bologna per il periodo late 18th to early 19th century?",
+      "keywords": [
+        "scoperti",
+        "condotti"
+      ],
+      "relevant_table_ids": [
+        "origini-di-bologna-condotti-scoperti",
+        "origini-di-bologna-condotti-coperti"
+      ],
+      "table_aliases": {
+        "Table_0": "origini-di-bologna-condotti-scoperti",
+        "Table_1": "origini-di-bologna-condotti-coperti"
+      },
+      "reference_code": "uncovered = (\n    Table_0\n    .groupby(['name', 'etichetta'])\n    .size()\n    .reset_index(name='uncovered_per_name')\n)\ncovered = (\n    Table_1\n    .groupby(['name', 'etichetta'])\n    .size()\n    .reset_index(name='covered_per_name')\n)\njoined = pd.merge(uncovered, covered, on=['name', 'etichetta'], how='outer')\nresult = (\n    joined\n    .groupby('etichetta', as_index=False)\n    .agg({'uncovered_per_name': 'sum', 'covered_per_name': 'sum'})\n    .rename(columns={\n        'uncovered_per_name': 'uncovered_count',\n        'covered_per_name': 'covered_count'\n    })\n    .sort_values('etichetta')\n)",
+      "reference_result": [
+        {
+          "etichetta": "Canale",
+          "uncovered_count": 71.0,
+          "covered_count": 64.0
+        },
+        {
+          "etichetta": "Canaletta",
+          "uncovered_count": 265.0,
+          "covered_count": 332.0
+        },
+        {
+          "etichetta": "Chiavica",
+          "uncovered_count": 3.0,
+          "covered_count": 20.0
+        },
+        {
+          "etichetta": "Fiume",
+          "uncovered_count": 11.0,
+          "covered_count": 3.0
+        },
+        {
+          "etichetta": "Fossato",
+          "uncovered_count": 25.0,
+          "covered_count": 17.0
+        },
+        {
+          "etichetta": "Pozzo",
+          "uncovered_count": 3.0,
+          "covered_count": 1.0
+        },
+        {
+          "etichetta": "Rio",
+          "uncovered_count": 19.0,
+          "covered_count": 9.0
+        },
+        {
+          "etichetta": "Scolo",
+          "uncovered_count": 55.0,
+          "covered_count": 40.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per conduit type (etichetta) with two columns: uncovered_count (number of uncovered conduits) and covered_count (number of covered conduits)."
+    },
+    {
+      "id": "c041a6fa",
+      "question": "Il polo Terzo Polo Centro ha ricevuto più preferenze totali rispetto al candidato comunista nelle elezioni comunali di Bologna del 2009?",
+      "keywords": [
+        "polo",
+        "candidato",
+        "comunista"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-partito-comunista"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-partito-comunista"
+      },
+      "reference_code": "total_polo = Table_0['preferenze'].sum()\ntotal_comunista = Table_1['preferenze'].sum()\nresult = pd.DataFrame({'polo_more': [total_polo > total_comunista]})\nresult",
+      "reference_result": [
+        {
+          "polo_more": true
+        }
+      ],
+      "expected_result_type": "boolean",
+      "expected_result_description": "True if the total preference votes for the Terzo Polo Centro list exceed those for the Communist list, otherwise False."
+    },
+    {
+      "id": "f86fd0af",
+      "question": "Qual è stato il flusso netto (immigrati meno emigrati) per ogni sesso a Bologna tra il 1995 e il 2005 per gli immigrati provenienti da paesi africani e per le persone che sono partite per Borgo Tossignano?",
+      "keywords": [
+        "immigrati"
+      ],
+      "relevant_table_ids": [
+        "immigrati_00003_stranieri_seriecittaprovenienza",
+        "emigrati-secondo-la-destinazione-per-sesso-quartiere-e-zona-di-provenienza-serie"
+      ],
+      "table_aliases": {
+        "Table_0": "immigrati_00003_stranieri_seriecittaprovenienza",
+        "Table_1": "emigrati-secondo-la-destinazione-per-sesso-quartiere-e-zona-di-provenienza-serie"
+      },
+      "reference_code": "af_imm = (\n    Table_0\n    .loc[\n        (Table_0['anno'].between(1995, 2005)) &\n        (Table_0['area'].str.lower().str.contains('africa')),\n        ['sesso', 'numero_immigrati']\n    ]\n    .groupby('sesso', as_index=False)['numero_immigrati']\n    .sum()\n    .rename(columns={'numero_immigrati': 'african_immigrants_total'})\n)\nbor_em = (\n    Table_1\n    .loc[\n        (Table_1['anno'].between(1995, 2005)) &\n        (Table_1['destinazione_comuni_e_aree_italia'].str.lower().str.contains('borgo tossignano')),\n        ['sesso', 'numero_emigrati']\n    ]\n    .groupby('sesso', as_index=False)['numero_emigrati']\n    .sum()\n    .rename(columns={'numero_emigrati': 'borgo_emigrants_total'})\n)\nfinal = (\n    af_imm\n    .merge(bor_em, on='sesso', how='outer', suffixes=('', '_bor'))\n    .fillna(0)\n    .assign(net_outflow=lambda df: df['african_immigrants_total'] - df['borgo_emigrants_total'])\n    [['sesso', 'net_outflow']]\n)",
+      "reference_result": [
+        {
+          "sesso": "Femmine",
+          "net_outflow": 2980
+        },
+        {
+          "sesso": "Maschi",
+          "net_outflow": 4067
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per sex (Maschi, Femmine) showing the net outflow (immigrants from African countries minus emigrants to Borgo Tossignano) for the period 1995‑2005."
+    },
+    {
+      "id": "13e6b054",
+      "question": "Quale giorno di agosto 2026 ha registrato il traffico medio orario più alto al varco 44 su viale Ercolani a Bologna, e come si confronta la sua media con la media mensile complessiva?",
+      "keywords": [
+        "44"
+      ],
+      "relevant_table_ids": [
+        "varco-n-44-viale-ercolani-direzione-nord"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-44-viale-ercolani-direzione-nord"
+      },
+      "reference_code": "import pandas as pd\ndf = Table_0.copy()\ndf = df.assign(datetime=pd.to_datetime(df['data'], utc=True))\nfiltered = (\n    df.loc[\n        (df['varco'] == 44) &\n        (df['datetime'] >= pd.Timestamp('2026-08-01', tz='UTC')) &\n        (df['datetime'] <= pd.Timestamp('2026-08-31 23:59:59', tz='UTC'))\n    ]\n    .assign(date=lambda x: x['datetime'].dt.date)\n)\nmonthly_avg = filtered['totale_passaggi'].mean()\nresult = (\n    filtered\n    .groupby('date', as_index=False)\n    .agg(daily_avg=('totale_passaggi', 'mean'))\n    .assign(monthly_avg=monthly_avg)\n    .sort_values('daily_avg', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "date": "2026-08-27",
+          "daily_avg": 17.2604166667,
+          "monthly_avg": 9.7371967655
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the date in August 2026 with the highest average hourly traffic at gate 44, its average (daily_avg), and the overall monthly average (monthly_avg)."
+    },
+    {
+      "id": "7f2c9cb3",
+      "question": "Quali tre quartieri hanno totalizzato il maggior numero di preferenze complessive tra le liste Terzo Polo Centro, Bologna FUTURA e Sinistra per Bologna nelle elezioni comunali di Bologna del 2009, e quale percentuale del totale combinato dei voti di queste tre liste è stata fornita da ciascun quartiere secondo la descrizione di ciascun quartiere, tenendo conto del polo, della sinistra e di una prospettiva futura?",
+      "keywords": [
+        "polo",
+        "futura",
+        "descrizione",
+        "sinistra"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-bologna-futura",
+        "elezioni-amministrative-2009-preferenze-lista-sinistra-per-bologna"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-bologna-futura",
+        "Table_2": "elezioni-amministrative-2009-preferenze-lista-sinistra-per-bologna"
+      },
+      "reference_code": "import pandas as pd\nall_votes = pd.concat([Table_0, Table_1, Table_2], ignore_index=True)\noverall_total = all_votes['preferenze'].sum()\nresult = (\n    all_votes.groupby('descrizione_quartiere', as_index=False)['preferenze']\n    .sum()\n    .rename(columns={'preferenze': 'neighbourhood_votes'})\n    .assign(pct_of_total=lambda df: df['neighbourhood_votes'] / overall_total * 100)\n    .sort_values('neighbourhood_votes', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "San Vitale",
+          "neighbourhood_votes": 607,
+          "pct_of_total": 19.0521029504
+        },
+        {
+          "descrizione_quartiere": "Santo Stefano",
+          "neighbourhood_votes": 499,
+          "pct_of_total": 15.6622724419
+        },
+        {
+          "descrizione_quartiere": "Navile",
+          "neighbourhood_votes": 440,
+          "pct_of_total": 13.8104205901
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A three‑row table listing the three neighbourhoods with the highest combined preference votes, each row showing the neighbourhood name, its total votes across the three lists, and the percentage that total represents of all votes cast for the three lists."
+    },
+    {
+      "id": "5b1e0c6b",
+      "question": "Quali tre tipologie di condotto a Bologna hanno la quota più alta di condotti scoperti e, per ciascuna, mostra il numero totale di condotti scoperti, il numero totale di condotti coperti e la percentuale di ciascuna all'interno della tipologia, basandoti sui dati di Origini di Bologna dal tardo 18th al primo 19th secolo?",
+      "keywords": [
+        "scoperti",
+        "condotti"
+      ],
+      "relevant_table_ids": [
+        "origini-di-bologna-condotti-scoperti",
+        "origini-di-bologna-condotti-coperti"
+      ],
+      "table_aliases": {
+        "Table_0": "origini-di-bologna-condotti-scoperti",
+        "Table_1": "origini-di-bologna-condotti-coperti"
+      },
+      "reference_code": "uncovered = Table_0.groupby('etichetta').size().reset_index(name='uncovered_count')\ncovered = Table_1.groupby('etichetta').size().reset_index(name='covered_count')\nmerged = pd.merge(uncovered, covered, on='etichetta', how='outer')\nmerged['uncovered_count'] = merged['uncovered_count'].fillna(0).astype(int)\nmerged['covered_count'] = merged['covered_count'].fillna(0).astype(int)\nmerged['uncovered_share'] = merged['uncovered_count'] / (merged['uncovered_count'] + merged['covered_count']) * 100\nresult = merged.sort_values(by='uncovered_share', ascending=False).head(3)",
+      "reference_result": [
+        {
+          "etichetta": "Vasca",
+          "uncovered_count": 36,
+          "covered_count": 0,
+          "uncovered_share": 100.0
+        },
+        {
+          "etichetta": "Fiume",
+          "uncovered_count": 11,
+          "covered_count": 3,
+          "uncovered_share": 78.5714285714
+        },
+        {
+          "etichetta": "Pozzo",
+          "uncovered_count": 3,
+          "covered_count": 1,
+          "uncovered_share": 75.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each representing a conduit type (etichetta), with columns: conduit type, total number of uncovered conduits, total number of covered conduits, and the percentage of uncovered conduits within that type."
+    },
+    {
+      "id": "8d0c948c",
+      "question": "Quante imprese attive c'erano a Bologna nello snapshot di aprile 2021?",
+      "keywords": [
+        "attive"
+      ],
+      "relevant_table_ids": [
+        "storia-resilienza-imprese-attive-ateco-femminile-giovanile-totale"
+      ],
+      "table_aliases": {
+        "Table_0": "storia-resilienza-imprese-attive-ateco-femminile-giovanile-totale"
+      },
+      "reference_code": "total_enterprises = Table_0['totali'].sum()",
+      "reference_result": [
+        {
+          "0": 51193
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of active enterprises in Bologna as recorded in the April 2021 snapshot."
+    },
+    {
+      "id": "76416472",
+      "question": "Qual è il numero totale di giorni CIG registrati a Bologna nei sei mesi del 2020 coperti dalla storia?",
+      "keywords": [
+        "storia"
+      ],
+      "relevant_table_ids": [
+        "storia-resilienza-ore-cigs"
+      ],
+      "table_aliases": {
+        "Table_0": "storia-resilienza-ore-cigs"
+      },
+      "reference_code": "total_cig_days = (\n    Table_0\n    .loc[lambda df: (df['mese'] >= '2020-03-01') & (df['mese'] <= '2020-08-01')]\n    ['giorni_cig_mese_calc']\n    .sum()\n)",
+      "reference_result": [
+        {
+          "result": 110233.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of CIG days recorded across all sectors and months in Bologna during the six‑month period of 2020 covered by the Storia Resilienza dataset."
+    },
+    {
+      "id": "d98866ea",
+      "question": "Quali sono stati i voti di preferenza totali per la lista polo e per la lista pasquino nelle elezioni comunali di Bologna del 2009?",
+      "keywords": [
+        "polo",
+        "pasquino"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      },
+      "reference_code": "polo_total = Table_0['preferenze'].sum()\npasquino_total = Table_1['preferenze'].sum()\nresult = pd.DataFrame({\n    'lista': [15, 16],\n    'total_preferenze': [polo_total, pasquino_total]\n})",
+      "reference_result": [
+        {
+          "lista": 15,
+          "total_preferenze": 192
+        },
+        {
+          "lista": 16,
+          "total_preferenze": 694
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A two‑row table where each row shows the list identifier (15 for Polo, 16 for Pasquino) and the total number of preference votes that list received in the 2009 Bologna municipal election."
+    },
+    {
+      "id": "748466cd",
+      "question": "Quanti veicoli sono passati attraverso il varco 93 alle 21:45 del 31 August 2026?",
+      "keywords": [
+        "93"
+      ],
+      "relevant_table_ids": [
+        "varco-n-93"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-93"
+      },
+      "reference_code": "total_vehicles = Table_0.loc[(Table_0['varco'] == 93) & (Table_0['data'] == pd.Timestamp('2026-08-31T21:45:00+00:00')), 'totale_passaggi'].sum()\ntotal_vehicles",
+      "reference_result": [
+        {
+          "0": 0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of vehicles that passed through gate 93 at 21:45 on 31 August 2026."
+    },
+    {
+      "id": "e5bbe666",
+      "question": "Per l'anno 2000 a Bologna, quali sono i numeri totali di immigrati ed emigrati per ciascun sesso?",
+      "keywords": [
+        "immigrati"
+      ],
+      "relevant_table_ids": [
+        "immigrati_00003_stranieri_seriecittaprovenienza",
+        "emigrati-secondo-la-destinazione-per-sesso-quartiere-e-zona-di-provenienza-serie"
+      ],
+      "table_aliases": {
+        "Table_0": "immigrati_00003_stranieri_seriecittaprovenienza",
+        "Table_1": "emigrati-secondo-la-destinazione-per-sesso-quartiere-e-zona-di-provenienza-serie"
+      },
+      "reference_code": "immigrants = (\n    Table_0[Table_0['anno'] == 2000]\n    .groupby(['anno', 'sesso'], as_index=False)\n    .agg(immigrants_total=('numero_immigrati', 'sum'))\n)\nemigrants = (\n    Table_1[Table_1['anno'] == 2000]\n    .groupby(['anno', 'sesso'], as_index=False)\n    .agg(emigrants_total=('numero_emigrati', 'sum'))\n)\nresult = (\n    immigrants.merge(emigrants, on=['anno', 'sesso'], how='inner')\n    [['sesso', 'immigrants_total', 'emigrants_total']]\n)",
+      "reference_result": [
+        {
+          "sesso": "Femmine",
+          "immigrants_total": 1373,
+          "emigrants_total": 5232
+        },
+        {
+          "sesso": "Maschi",
+          "immigrants_total": 1415,
+          "emigrants_total": 5701
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per sex (Maschi, Femmine) showing total immigrants and total emigrants in Bologna for the year 2000."
+    },
+    {
+      "id": "dfe4113e",
+      "question": "Qual è stato il numero totale di voti di preferenza nel quartiere Saragozza per le liste Terzo Polo Centro, Bologna al Centro e Pasquino nelle elezioni comunali di Bologna del 2009?",
+      "keywords": [
+        "polo",
+        "al",
+        "pasquino"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-bologna-al-centro",
+        "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-bologna-al-centro",
+        "Table_2": "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      },
+      "reference_code": "filtered_0 = Table_0[Table_0['descrizione_quartiere'] == 'Saragozza']\nfiltered_1 = Table_1[Table_1['descrizione_quartiere'] == 'Saragozza']\nfiltered_2 = Table_2[Table_2['descrizione_quartiere'] == 'Saragozza']\nunion_df = pd.concat([filtered_0, filtered_1, filtered_2], ignore_index=True)\ntotal_votes = union_df['preferenze'].sum()\ntotal_votes",
+      "reference_result": [
+        {
+          "0": 166
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of preference votes cast in the Saragozza neighbourhood for the Terzo Polo Centro, Bologna al Centro and Pasquino lists in the 2009 Bologna municipal elections."
+    },
+    {
+      "id": "fb37475d",
+      "question": "Quali sono i numeri delle famiglie con almeno un membro straniero per ogni tipologia di famiglia nel quartiere Navile di Bologna nel 1986?",
+      "keywords": [
+        "straniero"
+      ],
+      "relevant_table_ids": [
+        "famiglie-residenti-con-stranieri-per-cittadinanza-tipologia-numero-di-componenti"
+      ],
+      "table_aliases": {
+        "Table_0": "famiglie-residenti-con-stranieri-per-cittadinanza-tipologia-numero-di-componenti"
+      },
+      "reference_code": "Table_0['componenti_stranieri'] = pd.to_numeric(Table_0['componenti_stranieri'], errors='coerce')\nresult = (\n    Table_0\n    .loc[\n        (Table_0['anno'] == 1986) &\n        (Table_0['quartiere'] == 'Navile') &\n        (Table_0['componenti_stranieri'] > 0)\n    ]\n    .groupby('tipologia_famiglia', as_index=False)['numero_famiglie']\n    .sum()\n    .rename(columns={'numero_famiglie': 'families_count'})\n)",
+      "reference_result": [
+        {
+          "tipologia_famiglia": "Altre tipologie familiari",
+          "families_count": 8
+        },
+        {
+          "tipologia_famiglia": "Coniugi",
+          "families_count": 30
+        },
+        {
+          "tipologia_famiglia": "Coniugi con altri membri conviventi",
+          "families_count": 5
+        },
+        {
+          "tipologia_famiglia": "Coniugi con figli",
+          "families_count": 45
+        },
+        {
+          "tipologia_famiglia": "Coniugi con figli e altri membri conviventi",
+          "families_count": 5
+        },
+        {
+          "tipologia_famiglia": "Madre con figli",
+          "families_count": 11
+        },
+        {
+          "tipologia_famiglia": "Madre con figli e altri membri conviventi",
+          "families_count": 1
+        },
+        {
+          "tipologia_famiglia": "Padre con figli",
+          "families_count": 4
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per family type (tipologia_famiglia) showing the total number of families in Navile in 1986 that had at least one foreign member."
+    },
+    {
+      "id": "e30936ba",
+      "question": "Per ogni tipo di procedura di agibilita a Bologna, come è cambiato il numero di richieste dal 2024 al 2025 e quale procedura ha registrato il maggior aumento?",
+      "keywords": [
+        "agibilita"
+      ],
+      "relevant_table_ids": [
+        "agibilita-e-schede-tecniche-descrittive-depositate"
+      ],
+      "table_aliases": {
+        "Table_0": "agibilita-e-schede-tecniche-descrittive-depositate"
+      },
+      "reference_code": "df = (\n    Table_0\n    .assign(\n        is_2024=lambda x: x['richiesta_anno_prot'] == 2024,\n        is_2025=lambda x: x['richiesta_anno_prot'] == 2025\n    )\n    .groupby('procedimento', as_index=False)\n    .agg(\n        count_2024=('is_2024', 'sum'),\n        count_2025=('is_2025', 'sum')\n    )\n    .assign(increase=lambda x: x['count_2025'] - x['count_2024'])\n    .assign(rank=lambda x: x['increase'].rank(method='dense', ascending=False).astype(int))\n    .assign(is_max_increase=lambda x: x['rank'] == 1)\n)",
+      "reference_result": [
+        {
+          "procedimento": "AGIBILITÀ",
+          "count_2024": 0,
+          "count_2025": 0,
+          "increase": 0,
+          "rank": 6,
+          "is_max_increase": false
+        },
+        {
+          "procedimento": "AGIBILITÀ CON SANZIONE PECUNIARIA",
+          "count_2024": 0,
+          "count_2025": 0,
+          "increase": 0,
+          "rank": 6,
+          "is_max_increase": false
+        },
+        {
+          "procedimento": "AGIBILITÀ CON SANZIONE PECUNIARIA LR 15/2013",
+          "count_2024": 0,
+          "count_2025": 0,
+          "increase": 0,
+          "rank": 6,
+          "is_max_increase": false
+        },
+        {
+          "procedimento": "AGIBILITÀ LR 15/2013",
+          "count_2024": 0,
+          "count_2025": 0,
+          "increase": 0,
+          "rank": 6,
+          "is_max_increase": false
+        },
+        {
+          "procedimento": "AGIBILITÀ PARZIALE CON SANZIONE PECUNIARIA LR 15/2013",
+          "count_2024": 0,
+          "count_2025": 0,
+          "increase": 0,
+          "rank": 6,
+          "is_max_increase": false
+        },
+        {
+          "procedimento": "AGIBILITÀ PARZIALE LR 15/2013",
+          "count_2024": 0,
+          "count_2025": 0,
+          "increase": 0,
+          "rank": 6,
+          "is_max_increase": false
+        },
+        {
+          "procedimento": "AGIBILITÀ URBANISTICA",
+          "count_2024": 0,
+          "count_2025": 0,
+          "increase": 0,
+          "rank": 6,
+          "is_max_increase": false
+        },
+        {
+          "procedimento": "DEPOSITO AGIBILITÀ",
+          "count_2024": 1273,
+          "count_2025": 0,
+          "increase": -1273,
+          "rank": 12,
+          "is_max_increase": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per procedimento showing count_2024, count_2025, the absolute increase, a rank column (rank 1 indicates the largest increase), and a boolean flag is_max_increase marking the procedure with the largest year‑over‑year increase."
+    },
+    {
+      "id": "6236b195",
+      "question": "Quale zona censuaria di Bologna ha avuto la lunghezza media del confine più alta nel censimento del 2001 e qual è stata quella media?",
+      "keywords": [
+        "censimento"
+      ],
+      "relevant_table_ids": [
+        "sezioni-di-censimento-anno-2001"
+      ],
+      "table_aliases": {
+        "Table_0": "sezioni-di-censimento-anno-2001"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby('codzona', as_index=False)\n    .agg(avg_perimeter=('perimeter', 'mean'))\n    .sort_values('avg_perimeter', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "codzona": "D",
+          "avg_perimeter": 2406.4697142857
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the codzona identifier of the zone with the highest average perimeter and the corresponding average perimeter value (in metres)."
+    },
+    {
+      "id": "fbbbae66",
+      "question": "Quanti condotti sono elencati come scoperti nel progetto Origini di Bologna?",
+      "keywords": [
+        "scoperti"
+      ],
+      "relevant_table_ids": [
+        "origini-di-bologna-condotti-scoperti"
+      ],
+      "table_aliases": {
+        "Table_0": "origini-di-bologna-condotti-scoperti"
+      },
+      "reference_code": "total_scoperti = Table_0[Table_0['stato'] == 'Scoperto'].shape[0]",
+      "reference_result": [
+        {
+          "result": 527
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of conduit records with status \"Scoperto\" in the Origini di Bologna dataset."
+    },
+    {
+      "id": "e1d1ca37",
+      "question": "Quante domande di laboratori sono state elaborate dal SUAP di Bologna in ciascun distretto nel 2025?",
+      "keywords": [
+        "laboratori"
+      ],
+      "relevant_table_ids": [
+        "istanze-laboratori"
+      ],
+      "table_aliases": {
+        "Table_0": "istanze-laboratori"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['sottoarea'] == 'Laboratori alimentari']\n    .loc[Table_0['data_fine_procedimento'].notna()]\n    .assign(_proc_date=lambda df: pd.to_datetime(df['data_fine_procedimento'], errors='coerce'))\n    .loc[lambda df: df['_proc_date'].dt.year == 2025]\n    .loc[lambda df: df['esito_pratica'].notna()]\n    .groupby('zona', as_index=False)\n    .agg(applications_processed=('data_fine_procedimento', 'count'))\n)",
+      "reference_result": [
+        {
+          "zona": "Barca",
+          "applications_processed": 4
+        },
+        {
+          "zona": "Bolognina",
+          "applications_processed": 22
+        },
+        {
+          "zona": "Borgo Panigale",
+          "applications_processed": 17
+        },
+        {
+          "zona": "Colli",
+          "applications_processed": 4
+        },
+        {
+          "zona": "Corticella",
+          "applications_processed": 7
+        },
+        {
+          "zona": "Costa Saragozza",
+          "applications_processed": 11
+        },
+        {
+          "zona": "Galvani",
+          "applications_processed": 18
+        },
+        {
+          "zona": "Irnerio",
+          "applications_processed": 44
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per district (zona) showing the total number of laboratori applications that were completed (processed) in 2025."
+    },
+    {
+      "id": "69539ccc",
+      "question": "A Bologna, quale zona di sosta ha la più ampia fascia di numeri civici pari sulle sue strade e qual è la lunghezza di tale fascia?",
+      "keywords": [
+        "pari"
+      ],
+      "relevant_table_ids": [
+        "stradario-generale-al-25nov2022"
+      ],
+      "table_aliases": {
+        "Table_0": "stradario-generale-al-25nov2022"
+      },
+      "reference_code": "result = (\n    Table_0\n    .dropna(subset=['pari_dal', 'pari_al'])\n    .assign(\n        pari_dal_num=lambda df: pd.to_numeric(df['pari_dal'].str.extract(r'(\\d+)', expand=False), errors='coerce'),\n        pari_al_num=lambda df: pd.to_numeric(df['pari_al'].str.extract(r'(\\d+)', expand=False), errors='coerce')\n    )\n    .groupby('zona', as_index=False)\n    .agg(min_even=('pari_dal_num', 'min'), max_even=('pari_al_num', 'max'))\n    .assign(range_even=lambda df: df['max_even'] - df['min_even'])\n    .sort_values('range_even', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "zona": "P",
+          "min_even": 2,
+          "max_even": 478,
+          "range_even": 476
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row with the parking zone identifier (zona) that has the greatest numeric range of even house numbers across its streets, and the length of that range (max even number minus min even number)."
+    },
+    {
+      "id": "0ebb8682",
+      "question": "Quale quartiere ha ricevuto il maggior numero totale di voti per la lista popolari D'Italia Domani alle elezioni comunali di Bologna del 2011, e quanti voti ha ottenuto?",
+      "keywords": [
+        "popolari"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2011-preferenze-lista-popolari-italia"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2011-preferenze-lista-popolari-italia"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['lista'] == 6]\n    .groupby('descrizione_quartiere', as_index=False)\n    .agg(total_votes=('preferenze', 'sum'))\n    .sort_values('total_votes', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "Savena",
+          "total_votes": 21
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the neighbourhood name (descrizione_quartiere) that obtained the greatest sum of preference votes for the POPOLARI D'ITALIA DOMANI list, and the corresponding total vote count."
+    },
+    {
+      "id": "3f544ffb",
+      "question": "Quale quartiere di Bologna ha il maggior numero di Musei Civici di Bologna e quanti musei ci sono?",
+      "keywords": [
+        "musei"
+      ],
+      "relevant_table_ids": [
+        "elenco-musei-civici-di-bologna"
+      ],
+      "table_aliases": {
+        "Table_0": "elenco-musei-civici-di-bologna"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby('quartiere')\n    .agg(neighbourhood_museum_count=('quartiere', 'count'))\n    .reset_index()\n    .sort_values('neighbourhood_museum_count', ascending=False)\n    .head(1)\n    .loc[:, ['quartiere', 'neighbourhood_museum_count']]\n)",
+      "reference_result": [
+        {
+          "quartiere": "Porto-Saragozza",
+          "neighbourhood_museum_count": 6
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with the neighbourhood name that hosts the most museums and the corresponding count of museums."
+    },
+    {
+      "id": "7a2009dc",
+      "question": "Per ogni quartiere, qual è stato il tempo medio di lavorazione in giorni delle domande di laboratori della SUAP di Bologna completate nel 2025, e quale quartiere ha avuto il tempo medio più lungo?",
+      "keywords": [
+        "laboratori"
+      ],
+      "relevant_table_ids": [
+        "istanze-laboratori"
+      ],
+      "table_aliases": {
+        "Table_0": "istanze-laboratori"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(\n        data_fine_procedimento=pd.to_datetime(Table_0['data_fine_procedimento'], errors='coerce'),\n        data_richiesta=pd.to_datetime(Table_0['data_richiesta'], errors='coerce')\n    )\n    .loc[\n        lambda d: d['data_fine_procedimento'].notna()\n        & (d['data_fine_procedimento'].dt.year == 2025)\n        & d['esito_pratica'].notna()\n        & d['sottoarea'].str.lower().eq('laboratori alimentari')\n    ]\n    .assign(processing_days=lambda d: (d['data_fine_procedimento'] - d['data_richiesta']).dt.days)\n    .groupby('quartiere', as_index=False)['processing_days']\n    .mean()\n    .rename(columns={'processing_days': 'avg_processing_days'})\n    .sort_values('avg_processing_days', ascending=False)\n)",
+      "reference_result": [
+        {
+          "quartiere": "Porto - Saragozza",
+          "avg_processing_days": 51.3827160494
+        },
+        {
+          "quartiere": "San Donato - San Vitale",
+          "avg_processing_days": 31.92
+        },
+        {
+          "quartiere": "Borgo Panigale - Reno",
+          "avg_processing_days": 29.6896551724
+        },
+        {
+          "quartiere": "Navile",
+          "avg_processing_days": 23.5
+        },
+        {
+          "quartiere": "Santo Stefano",
+          "avg_processing_days": 14.6413043478
+        },
+        {
+          "quartiere": "Savena",
+          "avg_processing_days": 10.28
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per neighbourhood (quartiere) with the average processing time (in days) for completed 2025 applications, sorted descending so the first row is the neighbourhood with the longest average processing time."
+    },
+    {
+      "id": "9359a9e4",
+      "question": "Quale gruppo politico ha registrato il più grande aumento nel numero di domande di attualita tra due anni consecutivi dal 2019 al 2022, e qual è stato l'anno e l'entità di tale aumento?",
+      "keywords": [
+        "attualita"
+      ],
+      "relevant_table_ids": [
+        "domande-di-attualita-a-risposta-scritta"
+      ],
+      "table_aliases": {
+        "Table_0": "domande-di-attualita-a-risposta-scritta"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(year=pd.to_datetime(Table_0['data_di_invio']).dt.year)\n    .query(\"year >= 2019 and year <= 2022\")\n    .groupby(['gruppo_consigliere_interpellante', 'year'])\n    .agg(cnt=('progressivo_consigliere_interpellante', 'size'))\n    .reset_index()\n    .sort_values(['gruppo_consigliere_interpellante', 'year'])\n    .groupby('gruppo_consigliere_interpellante')\n    .apply(lambda g: g.assign(increase=g['cnt'].diff()))\n    .reset_index(drop=True)\n    .sort_values('increase', ascending=False)\n    .head(1)\n    .loc[:, ['gruppo_consigliere_interpellante', 'year', 'increase']]\n)",
+      "reference_result": [
+        {
+          "gruppo_consigliere_interpellante": "FRATELLI D'ITALIA",
+          "year": 2022,
+          "increase": 114.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the political group, the later year of the biggest year‑over‑year increase (between 2019‑2022), and the size of that increase."
+    },
+    {
+      "id": "1edaec32",
+      "question": "Quanti residenti stranieri con cittadinanza greca vivevano in ogni quartiere di Bologna nel 1986?",
+      "keywords": [
+        "cittadinanza"
+      ],
+      "relevant_table_ids": [
+        "popolazione-residente-straniera-per-cittadinanzasesso-quartiere-e-zona-serie-st0"
+      ],
+      "table_aliases": {
+        "Table_0": "popolazione-residente-straniera-per-cittadinanzasesso-quartiere-e-zona-serie-st0"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[lambda d: (d['anno'] == 1986) & (d['stato_cittadinanza'] == 'Grecia')]\n    .groupby('quartiere', as_index=False)['residenti']\n    .sum()\n    .rename(columns={'residenti': 'greek_residents'})\n    .sort_values(by='greek_residents', ascending=False)\n    [['quartiere', 'greek_residents']]\n)",
+      "reference_result": [
+        {
+          "quartiere": "San Donato - San Vitale",
+          "greek_residents": 61
+        },
+        {
+          "quartiere": "Santo Stefano",
+          "greek_residents": 50
+        },
+        {
+          "quartiere": "Porto - Saragozza",
+          "greek_residents": 47
+        },
+        {
+          "quartiere": "Savena",
+          "greek_residents": 36
+        },
+        {
+          "quartiere": "Navile",
+          "greek_residents": 15
+        },
+        {
+          "quartiere": "Borgo Panigale - Reno",
+          "greek_residents": 11
+        },
+        {
+          "quartiere": "Senza fissa dimora",
+          "greek_residents": 7
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per neighbourhood with the total number of foreign residents holding Greek citizenship living in Bologna in 1986."
+    },
+    {
+      "id": "63c90601",
+      "question": "Quante manifestazioni sono state presentate allo Sportello Unico per le Attività Produttive (SUAP) di Bologna nel 2025?",
+      "keywords": [
+        "manifestazioni"
+      ],
+      "relevant_table_ids": [
+        "istanze-manifestazioni"
+      ],
+      "table_aliases": {
+        "Table_0": "istanze-manifestazioni"
+      },
+      "reference_code": "total_count = Table_0[Table_0['data_richiesta'].str.startswith('2025')].shape[0]",
+      "reference_result": [
+        {
+          "result": 1467
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of manifestazioni (applications) submitted to the SUAP in the year 2025."
+    },
+    {
+      "id": "f4676bba",
+      "question": "Per i progetti di intervento sotto il bando \"Accelerazione civica\", quali sono le tre partnership che hanno ricevuto la media più alta di risorse per progetto?",
+      "keywords": [
+        "intervento"
+      ],
+      "relevant_table_ids": [
+        "scuole-di-quartiere-interventi"
+      ],
+      "table_aliases": {
+        "Table_0": "scuole-di-quartiere-interventi"
+      },
+      "reference_code": "result = (\n    Table_0\n    .dropna(subset=['risorse_assegnate', 'partenariato'])\n    .loc[lambda df: df['titolo_breve_progetto_pon'] == 'Accelerazione civica']\n    .groupby('partenariato', as_index=False)\n    .agg(avg_resources=('risorse_assegnate', 'mean'))\n    .sort_values('avg_resources', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "partenariato": "Associazione Map",
+          "avg_resources": 100000.0
+        },
+        {
+          "partenariato": "Associazione Nuovamente, Associazione Dedalus di Jonas",
+          "avg_resources": 100000.0
+        },
+        {
+          "partenariato": "Associazione Senza il Banco e ASD Polisportiva Pontevecchio",
+          "avg_resources": 100000.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing a partnership and its average assigned resources for Accelerazione civica projects, ordered from highest to lowest average."
+    },
+    {
+      "id": "4c166923",
+      "question": "Tra il 1995 e il 2005 a Bologna, quali sono le tre combinazioni anno‑genere che hanno registrato il maggior aumento della popolazione straniera netta (immigrati più arrivi registrati meno emigranti), e qual è la popolazione residente straniera media per ciascuna di queste combinazioni nello stesso periodo?",
+      "keywords": [
+        "immigrati"
+      ],
+      "relevant_table_ids": [
+        "immigrati_00003_stranieri_seriecittaprovenienza",
+        "emigrati_00003_stranieri_seriecittadest",
+        "immigrati_00001_serie_storica",
+        "popolazione-residente-straniera-per-cittadinanzasesso-quartiere-e-zona-serie-st0"
+      ],
+      "table_aliases": {
+        "Table_0": "immigrati_00003_stranieri_seriecittaprovenienza",
+        "Table_1": "emigrati_00003_stranieri_seriecittadest",
+        "Table_2": "immigrati_00001_serie_storica",
+        "Table_3": "popolazione-residente-straniera-per-cittadinanzasesso-quartiere-e-zona-serie-st0"
+      },
+      "reference_code": "df0 = Table_0[(Table_0['anno'] >= 1995) & (Table_0['anno'] <= 2005)]\ndf1 = Table_1[(Table_1['anno'] >= 1995) & (Table_1['anno'] <= 2005)]\ndf2 = Table_2[(Table_2['anno_iscrizione_imm'] >= 1995) & (Table_2['anno_iscrizione_imm'] <= 2005)]\nmerged01 = df0.merge(df1, on=['anno', 'cittadinanza', 'area', 'sesso'], how='inner', suffixes=('_imm', '_em'))\nagg_imm_em = (\n    merged01\n    .groupby(['anno', 'sesso'], as_index=False)\n    .agg(imm_sum=('numero_immigrati', 'sum'), emigr_sum=('numero_emigrati', 'sum'))\n)\nagg_arr = (\n    df2\n    .groupby(['anno_iscrizione_imm', 'sesso'], as_index=False)\n    .agg(arr_sum=('numero_immigrati', 'sum'))\n    .rename(columns={'anno_iscrizione_imm': 'anno'})\n)\nnet_df = agg_imm_em.merge(agg_arr, on=['anno', 'sesso'], how='inner')\nnet_df['net_pop'] = net_df['imm_sum'] + net_df['arr_sum'] - net_df['emigr_sum']\nnet_df = net_df.sort_values(by=['sesso', 'anno'], ascending=True)\nnet_df['net_change'] = net_df.groupby('sesso')['net_pop'].diff()\ntop3 = net_df.sort_values(by='net_change', ascending=False).head(3)\ndf3 = Table_3[(Table_3['anno'] >= 1995) & (Table_3['anno'] <= 2005)]\navg_res = (\n    df3\n    .groupby('sesso', as_index=False)\n    .agg(avg_residenti=('residenti', 'mean'))\n)\nresult = top3.merge(avg_res, on='sesso', how='inner')[['anno', 'sesso', 'net_change', 'avg_residenti']]",
+      "reference_result": [
+        {
+          "anno": 2003,
+          "sesso": "Femmine",
+          "net_change": 7203.0,
+          "avg_residenti": 7.9861510791
+        },
+        {
+          "anno": 2003,
+          "sesso": "Maschi",
+          "net_change": 5436.0,
+          "avg_residenti": 9.3470333434
+        },
+        {
+          "anno": 2004,
+          "sesso": "Maschi",
+          "net_change": 3711.0,
+          "avg_residenti": 9.3470333434
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing the year and gender that experienced the largest year‑over‑year increase in net foreign population between 1995 and 2005, the magnitude of that increase, and the average resident foreign population for that gender over the same period."
+    },
+    {
+      "id": "61f9e852",
+      "question": "Come è variata la percentuale di auto che rispettano la normativa Euro 6 ogni anno dal 2015 al 2024 nella provincia, e in quale anno si è registrato il maggior aumento di tale percentuale?",
+      "keywords": [
+        "normativa"
+      ],
+      "relevant_table_ids": [
+        "autovetture-e-motocicli-per-normativa-ecologica-euro"
+      ],
+      "table_aliases": {
+        "Table_0": "autovetture-e-motocicli-per-normativa-ecologica-euro"
+      },
+      "reference_code": "df_filtered = Table_0[Table_0['tipologia'] == 'AUTOVETTURE']\ndf_filtered = df_filtered[df_filtered['anno'].between(2015, 2024)]\ndf_agg = (\n    df_filtered\n    .groupby('anno', as_index=False)\n    .agg(\n        sum_euro6=('euro_6', 'sum'),\n        sum_total=('totale', 'sum')\n    )\n)\ndf_agg['proportion'] = df_agg['sum_euro6'] / df_agg['sum_total']\ndf_agg = df_agg.sort_values('anno')\ndf_agg['prop_change'] = df_agg['proportion'].diff()\ndf_agg['rank_change'] = df_agg['prop_change'].rank(method='dense', ascending=False)\ndf_agg['is_max_increase'] = df_agg['rank_change'] == 1\nresult = df_agg[['anno', 'proportion', 'prop_change', 'is_max_increase']]",
+      "reference_result": [
+        {
+          "anno": 2015,
+          "proportion": 0.0370532147,
+          "prop_change": null,
+          "is_max_increase": false
+        },
+        {
+          "anno": 2016,
+          "proportion": 0.1156385603,
+          "prop_change": 0.0785853457,
+          "is_max_increase": true
+        },
+        {
+          "anno": 2017,
+          "proportion": 0.1815293572,
+          "prop_change": 0.0658907968,
+          "is_max_increase": false
+        },
+        {
+          "anno": 2018,
+          "proportion": 0.2412565772,
+          "prop_change": 0.05972722,
+          "is_max_increase": false
+        },
+        {
+          "anno": 2019,
+          "proportion": 0.2990939661,
+          "prop_change": 0.0578373889,
+          "is_max_increase": false
+        },
+        {
+          "anno": 2020,
+          "proportion": 0.3418573804,
+          "prop_change": 0.0427634143,
+          "is_max_increase": false
+        },
+        {
+          "anno": 2021,
+          "proportion": 0.3824963174,
+          "prop_change": 0.040638937,
+          "is_max_increase": false
+        },
+        {
+          "anno": 2022,
+          "proportion": 0.4153106845,
+          "prop_change": 0.0328143671,
+          "is_max_increase": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per year (2015‑2024) showing the proportion of cars meeting Euro 6, the year‑over‑year change in that proportion, and a boolean column 'is_max_increase' that is true for the year with the largest increase."
+    },
+    {
+      "id": "d857522a",
+      "question": "Quali sono i tre candidati della lista Bologna futura che hanno ricevuto più voti di preferenza alle elezioni comunali del 2009, e quanti voti ha ottenuto ciascuno?",
+      "keywords": [
+        "futura"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-bologna-futura"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-bologna-futura"
+      },
+      "reference_code": "result = (\n    Table_0.groupby(['candidato', 'nome_candidato'], as_index=False)['preferenze']\n    .sum()\n    .rename(columns={'preferenze': 'candidate_votes'})\n    .sort_values('candidate_votes', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "candidato": 2,
+          "nome_candidato": "Di Noto Giuseppe",
+          "candidate_votes": 20
+        },
+        {
+          "candidato": 3,
+          "nome_candidato": "Veronesi Cristina",
+          "candidate_votes": 12
+        },
+        {
+          "candidato": 5,
+          "nome_candidato": "Morabito Giuseppe",
+          "candidate_votes": 12
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing a candidate name from the Bologna futura list and the total number of preference votes they received in the 2009 municipal election, sorted descending by votes."
+    },
+    {
+      "id": "5f0e6be8",
+      "question": "Nelle elezioni amministrative del 2011 a Bologna, quale quartiere ha avuto la più alta percentuale di voti per il candidato di testa di Italia dei Valori, e quanti voti totali ha ottenuto quel candidato e qual è la sua quota sul totale dei voti di Italia dei Valori rispetto ai valori complessivi del quartiere?",
+      "keywords": [
+        "amministrative",
+        "valori"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2011-preferenze-lista-idv"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2011-preferenze-lista-idv"
+      },
+      "reference_code": "df_candidate = Table_0.groupby(\n    ['descrizione_quartiere', 'nome_candidato'], as_index=False\n)['preferenze'].sum().rename(columns={'preferenze': 'candidate_votes'})\ndf_candidate = df_candidate.assign(\n    candidate_rank=df_candidate.groupby('descrizione_quartiere')['candidate_votes']\n    .rank(method='first', ascending=False)\n)\ndf_leader = df_candidate[df_candidate['candidate_rank'] == 1]\ndf_total = Table_0.groupby(\n    ['descrizione_quartiere'], as_index=False\n)['preferenze'].sum().rename(columns={'preferenze': 'total_votes'})\ndf_merged = df_leader.merge(df_total, on='descrizione_quartiere', how='inner')\ndf_merged = df_merged.assign(share=df_merged['candidate_votes'] / df_merged['total_votes'])\nresult = (\n    df_merged.sort_values(by='share', ascending=False)\n    .head(1)\n    [['descrizione_quartiere', 'nome_candidato', 'candidate_votes', 'share']]\n)",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "Savena",
+          "nome_candidato": "Pasquale Caviano",
+          "candidate_votes": 108,
+          "share": 0.2168674699
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the neighbourhood name, the leading candidate’s name, that candidate’s total preference votes, and the share (as a proportion) of the neighbourhood’s total Italia dei Valori votes."
+    },
+    {
+      "id": "e11cc91f",
+      "question": "Nel quartiere Saragozza di Bologna, quali sono le tre zone che hanno registrato il più grande aumento nel numero di seggi elettorali con più di 250 schede valide tra le elezioni del 2001 e del 2008, e qual è l’incremento percentuale per ciascuna?",
+      "keywords": [
+        "250",
+        "schede"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-2008-affluenza-votanti-camera-dei-deputati",
+        "elezioni-politiche-2001-affluenza-votanti-camera-dei-deputati-uninominale"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-2008-affluenza-votanti-camera-dei-deputati",
+        "Table_1": "elezioni-politiche-2001-affluenza-votanti-camera-dei-deputati-uninominale"
+      },
+      "reference_code": "import pandas as pd\n_df_2008 = Table_0[(Table_0['quartiere'] == 'Saragozza') & (Table_0['voti_validi'] > 250)]\n_agg_2008 = (\n    _df_2008.groupby('zona')\n    .agg(count_2008=('sezione', 'count'))\n    .reset_index()\n)\n_df_2001 = Table_1[(Table_1['nome_quartiere'] == 'Saragozza') & (Table_1['voti_validi'] > 250)]\n_df_2001 = _df_2001.rename(columns={'nome_zona': 'zona_2001'})\n_agg_2001 = (\n    _df_2001.groupby('zona_2001')\n    .agg(count_2001=('sezione', 'count'))\n    .reset_index()\n)\n_merged = pd.merge(\n    _agg_2008,\n    _agg_2001,\n    left_on='zona',\n    right_on='zona_2001',\n    how='inner'\n)\n_merged['pct_increase'] = ((_merged['count_2008'] - _merged['count_2001']) / _merged['count_2001']) * 100\nresult = (\n    _merged.sort_values(by='pct_increase', ascending=False)\n    .head(3)\n    [['zona', 'pct_increase']]\n)",
+      "reference_result": [
+        {
+          "zona": "Costa-Saragozza",
+          "pct_increase": 0.0
+        },
+        {
+          "zona": "Malpighi",
+          "pct_increase": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing a zone in Saragozza and the percentage increase in the number of polling stations with more than 250 valid votes from 2001 to 2008, sorted descending."
+    },
+    {
+      "id": "badc9c4f",
+      "question": "Secondo i dati storico, qual è stata la percentuale media di occupazione per ciascun parcheggio di Bologna nel settembre 2026?",
+      "keywords": [
+        "storico"
+      ],
+      "relevant_table_ids": [
+        "disponibilita-parcheggi-storico"
+      ],
+      "table_aliases": {
+        "Table_0": "disponibilita-parcheggi-storico"
+      },
+      "reference_code": "Table_0[Table_0['data'].str.startswith('2026-09')].groupby('parcheggio', as_index=False)['occupazione'].mean().rename(columns={'occupazione': 'avg_occupazione'})",
+      "reference_result": [
+        {
+          "parcheggio": "Autostazione",
+          "avg_occupazione": 36.8370428016
+        },
+        {
+          "parcheggio": "Riva Reno",
+          "avg_occupazione": 44.5047291611
+        },
+        {
+          "parcheggio": "VIII Agosto",
+          "avg_occupazione": 53.4455063291
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per car park with the average occupancy percentage (occupazione) for September 2026."
+    },
+    {
+      "id": "44184f57",
+      "question": "Nel 1986, qual è stato il totale combinato di famiglie con minori, famiglie con un componente straniero, registrazioni di immigrati e partenze di emigranti nel quartiere Navile?",
+      "keywords": [
+        "straniero"
+      ],
+      "relevant_table_ids": [
+        "famiglie-residenti-con-almeno-un-componente-minore-di-18-anni-per-tipologia-dime",
+        "famiglie-residenti-con-stranieri-per-cittadinanza-tipologia-numero-di-componenti",
+        "immigrati_00001_serie_storica",
+        "emigrati-secondo-la-destinazione-per-sesso-quartiere-e-zona-di-provenienza-serie"
+      ],
+      "table_aliases": {
+        "Table_0": "famiglie-residenti-con-almeno-un-componente-minore-di-18-anni-per-tipologia-dime",
+        "Table_1": "famiglie-residenti-con-stranieri-per-cittadinanza-tipologia-numero-di-componenti",
+        "Table_2": "immigrati_00001_serie_storica",
+        "Table_3": "emigrati-secondo-la-destinazione-per-sesso-quartiere-e-zona-di-provenienza-serie"
+      },
+      "reference_code": "fam_minors_total = Table_0.loc[(Table_0['quartiere'].str.lower() == 'navile'.lower()) & (Table_0['anno'] == 1986), 'numero_famiglie'].sum()\nfam_foreign_total = Table_1.loc[(Table_1['quartiere'].str.lower() == 'navile'.lower()) & (Table_1['anno'] == 1986), 'numero_famiglie'].sum()\nimmig_total = Table_2.loc[(Table_2['quartiere'].str.lower() == 'navile'.lower()) & (Table_2['anno_iscrizione_imm'] == 1986), 'numero_immigrati'].sum()\nemigr_total = Table_3.loc[(Table_3['quartiere'].str.lower() == 'navile'.lower()) & (Table_3['anno'] == 1986), 'numero_emigrati'].sum()\ntotal_combined = fam_minors_total + fam_foreign_total + immig_total + emigr_total\ntotal_combined",
+      "reference_result": [
+        {
+          "0": 10566
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of families with minors, families with a foreign member, immigrant registrations, and emigrant departures in Navile for 1986."
+    },
+    {
+      "id": "1357e8bf",
+      "question": "Nel 2000, qual è la percentuale delle famiglie con minorenni a Bologna che hanno anche almeno un componente straniero minorenne?",
+      "keywords": [
+        "minorenni",
+        "straniero"
+      ],
+      "relevant_table_ids": [
+        "famiglie-residenti-con-almeno-un-componente-minore-di-18-anni-per-tipologia-dime",
+        "famiglie-residenti-con-stranieri-per-cittadinanza-tipologia-numero-di-componenti"
+      ],
+      "table_aliases": {
+        "Table_0": "famiglie-residenti-con-almeno-un-componente-minore-di-18-anni-per-tipologia-dime",
+        "Table_1": "famiglie-residenti-con-stranieri-per-cittadinanza-tipologia-numero-di-componenti"
+      },
+      "reference_code": "import pandas as pd\nminor_families_2000 = Table_0[Table_0['anno'] == 2000]\ntotal_minor_families = minor_families_2000['numero_famiglie'].sum()\nforeign_families_2000 = Table_1[Table_1['anno'] == 2000]\nforeign_families_2000 = foreign_families_2000.assign(foreign_minor_flag = foreign_families_2000['minori_stranieri'] != '0')\nforeign_minor_families = foreign_families_2000[foreign_families_2000['foreign_minor_flag']]\ntotal_foreign_minor_families = foreign_minor_families['numero_famiglie'].sum()\npercentage_families = (total_foreign_minor_families / total_minor_families) * 100\nresult = pd.DataFrame({'percentage_families': [percentage_families]})",
+      "reference_result": [
+        {
+          "percentage_families": 5.9040838259
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The percentage (0‑100) of families that have at least one child under 18 and also have at least one foreign minor in Bologna for the year 2000."
+    },
+    {
+      "id": "a6ca1d48",
+      "question": "Quante antenne telefonia attive sono situate nel quartiere Savena?",
+      "keywords": [
+        "telefonia"
+      ],
+      "relevant_table_ids": [
+        "elenco-impianti-antenne-telefonia"
+      ],
+      "table_aliases": {
+        "Table_0": "elenco-impianti-antenne-telefonia"
+      },
+      "reference_code": "active_savena_count = Table_0.loc[(Table_0['stato'] == 'Attivo') & (Table_0['quartiere'] == 'Savena')].shape[0]",
+      "reference_result": [
+        {
+          "result": 65
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of active telefonia antennas located in the Savena neighbourhood."
+    },
+    {
+      "id": "f33fa148",
+      "question": "Per ogni quartiere, quale candidato ha ottenuto il maggior numero totale di voti di preferenza combinando le liste Terzo polo Centro, Bologna al Centro e pasquino nelle elezioni comunali di Bologna del 2009, e qual è stato quel totale?",
+      "keywords": [
+        "polo",
+        "al",
+        "pasquino",
+        "candidato"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-bologna-al-centro",
+        "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-bologna-al-centro",
+        "Table_2": "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      },
+      "reference_code": "agg_0 = Table_0.groupby(['descrizione_quartiere','candidato','nome_candidato'], as_index=False)['preferenze'].sum().rename(columns={'preferenze':'total_0'})\nagg_1 = Table_1.groupby(['descrizione_quartiere','candidato','nome_candidato'], as_index=False)['preferenze'].sum().rename(columns={'preferenze':'total_1'})\nagg_2 = Table_2.groupby(['descrizione_quartiere','candidato','nome_candidato'], as_index=False)['preferenze'].sum().rename(columns={'preferenze':'total_2'})\nmerged = agg_0.merge(agg_1, on=['descrizione_quartiere','candidato','nome_candidato'], how='outer')\nmerged = merged.merge(agg_2, on=['descrizione_quartiere','candidato','nome_candidato'], how='outer')\nmerged[['total_0','total_1','total_2']] = merged[['total_0','total_1','total_2']].fillna(0)\nmerged['combined_total'] = merged['total_0'] + merged['total_1'] + merged['total_2']\nmerged['rank_pos'] = merged.groupby('descrizione_quartiere')['combined_total'].rank(method='dense', ascending=False)\nresult = merged[merged['rank_pos'] == 1][['descrizione_quartiere','nome_candidato','combined_total']]",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "Borgo Panigale",
+          "nome_candidato": "Veneziano Maria Alda",
+          "combined_total": 11.0
+        },
+        {
+          "descrizione_quartiere": "Navile",
+          "nome_candidato": "Ciciriello Savino",
+          "combined_total": 61.0
+        },
+        {
+          "descrizione_quartiere": "Porto",
+          "nome_candidato": "Bonzi Giancarlo",
+          "combined_total": 22.0
+        },
+        {
+          "descrizione_quartiere": "Reno",
+          "nome_candidato": "Rambaldi Angelo",
+          "combined_total": 19.0
+        },
+        {
+          "descrizione_quartiere": "San Donato",
+          "nome_candidato": "Pancari Giuseppe",
+          "combined_total": 7.0
+        },
+        {
+          "descrizione_quartiere": "San Vitale",
+          "nome_candidato": "Bunkheila Feisal",
+          "combined_total": 24.0
+        },
+        {
+          "descrizione_quartiere": "Santo Stefano",
+          "nome_candidato": "Lenzi Riccardo",
+          "combined_total": 23.0
+        },
+        {
+          "descrizione_quartiere": "Saragozza",
+          "nome_candidato": "Grosso Luca",
+          "combined_total": 15.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per neighbourhood showing the candidate name (nome_candidato) with the highest combined preference total across the three lists and the total number of votes."
+    },
+    {
+      "id": "c10c9cd8",
+      "question": "Quali tre intervalli di mezz'ora hanno avuto la più alta proporzione di motocicli tra tutti i veicoli che passano il varco 56 durante August 2026?",
+      "keywords": [
+        "56"
+      ],
+      "relevant_table_ids": [
+        "varco-n-56-santisaia-direzione-periferia"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-56-santisaia-direzione-periferia"
+      },
+      "reference_code": "result = (\n    Table_0.loc[\n        (Table_0['varco'] == 56) &\n        (pd.to_datetime(Table_0['data']) >= '2026-08-01') &\n        (pd.to_datetime(Table_0['data']) <= '2026-08-31')\n    ]\n    .assign(motorcycle_prop=lambda df: df['moto_ciclomotori'] / df['totale_passaggi'])\n    .sort_values(by='motorcycle_prop', ascending=False)\n    .head(3)[['data', 'motorcycle_prop']]\n)",
+      "reference_result": [
+        {
+          "data": "2026-08-27T23:15:00+00:00",
+          "motorcycle_prop": 1.0
+        },
+        {
+          "data": "2026-08-24T23:15:00+00:00",
+          "motorcycle_prop": 1.0
+        },
+        {
+          "data": "2026-08-30T02:15:00+00:00",
+          "motorcycle_prop": 1.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each showing a half‑hour timestamp in August 2026 and the proportion of motorcycles (motorcycle count divided by total passages) for that interval, ordered from highest to lowest proportion."
+    },
+    {
+      "id": "0f488013",
+      "question": "Qual è stato il numero medio di auto per ora il 31 August 2026 al varco 80 (Falegnami) a Bologna?",
+      "keywords": [
+        "80"
+      ],
+      "relevant_table_ids": [
+        "varco-n-80"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-80"
+      },
+      "reference_code": "filtered = Table_0[(Table_0['varco'] == 80) & Table_0['data'].str.startswith('2026-08-31')]\nhourly = (\n    filtered\n    .assign(hour=pd.to_datetime(filtered['data']).dt.hour)\n    .groupby('hour', as_index=False)\n    .agg(hourly_cars=('auto_furgoni', 'sum'))\n)\navg_cars_per_hour = hourly['hourly_cars'].mean()",
+      "reference_result": [
+        {
+          "result": 1.1363636364
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Average number of cars (auto_furgoni) that passed through gate 80 per hour on 31 August 2026."
+    },
+    {
+      "id": "8eb9df63",
+      "question": "Per ogni descrizione delle reti idriche di Bologna registrata il 29 July 2004, qual è la lunghezza media e quante caratteristiche sono presenti?",
+      "keywords": [
+        "reti"
+      ],
+      "relevant_table_ids": [
+        "carta-tecnica-comunale-reti-idriche"
+      ],
+      "table_aliases": {
+        "Table_0": "carta-tecnica-comunale-reti-idriche"
+      },
+      "reference_code": "result = (Table_0[Table_0['data_istit'] == '2004-07-29']\n          .groupby('descrizion', as_index=False)\n          .agg(avg_length=('lunghez', 'mean'),\n               feature_count=('lunghez', 'count')))",
+      "reference_result": [
+        {
+          "descrizion": "Corso o specchio acqua naturale o artificiale",
+          "avg_length": 209.0559371933,
+          "feature_count": 1019
+        },
+        {
+          "descrizion": "Limite salto acqua",
+          "avg_length": 28.5,
+          "feature_count": 88
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per description with the average length (meters) and the count of features recorded on 29 July 2004."
+    },
+    {
+      "id": "cb653d37",
+      "question": "Quanti voti per sì sono stati registrati nel referendum di Bologna del 2005, quesito 03?",
+      "keywords": [
+        "2005",
+        "voti"
+      ],
+      "relevant_table_ids": [
+        "referendum-2005-risultati-quesito-03"
+      ],
+      "table_aliases": {
+        "Table_0": "referendum-2005-risultati-quesito-03"
+      },
+      "reference_code": "total_yes = Table_0.loc[Table_0['risposta'] == 'SI', 'voti_validi'].sum()",
+      "reference_result": [
+        {
+          "0": 135326
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of valid yes votes (voti) recorded for the 2005 Bologna referendum question 03."
+    },
+    {
+      "id": "d4b5868d",
+      "question": "A Bologna, qual è la quota della lunghezza totale dei percorsi pedonali aggiunta nel 2004 proveniente da ciascun tipo di origine, e quale origine ha contribuito con la quota più alta?",
+      "keywords": [
+        "pedonali"
+      ],
+      "relevant_table_ids": [
+        "carta-tecnica-comunale-percorsi-pedonali"
+      ],
+      "table_aliases": {
+        "Table_0": "carta-tecnica-comunale-percorsi-pedonali"
+      },
+      "reference_code": "filtered = Table_0[Table_0['data_istit'].str.startswith('2004')]\nagg = filtered.groupby('origine', as_index=False)['lunghez'].sum()\nagg = agg.rename(columns={'lunghez': 'sum_len'})\ntotal_len = agg['sum_len'].sum()\nagg['share'] = agg['sum_len'] / total_len * 100\nresult = agg.sort_values(by='share', ascending=False)[['origine', 'share']]",
+      "reference_result": [
+        {
+          "origine": "Impianto",
+          "share": 97.9508654383
+        },
+        {
+          "origine": "Progetto",
+          "share": 1.9611948632
+        },
+        {
+          "origine": "Rilievo topografico",
+          "share": 0.0879396985
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Each row lists an origin type and its share (percentage) of the total pedonali length added in 2004, sorted descending so the first row is the origin with the largest share."
+    },
+    {
+      "id": "b5ddb3fc",
+      "question": "In ogni quartiere di Bologna, quale lista ha ricevuto più preferenze totali alle elezioni comunali del 2009 – la lista polo o la lista co?",
+      "keywords": [
+        "polo",
+        "co"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-codacons"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-codacons"
+      },
+      "reference_code": "df = pd.concat([\n    Table_0[['descrizione_quartiere', 'lista', 'preferenze']],\n    Table_1[['descrizione_quartiere', 'lista', 'preferenze']]\n], ignore_index=True)\nagg = df.groupby(['descrizione_quartiere', 'lista'], as_index=False)['preferenze'].sum()\nagg = agg.rename(columns={'preferenze': 'total_pref'})\nagg['rank_pos'] = agg.groupby('descrizione_quartiere')['total_pref'].rank(method='first', ascending=False)\nresult = agg[agg['rank_pos'] == 1][['descrizione_quartiere', 'lista', 'total_pref']]",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "Borgo Panigale",
+          "lista": 15,
+          "total_pref": 9
+        },
+        {
+          "descrizione_quartiere": "Navile",
+          "lista": 15,
+          "total_pref": 67
+        },
+        {
+          "descrizione_quartiere": "Porto",
+          "lista": 15,
+          "total_pref": 25
+        },
+        {
+          "descrizione_quartiere": "Reno",
+          "lista": 15,
+          "total_pref": 14
+        },
+        {
+          "descrizione_quartiere": "San Donato",
+          "lista": 21,
+          "total_pref": 14
+        },
+        {
+          "descrizione_quartiere": "San Vitale",
+          "lista": 15,
+          "total_pref": 28
+        },
+        {
+          "descrizione_quartiere": "Santo Stefano",
+          "lista": 15,
+          "total_pref": 14
+        },
+        {
+          "descrizione_quartiere": "Saragozza",
+          "lista": 21,
+          "total_pref": 16
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per neighbourhood showing the list (Terzo Polo Centro or CO.DA.CONS) that obtained the higher total of preference votes in 2009, together with the winning total vote count."
+    },
+    {
+      "id": "0f588bed",
+      "question": "Quali sono i tre quartieri di Bologna che hanno registrato il maggior aumento dell'iscrizione totale ai servizi integrativi per le scuole secondarie di primo grado (grado) tra gli anni scolastici 2024/2025 e 2025/2026?",
+      "keywords": [
+        "grado"
+      ],
+      "relevant_table_ids": [
+        "numero-iscritti-ai-servizi-integrativi-scolastici-della-scuola-secondaria-di-1de"
+      ],
+      "table_aliases": {
+        "Table_0": "numero-iscritti-ai-servizi-integrativi-scolastici-della-scuola-secondaria-di-1de"
+      },
+      "reference_code": "df_2026 = Table_0[(Table_0['anno_scolastico'] == '2025/2026') & (Table_0['servizio'] == 'SCUOLA SECONDARIA DI PRIMO GRADO')]\nagg_2026 = df_2026.groupby('quartiere_struttura', as_index=False)['numero_iscritti'].sum().rename(columns={'numero_iscritti': 'enrollment_2026'})\ndf_2025 = Table_0[(Table_0['anno_scolastico'] == '2024/2025') & (Table_0['servizio'] == 'SCUOLA SECONDARIA DI PRIMO GRADO')]\nagg_2025 = df_2025.groupby('quartiere_struttura', as_index=False)['numero_iscritti'].sum().rename(columns={'numero_iscritti': 'enrollment_2025'})\nmerged = agg_2025.merge(agg_2026, on='quartiere_struttura', how='inner')\nmerged['enrollment_increase'] = merged['enrollment_2026'] - merged['enrollment_2025']\nresult = merged.sort_values(by='enrollment_increase', ascending=False).head(3)[['quartiere_struttura', 'enrollment_increase']]",
+      "reference_result": [
+        {
+          "quartiere_struttura": "PORTO - SARAGOZZA",
+          "enrollment_increase": 117
+        },
+        {
+          "quartiere_struttura": "SANTO STEFANO",
+          "enrollment_increase": 76
+        },
+        {
+          "quartiere_struttura": "BORGO PANIGALE - RENO",
+          "enrollment_increase": 22
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing a neighbourhood (quartiere_struttura) and the numeric increase in total enrolment from 2024/2025 to 2025/2026, ordered from largest to smallest increase."
+    },
+    {
+      "id": "4eea26dd",
+      "question": "By how many valid votes did the total increase from the 2001 to the 2008 Italian Camera of Deputies election in Bologna when only polling sections with at least 250 votes are considered?",
+      "keywords": [
+        "250",
+        "2001",
+        "camera"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-2008-affluenza-votanti-camera-dei-deputati",
+        "elezioni-politiche-2001-affluenza-votanti-camera-dei-deputati-uninominale"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-2008-affluenza-votanti-camera-dei-deputati",
+        "Table_1": "elezioni-politiche-2001-affluenza-votanti-camera-dei-deputati-uninominale"
+      },
+      "reference_code": "total_2008 = Table_0.loc[Table_0['voti_validi'] >= 250, 'voti_validi'].sum()\ntotal_2001 = Table_1.loc[Table_1['voti_validi'] >= 250, 'voti_validi'].sum()\nincrease = total_2008 - total_2001\nincrease",
+      "reference_result": [
+        {
+          "0": -35645
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The increase in total valid votes from the 2001 to the 2008 election in Bologna, considering only polling sections where at least 250 valid votes were cast."
+    },
+    {
+      "id": "c436b9b2",
+      "question": "Per ogni anno dal 2022 al 2026, qual è stato il cambiamento dell'inflation a Bologna da gennaio a dicembre, e in quale anno questo cambiamento è stato maggiore rispetto al cambiamento dell'inflation nazionale nello stesso periodo?",
+      "keywords": [
+        "inflation"
+      ],
+      "relevant_table_ids": [
+        "inflazione"
+      ],
+      "table_aliases": {
+        "Table_0": "inflazione"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['anno'].between(2022,2026)]\n    .sort_values('data')\n    .groupby('anno', as_index=False)\n    .agg(\n        b_jan=('inflazione_bologna', 'first'),\n        b_dec=('inflazione_bologna', 'last'),\n        n_jan=('inflazione_nazionale', 'first'),\n        n_dec=('inflazione_nazionale', 'last')\n    )\n)\nresult['b_change'] = result['b_dec'] - result['b_jan']\nresult['n_change'] = result['n_dec'] - result['n_jan']\nresult['gap'] = result['b_change'] - result['n_change']\nresult['gap_rank'] = result['gap'].rank(method='dense', ascending=False).astype(int)\nfinal = result[['anno', 'b_change', 'n_change', 'gap', 'gap_rank']]",
+      "reference_result": [
+        {
+          "anno": 2022,
+          "b_change": 3.4,
+          "n_change": 3.7,
+          "gap": -0.3,
+          "gap_rank": 4
+        },
+        {
+          "anno": 2023,
+          "b_change": -8.8,
+          "n_change": -9.4,
+          "gap": 0.6,
+          "gap_rank": 1
+        },
+        {
+          "anno": 2024,
+          "b_change": 0.7,
+          "n_change": 0.5,
+          "gap": 0.2,
+          "gap_rank": 2
+        },
+        {
+          "anno": 2025,
+          "b_change": -0.7,
+          "n_change": -0.3,
+          "gap": -0.4,
+          "gap_rank": 5
+        },
+        {
+          "anno": 2026,
+          "b_change": 1.7,
+          "n_change": 1.9,
+          "gap": -0.2,
+          "gap_rank": 3
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per year (2022‑2026) with columns: Bologna change (Dec‑Jan), national change (Dec‑Jan), the gap (Bologna change minus national change), and a rank indicating which year has the largest gap (rank 1 = greatest)."
+    },
+    {
+      "id": "dce80a74",
+      "question": "Nella sezione 3 del seggio, qual è la media dei voti combinando l'affluenza elettorale di 250 voti delle elezioni politiche 2008, l'affluenza elettorale di 25 voti delle elezioni politiche 2013, l'affluenza votanti del senato della Repubblica nel 2022 e i voti del senato della Repubblica del 2001?",
+      "keywords": [
+        "250",
+        "25",
+        "elettorale",
+        "senato",
+        "votanti",
+        "2001",
+        "voti"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-2008-affluenza-votanti-camera-dei-deputati",
+        "elezioni-politiche-2013-affluenza-votanti-camera-dei-deputati",
+        "elezioni-politiche-2022-affluenza-votanti-senato-delle-repubblica",
+        "elezioni-politiche-2001-affluenza-votanti-senato-della-repubblica"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-2008-affluenza-votanti-camera-dei-deputati",
+        "Table_1": "elezioni-politiche-2013-affluenza-votanti-camera-dei-deputati",
+        "Table_2": "elezioni-politiche-2022-affluenza-votanti-senato-delle-repubblica",
+        "Table_3": "elezioni-politiche-2001-affluenza-votanti-senato-della-repubblica"
+      },
+      "reference_code": "sum_ele_250 = (\n    Table_0[Table_0['sezione'] == 3]\n    .assign(elettori_250_total=lambda df: df['elettori_maschi_250'] + df['elettori_femmine_250'])\n    ['elettori_250_total']\n    .sum()\n)\nsum_ele_25 = (\n    Table_1[Table_1['sezione'] == 3]\n    .assign(elettori_25_total=lambda df: df['elettori_maschi_25'] + df['elettori_femmine_25'])\n    ['elettori_25_total']\n    .sum()\n)\nsum_votanti_2022 = (\n    Table_2[Table_2['sezione'] == 3]\n    .assign(votanti_2022=lambda df: df['votanti'])\n    ['votanti_2022']\n    .sum()\n)\nsum_voti_2001 = (\n    Table_3[Table_3['sezione'] == 3]\n    .assign(voti_validi_2001=lambda df: df['voti_validi'])\n    ['voti_validi_2001']\n    .sum()\n)\naverage_votes = (sum_ele_250 + sum_ele_25 + sum_votanti_2022 + sum_voti_2001) / 4\naverage_votes",
+      "reference_result": [
+        {
+          "result": 547.5
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single numeric value representing the average of the four summed counts for polling station section 3: total 250‑vote electors (2008), total 25‑vote electors (2013), total Senate voters (2022), and total valid Senate votes (2001)."
+    },
+    {
+      "id": "065b3c3a",
+      "question": "Quali tre tipi di veicoli hanno registrato il più grande aumento nel numero totale di passaggi dalla mattina (8 am–12 pm) alla sera (6 pm–10 pm) il 31 August 2026 al varco 80?",
+      "keywords": [
+        "80"
+      ],
+      "relevant_table_ids": [
+        "varco-n-80"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-80"
+      },
+      "reference_code": "import pandas as pd\n_df = Table_0.assign(timestamp=pd.to_datetime(Table_0['data']))\n_filtered = _df[\n    (_df['varco'] == 80) &\n    (_df['timestamp'].dt.date == pd.Timestamp('2026-08-31').date())\n]\n_morning = _filtered[\n    (_filtered['timestamp'].dt.hour >= 8) & (_filtered['timestamp'].dt.hour < 12)\n]\n_evening = _filtered[\n    (_filtered['timestamp'].dt.hour >= 18) & (_filtered['timestamp'].dt.hour < 22)\n]\n_agg = pd.DataFrame({\n    'vehicle_type': ['moto_ciclomotori', 'auto_furgoni', 'bus_camion'],\n    'morning': [\n        _morning['moto_ciclomotori'].sum(),\n        _morning['auto_furgoni'].sum(),\n        _morning['bus_camion'].sum()\n    ],\n    'evening': [\n        _evening['moto_ciclomotori'].sum(),\n        _evening['auto_furgoni'].sum(),\n        _evening['bus_camion'].sum()\n    ]\n})\nresult = (\n    _agg.assign(increase=_agg['evening'] - _agg['morning'])\n        .sort_values('increase', ascending=False)\n        .head(3)\n        [['vehicle_type', 'increase']]\n)",
+      "reference_result": [
+        {
+          "vehicle_type": "bus_camion",
+          "increase": 0
+        },
+        {
+          "vehicle_type": "moto_ciclomotori",
+          "increase": -2
+        },
+        {
+          "vehicle_type": "auto_furgoni",
+          "increase": -3
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A one‑row table with three columns – increase_moto_ciclomotori, increase_auto_furgoni, and increase_bus_camion – showing the numeric increase in passages for each vehicle type between the morning (8 am–12 pm) and evening (6 pm–10 pm) windows on 31 August 2026 at gate 80. These three columns correspond to the three vehicle types with the largest increase."
+    },
+    {
+      "id": "9231c459",
+      "question": "How many valid votes did Giorgio Guazzaloca receive in the 1999 sindaci election in Bologna?",
+      "keywords": [
+        "1999",
+        "sindaci"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-1999-risultati-votazioni-candidati-sindaci"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-1999-risultati-votazioni-candidati-sindaci"
+      },
+      "reference_code": "total_valid_votes = Table_0[Table_0['candidato'] == 'Giorgio Guazzaloca']['voti_validi'].sum()",
+      "reference_result": [
+        {
+          "0": 104571
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of valid votes cast for Giorgio Guazzaloca across all polling sections in the 1999 Bologna mayoral election."
+    },
+    {
+      "id": "675f39db",
+      "question": "Quante preferenze totali ha ricevuto la lista fiamma nel quartiere Saragozza durante le elezioni amministrative del 2009?",
+      "keywords": [
+        "fiamma",
+        "amministrative"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-fiamma-tricolore"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-fiamma-tricolore"
+      },
+      "reference_code": "total_preferences = Table_0.loc[(Table_0['descrizione_quartiere'] == 'Saragozza') & (Table_0['lista'] == 9), 'preferenze'].sum()",
+      "reference_result": [
+        {
+          "0": 14
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of preferences cast for the FIAMMA TRICOLORE list in the Saragozza neighbourhood in the 2009 municipal election."
+    },
+    {
+      "id": "143e494e",
+      "question": "Quanti voti di preferenza ha ricevuto ciascuna lista – Terzo polo Centro, Partito democratico e altra Città – nella descrizione del quartiere Saragozza nelle elezioni comunali di Bologna del 2009?",
+      "keywords": [
+        "polo",
+        "2009",
+        "democratico",
+        "descrizione",
+        "altra"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-pd",
+        "elezioni-amministrative-2009-preferenze-lista-altra-citta"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-pd",
+        "Table_2": "elezioni-amministrative-2009-preferenze-lista-altra-citta"
+      },
+      "reference_code": "df = pd.concat([\n    Table_0[['descrizione_quartiere', 'lista', 'preferenze']],\n    Table_1[['descrizione_quartiere', 'lista', 'preferenze']],\n    Table_2[['descrizione_quartiere', 'lista', 'preferenze']]\n], ignore_index=True)\nfiltered = df[df['descrizione_quartiere'] == 'Saragozza']\nresult = (\n    filtered\n    .groupby('lista', as_index=False)['preferenze']\n    .sum()\n    .rename(columns={'preferenze': 'total_preferenze'})\n)",
+      "reference_result": [
+        {
+          "lista": 7,
+          "total_preferenze": 1946
+        },
+        {
+          "lista": 15,
+          "total_preferenze": 11
+        },
+        {
+          "lista": 19,
+          "total_preferenze": 50
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per list (Terzo Polo Centro, Partito Democratico, Altra Città) showing the total number of preference votes received in the Saragozza neighbourhood in the 2009 Bologna municipal council election."
+    },
+    {
+      "id": "f4fb81f2",
+      "question": "Quante richieste di servizi alla persona sono state presentate a Bologna nel 2025?",
+      "keywords": [
+        "alla"
+      ],
+      "relevant_table_ids": [
+        "istanze-servizi-alla-persona"
+      ],
+      "table_aliases": {
+        "Table_0": "istanze-servizi-alla-persona"
+      },
+      "reference_code": "application_count = Table_0[pd.to_datetime(Table_0['data_richiesta'], errors='coerce').dt.year == 2025].shape[0]",
+      "reference_result": [
+        {
+          "result": 482
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of service‑to‑person applications submitted in Bologna during the calendar year 2025."
+    },
+    {
+      "id": "01dd4e4b",
+      "question": "Nel progetto Origini di Bologna, quali tre tipologie di condotti d'acqua scoperti a Bologna dal late 18th to early 19th century hanno il maggior numero di record e, per ciascuna tipologia, qual è la quota rispetto a tutti i condotti scoperti e quanti nomi distinti di condotto sono registrati?",
+      "keywords": [
+        "scoperti"
+      ],
+      "relevant_table_ids": [
+        "origini-di-bologna-condotti-scoperti"
+      ],
+      "table_aliases": {
+        "Table_0": "origini-di-bologna-condotti-scoperti"
+      },
+      "reference_code": "df = Table_0[Table_0['stato'] == 'Scoperto']\ntotal_scoperti = df.shape[0]\nagg = (\n    df.groupby('etichetta')\n    .agg(\n        category_count=('etichetta', 'size'),\n        distinct_names=('name', 'nunique')\n    )\n    .reset_index()\n)\nagg['category_share'] = agg['category_count'] / total_scoperti\nresult = agg.sort_values(by='category_count', ascending=False).head(3)",
+      "reference_result": [
+        {
+          "etichetta": "Canaletta",
+          "category_count": 265,
+          "distinct_names": 23,
+          "category_share": 0.5028462998
+        },
+        {
+          "etichetta": "Canale",
+          "category_count": 71,
+          "distinct_names": 17,
+          "category_share": 0.1347248577
+        },
+        {
+          "etichetta": "Scolo",
+          "category_count": 55,
+          "distinct_names": 15,
+          "category_share": 0.1043643264
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each representing one of the top three conduit categories (etichetta) by record count, showing the category name, its record count, its share of all scoperti conduits (as a proportion), and the number of distinct conduit names recorded for that category."
+    },
+    {
+      "id": "18942f02",
+      "question": "Qual è il numero totale di voti accettati che ha ricevuto ciascuna lista nella zona San Ruffillo nelle elezioni europee del 2024 a Bologna, secondo i dati suddivise per sezione?",
+      "keywords": [
+        "suddivise"
+      ],
+      "relevant_table_ids": [
+        "elezioni-europee-2024-preferenze-ai-candidati-suddivisi-per-sezione"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-europee-2024-preferenze-ai-candidati-suddivisi-per-sezione"
+      },
+      "reference_code": "Table_0[Table_0['zona'] == 'SAN RUFFILLO'].groupby('nome_lista')['voti_validi'].sum().reset_index(name='list_votes')",
+      "reference_result": [
+        {
+          "nome_lista": "ALLEANZA VERDI E SINISTRA",
+          "list_votes": 457
+        },
+        {
+          "nome_lista": "ALTERNATIVA POPOLARE",
+          "list_votes": 5
+        },
+        {
+          "nome_lista": "AZIONE - SIAMO EUROPEI",
+          "list_votes": 151
+        },
+        {
+          "nome_lista": "FORZA ITALIA - NOI MODERATI - PPE",
+          "list_votes": 177
+        },
+        {
+          "nome_lista": "FRATELLI D'ITALIA",
+          "list_votes": 1758
+        },
+        {
+          "nome_lista": "LEGA SALVINI PREMIER",
+          "list_votes": 241
+        },
+        {
+          "nome_lista": "LIBERTA'",
+          "list_votes": 57
+        },
+        {
+          "nome_lista": "MOVIMENTO 5 STELLE",
+          "list_votes": 162
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per list (nome_lista) with the total number of valid votes (list_votes) that list received in the SAN RUFFILLO zone."
+    },
+    {
+      "id": "f4f86ea3",
+      "question": "Quale categoria di entrate ha avuto la più bassa percentuale media di incasso nel rendiconto del 2013 di Bologna?",
+      "keywords": [
+        "rendiconto"
+      ],
+      "relevant_table_ids": [
+        "rendiconto-di-gestione-rendiconto-entrate"
+      ],
+      "table_aliases": {
+        "Table_0": "rendiconto-di-gestione-rendiconto-entrate"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['anno'] == 2013]\n    .assign(collection_pct=lambda df: df['riscossioni_in_c_competenza'] / df['previsioni_definitive_di_competenza'])\n    .groupby('categoria', as_index=False)\n    .agg(avg_pct=('collection_pct', 'mean'))\n    .sort_values('avg_pct', ascending=True)\n    .head(1)\n    .loc[:, ['categoria', 'avg_pct']]\n)",
+      "reference_result": [
+        {
+          "categoria": 2010104,
+          "avg_pct": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the revenue category code (categoria) and its average collection percentage (collected amount divided by budgeted amount) for 2013, representing the lowest average among all categories."
+    },
+    {
+      "id": "c3cda6e2",
+      "question": "How many non‑valid votes were recorded in the 2022 Senate election della città di Bologna?",
+      "keywords": [
+        "della",
+        "non"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-2022-senato-uninominale-schede-bianche-nulle-e-c"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-2022-senato-uninominale-schede-bianche-nulle-e-c"
+      },
+      "reference_code": "total_non_valid_votes = Table_0.loc[Table_0['collegio_uninominale'] == 'Emilia-Romagna - U03 - Bologna', 'voti_non_validi'].sum()",
+      "reference_result": [
+        {
+          "0": 3574
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of non‑valid votes recorded in the 2022 Senate election of the city of Bologna."
+    },
+    {
+      "id": "14765ee3",
+      "question": "Quale categoria di condotto ha il maggior numero di record scoperti a Bologna nella fine del 18th secolo e nell'inizio del 19th secolo, secondo il progetto Origini di Bologna?",
+      "keywords": [
+        "scoperti"
+      ],
+      "relevant_table_ids": [
+        "origini-di-bologna-condotti-scoperti"
+      ],
+      "table_aliases": {
+        "Table_0": "origini-di-bologna-condotti-scoperti"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['stato'] == 'Scoperto']\n    .groupby('etichetta')\n    .size()\n    .reset_index(name='category_count')\n    .sort_values(by='category_count', ascending=False)\n    .head(1)['etichetta']\n    .iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "Canaletta"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The conduit category (etichetta) that appears most frequently among records with status \"Scoperto\"."
+    },
+    {
+      "id": "81196694",
+      "question": "Quali sono le cinque ore del giorno con il traffico totale di veicoli più alto al varco 49 ad agosto 2026, e per ciascuna di queste ore qual è la quota di traffico costituita da motocicli rispetto alle auto?",
+      "keywords": [
+        "49"
+      ],
+      "relevant_table_ids": [
+        "varco-n-49-piazza-re-enzo-direzione-sud"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-49-piazza-re-enzo-direzione-sud"
+      },
+      "reference_code": "(Table_0.assign(data=pd.to_datetime(Table_0['data'], utc=True))\n    .loc[lambda df: (df['varco'] == 49) & (df['data'].dt.date >= pd.Timestamp('2026-08-01').date()) & (df['data'].dt.date <= pd.Timestamp('2026-08-31').date())]\n    .assign(hour=lambda df: df['data'].dt.hour)\n    .groupby('hour', as_index=False)\n    .agg(sum_total=('totale_passaggi', 'sum'), sum_moto=('moto_ciclomotori', 'sum'), sum_auto=('auto_furgoni', 'sum'))\n    .assign(moto_share=lambda df: df['sum_moto'] / df['sum_total'],\n            auto_share=lambda df: df['sum_auto'] / df['sum_total'])\n    .sort_values('sum_total', ascending=False)\n    .head(5)\n    .loc[:, ['hour', 'sum_total', 'moto_share', 'auto_share']])",
+      "reference_result": [
+        {
+          "hour": 14,
+          "sum_total": 213,
+          "moto_share": 0.0,
+          "auto_share": 0.9483568075
+        },
+        {
+          "hour": 10,
+          "sum_total": 205,
+          "moto_share": 0.0,
+          "auto_share": 0.9609756098
+        },
+        {
+          "hour": 9,
+          "sum_total": 193,
+          "moto_share": 0.0,
+          "auto_share": 0.9222797927
+        },
+        {
+          "hour": 16,
+          "sum_total": 184,
+          "moto_share": 0.0,
+          "auto_share": 0.9293478261
+        },
+        {
+          "hour": 8,
+          "sum_total": 173,
+          "moto_share": 0.0057803468,
+          "auto_share": 0.9479768786
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Five rows, each representing one of the top five hours (0‑23) by total vehicle count, with columns: hour, total_vehicles, motorcycle_share (fraction of total), car_van_share (fraction of total)."
+    },
+    {
+      "id": "69dee7a5",
+      "question": "Quale quartiere di Bologna ha registrato la più alta affluenza elettorale nelle elezioni parlamentari del 2022 e qual è stata la percentuale di affluenza?",
+      "keywords": [
+        "affluenza",
+        "elettorale"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-2022-affluenza-votanti-camera-dei-deputati"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-2022-affluenza-votanti-camera-dei-deputati"
+      },
+      "reference_code": "result = (\n    Table_0.groupby('quartiere', as_index=False)[['votanti', 'elettori']].sum()\n    .assign(turnout_pct=lambda df: df['votanti'] / df['elettori'] * 100)\n    .sort_values('turnout_pct', ascending=False)\n    .head(1)\n    [['quartiere', 'turnout_pct']]\n)",
+      "reference_result": [
+        {
+          "quartiere": "SANTO STEFANO",
+          "turnout_pct": 75.9870680946
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the quartiere name with the highest voter turnout percentage and the percentage value."
+    },
+    {
+      "id": "74398235",
+      "question": "Quali tre quartieri di Bologna hanno avuto il più grande aumento totale della percentuale di affluenza alle elezioni della Camera dei Deputati nel 2008 (gruppo di età 250‑plus), nel 2013 (gruppo di età 25‑plus) e nel 2022 (elettorale)?",
+      "keywords": [
+        "250",
+        "elettorale",
+        "25"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-2008-affluenza-votanti-camera-dei-deputati",
+        "elezioni-politiche-2022-affluenza-votanti-camera-dei-deputati",
+        "elezioni-politiche-2013-affluenza-votanti-camera-dei-deputati"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-2008-affluenza-votanti-camera-dei-deputati",
+        "Table_1": "elezioni-politiche-2022-affluenza-votanti-camera-dei-deputati",
+        "Table_2": "elezioni-politiche-2013-affluenza-votanti-camera-dei-deputati"
+      },
+      "reference_code": "df_2008 = (\n    Table_0.assign(\n        quartiere_norm=Table_0['quartiere'].str.lower().str.strip(),\n        turnout_2008=(Table_0['votanti_maschi'] + Table_0['votanti_femmine']) /\n                     (Table_0['elettori_maschi_250'] + Table_0['elettori_femmine_250']) * 100\n    )\n    .groupby('quartiere_norm', as_index=False)\n    .agg(\n        quartiere=('quartiere', 'first'),\n        avg_turnout_2008=('turnout_2008', 'mean')\n    )\n)\ndf_2013 = (\n    Table_2.assign(\n        quartiere_norm=Table_2['quartiere'].str.lower().str.strip(),\n        turnout_2013=(Table_2['votanti_maschi'] + Table_2['votanti_femmine']) /\n                     (Table_2['elettori_maschi_25'] + Table_2['elettori_femmine_25']) * 100\n    )\n    .groupby('quartiere_norm', as_index=False)\n    .agg(\n        avg_turnout_2013=('turnout_2013', 'mean')\n    )\n)\ndf_2022 = (\n    Table_1.assign(\n        quartiere_norm=Table_1['quartiere'].str.lower().str.strip(),\n        turnout_2022=Table_1['votanti'] / Table_1['elettori'] * 100\n    )\n    .groupby('quartiere_norm', as_index=False)\n    .agg(\n        avg_turnout_2022=('turnout_2022', 'mean')\n    )\n)\nresult = (\n    df_2008\n    .merge(df_2013, on='quartiere_norm', how='left', suffixes=('', '_2013'))\n    .merge(df_2022, on='quartiere_norm', how='left', suffixes=('', '_2022'))\n    .assign(\n        increase_2008_2013=lambda x: x['avg_turnout_2013'] - x['avg_turnout_2008'],\n        increase_2013_2022=lambda x: x['avg_turnout_2022'] - x['avg_turnout_2013']\n    )\n    .assign(\n        total_increase=lambda x: x['increase_2008_2013'].fillna(0) + x['increase_2013_2022'].fillna(0)\n    )\n    .sort_values('total_increase', ascending=False)\n    .head(3)[['quartiere', 'total_increase']]\n)",
+      "reference_result": [
+        {
+          "quartiere": "Navile",
+          "total_increase": 0.0
+        },
+        {
+          "quartiere": "Savena",
+          "total_increase": 0.0
+        },
+        {
+          "quartiere": "Porto",
+          "total_increase": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Top three neighbourhoods (quartiere) in Bologna with the largest total increase in voter turnout percentage across the 2008, 2013 and 2022 elections, showing the computed total increase value."
+    },
+    {
+      "id": "168f4a67",
+      "question": "Nel catalogo origini di Bologna, tra le torri esistenti, quali negozi sono associati e quali sono i tre negozi più frequenti?",
+      "keywords": [
+        "origini"
+      ],
+      "relevant_table_ids": [
+        "origini-di-bologna-torri"
+      ],
+      "table_aliases": {
+        "Table_0": "origini-di-bologna-torri"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['stato'] == 'Esistente']\n    .replace({'botteghe': {'-': pd.NA}})\n    .dropna(subset=['botteghe'])\n    .groupby('botteghe', as_index=False)\n    .agg(shop_count=('name', 'count'))\n    .sort_values('shop_count', ascending=False)\n    .assign(shop_rank=lambda df: df['shop_count'].rank(method='dense', ascending=False).astype(int))\n    .assign(is_top_three=lambda df: df['shop_rank'] <= 3)\n)",
+      "reference_result": [
+        {
+          "botteghe": "Macellaio",
+          "shop_count": 1,
+          "shop_rank": 1,
+          "is_top_three": true
+        },
+        {
+          "botteghe": "Tornitore",
+          "shop_count": 1,
+          "shop_rank": 1,
+          "is_top_three": true
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table listing each shop associated with existing towers, the count of towers per shop, the rank of each shop by count (1 = most frequent), and a boolean flag indicating whether the shop is among the top three most frequent shops."
+    },
+    {
+      "id": "a6575141",
+      "question": "A Bologna, quali missioni hanno avuto spese in conto capitale effettive nel 2020 pari ad almeno l'80 % delle spese in conto capitale previste, e qual è la percentuale di effettivo rispetto al previsto per ciascuna missione?",
+      "keywords": [
+        "missione"
+      ],
+      "relevant_table_ids": [
+        "bilancio-di-previsione-previsione-uscite",
+        "rendiconto-di-gestione-rendiconto-uscite"
+      ],
+      "table_aliases": {
+        "Table_0": "bilancio-di-previsione-previsione-uscite",
+        "Table_1": "rendiconto-di-gestione-rendiconto-uscite"
+      },
+      "reference_code": "filtered_0 = Table_0[(Table_0['anno_di_riferimento'] == 2020) & (Table_0['titolo'] == 2)]\nfiltered_1 = Table_1[(Table_1['anno'] == 2020) & (Table_1['titolo'] == 2)]\njoined = filtered_0.merge(\n    filtered_1,\n    how='inner',\n    left_on=['missione', 'programma', 'titolo', 'macroaggregato', 'anno_di_riferimento'],\n    right_on=['missione', 'programma', 'titolo', 'macroaggregato', 'anno']\n)\nagg = (\n    joined.groupby('missione')\n    .agg(\n        forecast_sum=('previsioni_di_competenza_primo_anno', 'sum'),\n        actual_sum=('pagamenti_in_c_competenza', 'sum')\n    )\n    .reset_index()\n)\nagg['actual_vs_forecast_pct'] = (agg['actual_sum'] / agg['forecast_sum']) * 100\nresult = agg[agg['actual_vs_forecast_pct'] >= 80]\nresult = result[['missione', 'actual_vs_forecast_pct']]\nresult = result.sort_values('actual_vs_forecast_pct', ascending=False)",
+      "reference_result": [
+        {
+          "missione": 1.0,
+          "actual_vs_forecast_pct": 137.596331426
+        },
+        {
+          "missione": 12.0,
+          "actual_vs_forecast_pct": 112.2038716378
+        },
+        {
+          "missione": 8.0,
+          "actual_vs_forecast_pct": 99.5810449384
+        },
+        {
+          "missione": 3.0,
+          "actual_vs_forecast_pct": 95.2283975
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per mission with the percentage of actual capital expenditures versus forecast for 2020, only missions where the percentage is at least 80 %."
+    },
+    {
+      "id": "15b8f659",
+      "question": "Nel 2009, alle elezioni comunali di Bologna, quali sono i cinque quartieri con il più ampio divario tra le preferenze del candidato più votato del Terzo Polo Centro e quelle del candidato più votato del Partito Comunista, e qual è la differenza di voti nel polo?",
+      "keywords": [
+        "polo",
+        "candidato",
+        "comunista"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-partito-comunista"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-partito-comunista"
+      },
+      "reference_code": "import pandas as pd\ntpc_agg = (\n    Table_0\n    .groupby(['sezione', 'quartiere'], as_index=False)['preferenze']\n    .max()\n    .rename(columns={'preferenze': 'max_pref_TPC'})\n)\ncomm_agg = (\n    Table_1\n    .groupby(['sezione', 'quartiere'], as_index=False)['preferenze']\n    .max()\n    .rename(columns={'preferenze': 'max_pref_Comm'})\n)\nmerged = pd.merge(tpc_agg, comm_agg, on=['sezione', 'quartiere'], how='inner')\nneigh = (\n    merged\n    .groupby('quartiere', as_index=False)\n    .agg(max_TPC_neigh=('max_pref_TPC', 'max'), max_Comm_neigh=('max_pref_Comm', 'max'))\n)\nneigh['gap'] = neigh['max_TPC_neigh'] - neigh['max_Comm_neigh']\nresult = (\n    neigh\n    .sort_values('gap', ascending=False)\n    .head(5)[['quartiere', 'gap']]\n)",
+      "reference_result": [
+        {
+          "quartiere": 2,
+          "gap": 52
+        },
+        {
+          "quartiere": 8,
+          "gap": 3
+        },
+        {
+          "quartiere": 7,
+          "gap": 3
+        },
+        {
+          "quartiere": 5,
+          "gap": 2
+        },
+        {
+          "quartiere": 3,
+          "gap": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with five rows, each row showing a neighbourhood (quartiere) and the vote difference between the top Terzo Polo Centro candidate and the top Communist Party candidate, sorted descending by the difference."
+    },
+    {
+      "id": "50046288",
+      "question": "Quanti voti ha ricevuto la lista POPOLARI D'ITALIA DOMANI (popolari) nel quartiere Saragozza di Bologna alle elezioni comunali del 2011?",
+      "keywords": [
+        "popolari"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2011-preferenze-lista-popolari-italia"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2011-preferenze-lista-popolari-italia"
+      },
+      "reference_code": "total_votes = Table_0.loc[(Table_0['lista'] == 6) & (Table_0['descrizione_quartiere'] == 'Saragozza'), 'preferenze'].sum()",
+      "reference_result": [
+        {
+          "0": 17
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of preference votes cast for the POPOLARI D'ITALIA DOMANI list in the Saragozza neighbourhood during the 2011 Bologna municipal elections."
+    },
+    {
+      "id": "64c5e3cf",
+      "question": "Qual è stata l'affluenza elettorale alle elezioni della Camera dei Deputati del 2022 a Bologna?",
+      "keywords": [
+        "affluenza",
+        "elettorale"
+      ],
+      "relevant_table_ids": [
+        "elezioni-politiche-2022-affluenza-votanti-camera-dei-deputati"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-politiche-2022-affluenza-votanti-camera-dei-deputati"
+      },
+      "reference_code": "turnout_pct = (Table_0['votanti'].sum() / Table_0['elettori'].sum()) * 100",
+      "reference_result": [
+        {
+          "result": 73.3376940125
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The overall voter turnout percentage in Bologna for the 2022 Chamber of Deputies election, expressed as a percentage (voters divided by eligible electors)."
+    },
+    {
+      "id": "3e0802d2",
+      "question": "Quanti esercizi di pubblico spettacolo attivi si trovano nel quartiere Santo Stefano?",
+      "keywords": [
+        "pubblico"
+      ],
+      "relevant_table_ids": [
+        "elenco-esercizi-pubblico-spettacolo"
+      ],
+      "table_aliases": {
+        "Table_0": "elenco-esercizi-pubblico-spettacolo"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[(Table_0['stato'] == 'Attivo') & (Table_0['quartiere'] == 'Santo Stefano')]\n    .shape[0]\n)",
+      "reference_result": [
+        {
+          "result": 27
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Number of active public entertainment venues located in the Santo Stefano neighbourhood."
+    },
+    {
+      "id": "335dc263",
+      "question": "Quanti veicoli sono passati attraverso il varco finelli il 31 agosto 2026?",
+      "keywords": [
+        "finelli"
+      ],
+      "relevant_table_ids": [
+        "varco-n-50-capo-di-lucca-direzione-sud-est"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-50-capo-di-lucca-direzione-sud-est"
+      },
+      "reference_code": "total_vehicles = Table_0[Table_0['data'].str.startswith('2026-08-31')]['totale_passaggi'].sum()",
+      "reference_result": [
+        {
+          "0": 48
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of vehicle passages recorded at the Finelli gate on August 31, 2026."
+    },
+    {
+      "id": "fcc9799e",
+      "question": "Quali tre zone di Bologna hanno avuto la più alta percentuale di voti sì nel referendum 2022 di valutazione equa dei magistrati (equa) e quali sono queste percentuali?",
+      "keywords": [
+        "equa"
+      ],
+      "relevant_table_ids": [
+        "referendum-2022-quesito-04-equa-valutazione-magistrati"
+      ],
+      "table_aliases": {
+        "Table_0": "referendum-2022-quesito-04-equa-valutazione-magistrati"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby('zona', as_index=False)[['si', 'votanti']].sum()\n    .assign(yes_percentage=lambda df: df['si'] / df['votanti'] * 100)\n    .sort_values('yes_percentage', ascending=False)\n    .head(3)[['zona', 'yes_percentage']]\n)",
+      "reference_result": [
+        {
+          "zona": "COLLI",
+          "yes_percentage": 79.4374393792
+        },
+        {
+          "zona": "GALVANI",
+          "yes_percentage": 76.9607843137
+        },
+        {
+          "zona": "MARCONI",
+          "yes_percentage": 73.0954676953
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Top three zones by yes vote percentage, each row shows the zone name and the percentage of yes votes among total voters."
+    },
+    {
+      "id": "b5dec13f",
+      "question": "Per ogni zona, qual è la quota dei voti totali per il candidato sindaci in testa che proviene da quartieri in cui il candidato secondario ha ricevuto più di dieci voti, e quale zona ha la quota più alta, durante le elezioni comunali di Bologna del 2011?",
+      "keywords": [
+        "sindaci"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2011-risultati-votazioni-candidati-sindaci"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2011-risultati-votazioni-candidati-sindaci"
+      },
+      "reference_code": "(\n    Table_0.groupby('zona')['virginio_merola']\n    .sum()\n    .rename('total_virginio')\n    .to_frame()\n    .join(\n        Table_0[Table_0['manes_bernardini'] > 10]\n        .groupby('zona')['virginio_merola']\n        .sum()\n        .rename('sub_virginio'),\n        how='left'\n    )\n    .fillna({'sub_virginio': 0})\n    .assign(share=lambda df: df['sub_virginio'] / df['total_virginio'])\n    .reset_index()\n    .loc[:, ['zona', 'share']]\n    .sort_values('share', ascending=False)\n    .reset_index(drop=True)\n)",
+      "reference_result": [
+        {
+          "zona": "A",
+          "share": 1.0
+        },
+        {
+          "zona": "C",
+          "share": 1.0
+        },
+        {
+          "zona": "S",
+          "share": 1.0
+        },
+        {
+          "zona": "E",
+          "share": 1.0
+        },
+        {
+          "zona": "F",
+          "share": 1.0
+        },
+        {
+          "zona": "G",
+          "share": 1.0
+        },
+        {
+          "zona": "I",
+          "share": 1.0
+        },
+        {
+          "zona": "H",
+          "share": 1.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per zone showing the zone identifier and the share (as a proportion between 0 and 1) of the leading candidate's total votes that originated from neighbourhoods where the runner‑up received more than ten votes, sorted descending so the first row indicates the zone with the highest share."
+    },
+    {
+      "id": "57b99bd0",
+      "question": "Quali tre candidati hanno ricevuto il maggior numero totale di preferenze in ciascun quartiere durante le elezioni del 2009 a Bologna per la lista ALTRA CITTA'?",
+      "keywords": [
+        "altra",
+        "elezioni"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-altra-citta"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-altra-citta"
+      },
+      "reference_code": "result = (\n    Table_0.groupby(['descrizione_quartiere', 'nome_candidato'], as_index=False)['preferenze']\n    .sum()\n    .rename(columns={'preferenze': 'total_pref'})\n    .assign(rank_pos=lambda df: df.groupby('descrizione_quartiere')['total_pref'].rank(method='dense', ascending=False))\n    .query(\"rank_pos <= 3\")\n    .sort_values(by=['descrizione_quartiere', 'rank_pos'], ascending=True)\n    .loc[:, ['descrizione_quartiere', 'nome_candidato', 'total_pref', 'rank_pos']]\n)",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "Borgo Panigale",
+          "nome_candidato": "Massa Lucia detta Luki",
+          "total_pref": 3,
+          "rank_pos": 1.0
+        },
+        {
+          "descrizione_quartiere": "Borgo Panigale",
+          "nome_candidato": "Schiassi Sandra",
+          "total_pref": 2,
+          "rank_pos": 2.0
+        },
+        {
+          "descrizione_quartiere": "Borgo Panigale",
+          "nome_candidato": "Di Cosimo Patrizia",
+          "total_pref": 1,
+          "rank_pos": 3.0
+        },
+        {
+          "descrizione_quartiere": "Borgo Panigale",
+          "nome_candidato": "Mazzanti Linda",
+          "total_pref": 1,
+          "rank_pos": 3.0
+        },
+        {
+          "descrizione_quartiere": "Borgo Panigale",
+          "nome_candidato": "Surace Angela",
+          "total_pref": 1,
+          "rank_pos": 3.0
+        },
+        {
+          "descrizione_quartiere": "Navile",
+          "nome_candidato": "Massa Lucia detta Luki",
+          "total_pref": 14,
+          "rank_pos": 1.0
+        },
+        {
+          "descrizione_quartiere": "Navile",
+          "nome_candidato": "Maiorelli Isolina detta Isa",
+          "total_pref": 5,
+          "rank_pos": 2.0
+        },
+        {
+          "descrizione_quartiere": "Navile",
+          "nome_candidato": "Carbone Maria",
+          "total_pref": 2,
+          "rank_pos": 3.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "For each neighbourhood, the three candidates with the highest total preference votes, showing neighbourhood, candidate name, total votes, and rank (1‑3)."
+    },
+    {
+      "id": "a855bfb3",
+      "question": "Quali sono stati i voti di preferenza totali per ogni quartiere della lista pasquino nelle elezioni del consiglio comunale di Bologna del 2009?",
+      "keywords": [
+        "pasquino"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      },
+      "reference_code": "result = (\n    Table_0[['quartiere', 'descrizione_quartiere']]\n    .drop_duplicates()\n    .assign(\n        descrizione_quartiere=lambda df: df['descrizione_quartiere'].str.strip().str.lower()\n    )\n    .merge(\n        (\n            Table_0[Table_0['lista'] == 16]\n            .assign(\n                descrizione_quartiere=lambda df: df['descrizione_quartiere'].str.strip().str.lower()\n            )\n            .groupby(['quartiere', 'descrizione_quartiere'], as_index=False)['preferenze']\n            .sum()\n            .rename(columns={'preferenze': 'total_votes'})\n        ),\n        on=['quartiere', 'descrizione_quartiere'],\n        how='left',\n        suffixes=('', '_agg')\n    )\n    .fillna({'total_votes': 0})\n    .sort_values(by='total_votes', ascending=False)\n    .loc[:, ['quartiere', 'descrizione_quartiere', 'total_votes']]\n)",
+      "reference_result": [
+        {
+          "quartiere": 6,
+          "descrizione_quartiere": "santo stefano",
+          "total_votes": 175
+        },
+        {
+          "quartiere": 7,
+          "descrizione_quartiere": "san vitale",
+          "total_votes": 116
+        },
+        {
+          "quartiere": 9,
+          "descrizione_quartiere": "savena",
+          "total_votes": 86
+        },
+        {
+          "quartiere": 8,
+          "descrizione_quartiere": "saragozza",
+          "total_votes": 85
+        },
+        {
+          "quartiere": 3,
+          "descrizione_quartiere": "porto",
+          "total_votes": 66
+        },
+        {
+          "quartiere": 4,
+          "descrizione_quartiere": "reno",
+          "total_votes": 58
+        },
+        {
+          "quartiere": 2,
+          "descrizione_quartiere": "navile",
+          "total_votes": 48
+        },
+        {
+          "quartiere": 5,
+          "descrizione_quartiere": "san donato",
+          "total_votes": 39
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per neighbourhood with total preference votes for the Pasquino list, sorted descending."
+    },
+    {
+      "id": "f60f7e0b",
+      "question": "Qual è la quota delle preferenze totali per il candidato più votato nelle elezioni di Bologna altra Città del 2009 per ciascun quartiere?",
+      "keywords": [
+        "altra",
+        "elezioni"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-altra-citta"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-altra-citta"
+      },
+      "reference_code": "candidate_totals = Table_0.groupby('nome_candidato')['preferenze'].sum().reset_index(name='total_candidate')\ncandidate_totals['rank_overall'] = candidate_totals['total_candidate'].rank(method='dense', ascending=False)\ntop_candidate = candidate_totals.loc[candidate_totals['rank_overall'] == 1, 'nome_candidato'].iloc[0]\ntop_rows = Table_0[Table_0['nome_candidato'] == top_candidate].assign(join_key=1)\nneighbourhood_totals = top_rows.groupby('descrizione_quartiere')['preferenze'].sum().reset_index(name='neighbourhood_total')\nneighbourhood_totals['join_key'] = 1\noverall_total = top_rows['preferenze'].sum()\noverall_df = pd.DataFrame({'overall_total': [overall_total], 'join_key': [1]})\nresult = neighbourhood_totals.merge(overall_df, on='join_key')\nresult['share'] = result['neighbourhood_total'] / result['overall_total']\nresult = result[['descrizione_quartiere', 'share']]",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "Borgo Panigale",
+          "share": 0.0214285714
+        },
+        {
+          "descrizione_quartiere": "Navile",
+          "share": 0.1
+        },
+        {
+          "descrizione_quartiere": "Porto",
+          "share": 0.0928571429
+        },
+        {
+          "descrizione_quartiere": "Reno",
+          "share": 0.1
+        },
+        {
+          "descrizione_quartiere": "San Donato",
+          "share": 0.05
+        },
+        {
+          "descrizione_quartiere": "San Vitale",
+          "share": 0.2071428571
+        },
+        {
+          "descrizione_quartiere": "Santo Stefano",
+          "share": 0.0928571429
+        },
+        {
+          "descrizione_quartiere": "Saragozza",
+          "share": 0.2142857143
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per neighbourhood showing the proportion (share) of the top‑voted candidate's total preference votes that originated from that neighbourhood."
+    },
+    {
+      "id": "aca8ee83",
+      "question": "Per ciascuno dei presidenti candidati alle elezioni regionali dell'Emilia‑Romagna di novembre 2024 a Bologna, elenca i tre quartieri in cui il candidato ha ottenuto la quota più alta di voti totali e indica quale presidente ha la quota media più alta su tutti i quartieri.",
+      "keywords": [
+        "presidenti"
+      ],
+      "relevant_table_ids": [
+        "elezioni-regionali-2024-presidenti"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-regionali-2024-presidenti"
+      },
+      "reference_code": "import pandas as pd\nimport numpy as np\nagg = (\n    Table_0\n    .groupby('quartiere', as_index=False)\n    .agg({\n        'de_pascale_michele': 'sum',\n        'serra_federico': 'sum',\n        'teodori_luca': 'sum',\n        'ugolini_elena': 'sum',\n        'totale_votanti': 'sum'\n    })\n    .rename(columns={\n        'de_pascale_michele': 'total_de',\n        'serra_federico': 'total_serra',\n        'teodori_luca': 'total_teodori',\n        'ugolini_elena': 'total_ugolini',\n        'totale_votanti': 'total_votanti'\n    })\n    .assign(\n        share_de=lambda x: x['total_de'] / x['total_votanti'],\n        share_serra=lambda x: x['total_serra'] / x['total_votanti'],\n        share_teodori=lambda x: x['total_teodori'] / x['total_votanti'],\n        share_ugolini=lambda x: x['total_ugolini'] / x['total_votanti']\n    )\n)\navg_shares = {\n    'de': agg['share_de'].mean(),\n    'serra': agg['share_serra'].mean(),\n    'teodori': agg['share_teodori'].mean(),\n    'ugolini': agg['share_ugolini'].mean()\n}\nmax_candidate = max(avg_shares, key=avg_shares.get)\ndef top_n(df, share_col, cand_name):\n    top = df[['quartiere', share_col]].nlargest(3, share_col).copy()\n    top['candidate'] = cand_name\n    top = top.rename(columns={share_col: 'share'})\n    top['rank'] = np.arange(1, len(top) + 1)\n    return top[['quartiere', 'candidate', 'share', 'rank']]\ntop_de = top_n(agg, 'share_de', 'de')\ntop_serra = top_n(agg, 'share_serra', 'serra')\ntop_teodori = top_n(agg, 'share_teodori', 'teodori')\ntop_ugolini = top_n(agg, 'share_ugolini', 'ugolini')\nresult = (\n    pd.concat([top_de, top_serra, top_teodori, top_ugolini], ignore_index=True)\n    .assign(highest_average=lambda _: max_candidate)\n)",
+      "reference_result": [
+        {
+          "quartiere": "NAVILE",
+          "candidate": "de",
+          "share": 0.655102989,
+          "rank": 1,
+          "highest_average": "de"
+        },
+        {
+          "quartiere": "BORGO PANIGALE - RENO",
+          "candidate": "de",
+          "share": 0.6406907328,
+          "rank": 2,
+          "highest_average": "de"
+        },
+        {
+          "quartiere": "SAN DONATO - SAN VITALE",
+          "candidate": "de",
+          "share": 0.637986639,
+          "rank": 3,
+          "highest_average": "de"
+        },
+        {
+          "quartiere": "NAVILE",
+          "candidate": "serra",
+          "share": 0.044680192,
+          "rank": 1,
+          "highest_average": "de"
+        },
+        {
+          "quartiere": "SAN DONATO - SAN VITALE",
+          "candidate": "serra",
+          "share": 0.0413499194,
+          "rank": 2,
+          "highest_average": "de"
+        },
+        {
+          "quartiere": "PORTO - SARAGOZZA",
+          "candidate": "serra",
+          "share": 0.0352198889,
+          "rank": 3,
+          "highest_average": "de"
+        },
+        {
+          "quartiere": "NAVILE",
+          "candidate": "teodori",
+          "share": 0.0118088896,
+          "rank": 1,
+          "highest_average": "de"
+        },
+        {
+          "quartiere": "SAVENA",
+          "candidate": "teodori",
+          "share": 0.0116920447,
+          "rank": 2,
+          "highest_average": "de"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with up to twelve rows (three neighbourhoods per candidate). Each row shows the neighbourhood (quartiere), the candidate's vote‑share in that neighbourhood, the rank of the neighbourhood for that candidate (1‑3), and a boolean flag indicating whether that candidate has the highest average share across all neighbourhoods."
+    },
+    {
+      "id": "669e08e2",
+      "question": "Qual è la durata media degli incarichi per l'ente concedente che ha ricevuto la compensazione totale più alta per incarichi autorizzati nel 2023?",
+      "keywords": [
+        "autorizzati"
+      ],
+      "relevant_table_ids": [
+        "incarichi-autorizzati"
+      ],
+      "table_aliases": {
+        "Table_0": "incarichi-autorizzati"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(\n        data_inizio=lambda df: pd.to_datetime(df['data_inzio_incarico'], errors='coerce'),\n        data_fine=lambda df: pd.to_datetime(df['data_fine_incarico'], errors='coerce')\n    )\n    .assign(\n        duration_calc=lambda df: df['durata_incarico_gg'].fillna(\n            (df['data_fine'] - df['data_inizio']).dt.days\n        )\n    )\n    .loc[lambda df: df['anno_pg_atto'] == 2023]\n    .groupby('soggetto_conferente', as_index=False)\n    .agg(\n        total_comp=('compenso_presunto_euro', 'sum'),\n        avg_duration=('duration_calc', 'mean')\n    )\n    .sort_values('total_comp', ascending=False)\n    .head(1)\n    .iloc[0]['avg_duration']\n)",
+      "reference_result": [
+        {
+          "result": 359.5
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The mean number of days (durata_incarico_gg) of assignments belonging to the granting entity that accumulated the largest sum of presumed compensation in 2026."
+    },
+    {
+      "id": "677ef7c5",
+      "question": "Quali sono i tre quartieri con la maggiore differenza di voti di preferenza tra le liste Terzo polo e Bologna futura nelle elezioni comunali di Bologna del 2009, e qual è il totale dei voti per ciascuna lista in quei quartieri?",
+      "keywords": [
+        "polo",
+        "futura"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-bologna-futura"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-bologna-futura"
+      },
+      "reference_code": "polo_agg = Table_0.groupby('descrizione_quartiere', as_index=False)['preferenze'].sum().rename(columns={'preferenze': 'total_polo'})\nfutura_agg = Table_1.groupby('descrizione_quartiere', as_index=False)['preferenze'].sum().rename(columns={'preferenze': 'total_futura'})\nresult = (\n    polo_agg.merge(futura_agg, on='descrizione_quartiere', how='inner')\n    .assign(vote_diff=lambda df: (df['total_polo'] - df['total_futura']).abs())\n    .sort_values('vote_diff', ascending=False)\n    .head(3)\n    .loc[:, ['descrizione_quartiere', 'total_polo', 'total_futura', 'vote_diff']]\n)",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "Navile",
+          "total_polo": 67,
+          "total_futura": 6,
+          "vote_diff": 61
+        },
+        {
+          "descrizione_quartiere": "San Vitale",
+          "total_polo": 28,
+          "total_futura": 7,
+          "vote_diff": 21
+        },
+        {
+          "descrizione_quartiere": "Savena",
+          "total_polo": 11,
+          "total_futura": 27,
+          "vote_diff": 16
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each representing a neighbourhood with the largest absolute vote difference. Columns: neighbourhood name, total Terzo Polo votes, total Bologna Futurà votes, and the absolute difference."
+    },
+    {
+      "id": "2dd2d33d",
+      "question": "Quante famiglie nel quartiere Navile di Bologna avevano almeno un componente straniero nel 1986?",
+      "keywords": [
+        "straniero"
+      ],
+      "relevant_table_ids": [
+        "famiglie-residenti-con-stranieri-per-cittadinanza-tipologia-numero-di-componenti"
+      ],
+      "table_aliases": {
+        "Table_0": "famiglie-residenti-con-stranieri-per-cittadinanza-tipologia-numero-di-componenti"
+      },
+      "reference_code": "Table_0['componenti_stranieri'] = pd.to_numeric(Table_0['componenti_stranieri'], errors='coerce')\nfiltered = Table_0[(Table_0['anno'] == 1986) & (Table_0['quartiere'].str.lower() == 'navile'.lower()) & (Table_0['componenti_stranieri'] > 0)]\ntotal_families = filtered['numero_famiglie'].sum()\ntotal_families",
+      "reference_result": [
+        {
+          "0": 207
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of families residing in the Navile neighbourhood in 1986 that had at least one foreign‑citizen member."
+    },
+    {
+      "id": "f6ff3dfa",
+      "question": "Qual è stato il numero totale di veicoli che sono passati attraverso il varco 39 e il varco matteotti il 31 agosto 2026?",
+      "keywords": [
+        "39",
+        "matteotti"
+      ],
+      "relevant_table_ids": [
+        "varco-n-39-dei-mille-direzione-est",
+        "varco-n-41-matteotti-direzione-nord"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-39-dei-mille-direzione-est",
+        "Table_1": "varco-n-41-matteotti-direzione-nord"
+      },
+      "reference_code": "filtered_0 = Table_0[Table_0['data'].str.contains('2026-08-31')]\ntotal_39 = filtered_0['totale_passaggi'].sum()\nfiltered_1 = Table_1[Table_1['data'].str.contains('2026-08-31')]\ntotal_41 = filtered_1['totale_passaggi'].sum()\ntotal_vehicles = total_39 + total_41",
+      "reference_result": [
+        {
+          "0": 0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of vehicle passages recorded at gate 39 (Varco 39) and the Matteotti gate (Varco 41) on 31 August 2026, summed across all timestamps."
+    },
+    {
+      "id": "cb10f7a3",
+      "question": "Qual è stato il numero medio di motociclette per ora al varco 39 rispetto al varco mazzini ad agosto 2026, e quale varco ha avuto la media più alta?",
+      "keywords": [
+        "39",
+        "mazzini"
+      ],
+      "relevant_table_ids": [
+        "varco-n-39-dei-mille-direzione-est",
+        "varco-n-40-mazzini-direzione-centro"
+      ],
+      "table_aliases": {
+        "Table_0": "varco-n-39-dei-mille-direzione-est",
+        "Table_1": "varco-n-40-mazzini-direzione-centro"
+      },
+      "reference_code": "filtered_0 = (\n    Table_0[\n        (Table_0['data'] >= '2026-08-01')\n        & (Table_0['data'] < '2026-09-01')\n        & (Table_0['varco'] == 39)\n    ]\n)\navg_39 = filtered_0['moto_ciclomotori'].mean()\nfiltered_1 = (\n    Table_1[\n        (Table_1['data'] >= '2026-08-01')\n        & (Table_1['data'] < '2026-09-01')\n        & (Table_1['nome_varco'].str.lower() == 'mazzini')\n    ]\n)\navg_mazzini = filtered_1['moto_ciclomotori'].mean()\nresult = pd.DataFrame(\n    {\n        'avg_moto_39': [avg_39],\n        'avg_moto_mazzini': [avg_mazzini],\n    }\n)\nresult['higher_gate'] = result.apply(\n    lambda row: 'gate 39' if row['avg_moto_39'] > row['avg_moto_mazzini'] else 'gate mazzini',\n    axis=1\n)",
+      "reference_result": [
+        {
+          "avg_moto_39": 0.0,
+          "avg_moto_mazzini": 0.0579514825,
+          "higher_gate": "gate mazzini"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with columns avg_moto_39, avg_moto_mazzini, and higher_gate indicating which gate had the higher average motorcycles per hour in August 2026."
+    },
+    {
+      "id": "3e26bad3",
+      "question": "Quante forme speciali di vendita attive ci sono in ogni quartiere di Bologna, suddivise per tipo di vendita?",
+      "keywords": [
+        "forme"
+      ],
+      "relevant_table_ids": [
+        "elenco-esercizi-forme-speciali-di-vendita"
+      ],
+      "table_aliases": {
+        "Table_0": "elenco-esercizi-forme-speciali-di-vendita"
+      },
+      "reference_code": "result = (Table_0[Table_0['stato'] == 'Attivo']\n          .groupby(['quartiere', 'sottoarea'])\n          .size()\n          .reset_index(name='active_count'))",
+      "reference_result": [
+        {
+          "quartiere": "Borgo Panigale - Reno",
+          "sottoarea": "Commercio elettronico",
+          "active_count": 191
+        },
+        {
+          "quartiere": "Borgo Panigale - Reno",
+          "sottoarea": "Distributori automatici",
+          "active_count": 26
+        },
+        {
+          "quartiere": "Borgo Panigale - Reno",
+          "sottoarea": "Spacci interni",
+          "active_count": 8
+        },
+        {
+          "quartiere": "Borgo Panigale - Reno",
+          "sottoarea": "Vendita per corrispondenza",
+          "active_count": 13
+        },
+        {
+          "quartiere": "Borgo Panigale - Reno",
+          "sottoarea": "Vendita presso domicilio del consumatore",
+          "active_count": 19
+        },
+        {
+          "quartiere": "Navile",
+          "sottoarea": "Commercio elettronico",
+          "active_count": 239
+        },
+        {
+          "quartiere": "Navile",
+          "sottoarea": "Distributori automatici",
+          "active_count": 73
+        },
+        {
+          "quartiere": "Navile",
+          "sottoarea": "Spacci interni",
+          "active_count": 4
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per neighbourhood (quartiere) and sale type (sottoarea) showing the count of active special forms of sale in that combination."
+    },
+    {
+      "id": "e2644991",
+      "question": "Quale delle liste Terzo Polo Centro, Bologna al Centro e Pasquino ha ottenuto il maggior numero di voti di preferenza per un singolo candidato nel quartiere Reno durante le elezioni comunali di Bologna del 2009, e quanti voti ha ricevuto quel candidato?",
+      "keywords": [
+        "polo",
+        "al",
+        "pasquino",
+        "candidato"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-bologna-al-centro",
+        "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-bologna-al-centro",
+        "Table_2": "elezioni-amministrative-2009-preferenze-lista-pasquino"
+      },
+      "reference_code": "filtered_0 = Table_0[Table_0['descrizione_quartiere'] == 'Reno'][['descrizione_quartiere', 'preferenze', 'lista', 'candidato', 'nome_candidato', 'sezione', 'quartiere', 'zona', 'descrizione_zona']]\nfiltered_1 = Table_1[Table_1['descrizione_quartiere'] == 'Reno'][['descrizione_quartiere', 'preferenze', 'lista', 'candidato', 'nome_candidato', 'sezione', 'quartiere', 'zona', 'descrizione_zona']]\nfiltered_2 = Table_2[Table_2['descrizione_quartiere'] == 'Reno'][['descrizione_quartiere', 'preferenze', 'lista', 'candidato', 'nome_candidato', 'sezione', 'quartiere', 'zona', 'descrizione_zona']]\ncombined = pd.concat([filtered_0, filtered_1, filtered_2], ignore_index=True)\ncombined['preferenze'] = pd.to_numeric(combined['preferenze'], errors='coerce')\nresult = combined.sort_values(by='preferenze', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "descrizione_quartiere": "Reno",
+          "preferenze": 8,
+          "lista": 16,
+          "candidato": 25,
+          "nome_candidato": "Leggieri Raffaele",
+          "sezione": 231,
+          "quartiere": 4,
+          "zona": "A",
+          "descrizione_zona": "Barca"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the list identifier (lista) that achieved the highest single‑candidate preference total in Reno and the number of votes that candidate received."
+    },
+    {
+      "id": "cdfd4e9a",
+      "question": "Qual è stato il numero totale di voti di preferenza espressi per tutte le liste (polo, co, candidato, comunista, verdi, sinistra) nel quartiere Saragozza nelle elezioni comunali di Bologna del 2009?",
+      "keywords": [
+        "polo",
+        "co",
+        "candidato",
+        "comunista",
+        "verdi",
+        "sinistra"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-codacons",
+        "elezioni-amministrative-2009-preferenze-lista-partito-comunista",
+        "elezioni-amministrative-2009-preferenze-lista-verdi-per-bologna",
+        "elezioni-amministrative-2009-preferenze-lista-sinistra-per-bologna"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-codacons",
+        "Table_2": "elezioni-amministrative-2009-preferenze-lista-partito-comunista",
+        "Table_3": "elezioni-amministrative-2009-preferenze-lista-verdi-per-bologna",
+        "Table_4": "elezioni-amministrative-2009-preferenze-lista-sinistra-per-bologna"
+      },
+      "reference_code": "total_0 = Table_0.loc[Table_0['descrizione_quartiere'] == 'Saragozza', 'preferenze'].sum()\ntotal_1 = Table_1.loc[Table_1['descrizione_quartiere'] == 'Saragozza', 'preferenze'].sum()\ntotal_2 = Table_2.loc[Table_2['descrizione_quartiere'] == 'Saragozza', 'preferenze'].sum()\ntotal_3 = Table_3.loc[Table_3['descrizione_quartiere'] == 'Saragozza', 'preferenze'].sum()\ntotal_4 = Table_4.loc[Table_4['descrizione_quartiere'] == 'Saragozza', 'preferenze'].sum()\ntotal_votes = total_0 + total_1 + total_2 + total_3 + total_4",
+      "reference_result": [
+        {
+          "0": 572
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of preference votes cast for all six lists in the neighbourhood Saragozza during the 2009 Bologna municipal elections."
+    },
+    {
+      "id": "a4faeb0e",
+      "question": "Quanti lavori stradali completati sono registrati nel dataset corso storico per l'anno 2022?",
+      "keywords": [
+        "corso",
+        "storico"
+      ],
+      "relevant_table_ids": [
+        "lavori-pubblici-storico"
+      ],
+      "table_aliases": {
+        "Table_0": "lavori-pubblici-storico"
+      },
+      "reference_code": "completed_2022_count = Table_0[(Table_0['year'] == 2022) & (Table_0['status'] == 'Completato')]['id'].count()",
+      "reference_result": [
+        {
+          "0": 394
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of roadwork projects that have status \"Completato\" and are recorded for the year 2022."
+    },
+    {
+      "id": "42ea2727",
+      "question": "Qual è il numero totale di voti di preferenza ottenuti dalla lista Terzo polo e dalla lista Partito democratico insieme nella sezione 1 delle elezioni amministrative 2009 a Bologna?",
+      "keywords": [
+        "polo",
+        "2009",
+        "amministrative",
+        "democratico",
+        "elezioni",
+        "sezione"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-pd"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-pd"
+      },
+      "reference_code": "total_terzo = Table_0.loc[Table_0['sezione'] == 1, 'preferenze'].sum()\ntotal_partito = Table_1.loc[Table_1['sezione'] == 1, 'preferenze'].sum()\ncombined_total = total_terzo + total_partito\ncombined_total",
+      "reference_result": [
+        {
+          "0": 27
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of preference votes cast for both the Terzo Polo Centro list and the Partito Democratico list in polling station section 1 of the 2009 Bologna municipal elections."
+    },
+    {
+      "id": "cbd86cc8",
+      "question": "Quale sezione di seggio ha mostrato il più ampio divario di voti di preferenza totali tra la lista Terzo polo Centro e la lista Partito democratico nelle elezioni amministrative del consiglio comunale di Bologna del 2009?",
+      "keywords": [
+        "polo",
+        "2009",
+        "democratico",
+        "amministrative",
+        "elezioni",
+        "sezione"
+      ],
+      "relevant_table_ids": [
+        "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "elezioni-amministrative-2009-preferenze-lista-pd"
+      ],
+      "table_aliases": {
+        "Table_0": "elezioni-amministrative-2009-preferenze-lista-terzo-polo-centro",
+        "Table_1": "elezioni-amministrative-2009-preferenze-lista-pd"
+      },
+      "reference_code": "agg_terzo = Table_0.groupby('sezione', as_index=False)['preferenze'].sum().rename(columns={'preferenze': 'total_terzo'})\nagg_partito = Table_1.groupby('sezione', as_index=False)['preferenze'].sum().rename(columns={'preferenze': 'total_partito'})\nmerged = agg_terzo.merge(agg_partito, on='sezione', how='outer')\nmerged = merged.fillna(0)\nmerged['gap'] = (merged['total_terzo'] - merged['total_partito']).abs()\nmerged = merged.sort_values(by='gap', ascending=False)\nresult = merged.iloc[0]['sezione']",
+      "reference_result": [
+        {
+          "0": 320
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The sezione (polling station section) number that has the largest absolute difference between the total preference votes for the Terzo Polo Centro list and the Partito Democratico list."
+    },
+    {
+      "id": "0141be85",
+      "question": "Quale zona presenta il divario di genere nelle percentuali di affluenza per il referendum 2025 a Bologna, quesito 1, sullo stop ai licenziamenti illegittimi, che si discosta di più dalla media del divario di genere tra tutte le zone?",
+      "keywords": [
+        "affluenza",
+        "licenziamenti"
+      ],
+      "relevant_table_ids": [
+        "referendum-2025-quesito-1-affluenza"
+      ],
+      "table_aliases": {
+        "Table_0": "referendum-2025-quesito-1-affluenza"
+      },
+      "reference_code": "grouped = (\n    Table_0.groupby('zona', as_index=False)\n    .agg({\n        'elettori_maschi': 'sum',\n        'votanti_maschi': 'sum',\n        'elettori_femmine': 'sum',\n        'votanti_femmine': 'sum'\n    })\n    .assign(\n        male_affluenza=lambda df: df['votanti_maschi'] / df['elettori_maschi'],\n        female_affluenza=lambda df: df['votanti_femmine'] / df['elettori_femmine'],\n        gender_gap=lambda df: df['male_affluenza'] - df['female_affluenza']\n    )\n)\navg_gap = grouped['gender_gap'].mean()\nresult = (\n    grouped.assign(\n        gap_deviation=lambda df: (df['gender_gap'] - avg_gap).abs()\n    )\n    .sort_values('gap_deviation', ascending=False)\n    .head(1)\n    [['zona', 'gender_gap', 'gap_deviation']]\n)",
+      "reference_result": [
+        {
+          "zona": "COLLI",
+          "gender_gap": 0.0075645949,
+          "gap_deviation": 0.032009903
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the zone name, its gender gap in affluenza percentage (male minus female), and the absolute deviation of that gap from the average gender gap across all zones."
+    }
+  ]
+}

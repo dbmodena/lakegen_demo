@@ -10,6 +10,7 @@ import uuid
 from typing import Any, Mapping
 
 from lakegen.core.config import BASE_DIR, LOG_DIR, resolve_portal_tables_dir
+from lakegen.phases.jev_selector import TRACE_HEADER as JEV_TRACE_HEADER
 from lakegen.core.logger import save_experiment_log
 from lakegen.core.resources import (
     capture_retrieval_runs,
@@ -713,9 +714,11 @@ def run_question(
                         carried_tables=carried_tables,
                         carried_metadata=carried_metadata,
                         excluded_tables=excluded_tables,
+                        discovery=experiment.discovery,
                     )
-                    phase_invocation_counts["discovery"] += 1
-                    context_telemetry["llm_invocations"] += 2
+                    selector_llm_calls = 0 if trace.startswith(JEV_TRACE_HEADER) else 1
+                    phase_invocation_counts["discovery"] += selector_llm_calls
+                    context_telemetry["llm_invocations"] += 1 + selector_llm_calls
                     architecture_tokens = tokens_p1 + tokens_p2
                     trace = f"--- Divided Phase 1 ---\n{reasoning_p1}\n--- Divided Phase 2 ---\n{trace}"
                     if reasoning.startswith("REJECT_KEYWORDS:"):
@@ -860,6 +863,7 @@ def run_question(
                         calls[mode] = calls.get(mode, 0) + 1
                         raise exc from preparation_error
                     candidates = [item.dataset for item in prepared.candidates]
+                    selector_llm_calls = 0
                     if not candidates:
                         selected = []
                         reasoning = "REJECT_KEYWORDS: No datasets found in the prepared context"
@@ -871,20 +875,22 @@ def run_question(
                             selected, reasoning, trace, tokens_p2 = select_from_prepared_context(
                                 query=question, llm=llm, context=prepared,
                                 all_files=all_files, architecture=experiment.discovery_architecture,
-                                hint=hint,
+                                hint=hint, discovery=experiment.discovery,
+                                table_dir=runtime.csv_dir,
                             )
                         except OrchestratedSelectorError as exc:
                             context_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
                             context_telemetry["llm_invocations"] += 2
                             phase_invocation_counts["discovery"] += 1
                             raise
-                        phase_invocation_counts["discovery"] += 1
+                        selector_llm_calls = 0 if trace.startswith(JEV_TRACE_HEADER) else 1
+                        phase_invocation_counts["discovery"] += selector_llm_calls
                         retry_reason = selector_retry_reason(selected, reasoning)
                         if retry_reason is not None:
                             selected = []
                             reasoning = retry_reason
                             keywords_rejected = True
-                    context_telemetry["llm_invocations"] += 1 + int(bool(candidates))
+                    context_telemetry["llm_invocations"] += 1 + selector_llm_calls
                     architecture_tokens = tokens_p1 + tokens_p2
                 if experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT:
                     calls = context_telemetry["orchestrator_retrieval_calls"]

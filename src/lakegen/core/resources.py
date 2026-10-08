@@ -4,24 +4,33 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from functools import lru_cache
 import json
+import logging
 import os
 from pathlib import Path
+import random
+import re
 from threading import Lock
+import time
 from typing import Any, Callable, Mapping, Optional, Sequence, Union
 import uuid
 
 import oci
+import openai
 import tiktoken
 from llama_index.core import Settings
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
+from llama_index.core.base.llms.types import TextBlock, ToolCallBlock
 from llama_index.core.llms import ChatMessage, LLM, MessageRole
 from llama_index.core.llms.llm import ToolSelection
 from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.llms.oci_genai import OCIGenAI
 from llama_index.llms.oci_genai.utils import CHAT_MODELS, PROVIDERS, XAIProvider
+from llama_index.llms.openai_like import OpenAILike
+import llama_index.llms.openai.base as _openai_base
 
 from prompts.prompt_manager import PromptManager
 from src.client_solr import LocalSolrClient, resolve_solr_core
+from lakegen.core import groq_offload
 from lakegen.core.table_io import list_table_files
 from lakegen.core.token_usage import estimate_tokens, extract_total_tokens
 from lakegen.core.config import LOG_DIR
@@ -36,6 +45,34 @@ OPENAI_GPT_OSS_CONTEXT_SIZE = 128_000
 OPENAI_GPT_OSS_MAX_OUTPUT_TOKENS = 16_000
 META_LLAMA_MODEL = "meta.llama-3.3-70b-instruct"
 GENERIC_CHAT_MODELS = {OPENAI_GPT_OSS_MODEL, META_LLAMA_MODEL}
+# Local models served through Ollama's OpenAI-compatible endpoint: LakeGen
+# model name -> Ollama tag.
+OLLAMA_MODELS = {
+    "ollama.gpt-oss-20b": "gpt-oss:20b",
+    "ollama.qwen3.8-27b": "qwen3.8:27b",
+}
+# The local Ollama servers load models with a 32k window, not their native
+# 128k (gpt-oss) or 256k (qwen3.8).
+OLLAMA_CONTEXT_SIZE = 32_768
+OLLAMA_TIMEOUT_SECONDS = 600.0
+# Hosted models on Together AI's OpenAI-compatible endpoint (key TOGETHERAI_API_KEY):
+# LakeGen model name -> Together model id. Same open weights as OCI's gpt-oss-120b.
+TOGETHER_MODELS = {"together.gpt-oss-120b": "openai/gpt-oss-120b"}
+TOGETHER_BASE_URL = "https://api.together.xyz/v1"
+TOGETHER_TIMEOUT_SECONDS = 300.0
+# Together sets no fixed limits: it answers 429 (over the account's dynamic
+# request or token rate) or 503 (platform at capacity), suggests a wait in
+# x-ratelimit-reset and asks for exponential backoff. A call keeps retrying for
+# this long before its error reaches the pipeline.
+TOGETHER_RETRY_WINDOW_SECONDS = 1800.0
+TOGETHER_BACKOFF_MAX_SECONDS = 120.0
+# 402 = the account's credit limit is reached: calls wait for credit to be added
+# (checked every 5 minutes, for up to a day) instead of failing questions.
+TOGETHER_CREDIT_WAIT_SECONDS = 86400.0
+TOGETHER_CREDIT_CHECK_SECONDS = 300.0
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+logger = logging.getLogger(__name__)
 
 
 class _OCIGenericProvider(XAIProvider):
@@ -224,6 +261,11 @@ class _LakeGenOCIGenAI(OCIGenAI):
         return selections
 
     def chat(self, messages, **kwargs):
+        # Plain calls may go to Groq's free tier instead (LAKEGEN_GROQ_OFFLOAD).
+        offloaded = groq_offload.chat(self.model, messages, kwargs, self.temperature)
+        if offloaded is not None:
+            self._record_token_usage(offloaded.raw)
+            return offloaded
         response = super().chat(messages, **kwargs)
         total = self._record_token_usage(response.raw)
         if not total:
@@ -322,6 +364,309 @@ class _LakeGenOCIGenAI(OCIGenAI):
         return generate()
 
 
+class _LakeGenOllamaLLM(OpenAILike):
+    """A local Ollama model with the token accounting LakeGen reads from OCI."""
+
+    _token_usage_total: int = PrivateAttr(default=0)
+
+    @property
+    def token_usage_total(self) -> int:
+        return self._token_usage_total
+
+    def reset_token_usage(self) -> None:
+        self._token_usage_total = 0
+
+    def _record_response(self, messages, kwargs, response) -> None:
+        total = extract_total_tokens(getattr(response, "raw", None))
+        self._token_usage_total += total or estimate_tokens(
+            messages, kwargs, getattr(response.message, "content", "") or ""
+        )
+
+    def chat(self, messages, **kwargs):
+        # See _LakeGenOCIGenAI.stream_chat: the OpenAI client rejects ``think``.
+        kwargs.pop("think", None)
+        response = super().chat(messages, **kwargs)
+        self._record_response(messages, kwargs, response)
+        return response
+
+    async def achat(self, messages, **kwargs):
+        kwargs.pop("think", None)
+        response = await super().achat(messages, **kwargs)
+        self._record_response(messages, kwargs, response)
+        return response
+
+    def stream_chat(self, messages, **kwargs):
+        kwargs.pop("think", None)
+        stream = super().stream_chat(messages, **kwargs)
+
+        def generate():
+            last = None
+            for chunk in stream:
+                last = chunk
+                yield chunk
+            if last is not None:
+                self._record_response(messages, kwargs, last)
+
+        return generate()
+
+    async def astream_chat(self, messages, **kwargs):
+        kwargs.pop("think", None)
+        stream = await super().astream_chat(messages, **kwargs)
+
+        async def generate():
+            last = None
+            async for chunk in stream:
+                last = chunk
+                yield chunk
+            if last is not None:
+                self._record_response(messages, kwargs, last)
+
+        return generate()
+
+
+def _together_wait(exc: Exception, attempt: int) -> float | None:
+    """Seconds to wait before retrying a Together call, or None when the error is not about load."""
+    status = getattr(exc, "status_code", None)
+    if status == 402:
+        return TOGETHER_CREDIT_CHECK_SECONDS
+    if not (isinstance(exc, openai.APIConnectionError) or status in _RETRYABLE_STATUS):
+        return None
+    suggested = 0.0
+    response = getattr(exc, "response", None)
+    for header in ("x-ratelimit-reset", "retry-after"):
+        try:
+            suggested = float(response.headers.get(header))
+            break
+        except (AttributeError, TypeError, ValueError):
+            continue
+    backoff = min(TOGETHER_BACKOFF_MAX_SECONDS, 2.0 * 2 ** attempt) * random.uniform(0.5, 1.0)
+    return max(suggested, backoff)
+
+
+def _reasoning_of(raw: Any, delta: bool = False) -> str:
+    """Together's ``reasoning`` field of a completion's message (or a stream chunk's delta)."""
+    try:
+        choice = raw.choices[0]
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    part = getattr(choice, "delta" if delta else "message", None)
+    value = getattr(part, "reasoning", None)
+    if value is None:
+        value = (getattr(part, "model_extra", None) or {}).get("reasoning")
+    return value if isinstance(value, str) else ""
+
+
+# Set while _LakeGenTogetherLLM builds a request, so the history fixes below
+# apply to Together only.
+_TOGETHER_REQUEST: ContextVar[bool] = ContextVar("lakegen_together_request", default=False)
+
+
+def _with_reasoning(serialize):
+    """Send each assistant turn's reasoning back with it, as Together asks for gpt-oss tool calling.
+
+    The OpenAI client drops thinking from the history it sends. A message
+    carries reasoning only when _LakeGenTogetherLLM put it there. For Together
+    requests, an assistant turn that is only a tool call is also sent with
+    content "" instead of null: Together answers null with "400 prompt cannot be
+    empty". Other OpenAI-compatible backends send exactly what they did before.
+    """
+    def wrapper(messages, *args, **kwargs):
+        dicts = serialize(messages, *args, **kwargs)
+        if isinstance(dicts, list) and len(dicts) == len(messages):
+            together = _TOGETHER_REQUEST.get()
+            for message, message_dict in zip(messages, dicts):
+                if message_dict.get("role") != "assistant":
+                    continue
+                reasoning = getattr(message, "additional_kwargs", {}).get("reasoning")
+                if reasoning:
+                    message_dict["reasoning"] = reasoning
+                if together and message_dict.get("content") is None:
+                    message_dict["content"] = ""
+        return dicts
+
+    wrapper.__wrapped__ = serialize
+    return wrapper
+
+
+if not hasattr(_openai_base.to_openai_message_dicts, "__wrapped__"):
+    _openai_base.to_openai_message_dicts = _with_reasoning(_openai_base.to_openai_message_dicts)
+
+
+# gpt-oss on Together sometimes returns a whole harmony turn as plain text:
+# "analysis<reasoning>assistantcommentary to=functions.<tool> json{<arguments>}".
+_LEAKED_TOOL_CALL = re.compile(r"(?:assistant)?commentary to=functions\.([A-Za-z_][\w-]*)[^{]{0,40}?\{", re.S)
+
+
+def _recover_leaked_tool_call(response) -> bool:
+    """Turn a tool call that arrived as text into a real one; True when it did.
+
+    Only a reply with no tool call of its own whose text holds the marker and a
+    complete JSON object is changed: the call becomes a ToolCallBlock, the text
+    before it is kept as the turn's reasoning and the visible content is emptied.
+    """
+    message = getattr(response, "message", None)
+    if message is None or any(isinstance(block, ToolCallBlock) for block in message.blocks):
+        return False
+    if message.additional_kwargs.get("tool_calls"):
+        return False
+    text = message.content or ""
+    match = _LEAKED_TOOL_CALL.search(text)
+    if not match:
+        return False
+    try:
+        arguments, _ = json.JSONDecoder().raw_decode(text[match.end() - 1:])
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(arguments, dict):
+        return False
+    before = text[: match.start()].strip()
+    before = before[len("analysis"):] if before.startswith("analysis") else before
+    if before:
+        message.additional_kwargs["reasoning"] = (
+            message.additional_kwargs.get("reasoning", "") + before).strip()
+    message.blocks = [TextBlock(text=""), ToolCallBlock(
+        tool_call_id=f"call_{uuid.uuid4().hex[:24]}", tool_name=match.group(1), tool_kwargs=arguments)]
+    message.additional_kwargs["recovered_tool_call"] = match.group(1)
+    logger.warning("Together: recovered a %s call that arrived as text", match.group(1))
+    return True
+
+
+def _keep_first_tool_call(response) -> None:
+    """Drop all but the first tool call of a response, in both places a message keeps them."""
+    message = response.message
+    blocks = [block for block in message.blocks if isinstance(block, ToolCallBlock)]
+    if len(blocks) > 1:
+        message.blocks = [block for block in message.blocks if not isinstance(block, ToolCallBlock)] + blocks[:1]
+    calls = message.additional_kwargs.get("tool_calls") or []
+    if len(calls) > 1:
+        message.additional_kwargs["tool_calls"] = calls[:1]
+
+
+class _LakeGenTogetherLLM(_LakeGenOllamaLLM):
+    """A Together AI model through its OpenAI-compatible endpoint, with the same token accounting.
+
+    One tool call per turn, as LakeGen gets from OCI: its coding tools write one
+    script file per run, so two calls executed side by side overwrite each other.
+    The request asks for no parallel calls and any extra call in a reply is dropped.
+
+    Rate limits are Together's own: a 429/503/connection error is retried with
+    exponential backoff (at least x-ratelimit-reset) for up to
+    TOGETHER_RETRY_WINDOW_SECONDS; the client's own retries are off (max_retries=0).
+    """
+
+    def _prepare_chat_with_tools(self, tools, user_msg=None, chat_history=None, verbose=False,
+                                 allow_parallel_tool_calls=False, **kwargs):
+        # Asking for no parallel calls makes Together's gpt-oss write more tool
+        # calls as plain text, so by default the request allows them and
+        # get_tool_calls_from_response keeps the first.
+        parallel = os.environ.get("LAKEGEN_TOGETHER_PARALLEL_TOOL_CALLS", "1").strip() != "0"
+        return super()._prepare_chat_with_tools(
+            tools, user_msg=user_msg, chat_history=chat_history, verbose=verbose,
+            allow_parallel_tool_calls=parallel, **kwargs)
+
+    def get_tool_calls_from_response(self, response, error_on_no_tool_call=True, **kwargs):
+        if os.environ.get("LAKEGEN_TOGETHER_RECOVER_LEAKS", "1").strip() != "0":
+            _recover_leaked_tool_call(response)
+        _keep_first_tool_call(response)
+        return super().get_tool_calls_from_response(
+            response, error_on_no_tool_call=error_on_no_tool_call, **kwargs)
+
+    def _retrying(self, call):
+        started, attempt = time.monotonic(), 0
+        while True:
+            token = _TOGETHER_REQUEST.set(True)
+            try:
+                return call()
+            except Exception as exc:
+                wait = _together_wait(exc, attempt)
+                window = TOGETHER_CREDIT_WAIT_SECONDS if getattr(exc, "status_code", None) == 402 else TOGETHER_RETRY_WINDOW_SECONDS
+                if wait is None or time.monotonic() - started + wait > window:
+                    raise
+                logger.warning("Together %s; retry %d in %.0fs", type(exc).__name__, attempt + 1, wait)
+                time.sleep(wait)
+                attempt += 1
+            finally:
+                _TOGETHER_REQUEST.reset(token)
+
+    async def _aretrying(self, call):
+        started, attempt = time.monotonic(), 0
+        while True:
+            token = _TOGETHER_REQUEST.set(True)
+            try:
+                return await call()
+            except Exception as exc:
+                wait = _together_wait(exc, attempt)
+                window = TOGETHER_CREDIT_WAIT_SECONDS if getattr(exc, "status_code", None) == 402 else TOGETHER_RETRY_WINDOW_SECONDS
+                if wait is None or time.monotonic() - started + wait > window:
+                    raise
+                logger.warning("Together %s; retry %d in %.0fs", type(exc).__name__, attempt + 1, wait)
+                await asyncio.sleep(wait)
+                attempt += 1
+            finally:
+                _TOGETHER_REQUEST.reset(token)
+
+    @staticmethod
+    def _keep_reasoning(response, reasoning: str | None = None):
+        """Put Together's reasoning on the reply's message, where the history serializer finds it."""
+        if reasoning is None:
+            reasoning = _reasoning_of(getattr(response, "raw", None))
+        message = getattr(response, "message", None)
+        if reasoning and message is not None:
+            message.additional_kwargs["reasoning"] = reasoning
+        return response
+
+    def chat(self, messages, **kwargs):
+        parent = super().chat
+        return self._keep_reasoning(self._retrying(lambda: parent(messages, **kwargs)))
+
+    async def achat(self, messages, **kwargs):
+        parent = super().achat
+        return self._keep_reasoning(await self._aretrying(lambda: parent(messages, **kwargs)))
+
+    def stream_chat(self, messages, **kwargs):
+        parent = super().stream_chat
+
+        def first():  # the request is sent when the first chunk is read
+            stream = parent(messages, **kwargs)
+            return stream, next(stream, _STREAM_END)
+
+        stream, head = self._retrying(first)
+
+        def generate():
+            reasoning = ""
+            for chunk in ([head] if head is not _STREAM_END else []):
+                reasoning += _reasoning_of(getattr(chunk, "raw", None), delta=True)
+                yield self._keep_reasoning(chunk, reasoning)
+            for chunk in stream:
+                reasoning += _reasoning_of(getattr(chunk, "raw", None), delta=True)
+                yield self._keep_reasoning(chunk, reasoning)
+
+        return generate()
+
+    async def astream_chat(self, messages, **kwargs):
+        parent = super().astream_chat
+
+        async def first():
+            stream = await parent(messages, **kwargs)
+            try:
+                return stream, await stream.__anext__()
+            except StopAsyncIteration:
+                return stream, _STREAM_END
+
+        stream, head = await self._aretrying(first)
+
+        async def generate():
+            reasoning = ""
+            if head is not _STREAM_END:
+                reasoning += _reasoning_of(getattr(head, "raw", None), delta=True)
+                yield self._keep_reasoning(head, reasoning)
+            async for chunk in stream:
+                reasoning += _reasoning_of(getattr(chunk, "raw", None), delta=True)
+                yield self._keep_reasoning(chunk, reasoning)
+
+        return generate()
+
+
 # Register the models with OCI's GENERIC native chat format until the
 # LlamaIndex integration supports their agentic tool calls directly.
 CHAT_MODELS.setdefault(OPENAI_GPT_OSS_MODEL, OPENAI_GPT_OSS_CONTEXT_SIZE)
@@ -369,6 +714,44 @@ def get_llm(model: str) -> tuple[LLM, TokenCountingHandler]:
         tokenizer=tiktoken.encoding_for_model("gpt-3.5-turbo").encode
     )
     Settings.callback_manager = CallbackManager([token_counter])
+
+    if model in OLLAMA_MODELS:
+        base_url = os.environ.get("LAKEGEN_OLLAMA_BASE_URL", "http://localhost:11434")
+        llm = _LakeGenOllamaLLM(
+            model=OLLAMA_MODELS[model],
+            api_base=f"{base_url.rstrip('/')}/v1",
+            api_key="ollama",
+            context_window=OLLAMA_CONTEXT_SIZE,
+            is_chat_model=True,
+            is_function_calling_model=True,
+            temperature=0.1,
+            max_tokens=OPENAI_GPT_OSS_MAX_OUTPUT_TOKENS,
+            timeout=OLLAMA_TIMEOUT_SECONDS,
+            callback_manager=Settings.callback_manager,
+        )
+        return llm, token_counter
+
+    if model in TOGETHER_MODELS:
+        api_key = (os.environ.get("TOGETHERAI_API_KEY") or os.environ.get("TOGETHER_API_KEY") or "").strip()
+        if not api_key:
+            raise RuntimeError(f"{model} needs a Together AI key: set TOGETHERAI_API_KEY")
+        llm = _LakeGenTogetherLLM(
+            model=TOGETHER_MODELS[model],
+            api_base=os.environ.get("LAKEGEN_TOGETHER_BASE_URL", TOGETHER_BASE_URL),
+            api_key=api_key,
+            context_window=OPENAI_GPT_OSS_CONTEXT_SIZE,
+            is_chat_model=True,
+            is_function_calling_model=True,
+            # LakeGen's 0.1 by default; Together recommends 1.0 for reasoning models.
+            temperature=float(os.environ.get("LAKEGEN_TOGETHER_TEMPERATURE", "0.1")),
+            max_tokens=OPENAI_GPT_OSS_MAX_OUTPUT_TOKENS,
+            timeout=TOGETHER_TIMEOUT_SECONDS,
+            max_retries=0,  # _LakeGenTogetherLLM retries as Together asks
+            # Streams then end with a usage chunk, which the token accounting reads.
+            additional_kwargs={"stream_options": {"include_usage": True}},
+            callback_manager=Settings.callback_manager,
+        )
+        return llm, token_counter
 
     config_file, profile, compartment_id, service_endpoint = _oci_runtime_config()
     max_tokens = (

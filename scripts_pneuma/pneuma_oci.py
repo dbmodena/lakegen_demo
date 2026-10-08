@@ -96,6 +96,13 @@ class OCISettings:
     retry_initial_delay: float = 2.0
     min_llm_output_tokens: int = 1024
     empty_response_attempts: int = 3
+    # Chat (column narration, relevance judge) on an OpenAI-compatible endpoint
+    # such as a local Ollama instead of OCI. Embeddings stay on OCI either way,
+    # so an index keeps the vectors it was built with.
+    chat_base_url: str | None = None
+    chat_model: str = "gpt-oss:20b"
+    chat_api_key: str = "ollama"
+    chat_timeout: float = 600.0
 
 
 class _ChatCompletions:
@@ -152,7 +159,13 @@ class _Embeddings:
 class OCICompatOpenAI(OpenAI):
     """Minimal OpenAI client surface backed by OCI Generative AI."""
 
-    def __init__(self, settings: OCISettings, *, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        settings: OCISettings,
+        *,
+        client: Any | None = None,
+        chat_client: Any | None = None,
+    ) -> None:
         # Initializing OpenAI keeps Pneuma's existing remote-provider type checks
         # valid.  No request is ever sent to this placeholder endpoint.
         super().__init__(api_key="oci-adapter", base_url="http://127.0.0.1")
@@ -175,6 +188,15 @@ class OCICompatOpenAI(OpenAI):
         )
         self._oci_settings = settings
         self._oci_compartment_id = compartment_id
+        self._chat_client = chat_client or (
+            OpenAI(
+                base_url=settings.chat_base_url.rstrip("/"),
+                api_key=settings.chat_api_key,
+                timeout=settings.chat_timeout,
+            )
+            if settings.chat_base_url
+            else None
+        )
         self.chat = _Chat(self)
         self.embeddings = _Embeddings(self)
 
@@ -195,6 +217,16 @@ class OCICompatOpenAI(OpenAI):
         json_schema: dict[str, Any] | None = None,
         json_schema_name: str = "response",
     ) -> str:
+        if self._chat_client is not None:
+            return self._endpoint_chat_completion(
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                seed=seed,
+                json_schema=json_schema,
+                json_schema_name=json_schema_name,
+            )
         model_id = self._oci_settings.llm_model
         # Pneuma supplies its OpenAI default model name. Only an explicit OCI
         # identifier is allowed to override the configured OCI model.
@@ -273,6 +305,71 @@ class OCICompatOpenAI(OpenAI):
                     flush=True,
                 )
         raise RuntimeError("OCI chat response was empty after retries")
+
+    def _endpoint_chat_completion(
+        self,
+        messages: Iterable[dict[str, Any]],
+        *,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+        seed: int | None,
+        json_schema: dict[str, Any] | None,
+        json_schema_name: str,
+    ) -> str:
+        """The OCI chat contract served by ``chat_base_url``.
+
+        Same low reasoning effort, token floor, strict JSON schema and
+        empty-answer retries as the OCI path, so narration and the judge behave
+        the same whichever serves them. The configured ``chat_model`` is always
+        used: Pneuma passes its own OpenAI default name.
+        """
+        settings = self._oci_settings
+        chat_messages = []
+        for message in messages:
+            role = str(message.get("role", "user")).casefold()
+            content = message.get("content", "")
+            chat_messages.append({
+                "role": role if role in ("system", "assistant", "user") else "user",
+                "content": content if isinstance(content, str) else str(content),
+            })
+        request: dict[str, Any] = {
+            "model": settings.chat_model,
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "reasoning_effort": "low",
+        }
+        if seed is not None:
+            request["seed"] = int(seed)
+        if json_schema is not None:
+            request["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": json_schema_name, "schema": json_schema, "strict": True},
+            }
+        token_budget = max(int(max_tokens), settings.min_llm_output_tokens)
+        for empty_attempt in range(1, settings.empty_response_attempts + 1):
+            response = _retry(
+                lambda: self._chat_client.chat.completions.create(
+                    messages=chat_messages, max_tokens=token_budget, **request
+                ),
+                attempts=settings.retry_attempts,
+                initial_delay=settings.retry_initial_delay,
+            )
+            choices = getattr(response, "choices", None) or []
+            text = (choices[0].message.content or "") if choices else ""
+            if text.strip():
+                return text
+            if empty_attempt < settings.empty_response_attempts:
+                if empty_attempt == 1 and json_schema is None and chat_messages:
+                    chat_messages[-1]["content"] += EMPTY_CHAT_FALLBACK_SUFFIX
+                token_budget *= 2
+                print(
+                    f"[chat] empty chat response; retrying with "
+                    f"neutral_suffix={str(json_schema is None).lower()} "
+                    f"max_tokens={token_budget}",
+                    flush=True,
+                )
+        raise RuntimeError("chat response was empty after retries")
 
     def create_embeddings(
         self,

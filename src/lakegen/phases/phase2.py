@@ -41,6 +41,8 @@ from lakegen.phases.utils import (
     solr_metadata_from_doc,
 )
 from lakegen.core.resources import get_table_retrieval_service
+from lakegen.experiment_config import DiscoveryConfig, TableSelector
+from lakegen.phases.jev_selector import JevSelectorError, select_with_jev
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
@@ -149,6 +151,7 @@ def phase2_select_tables(
     carried_tables: Sequence[str] = (),
     carried_metadata: SolrMetadata | None = None,
     excluded_tables: Iterable[str] = (),
+    discovery: DiscoveryConfig | None = None,
 ) -> Phase2SelectionResult:
     """Run the configured retriever, then judge the retrieved tables.
 
@@ -197,6 +200,26 @@ def phase2_select_tables(
                 f"Sending feedback to Phase 1 for better keywords.\n"
             )
         return [], [], {}, no_result_msg, trace, 0
+
+    jev_fallback_note = ""
+    if discovery is not None and discovery.selector == TableSelector.JEV:
+        try:
+            jev = select_with_jev(query, candidates, solr_meta, csv_dir, discovery)
+        except JevSelectorError as exc:
+            jev_fallback_note = f"[jev selector unavailable, using the LLM judge] {exc}\n"
+            print(f"[phase2] {jev_fallback_note}", flush=True)
+        else:
+            print(f"[phase2] {jev.trace}", flush=True)
+            if stream_callback:
+                stream_callback(f"\n**Phase 2 – Jev table selector**\n{jev.reasoning}\n")
+            if selection_state is not None and jev.selected:
+                plan, advisories = build_minimal_selection_fallback(jev.selected, jev.reasoning)
+                selection_state.selection_plan = dict(plan)
+                selection_state.selection_advisories = list(advisories)
+                selection_state.selection_plan_source = "jev_selector"
+                selection_state.confirmed_tables = list(jev.selected)
+                selection_state.selection_reasoning = jev.reasoning
+            return jev.selected, candidates, solr_meta, jev.reasoning, jev.trace, 0
 
     # ── Step 3: Prepare agent with judge-only tools (no search_tables) ──
     tools_manager = Phase2JudgeToolsManager(
@@ -323,7 +346,7 @@ def phase2_select_tables(
         agent_resp = f"FINAL_PAYLOAD: {json.dumps(fallback_payload)}"
     finally:
         agent_stream_trace = stream_trace.getvalue()
-        full_trace = "--- Phase 2 Activity Log ---\n" + agent_stream_trace
+        full_trace = jev_fallback_note + "--- Phase 2 Activity Log ---\n" + agent_stream_trace
         stream_trace.close()
         dispatcher.event_handlers.remove(thinking_capture)
 

@@ -27,14 +27,20 @@ from lakegen.tracing import HumanInterventionRecorder
 MODEL_OPTIONS = [
     "openai.gpt-oss-120b",
     "meta.llama-3.3-70b-instruct",
+    "ollama.gpt-oss-20b",
+    "ollama.qwen3.8-27b",
+    "together.gpt-oss-120b",
 ]
-SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris", "uk"]
+SOLR_CORE_OPTIONS = ["nyc", "valencia", "bologna", "paris", "uk", "kramabench", "target_bird", "chicago"]
 SOLR_CORE_PORTAL_NAMES = {
     "nyc": "New York City Open Data portal",
     "valencia": "Valencia Open Data portal",
     "bologna": "Bologna Open Data portal",
     "paris": "Paris Open Data portal",
     "uk": "UK Open Data portal",
+    "kramabench": "KramaBench data lake (archaeology, astronomy, biomedical, environment, legal, wildfire)",
+    "target_bird": "BIRD databases (TARGET benchmark)",
+    "chicago": "City of Chicago Open Data portal",
 }
 RETRIEVAL_MODE_OPTIONS = [mode.value for mode in RetrievalMode]
 # Dropdown label -> mode value; the label is what people see.

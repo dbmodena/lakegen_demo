@@ -162,6 +162,103 @@ def scan_columns(
     return counts, tuple(searchable), uncastable
 
 
+def _text_columns(path: str) -> tuple[list[str], int] | None:
+    """String column names, and how many columns are not String."""
+    import polars as pl
+
+    try:
+        schema = pl.scan_parquet(path).collect_schema()
+    except Exception:
+        return None
+    names = [name for name in schema.names() if schema[name] == pl.String]
+    return names, len(schema.names()) - len(names)
+
+
+def scan_text(
+    path: str,
+    patterns: Sequence[tuple[str, str]],
+    max_columns: int | None,
+    max_rows: int | None,
+) -> tuple[dict[str, dict[str, int]], tuple[str, ...], int]:
+    """Count regex occurrences per term per String column, one query per file.
+
+    Pneuma-Seeker's reference content search: only VARCHAR/TEXT columns are
+    read, and every occurrence counts (``SUM(ARRAY_LENGTH(REGEXP_EXTRACT_ALL(..)))``),
+    so a cell naming a term twice counts twice. Returns ``(term -> column ->
+    occurrences, scanned columns, columns that are not text)``.
+
+    All text columns go into one query per row chunk. Querying per column
+    re-parses the footer for every column, which on a 16,185-column UK table
+    cost minutes; one query per file scanned the whole UK lake in seconds. A
+    file whose combined query fails is retried one column at a time, so one bad
+    column does not lose the others.
+    """
+    import polars as pl
+
+    counts: dict[str, dict[str, int]] = {}
+    found = _text_columns(path)
+    if found is None:
+        return counts, (), 0
+    names, other = found
+    names = names[:max_columns]
+    if not names:
+        return counts, (), other
+
+    def occurrences(columns: Sequence[str]) -> list[int]:
+        """Occurrences per (column, term), in that order, over the row budget."""
+        expressions = [
+            pl.col(name).str.count_matches(pattern).fill_null(0).sum()
+            .alias(f"__{column_index}_{term_index}")
+            for column_index, name in enumerate(columns)
+            for term_index, (_term, pattern) in enumerate(patterns)
+        ]
+        expressions.append(pl.len().alias("__rows"))
+        totals = [0] * (len(columns) * len(patterns))
+        offset = 0
+        while max_rows is None or offset < max_rows:
+            length = (
+                _SCAN_CHUNK_ROWS
+                if max_rows is None
+                else min(_SCAN_CHUNK_ROWS, max_rows - offset)
+            )
+            row = (
+                pl.scan_parquet(path)
+                .select([pl.col(name) for name in columns])
+                .slice(offset, length)
+                .select(expressions)
+                .collect()
+                .row(0)
+            )
+            for index, value in enumerate(row[:-1]):
+                totals[index] += int(value or 0)
+            rows = int(row[-1])
+            offset += rows
+            if rows < length:
+                break
+        return totals
+
+    try:
+        per_column = occurrences(names)
+        totals = {
+            name: per_column[index * len(patterns) : (index + 1) * len(patterns)]
+            for index, name in enumerate(names)
+        }
+    except Exception:
+        totals = {}
+        for name in names:
+            try:
+                totals[name] = occurrences([name])
+            except Exception:
+                # Like the per-column scan: a column that fails part-way counts
+                # for nothing rather than for whichever prefix was read.
+                continue
+    for name, values in totals.items():
+        for (term, _pattern), value in zip(patterns, values):
+            if value:
+                counts.setdefault(term, {})[name] = value
+    return counts, tuple(names), other
+
+
 def probe_count(
     path: str,
     patterns: Sequence[tuple[str, str]],
@@ -250,6 +347,7 @@ def sample_rows(
 
 _OPERATIONS: dict[str, Callable[..., Any]] = {
     "scan": scan_columns,
+    "scan_text": scan_text,
     "probe": probe_count,
     "sample": sample_rows,
 }
@@ -283,11 +381,17 @@ def _serve() -> None:
 # ----------------------------------------------------------------- parent side
 
 
-def _start_worker() -> subprocess.Popen[bytes]:
+def _start_worker(workers: int = 1) -> subprocess.Popen[bytes]:
     root = str(Path(__file__).resolve().parent.parent)
     env = dict(os.environ)
     # Make ``lakegen`` importable in the child however the parent found it.
     env["PYTHONPATH"] = os.pathsep.join(filter(None, (root, env.get("PYTHONPATH"))))
+    # Left alone, every worker starts one polars thread per core, so 16 workers
+    # on 32 cores ran 512 threads. The cores are shared instead: 16 workers x 2
+    # threads was the fastest setting measured on the UK and NYC lakes.
+    env.setdefault(
+        "POLARS_MAX_THREADS", str(max(1, (os.cpu_count() or 1) // max(1, workers)))
+    )
     return subprocess.Popen(
         # faulthandler turns a native crash into a traceback on stderr, which is
         # the only diagnostic a segfault leaves behind.
@@ -384,7 +488,7 @@ def run(operation: str, tasks: Sequence[tuple[Any, ...]], *, workers: int) -> li
         try:
             while (batch := next_batch()) is not None:
                 if process is None:
-                    process = _start_worker()
+                    process = _start_worker(workers)
                 frame: bytes | None
                 try:
                     assert process.stdin is not None and process.stdout is not None

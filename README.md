@@ -266,16 +266,20 @@ the effective value. Example YAML files are loaded only when supplied.
   there. Each DuckDB hit is resolved to the catalog document of its Parquet
   file before fusion. It needs the vector index and the local Parquet
   directory. `hybrid` is a separate mode and is unchanged.
+  `config/experiment.example_uk_hybrid_duckdb_semantic.yaml` runs it with
+  `rrf` and the Cohere reranker, the configuration measured in
+  `experiments/rerank_lab` (100 UK questions: Recall@10 0.869, Hit@1 0.55,
+  against 0.822 and 0.49 unreranked).
 
-`keyword`, `semantic` and `hybrid` results then go through a second-stage
-reranker (`rerank_model`, default `cohere.rerank-v4.0-fast` on OCI): it
+`keyword`, `semantic`, `hybrid` and `hybrid_duckdb_semantic` results then go
+through a second-stage reranker (`rerank_model`, default `cohere.rerank-v4.0-fast` on OCI): it
 reorders the top `rerank_depth` (20) tables and leaves the rest in retrieval
 order, adding about 0.1 s per search. On the 100-question UK benchmark it
-raised Recall@10 and Hit@1 for all three (`experiments/rerank_lab`); deeper
+raised Recall@10 and Hit@1 for all four (`experiments/rerank_lab`); deeper
 pools were not better. If the reranker fails, the retrieval order is kept
 and the error is recorded on the retrieval run. `rerank_model: null` (or an
-empty `LAKEGEN_RERANK_MODEL`) turns it off. The DuckDB and Pneuma modes are
-not reranked. It is on by default in the experiment configuration and the
+empty `LAKEGEN_RERANK_MODEL`) turns it off. `duckdb_agentic` and the Pneuma
+modes are not reranked. It is on by default in the experiment configuration and the
 environment settings, so `--config` benchmark runs rerank too;
 `RetrievalConfig()` built in code does not.
 `pneuma_seeker`'s content stage is weighted by `pneuma_content_weight`, with its
@@ -540,6 +544,30 @@ empty keyword ranking, for a Hit@10 of 0.04 and 0.03. All of their gold tables
 are present in the core, so these scores reflect the all-keywords rule rather
 than missing data. Keep this in mind when comparing modes that use the keyword
 search, including `hybrid`.
+
+### Portal grid with a live dashboard
+
+`experiments/portal_grid/` runs every retrieval mode over the Valencia, Paris
+and Bologna benchmarks (`benchmark/100q_<portal>.json`, built from orqa's
+generated queries; questions are in the portal's language) through the complete
+pipeline, and shows the results live:
+
+```bash
+PYTHONPATH=.:src .venv/bin/python experiments/portal_grid/make_parquet.py   # once: Parquet mirrors (the DuckDB branch reads only Parquet)
+experiments/portal_grid/start_services.sh          # Pneuma per portal (8771-8773), API on 8002, dashboard on 8790, Cloudflare tunnel
+PYTHONPATH=.:src .venv/bin/python experiments/portal_grid/run_grid.py      # 3 portals x 5 modes as API batches
+experiments/portal_grid/stop_services.sh
+```
+
+`run_grid.py` submits one API batch per portal and mode with the example
+configuration as inline config (`--set key=value` overrides it, `--count N`
+limits the cases, `--modes`/`--portals` narrow the grid). The start script
+prints the dashboard URL with its token; the page refreshes every 10 s with
+Hit@k, Recall@10, MRR, nDCG@10, full coverage, selection hit/recall/precision/
+exact, answered, code-execution, reference-match, time and token figures per
+portal and mode, a per-question outcome grid, and the latest finished questions.
+`PNEUMA_PORTAL_ROUTES` in `lakegen/retrieval/config.py` maps the three portals
+to their Pneuma ports; `LAKEGEN_PNEUMA_<PORTAL>_BASE_URL` overrides one.
 
 ## 8. Pneuma retrieval (optional)
 

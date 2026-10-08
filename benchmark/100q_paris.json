@@ -1,0 +1,3257 @@
+{
+  "sample_metadata": {
+    "source": "/home/bilel/gits/orqa/data/paris/candidates_discovery/generated_queries_semantic.json",
+    "sampling_seed": 42,
+    "count": 100,
+    "status_filter": "success",
+    "selection": "balanced_by_difficulty_and_table_scope",
+    "difficulty_quotas": {
+      "easy": 34,
+      "medium": 33,
+      "hard": 33
+    },
+    "table_scope_requirements": {
+      "multi_table": 34,
+      "single_table": 66
+    },
+    "strata": {
+      "easy": {
+        "multi_table": 11,
+        "single_table": 23
+      },
+      "medium": {
+        "multi_table": 11,
+        "single_table": 22
+      },
+      "hard": {
+        "multi_table": 12,
+        "single_table": 21
+      }
+    },
+    "skipped_invalid_generated_records": 38
+  },
+  "cases": [
+    {
+      "id": "aa009977",
+      "question": "Quelle est la longueur moyenne des parcours prioritaire des Quartiers d'Accessibilité Augmentée (QAA) pour chaque secteur administratif de Paris pendant les Jeux Olympiques 2024 ?",
+      "keywords": [
+        "prioritaire"
+      ],
+      "relevant_table_ids": [
+        "parcoursqaa"
+      ],
+      "table_aliases": {
+        "Table_0": "parcoursqaa"
+      },
+      "reference_code": "avg_lengths = (\n    Table_0[Table_0['b_perim_qaa'] == 'Tracé dans QAA']\n    .groupby('secteur_admin', as_index=False)['st_length_shape']\n    .mean()\n    .rename(columns={'st_length_shape': 'avg_length'})\n)",
+      "reference_result": [
+        {
+          "secteur_admin": "10",
+          "avg_length": 596.0066180936
+        },
+        {
+          "secteur_admin": "11",
+          "avg_length": 396.2102805071
+        },
+        {
+          "secteur_admin": "12",
+          "avg_length": 3356.611826088
+        },
+        {
+          "secteur_admin": "13",
+          "avg_length": 2251.682292275
+        },
+        {
+          "secteur_admin": "14",
+          "avg_length": 313.9832300011
+        },
+        {
+          "secteur_admin": "15",
+          "avg_length": 1872.2070377787
+        },
+        {
+          "secteur_admin": "16",
+          "avg_length": 1633.5986654331
+        },
+        {
+          "secteur_admin": "17",
+          "avg_length": 495.689533287
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per administrative sector (secteur_admin) with the average length (in metres) of routes marked \"Tracé dans QAA\" for the 2024 Olympic Games."
+    },
+    {
+      "id": "c3f0f17b",
+      "question": "Quelle est la surface totale des sous‑secteurs de continuité écologique avec maintien dans le PLU Bioclimatique de Paris, version approuvée le 20 novembre 2024 ?",
+      "keywords": [
+        "maintien"
+      ],
+      "relevant_table_ids": [
+        "plub_srv_mce"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_srv_mce"
+      },
+      "reference_code": "total_area = Table_0['st_area_shape'].sum()",
+      "reference_result": [
+        {
+          "result": 21215269.928807795
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total combined area (in square meters) of all ecological continuity subsectors maintained under the Paris Bioclimatique PLU version approved on 20 November 2024."
+    },
+    {
+      "id": "b6a8a0f5",
+      "question": "Combien de secteurs de bureaux de vote à Paris y a-t-il pour l'election 2024 comparé à l'election 2021 ?",
+      "keywords": [
+        "election"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote-2024",
+        "secteurs-des-bureaux-de-vote-en-2021"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote-2024",
+        "Table_1": "secteurs-des-bureaux-de-vote-en-2021"
+      },
+      "reference_code": "sector_count_2024 = Table_0['id_bv'].nunique()\nsector_count_2021 = Table_1['id_bv'].nunique()\nresult = [sector_count_2024, sector_count_2021]",
+      "reference_result": [
+        {
+          "0": 902
+        },
+        {
+          "0": 898
+        }
+      ],
+      "expected_result_type": "list",
+      "expected_result_description": "A two‑element list where the first number is the total number of voting bureau sectors recorded for Paris in the 2024 election and the second number is the total for the 2021 election."
+    },
+    {
+      "id": "55eb3b55",
+      "question": "Quel secteur possède la plus grande surface totale de volume construit (volumetries) à conserver dans le PLU bioclimatique de Paris, selon la version votée le 20 November 2024, et quelle est cette surface ?",
+      "keywords": [
+        "volumetries"
+      ],
+      "relevant_table_ids": [
+        "plub_vec"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_vec"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby('c_sec', as_index=False)\n    .agg(total_area=('st_area_shape', 'sum'))\n    .sort_values('total_area', ascending=False)\n    .head(1)\n    [['c_sec', 'total_area']]\n)",
+      "reference_result": [
+        {
+          "c_sec": "AP",
+          "total_area": 13140.0722013838
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the sector code with the highest total retained built‑volume area and the corresponding summed area (square metres)."
+    },
+    {
+      "id": "6e38fb40",
+      "question": "Quels sont les trois corps de la fonction publique de la Ville de Paris qui ont enregistré la plus forte hausse du nombre d'employées entre 2013 et 2025 dans les groupes d'age 20‑25, 30‑35 et 55‑60, et quel est le total de l'augmentation pour chacun ?",
+      "keywords": [
+        "age"
+      ],
+      "relevant_table_ids": [
+        "bilan-social-tranche-dage-detaillees-pour-15-corps"
+      ],
+      "table_aliases": {
+        "Table_0": "bilan-social-tranche-dage-detaillees-pour-15-corps"
+      },
+      "reference_code": "df_2013 = Table_0[(Table_0['annee'] == '2013-01-01') & (Table_0['tranches_d_age'].isin([\n    'Age >= 20 ans et < 25 ans',\n    'Age >= 30 ans et < 35 ans',\n    'Age >=55 ans et < 60 ans'\n]))]\nagg_2013 = (\n    df_2013\n    .groupby('corps', as_index=False)\n    .agg(sum_female_2013=('nombre_de_femmes', 'sum'))\n)\ndf_2025 = Table_0[(Table_0['annee'] == '2025-01-01') & (Table_0['tranches_d_age'].isin([\n    'Age >= 20 ans et < 25 ans',\n    'Age >= 30 ans et < 35 ans',\n    'Age >=55 ans et < 60 ans'\n]))]\nagg_2025 = (\n    df_2025\n    .groupby('corps', as_index=False)\n    .agg(sum_female_2025=('nombre_de_femmes', 'sum'))\n)\nresult = (\n    agg_2013\n    .merge(agg_2025, on='corps', how='inner')\n    .assign(increase=lambda x: x['sum_female_2025'] - x['sum_female_2013'])\n    .sort_values('increase', ascending=False)\n    .loc[:, ['corps', 'increase']]\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "corps": "ADJOINTS TECHNIQUES",
+          "increase": 148.0
+        },
+        {
+          "corps": "AGENTS D'ACCUEIL ET DE SURVEILLANCE",
+          "increase": 38.0
+        },
+        {
+          "corps": "ADJOINTS D'ANIMATION ET D'ACTION SPORTIVE",
+          "increase": 30.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing a corps name and the total increase in female employees (summed across the three age brackets) from 2013 to 2025, ordered by largest increase."
+    },
+    {
+      "id": "a34aa7ca",
+      "question": "Quels sont les cinq arrondissements de Paris qui avaient la plus forte densité de bureaux de vote lors de l'élection municipale de 2026 — c’est‑à‑dire le plus grand nombre de bureaux par mètre carré de leurs secteurs de 2025 — et qui figurent également parmi les cinq arrondissements comptant le plus grand nombre total de bureaux de vote ? Pour chacun, indiquez le nombre de bureaux en 2026, la superficie totale des secteurs de 2025, la densité (bureaux par mètre carré) et son rang selon le nombre de bureaux et selon la densité.",
+      "keywords": [
+        "2026",
+        "2025",
+        "secteurs"
+      ],
+      "relevant_table_ids": [
+        "bureaux_votes_2026",
+        "secteurs-des-bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "bureaux_votes_2026",
+        "Table_1": "secteurs-des-bureaux-de-vote-2025"
+      },
+      "reference_code": "import pandas as pd\nimport numpy as np\nTable_0 = Table_0.assign(arrondissement=Table_0['cp'] % 100)\nTable_1 = Table_1.rename(columns={'st_area_shape': 'area'})\nTable_0 = Table_0.assign(area=np.nan)\ncols = ['id_bv', 'num_bv', 'geo_shape', 'geo_point_2d', 'arrondissement', 'area']\nunion_df = pd.concat([Table_0[cols], Table_1[cols]], ignore_index=True)\nunion_df = union_df.assign(area_filled=union_df['area'].fillna(0))\nunion_df = union_df.assign(is_station=(union_df['area_filled'] == 0).astype(int))\nagg = (\n    union_df.groupby('arrondissement', as_index=False)\n    .agg(station_count=('is_station', 'sum'), total_area=('area_filled', 'sum'))\n)\nagg = agg.assign(density=agg['station_count'] / agg['total_area'])\nagg = agg.assign(\n    rank_station=agg['station_count'].rank(method='dense', ascending=False).astype(int),\n    rank_density=agg['density'].rank(method='dense', ascending=False).astype(int),\n)\nresult = agg.query(\"rank_station <= 5 and rank_density <= 5\")[[\n    'arrondissement',\n    'station_count',\n    'total_area',\n    'density',\n    'rank_station',\n    'rank_density',\n]]",
+      "reference_result": [
+        {
+          "arrondissement": 20,
+          "station_count": 76,
+          "total_area": 5983446.066816402,
+          "density": 1.27017e-05,
+          "rank_station": 2,
+          "rank_density": 4
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Up to five rows, one per arrondissement that appears in both the top‑5 by 2026 voting‑station count and the top‑5 by stations‑per‑square‑metre density. Columns: arrondissement, 2026 station count, total 2025 sector area (square metres), density (stations per m²), rank by station count, rank by density."
+    },
+    {
+      "id": "b07a2ebe",
+      "question": "Combien de jardins partagés y a-t-il dans le 12e arrondissement de Paris ?",
+      "keywords": [
+        "jardins"
+      ],
+      "relevant_table_ids": [
+        "jardins-partages"
+      ],
+      "table_aliases": {
+        "Table_0": "jardins-partages"
+      },
+      "reference_code": "garden_count = Table_0[Table_0['arrondissement'] == 'Paris 12e Arrondissement'].shape[0]",
+      "reference_result": [
+        {
+          "result": 17
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of shared community gardens located in the 12th arrondissement of Paris."
+    },
+    {
+      "id": "d44dddce",
+      "question": "Combien de bureaux de vote y avait‑il dans le code postal 75012 lors des élections municipales de Paris de 2025 et 2026 ?",
+      "keywords": [
+        "2026"
+      ],
+      "relevant_table_ids": [
+        "bureaux_votes_2026",
+        "bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "bureaux_votes_2026",
+        "Table_1": "bureaux-de-vote-2025"
+      },
+      "reference_code": "filtered_2026 = Table_0[Table_0['cp'] == 75012]\nfiltered_2025 = Table_1[Table_1['cp'] == 75012]\nunion_df = pd.concat([filtered_2026, filtered_2025], ignore_index=True)\nstation_count = len(union_df)",
+      "reference_result": [
+        {
+          "result": 128
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of voting stations in postal code 75012 across the 2025 and 2026 municipal elections."
+    },
+    {
+      "id": "cbb9cc79",
+      "question": "Pour le code reserve V 20‑13 du Plan Local d'Urbanisme bioclimatique de Paris (June 2026), quel est le nombre total de sites réservés pour chaque bénéficiaire ?",
+      "keywords": [
+        "reserve"
+      ],
+      "relevant_table_ids": [
+        "plub_res_equi"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_res_equi"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['reserve'] == 'V 20-13']\n    .groupby('a03_ben', as_index=False)['n_sq_res']\n    .sum()\n    .rename(columns={'n_sq_res': 'total_sites'})\n)",
+      "reference_result": [
+        {
+          "a03_ben": "Ville de Paris",
+          "total_sites": 100278
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per beneficiary (a03_ben) with the total number of reserved sites (total_sites) for reserve V 20‑13."
+    },
+    {
+      "id": "8e9fcbd2",
+      "question": "Quel était le montant total des dépenses de fonctionnement enregistrées pour le budget principal de la Ville M57 entre 2018‑2020, et comment se compare-t-il au total des dépenses de fonctionnement du budget municipal m14 en 2013 ?",
+      "keywords": [
+        "budget",
+        "m14"
+      ],
+      "relevant_table_ids": [
+        "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "budgets-votes-principaux-a-partir-de-2019-m57-ville-departement",
+        "comptes-administratifs-principaux-ville-departement"
+      ],
+      "table_aliases": {
+        "Table_0": "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "Table_1": "budgets-votes-principaux-a-partir-de-2019-m57-ville-departement",
+        "Table_2": "comptes-administratifs-principaux-ville-departement"
+      },
+      "reference_code": "import pandas as pd\nm57_2018_sum = Table_0.loc[\n    (Table_0['budget'] == 'M57 Ville') &\n    (Table_0['sens_depense_recette'].str.lower() == 'dépenses'.lower()) &\n    (Table_0['exercice_comptable'] == 2018) &\n    Table_0['nature_reglementaire_texte'].notna(),\n    'budgets_votes_pmt'\n].sum()\nm57_1920_sum = Table_1.loc[\n    (Table_1['budget'] == 'M57 Ville') &\n    (Table_1['sens_depense_recette'].str.lower() == 'dépenses'.lower()) &\n    (Table_1['exercice_comptable'].isin([2019, 2020])) &\n    Table_1['nature_reglementaire_texte'].notna(),\n    'budget_vote_pmt'\n].sum()\ntotal_m57 = m57_2018_sum + m57_1920_sum\ntotal_m14 = Table_2.loc[\n    (Table_2['budget'] == 'M14 Ville') &\n    (Table_2['sens_depense_recette'].str.lower() == 'dépenses'.lower()) &\n    (Table_2['exercice_comptable'] == 2013) &\n    Table_2['nature_budgetaire_texte'].notna(),\n    'mandate_titre_apres_regul'\n].sum()\ndiff = total_m57 - total_m14\nresult = pd.DataFrame({\n    'total_m57': [total_m57],\n    'total_m14': [total_m14],\n    'diff': [diff]\n})",
+      "reference_result": [
+        {
+          "total_m57": 20676316226.440002,
+          "total_m14": 7816400636.32,
+          "diff": 12859915590.120003
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with three columns: total_m57 (sum of regulatory expenses for the M57 Ville principal budget for fiscal years 2018‑2020), total_m14 (sum of regulatory expenses for the M14 municipal budget for fiscal year 2013), and diff (total_m57 minus total_m14)."
+    },
+    {
+      "id": "8114bc15",
+      "question": "Combien de sites de chantier ont été enregistrés à Paris en 2024?",
+      "keywords": [
+        "2024",
+        "chantier"
+      ],
+      "relevant_table_ids": [
+        "historique-chantiers-a-paris-en-2024"
+      ],
+      "table_aliases": {
+        "Table_0": "historique-chantiers-a-paris-en-2024"
+      },
+      "reference_code": "result = Table_0[Table_0['date_debut'].str.startswith('2024') & Table_0['cp_arrondissement'].astype(str).str.startswith('750')].shape[0]",
+      "reference_result": [
+        {
+          "result": 22494
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of chantier sites recorded in Paris in 2024."
+    },
+    {
+      "id": "ec4b75e6",
+      "question": "Pour chaque année de publication, quelle était la valeur nette comptable moyenne à la fin de l'exercice fiscal des immobilisations à Paris ?",
+      "keywords": [
+        "immobilisations"
+      ],
+      "relevant_table_ids": [
+        "immobilisations-etat-des-amortissements"
+      ],
+      "table_aliases": {
+        "Table_0": "immobilisations-etat-des-amortissements"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['collectivite'] == 'VILLE', ['publication', 'vnc_fin_exercice']]\n    .groupby('publication', as_index=False)['vnc_fin_exercice']\n    .mean()\n    .rename(columns={'vnc_fin_exercice': 'avg_vnc_fin_exercice'})\n    .sort_values('publication', ascending=True)\n)",
+      "reference_result": [
+        {
+          "publication": "2022",
+          "avg_vnc_fin_exercice": 839091.1972028811
+        },
+        {
+          "publication": "2023",
+          "avg_vnc_fin_exercice": 810269.3401428572
+        },
+        {
+          "publication": "2024",
+          "avg_vnc_fin_exercice": 779653.4599083229
+        },
+        {
+          "publication": "CA 2013",
+          "avg_vnc_fin_exercice": 444801.5260402852
+        },
+        {
+          "publication": "CA 2015",
+          "avg_vnc_fin_exercice": 610046.6559155767
+        },
+        {
+          "publication": "CA 2016",
+          "avg_vnc_fin_exercice": 643411.4549812851
+        },
+        {
+          "publication": "CA 2017",
+          "avg_vnc_fin_exercice": 646450.7789687453
+        },
+        {
+          "publication": "CA 2018",
+          "avg_vnc_fin_exercice": 897371.8725784967
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per publication year showing the average net book value at the end of the fiscal year for Paris immobilisations."
+    },
+    {
+      "id": "7073ea7a",
+      "question": "Combien de jardins partagés y a-t-il dans chaque arrondissement de Paris, et quel arrondissement en possède le plus ?",
+      "keywords": [
+        "jardins"
+      ],
+      "relevant_table_ids": [
+        "jardins-partages"
+      ],
+      "table_aliases": {
+        "Table_0": "jardins-partages"
+      },
+      "reference_code": "Table_0.groupby('arrondissement', as_index=False).agg(garden_count=('arrondissement', 'count')).sort_values('garden_count', ascending=False)",
+      "reference_result": [
+        {
+          "arrondissement": "Paris 20e Arrondissement",
+          "garden_count": 32
+        },
+        {
+          "arrondissement": "Paris 19e Arrondissement",
+          "garden_count": 29
+        },
+        {
+          "arrondissement": "Paris 12e Arrondissement",
+          "garden_count": 17
+        },
+        {
+          "arrondissement": "Paris 18e Arrondissement",
+          "garden_count": 16
+        },
+        {
+          "arrondissement": "Paris 13e Arrondissement",
+          "garden_count": 14
+        },
+        {
+          "arrondissement": "Paris 14e Arrondissement",
+          "garden_count": 14
+        },
+        {
+          "arrondissement": "Paris 11e Arrondissement",
+          "garden_count": 13
+        },
+        {
+          "arrondissement": "Paris 10e Arrondissement",
+          "garden_count": 12
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per arrondissement showing the number of shared gardens, sorted descending so the first row is the district with the most gardens."
+    },
+    {
+      "id": "d66d0a2a",
+      "question": "Selon le bilan social de la Ville de Paris, entre 2022 et 2024, quelle année présente l'écart le plus important entre la proportion de femmes parmi les fonctionnaires titulaires nouvellement nommés et la proportion de femmes parmi l'effectif travail à temps plein permanent, et quel est cet écart ?",
+      "keywords": [
+        "bilan",
+        "effectif",
+        "travail"
+      ],
+      "relevant_table_ids": [
+        "titularisations",
+        "bilan-social-temps-de-travail-des-effectifs-titulaires-permanents"
+      ],
+      "table_aliases": {
+        "Table_0": "titularisations",
+        "Table_1": "bilan-social-temps-de-travail-des-effectifs-titulaires-permanents"
+      },
+      "reference_code": "import pandas as pd\nt0 = Table_0[(Table_0['collectivite'] == 'VILLE DE PARIS') &\n            (Table_0['annee'].isin(['2022-01-01', '2023-01-01', '2024-01-01']))].copy()\nt0['annee_int'] = t0['annee'].str[:4].astype(int)\nt1 = Table_1[(Table_1['collectivite'] == 'VILLE DE PARIS') &\n            (Table_1['temps_de_travail'] == 'TEMPS PLEIN') &\n            (Table_1['annee'].isin([2022, 2023, 2024]))].copy()\nmerged = pd.merge(t0, t1,\n                  left_on=['collectivite', 'annee_int'],\n                  right_on=['collectivite', 'annee'],\n                  how='inner',\n                  suffixes=('_new', '_staff'))\nmerged['prop_new'] = merged['nombre_de_femmes_titularisees'] / (\n    merged['nombre_de_femmes_titularisees'] + merged['nombre_d_hommes_titularises'])\nmerged['prop_staff'] = merged['nombre_de_femmes_au_31_decembre'] / (\n    merged['nombre_de_femmes_au_31_decembre'] + merged['nombre_d_hommes_au_31_decembre'])\nmerged['gap'] = (merged['prop_new'] - merged['prop_staff']).abs()\nresult = merged.sort_values('gap', ascending=False).head(1)\nfinal = result[['annee_int', 'gap']].rename(columns={'annee_int': 'annee'})\nfinal",
+      "reference_result": [
+        {
+          "annee": 2024,
+          "gap": 0.6809462916
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the year (2022, 2023, or 2024) that has the largest absolute difference between the proportion of women among newly appointed permanent civil servants and the proportion of women among full‑time permanent staff, together with the value of that gap expressed as a proportion."
+    },
+    {
+      "id": "56222356",
+      "question": "Combien de chantiers sont prévus de commencer dans le 10e arrondissement de Paris en 2026 ?",
+      "keywords": [
+        "chantiers"
+      ],
+      "relevant_table_ids": [
+        "chantiers-a-paris"
+      ],
+      "table_aliases": {
+        "Table_0": "chantiers-a-paris"
+      },
+      "reference_code": "result = Table_0[(Table_0['cp_arrondissement'] == '75010') & (Table_0['date_debut'].str.startswith('2026'))]['num_emprise'].count()",
+      "reference_result": [
+        {
+          "0": 222
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of construction works (chantiers) that have a start date in 2026 and are located in the 10th arrondissement (cp_arrondissement = 75010)."
+    },
+    {
+      "id": "e6f8c3e6",
+      "question": "Quelle était la consommation totale d'énergie à Paris en 2020 et la consommation des bâtiments de l'administration parisienne cette année‑là ?",
+      "keywords": [
+        "totale",
+        "consommation"
+      ],
+      "relevant_table_ids": [
+        "energies-energie-totale-consommee-a-paris",
+        "energies-consommation-energetique-des-batiments-occupes-par-l-administration-par"
+      ],
+      "table_aliases": {
+        "Table_0": "energies-energie-totale-consommee-a-paris",
+        "Table_1": "energies-consommation-energetique-des-batiments-occupes-par-l-administration-par"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['annee'] == 2020]\n    .merge(Table_1[Table_1['annee'] == 2020], on='annee', how='inner')\n    [['conso_energie', 'conso_totale']]\n)",
+      "reference_result": [
+        {
+          "conso_energie": 29.3523358476,
+          "conso_totale": 598.415
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table with two columns: total city energy consumption (conso_energie) and total administration buildings energy consumption (conso_totale) for the year 2020, expressed in the dataset's units."
+    },
+    {
+      "id": "f4c4225d",
+      "question": "Pour chaque type de document, combien d'ordres du jour du Conseil Général ont été enregistrés entre 2008 et 2014 ?",
+      "keywords": [
+        "ordres"
+      ],
+      "relevant_table_ids": [
+        "ordres_du_jour_du_conseil_general"
+      ],
+      "table_aliases": {
+        "Table_0": "ordres_du_jour_du_conseil_general"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(year=Table_0['seance'].str.extract(r'(\\d{4})', expand=False))\n    .dropna(subset=['year'])\n    .loc[lambda df: df['year'].astype(int).between(2008, 2014)]\n    .groupby('type')\n    .size()\n    .reset_index(name='type_count')\n)",
+      "reference_result": [
+        {
+          "type": "A",
+          "type_count": 168
+        },
+        {
+          "type": "DSP",
+          "type_count": 4
+        },
+        {
+          "type": "LR",
+          "type_count": 20
+        },
+        {
+          "type": "PJ",
+          "type_count": 6113
+        },
+        {
+          "type": "Pj",
+          "type_count": 2
+        },
+        {
+          "type": "V",
+          "type_count": 147
+        },
+        {
+          "type": "VNR",
+          "type_count": 347
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per document type showing the number of agenda items recorded between 2008 and 2014."
+    },
+    {
+      "id": "5d6b45f4",
+      "question": "Quelles sont les trois zones d'inondations du PLU 2024 pour Paris qui présentent le plus haut ratio parcelles‑surface, et quels sont leurs nombres totaux de parcelles ainsi que leurs surfaces totales ?",
+      "keywords": [
+        "inondations"
+      ],
+      "relevant_table_ids": [
+        "plub_pprizone"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_pprizone"
+      },
+      "reference_code": "result = (\n    Table_0.groupby('zonage', as_index=False)\n    .agg(\n        total_parcels=('n_sq_pprizone', 'sum'),\n        total_area=('st_area_shape', 'sum')\n    )\n    .assign(parcels_per_area=lambda df: df['total_parcels'] / df['total_area'])\n    .sort_values('parcels_per_area', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "zonage": "BSH",
+          "total_parcels": 57767,
+          "total_area": 141965.1817882487,
+          "parcels_per_area": 0.4069096329
+        },
+        {
+          "zonage": "BC",
+          "total_parcels": 559390,
+          "total_area": 3650180.974688411,
+          "parcels_per_area": 0.1532499358
+        },
+        {
+          "zonage": "BS",
+          "total_parcels": 321292,
+          "total_area": 3080203.189257231,
+          "parcels_per_area": 0.1043087031
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each representing a flood inondations zone with the highest parcels‑to‑area ratio, showing the zone code, total parcel count, total zone area, and the computed ratio."
+    },
+    {
+      "id": "1e8becfa",
+      "question": "Combien de portraits montrent des femmes athlètes à Paris ?",
+      "keywords": [
+        "portraits"
+      ],
+      "relevant_table_ids": [
+        "femmes-illustres-a-paris-portraits"
+      ],
+      "table_aliases": {
+        "Table_0": "femmes-illustres-a-paris-portraits"
+      },
+      "reference_code": "portrait_count = Table_0[Table_0['tab_name'] == 'Sportives'].shape[0]",
+      "reference_result": [
+        {
+          "result": 11
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of portrait records whose category indicates the woman was an athlete (e.g., \"Sportives\")."
+    },
+    {
+      "id": "b8286aa9",
+      "question": "Quel bureau de vote (bv) du 7e arrondissement apparaît à la fois aux élections de Paris de 2025 et 2026, et quel était son code postal en 2024 ?",
+      "keywords": [
+        "2026",
+        "2025",
+        "arrondissement",
+        "bv"
+      ],
+      "relevant_table_ids": [
+        "bureaux_votes_2026",
+        "secteurs-des-bureaux-de-vote-2025",
+        "bureaux-de-vote-2024"
+      ],
+      "table_aliases": {
+        "Table_0": "bureaux_votes_2026",
+        "Table_1": "secteurs-des-bureaux-de-vote-2025",
+        "Table_2": "bureaux-de-vote-2024"
+      },
+      "reference_code": "merged = Table_0.merge(Table_1[['id_bv', 'arrondissement']], on='id_bv', how='inner')\nfiltered = merged[merged['arrondissement'] == 7]\nresult = filtered.merge(Table_2[['id_bv', 'cp_bv']], on='id_bv', how='inner')[['id_bv', 'cp_bv']]",
+      "reference_result": [
+        {
+          "id_bv": "7-25",
+          "cp_bv": 75007
+        },
+        {
+          "id_bv": "7-4",
+          "cp_bv": 75007
+        },
+        {
+          "id_bv": "7-7",
+          "cp_bv": 75007
+        },
+        {
+          "id_bv": "7-21",
+          "cp_bv": 75007
+        },
+        {
+          "id_bv": "7-17",
+          "cp_bv": 75007
+        },
+        {
+          "id_bv": "7-1",
+          "cp_bv": 75007
+        },
+        {
+          "id_bv": "7-18",
+          "cp_bv": 75007
+        },
+        {
+          "id_bv": "7-5",
+          "cp_bv": 75007
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Each row contains a voting bureau identifier (id_bv) in the 7th arrondissement that appears in both the 2025 and 2026 elections, together with its postal code (cp_bv) as recorded in 2024."
+    },
+    {
+      "id": "72c6ce68",
+      "question": "Combien d'agents titulaires permanents la MAIRIE DE PARIS employait‑elle en 2016 ?",
+      "keywords": [
+        "permanents"
+      ],
+      "relevant_table_ids": [
+        "effectifs-titulaires-permanents"
+      ],
+      "table_aliases": {
+        "Table_0": "effectifs-titulaires-permanents"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[lambda df: (df['collectivite'].str.lower() == 'mairie de paris') & (df['annee'] == 2016)]\n    .assign(total_staff=lambda d: d['nombre_de_femmes'] + d['nombre_d_hommes'])\n    ['total_staff']\n    .sum()\n)",
+      "reference_result": [
+        {
+          "0": 0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of permanent civil servants employed by the MAIRIE DE PARIS in 2016."
+    },
+    {
+      "id": "c34dd774",
+      "question": "Combien de votes a reçu François Hollande (hollande) dans le 16e arrondissement lors du second tour de l'élection présidentielle de 2012 à Paris ?",
+      "keywords": [
+        "hollande"
+      ],
+      "relevant_table_ids": [
+        "elections-presidentielles-2012-2emetour"
+      ],
+      "table_aliases": {
+        "Table_0": "elections-presidentielles-2012-2emetour"
+      },
+      "reference_code": "total_hollande_votes = Table_0.loc[(Table_0['num_arrond'] == 16) & (Table_0['tour'] == 2) & (Table_0['annee'] == 2012), 'francois_hollande'].sum()",
+      "reference_result": [
+        {
+          "0": 16723
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of votes cast for François Hollande in the 16th arrondissement during the second round of the 2012 French presidential election in Paris."
+    },
+    {
+      "id": "43a87751",
+      "question": "Comment les montants totaux du budget principal voté en 2018 (M57) de Paris, selon le cadre reglementaire, se comparent-ils à ceux de l'autorisation de programme 2019 du domaine dans les comptes administratifs, ainsi qu'aux dépenses du budget principal m14 de 2013 ?",
+      "keywords": [
+        "reglementaire",
+        "domaine",
+        "m14"
+      ],
+      "relevant_table_ids": [
+        "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "comptes-administratifs-autorisations-de-programmes-a-partir-de-2018-m57-ville-de",
+        "comptes-administratifs-principaux-ville-departement"
+      ],
+      "table_aliases": {
+        "Table_0": "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "Table_1": "comptes-administratifs-autorisations-de-programmes-a-partir-de-2018-m57-ville-de",
+        "Table_2": "comptes-administratifs-principaux-ville-departement"
+      },
+      "reference_code": "import pandas as pd\ntotal_reglementaire = (\n    Table_0\n    .query('exercice_comptable == 2018')\n    .loc[lambda df: df['budget'].str.lower().str.startswith('m57')]\n    .loc[lambda df: df['nature_reglementaire_texte']\n        .str.contains('réglementaire', case=False, na=False)]\n    .loc[lambda df: df['rubrique_reglementaire_texte']\n        .str.contains('réglementaire', case=False, na=False)]\n    ['budgets_votes_pmt']\n    .sum()\n)\ntotal_domaine = (\n    Table_1\n    .query('exercice_comptable == 2019')\n    .loc[lambda df: df['domaine_fonctionnel_rubrique_reglementaire_cle'].notna()]\n    ['mandate_titre_apres_regul']\n    .sum()\n)\ntotal_m14 = (\n    Table_2\n    .query('exercice_comptable == 2013')\n    .loc[lambda df: df['budget'].str.lower().str.startswith('m14')]\n    .loc[lambda df: df['sens_depense_recette'].str.lower() == 'dépenses'.lower()]\n    .loc[lambda df: df['type_d_operation_r_o_i_m'].str.lower() == 'réel'.lower()]\n    ['mandate_titre_apres_regul']\n    .sum()\n)\nresult = pd.DataFrame({\n    'total_reglementaire': [total_reglementaire],\n    'total_domaine': [total_domaine],\n    'total_m14': [total_m14]\n})",
+      "reference_result": [
+        {
+          "total_reglementaire": 0.0,
+          "total_domaine": 0.0,
+          "total_m14": 6953737653.16
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A one‑row table with three columns – total_reglementaire, total_domaine, total_m14 – each showing the summed amount for the respective budget component."
+    },
+    {
+      "id": "9f3c8110",
+      "question": "Pour l'identifiant reserve V 20‑13 du Plan Local d'Urbanisme Bioclimatique de Paris (juin 2026), quels sont les trois bénéficiaires qui ont la plus grande surface réservée totale, et quel est le nombre moyen de sites réservés par adresse pour chacun ?",
+      "keywords": [
+        "reserve"
+      ],
+      "relevant_table_ids": [
+        "plub_res_equi"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_res_equi"
+      },
+      "reference_code": "reserve_filter = Table_0['reserve'].str.lower() == 'v 20-13'.lower()\nfiltered = Table_0[reserve_filter]\nbeneficiary_count = filtered['a03_ben'].nunique()\nresult = (\n    filtered\n    .groupby('a03_ben', as_index=False)\n    .agg(\n        total_area=('st_area_shape', 'sum'),\n        avg_sites_per_address=('n_sq_res', 'mean')\n    )\n    .assign(total_beneficiaries=beneficiary_count)\n    .sort_values(by='total_area', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "a03_ben": "Ville de Paris",
+          "total_area": 1126.6769307903,
+          "avg_sites_per_address": 100278.0,
+          "total_beneficiaries": 1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each with a beneficiary (a03_ben), the total reserved area (total_area) in square meters, and the average number of reserved sites per address (avg_sites_per_address) for reserve V 20‑13."
+    },
+    {
+      "id": "65e8f162",
+      "question": "Selon l'historique 2020 des chantiers à Paris, quelle catégorie de chantier occupe la plus grande surface totale dans le 12e arrondissement ?",
+      "keywords": [
+        "2020",
+        "historique"
+      ],
+      "relevant_table_ids": [
+        "chantiers-a-paris-copie0"
+      ],
+      "table_aliases": {
+        "Table_0": "chantiers-a-paris-copie0"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(_date_debut=pd.to_datetime(Table_0['date_debut'], errors='coerce'),\n            _date_fin=pd.to_datetime(Table_0['date_fin'], errors='coerce'))\n    .loc[lambda df: (df['_date_debut'] <= '2020-12-31') &\n                  (df['_date_fin'].isna() | (df['_date_fin'] >= '2020-01-01'))]\n    .loc[lambda df: df['cp_arrondissement'] == '75012']\n    .groupby('chantier_categorie', as_index=False)\n    .agg(total_surface=('surface', 'sum'))\n    .sort_values('total_surface', ascending=False)\n    .head(1)['chantier_categorie'].iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "Ville de Paris (Tvx sur espace ou édifice public)"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The chantier_categorie value that has the largest summed surface area among construction sites in the 12th arrondissement for 2020."
+    },
+    {
+      "id": "4e49647e",
+      "question": "Quelle est la superficie moyenne des secteurs 2025 qui contiennent des bureaux de vote situés dans le code postal 75010 pour les élections de 2026 ?",
+      "keywords": [
+        "2026",
+        "2025",
+        "secteurs"
+      ],
+      "relevant_table_ids": [
+        "bureaux_votes_2026",
+        "secteurs-des-bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "bureaux_votes_2026",
+        "Table_1": "secteurs-des-bureaux-de-vote-2025"
+      },
+      "reference_code": "filtered = Table_0[Table_0['cp'] == 75010][['id_bv']]\njoined = filtered.merge(Table_1[['id_bv', 'st_area_shape']], on='id_bv', how='inner')\nsector_areas = joined.groupby('id_bv', as_index=False).agg(sector_area=('st_area_shape', 'mean'))\navg_area = sector_areas['sector_area'].mean()",
+      "reference_result": [
+        {
+          "result": 74147.1657744547
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Average area (in square meters) of the 2025 sectors that contain voting stations located in postal code 75010 for the 2026 elections."
+    },
+    {
+      "id": "42880f5b",
+      "question": "Dans le bilan social 2024 de la Ville de Paris, quels sont les nombres totaux de femmes et d'hommes nouvellement nommés fonctionnaires titulaires ?",
+      "keywords": [
+        "bilan"
+      ],
+      "relevant_table_ids": [
+        "titularisations"
+      ],
+      "table_aliases": {
+        "Table_0": "titularisations"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[lambda df: (df['annee'] == '2024-01-01') & (df['collectivite'] == 'VILLE DE PARIS')]\n    .agg({'nombre_de_femmes_titularisees': 'sum', 'nombre_d_hommes_titularises': 'sum'})\n    .rename(index={'nombre_de_femmes_titularisees': 'total_women_2024', 'nombre_d_hommes_titularises': 'total_men_2024'})\n    .to_frame()\n    .T\n)",
+      "reference_result": [
+        {
+          "total_women_2024": 1310.0,
+          "total_men_2024": 994.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A one‑row table with two columns: total_women_2024 and total_men_2024, representing the total numbers of women and men newly appointed as permanent civil servants in Paris in 2024."
+    },
+    {
+      "id": "4b4ab7c6",
+      "question": "Selon les enregistrements d'adaptation climatique, quelle était l'amplitude de température (différence entre la température moyenne annuelle la plus élevée et la plus basse) dans la décennie qui a connu la plus forte hausse de la température moyenne annuelle de Paris entre 1873 et 2023 ?",
+      "keywords": [
+        "adaptation"
+      ],
+      "relevant_table_ids": [
+        "temperature_moyenne_paris"
+      ],
+      "table_aliases": {
+        "Table_0": "temperature_moyenne_paris"
+      },
+      "reference_code": "Table_0['decade'] = (Table_0['annee'] // 10) * 10\nagg = (\n    Table_0.groupby('decade')\n    .agg(\n        decade_avg=('temperature_moyenne', 'mean'),\n        max_temp=('temperature_moyenne', 'max'),\n        min_temp=('temperature_moyenne', 'min'),\n    )\n    .reset_index()\n)\nagg['temp_range'] = agg['max_temp'] - agg['min_temp']\nagg = agg.sort_values('decade')\nagg['decade_increase'] = agg['decade_avg'] - agg['decade_avg'].shift(1)\ntop = agg.sort_values('decade_increase', ascending=False).head(1)\nresult = top['temp_range'].iloc[0]",
+      "reference_result": [
+        {
+          "result": 1.44
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The temperature range in degrees Celsius for the decade that showed the largest increase in average annual temperature between 1873 and 2023."
+    },
+    {
+      "id": "0787e1e4",
+      "question": "Combien y avait‑il de secteurs des bureaux de vote à Paris en 2020 et en 2024 dans tous les arrondissements ?",
+      "keywords": [
+        "2020"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote-2024",
+        "secteurs-des-bureaux-de-vote-en-2020"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote-2024",
+        "Table_1": "secteurs-des-bureaux-de-vote-en-2020"
+      },
+      "reference_code": "df0 = Table_0.assign(year=2024)\ndf1 = Table_1.assign(year=2020)\nunion_df = pd.concat([df0[['id_bv', 'year']], df1[['id_bv', 'year']]], ignore_index=True)\nresult = union_df.groupby('year', as_index=False).agg(sector_count=('id_bv', 'count'))",
+      "reference_result": [
+        {
+          "year": 2020,
+          "sector_count": 897
+        },
+        {
+          "year": 2024,
+          "sector_count": 902
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one for each year (2020 and 2024), showing the total number of voting bureau sectors in Paris for that year."
+    },
+    {
+      "id": "2293c7d2",
+      "question": "Pour chaque categories, quel était le nombre total de femmes formées en 2016 et 2017 combinés ?",
+      "keywords": [
+        "categories"
+      ],
+      "relevant_table_ids": [
+        "formation-par-categories-bilan-social"
+      ],
+      "table_aliases": {
+        "Table_0": "formation-par-categories-bilan-social"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['annee'].isin([2016, 2017])]\n    .groupby('categorie', as_index=False)\n    .agg(total_women=('nombre_de_femmes_formees', 'sum'))\n)",
+      "reference_result": [
+        {
+          "categorie": "A",
+          "total_women": 6163
+        },
+        {
+          "categorie": "B",
+          "total_women": 9472
+        },
+        {
+          "categorie": "C",
+          "total_women": 24825
+        },
+        {
+          "categorie": "SO",
+          "total_women": 2075
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per category with the combined total number of women trained in 2016 and 2017."
+    },
+    {
+      "id": "dc08a5fb",
+      "question": "Parmi les élections de vote à Paris en 2022, 2025 ou 2026, laquelle a la plus grande superficie moyenne des secteurs ?",
+      "keywords": [
+        "2022",
+        "2025"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote",
+        "secteurs-des-bureaux-de-vote-2025",
+        "secteurs-des-bureaux-de-vote-2026"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote",
+        "Table_1": "secteurs-des-bureaux-de-vote-2025",
+        "Table_2": "secteurs-des-bureaux-de-vote-2026"
+      },
+      "reference_code": "import pandas as pd\navg_2022 = Table_0['st_area_shape'].mean()\navg_2025 = Table_1['st_area_shape'].mean()\navg_2026 = Table_2['st_area_shape'].mean()\ndf_2022 = pd.DataFrame({'year': ['2022'], 'avg_area': [avg_2022]})\ndf_2025 = pd.DataFrame({'year': ['2025'], 'avg_area': [avg_2025]})\ndf_2026 = pd.DataFrame({'year': ['2026'], 'avg_area': [avg_2026]})\nresult = (\n    pd.concat([df_2022, df_2025, df_2026], ignore_index=True)\n      .sort_values(by='avg_area', ascending=False)\n      .head(1)\n      .loc[:, ['year']]\n)",
+      "reference_result": [
+        {
+          "year": "2022"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The election year (2022, 2025 or 2026) that has the highest mean sector area across all voting sectors."
+    },
+    {
+      "id": "9469d264",
+      "question": "Quelle est la superficie moyenne des secteurs des bureaux de vote de Paris pour les suffrages 2022, l'election 2021, le dataset created 2020 et l'elect 2017 ?",
+      "keywords": [
+        "2022",
+        "suffrages",
+        "election",
+        "elect",
+        "2020",
+        "created"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote",
+        "secteurs-des-bureaux-de-vote-en-2021",
+        "secteurs-des-bureaux-de-vote-en-2017",
+        "secteurs-des-bureaux-de-vote-en-2020"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote",
+        "Table_1": "secteurs-des-bureaux-de-vote-en-2021",
+        "Table_2": "secteurs-des-bureaux-de-vote-en-2017",
+        "Table_3": "secteurs-des-bureaux-de-vote-en-2020"
+      },
+      "reference_code": "combined = pd.concat([\n    Table_0[['st_area_shape']],\n    Table_1[['st_area_shape']],\n    Table_2[['st_area_shape']],\n    Table_3[['st_area_shape']]\n], ignore_index=True)\navg_area = combined['st_area_shape'].mean()",
+      "reference_result": [
+        {
+          "result": 96511.0400748992
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The overall average sector area (in square metres) of all voting bureaus from the 2022, 2021, 2020 and 2017 datasets combined."
+    },
+    {
+      "id": "f1b2e41c",
+      "question": "Quelle était la part relative des dépenses d'approvisionnement de la Ville de Paris en 2024 qui sont allées aux produits en matériaux recyclés selon l'article 58 de la loi AGEC ?",
+      "keywords": [
+        "relative"
+      ],
+      "relevant_table_ids": [
+        "agec_declaration_article_58"
+      ],
+      "table_aliases": {
+        "Table_0": "agec_declaration_article_58"
+      },
+      "reference_code": "filtered = Table_0[Table_0['annee'] == 2024]\ntotal_spending = filtered['montant_total_des_depenses_ht_en_euros'].sum()\nrecycled_spending = filtered['montant_des_depenses_concernees_pour_l_aquisition_de_produits_integrant_des_matieres_recyclees_ht_en'].sum()\nrecycled_share = recycled_spending / total_spending",
+      "reference_result": [
+        {
+          "result": 0.3618360195
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The proportion (0‑1) of total 2024 procurement spending by the Ville de Paris that was on recycled‑material products under article 58."
+    },
+    {
+      "id": "e26c8dc0",
+      "question": "Quelle est la superficie moyenne des secteurs 2025 dans chaque arrondissement qui possède au moins un bureau de vote répertorié pour les élections municipales 2026 ?",
+      "keywords": [
+        "2026",
+        "2025",
+        "secteurs"
+      ],
+      "relevant_table_ids": [
+        "bureaux_votes_2026",
+        "secteurs-des-bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "bureaux_votes_2026",
+        "Table_1": "secteurs-des-bureaux-de-vote-2025"
+      },
+      "reference_code": "result = (\n    Table_0.merge(\n        Table_1,\n        how='inner',\n        left_on='id_bv',\n        right_on='id_bv',\n        suffixes=('_0', '_1')\n    )\n    .drop_duplicates(subset=['id_bv', 'arrondissement', 'st_area_shape'])\n    .groupby('arrondissement', as_index=False)['st_area_shape']\n    .mean()\n    .rename(columns={'st_area_shape': 'avg_area'})\n)",
+      "reference_result": [
+        {
+          "arrondissement": 1,
+          "avg_area": 182461.2742334582
+        },
+        {
+          "arrondissement": 2,
+          "avg_area": 99115.3803656778
+        },
+        {
+          "arrondissement": 3,
+          "avg_area": 78058.8531909702
+        },
+        {
+          "arrondissement": 4,
+          "avg_area": 114327.5470365364
+        },
+        {
+          "arrondissement": 5,
+          "avg_area": 101574.973642572
+        },
+        {
+          "arrondissement": 6,
+          "avg_area": 97867.99653155
+        },
+        {
+          "arrondissement": 7,
+          "avg_area": 163602.2892138489
+        },
+        {
+          "arrondissement": 8,
+          "avg_area": 215557.5864295525
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per arrondissement that has at least one voting station, showing the average area (square meters) of its 2025 sectors."
+    },
+    {
+      "id": "676d23df",
+      "question": "Quel arrondissement présente la corrélation moyenne la plus élevée entre les périmètres de ses secteurs de vote lors de l'élection de 2022 et ceux des élections de 2025 et 2026 ?",
+      "keywords": [
+        "2022",
+        "2025"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote",
+        "secteurs-des-bureaux-de-vote-2025",
+        "secteurs-des-bureaux-de-vote-2026"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote",
+        "Table_1": "secteurs-des-bureaux-de-vote-2025",
+        "Table_2": "secteurs-des-bureaux-de-vote-2026"
+      },
+      "reference_code": "import pandas as pd\nTable_0_ren = Table_0.rename(columns={'st_perimeter_shape': 'perim_2022'})\nTable_1_ren = Table_1.rename(columns={'st_perimeter_shape': 'perim_2025'})\nTable_2_ren = Table_2.rename(columns={'st_perimeter_shape': 'perim_2026'})\nmerged_25 = Table_0_ren.merge(\n    Table_1_ren[['id_bv', 'perim_2025', 'arrondissement']],\n    on='id_bv',\n    how='inner'\n)\nmerged_all = merged_25.merge(\n    Table_2_ren[['id_bv', 'perim_2026', 'arrondissement']],\n    on='id_bv',\n    how='inner',\n    suffixes=('', '_dup')\n)\nmerged_all = merged_all[['arrondissement', 'perim_2022', 'perim_2025', 'perim_2026']]\ncorr_2025 = merged_all.groupby('arrondissement').apply(\n    lambda g: g['perim_2022'].corr(g['perim_2025'], method='pearson')\n).rename('corr_2025')\ncorr_2026 = merged_all.groupby('arrondissement').apply(\n    lambda g: g['perim_2022'].corr(g['perim_2026'], method='pearson')\n).rename('corr_2026')\ncorr_df = pd.concat([corr_2025, corr_2026], axis=1)\ncorr_df['avg_corr'] = corr_df[['corr_2025', 'corr_2026']].mean(axis=1)\nresult = (\n    corr_df.sort_values('avg_corr', ascending=False)\n    .head(1)\n    .reset_index()[['arrondissement', 'avg_corr']]\n)",
+      "reference_result": [
+        {
+          "arrondissement": 1,
+          "avg_corr": 0.999994675
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the arrondissement number with the highest average Pearson correlation and the corresponding average correlation value."
+    },
+    {
+      "id": "10a74440",
+      "question": "Selon la description du texte, quels sont les trois types d'opérations des éléments reglementaire du budget M57 Ville qui ont le total combiné le plus élevé du montant du budget voté (2018), des crédits de paiement (2020) et du montant du mandat régulé (2018), et quelle part du total combiné global chaque type représente-t-il ?",
+      "keywords": [
+        "reglementaire",
+        "budget",
+        "texte"
+      ],
+      "relevant_table_ids": [
+        "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "budgets-votes-principaux-a-partir-de-2019-m57-ville-departement",
+        "comptes-administratifs-principaux-2018-m57-ville-departement"
+      ],
+      "table_aliases": {
+        "Table_0": "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "Table_1": "budgets-votes-principaux-a-partir-de-2019-m57-ville-departement",
+        "Table_2": "comptes-administratifs-principaux-2018-m57-ville-departement"
+      },
+      "reference_code": "import pandas as pd\nagg0 = (\n    Table_0[ (Table_0['exercice_comptable'] == 2018) &\n               (Table_0['budget'].str.lower() == 'm57 ville'.lower()) ]\n    [['type_d_operation_r_o_i_m', 'budgets_votes_pmt']]\n    .groupby('type_d_operation_r_o_i_m', as_index=False)\n    .agg({'budgets_votes_pmt': 'sum'})\n    .rename(columns={'budgets_votes_pmt': 'total_voted_2018'})\n)\nagg1 = (\n    Table_1[ (Table_1['exercice_comptable'] == 2020) &\n               (Table_1['budget'].str.lower() == 'm57 ville'.lower()) ]\n    [['type_d_operation_r_o_i_m', 'budget_vote_pmt']]\n    .groupby('type_d_operation_r_o_i_m', as_index=False)\n    .agg({'budget_vote_pmt': 'sum'})\n    .rename(columns={'budget_vote_pmt': 'total_credits_2020'})\n)\nagg2 = (\n    Table_2[ (Table_2['exercice_comptable_cle_non_composee'] == 2018) &\n               (Table_2['perimetre_financier_texte'].str.lower() == 'm57 ville'.lower()) ]\n    .rename(columns={'type_d_operation_r_o_i_m_texte': 'type_d_operation_r_o_i_m'})\n    [['type_d_operation_r_o_i_m', 'mandate_titre_x000d_apres_regul']]\n    .groupby('type_d_operation_r_o_i_m', as_index=False)\n    .agg({'mandate_titre_x000d_apres_regul': 'sum'})\n    .rename(columns={'mandate_titre_x000d_apres_regul': 'total_mandate_2018'})\n)\nmerged = (\n    agg0.merge(agg1, on='type_d_operation_r_o_i_m', how='outer')\n        .merge(agg2, on='type_d_operation_r_o_i_m', how='outer')\n        .fillna(0)\n)\nmerged['combined_total'] = merged['total_voted_2018'] + merged['total_credits_2020'] + merged['total_mandate_2018']\noverall_total = merged['combined_total'].sum()\nmerged['share'] = merged['combined_total'] / overall_total\nresult = merged.sort_values(by='combined_total', ascending=False).head(3)",
+      "reference_result": [
+        {
+          "type_d_operation_r_o_i_m": "Réel",
+          "total_voted_2018": 13856319499.3,
+          "total_credits_2020": 0.0,
+          "total_mandate_2018": 12580434742.32,
+          "combined_total": 26436754241.62,
+          "share": 0.853461644
+        },
+        {
+          "type_d_operation_r_o_i_m": "Pour Ordre",
+          "total_voted_2018": 2245849233.76,
+          "total_credits_2020": 0.0,
+          "total_mandate_2018": 1728109495.38,
+          "combined_total": 3973958729.1400003,
+          "share": 0.1282918969
+        },
+        {
+          "type_d_operation_r_o_i_m": "Investissement",
+          "total_voted_2018": 417453605.82,
+          "total_credits_2020": 0.0,
+          "total_mandate_2018": 147747134.84,
+          "combined_total": 565200740.66,
+          "share": 0.018246459
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each for one of the top‑3 operation types, showing the combined total of the three monetary figures and the percentage share of that total relative to the overall combined total across all operation types."
+    },
+    {
+      "id": "95f6926b",
+      "question": "Quelle ville possède le plus grand nombre d'ehpad enregistrés par le CASVP, et combien en compte-t-elle ?",
+      "keywords": [
+        "ehpad"
+      ],
+      "relevant_table_ids": [
+        "liste-des-ehpad"
+      ],
+      "table_aliases": {
+        "Table_0": "liste-des-ehpad"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby('ville', as_index=False)\n    .agg(facility_count=('nom_de_l_ehpad', 'count'))\n    .sort_values('facility_count', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "ville": "Paris",
+          "facility_count": 10
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "The city with the highest number of EHPAD facilities and the corresponding count of facilities."
+    },
+    {
+      "id": "586107fe",
+      "question": "Quels sont les cinq arrondissements de Paris ayant la plus grande superficie totale des secteurs de bureaux de vote lors de la 2022 election, et pour chacun d'eux afficher la superficie moyenne des secteurs lors de la 2021 election, le nombre total d'électeurs inscrits en 2017, ainsi que le pourcentage de variation de la superficie totale des secteurs par rapport à la 2012 election ?",
+      "keywords": [
+        "2022",
+        "election"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote",
+        "secteurs-des-bureaux-de-vote-en-2021",
+        "secteurs-des-bureaux-de-vote-en-2017",
+        "zones-de-rattachement-des-bureaux-de-vote-en-2012"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote",
+        "Table_1": "secteurs-des-bureaux-de-vote-en-2021",
+        "Table_2": "secteurs-des-bureaux-de-vote-en-2017",
+        "Table_3": "zones-de-rattachement-des-bureaux-de-vote-en-2012"
+      },
+      "reference_code": "total_area_2022 = Table_0.groupby('arrondissement', as_index=False)['st_area_shape'].sum().rename(columns={'st_area_shape': 'total_area_2022'})\navg_area_2021 = Table_1.groupby('arrondissement', as_index=False)['st_area_shape'].mean().rename(columns={'st_area_shape': 'avg_area_2021'})\ntotal_area_2012 = Table_3.groupby('arrondisse', as_index=False)['shape_area'].sum().rename(columns={'arrondisse': 'arrondissement', 'shape_area': 'total_area_2012'})\nTable_2 = Table_2.assign(total_votes = Table_2['nbr_elect_f'] + Table_2['nbr_elect_e_m'] + Table_2['nbr_elect_e_e'] + Table_2['nbr_elect_l12'])\ntotal_registered_2017 = Table_2.groupby('arrondissement', as_index=False)['total_votes'].sum().rename(columns={'total_votes': 'total_registered_2017'})\nresult = (\n    total_area_2022\n    .merge(avg_area_2021, on='arrondissement')\n    .merge(total_area_2012, on='arrondissement')\n    .merge(total_registered_2017, on='arrondissement')\n    .assign(pct_change_area = lambda df: (df['total_area_2022'] - df['total_area_2012']) / df['total_area_2012'] * 100)\n    .sort_values('total_area_2022', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "arrondissement": 15,
+          "total_area_2022": 8489020.489778057,
+          "avg_area_2021": 88408.737672779,
+          "total_area_2012": 8372879.779110299,
+          "total_registered_2017": 135828,
+          "pct_change_area": 1.387105915
+        },
+        {
+          "arrondissement": 16,
+          "total_area_2022": 7987254.545789526,
+          "avg_area_2021": 117442.1660142523,
+          "total_area_2012": 7830595.206698,
+          "total_registered_2017": 94196,
+          "pct_change_area": 2.0006057644
+        },
+        {
+          "arrondissement": 13,
+          "total_area_2022": 7137165.160163573,
+          "avg_area_2021": 100442.9156016362,
+          "total_area_2012": 7009029.896153,
+          "total_registered_2017": 106879,
+          "pct_change_area": 1.828145491
+        },
+        {
+          "arrondissement": 19,
+          "total_area_2022": 6780286.092911996,
+          "avg_area_2021": 95458.0763698875,
+          "total_area_2012": 6704400.0480011,
+          "total_registered_2017": 97308,
+          "pct_change_area": 1.1318842009
+        },
+        {
+          "arrondissement": 12,
+          "total_area_2022": 6538722.039954141,
+          "avg_area_2021": 102172.497270124,
+          "total_area_2012": 6388796.7452962,
+          "total_registered_2017": 88367,
+          "pct_change_area": 2.346690631
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Five rows, one per arrondissement, with columns: arrondissement (int), total_area_2022 (sum of sector areas in 2022), avg_area_2021 (average sector area in 2021), total_registered_2017 (sum of all registered voters in 2017), pct_change_area (percentage change of total area from 2012 to 2022)."
+    },
+    {
+      "id": "d03a1a18",
+      "question": "Quelles étaient les finances, partir 2022, pour le 13e arrondissement dans les budgets des arrondissements spéciaux ?",
+      "keywords": [
+        "finances",
+        "partir"
+      ],
+      "relevant_table_ids": [
+        "budgets-votes-etats-speciaux-darrondissements-m57-ville"
+      ],
+      "table_aliases": {
+        "Table_0": "budgets-votes-etats-speciaux-darrondissements-m57-ville"
+      },
+      "reference_code": "total_finance = (\n    Table_0.loc[\n        (Table_0['exercice_comptable'] >= 2022) &\n        (Table_0['arrondissement'] == 'Mairie 13ème') &\n        (Table_0['sens_depense_recette'] == 'Dépenses') &\n        (Table_0['type_d_operation_r_o_i_m'] == 'Réel'),\n        'budgets_votes_pmt'\n    ].sum()\n)",
+      "reference_result": [
+        {
+          "0": 36377662
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total real expenses (budgets_votes_pmt) for the 13th arrondissement from fiscal year 2022 onward, expressed in euros."
+    },
+    {
+      "id": "9c2b209b",
+      "question": "Pour l'année scolaire 2021‑2022, quelles sont les trois ecoles maternelles de Paris qui ont les plus grandes surfaces de secteur, et comment le périmètre de leur secteur diffère-t-il de la moyenne du périmètre de secteur de l'année ainsi que de la moyenne du périmètre des ecoles du même zone ?",
+      "keywords": [
+        "ecoles"
+      ],
+      "relevant_table_ids": [
+        "secteurs-scolaires-maternelles"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-scolaires-maternelles"
+      },
+      "reference_code": "df_year = Table_0[Table_0['annee_scol'] == '2021-2022']\noverall_avg_perim = df_year['st_perimeter_shape'].mean()\nzone_avg = (\n    df_year.groupby('zone_commune')['st_perimeter_shape']\n    .mean()\n    .reset_index()\n    .rename(columns={'st_perimeter_shape': 'zone_avg_perim'})\n)\ntop3 = (\n    df_year.sort_values(by='st_area_shape', ascending=False)\n    .head(3)\n)\ntop3 = top3.merge(zone_avg, on='zone_commune', how='inner')\ntop3['diff_overall'] = top3['st_perimeter_shape'] - overall_avg_perim\ntop3['diff_zone'] = top3['st_perimeter_shape'] - top3['zone_avg_perim']\nresult = top3[['lib_etab_1', 'st_area_shape', 'st_perimeter_shape', 'diff_overall', 'diff_zone']]",
+      "reference_result": [
+        {
+          "lib_etab_1": "CARNOT (16) MAT",
+          "st_area_shape": 1432834.644857264,
+          "st_perimeter_shape": 20138.0192759614,
+          "diff_overall": 13025.6036888573,
+          "diff_zone": 12492.2064869705
+        },
+        {
+          "lib_etab_1": "ST GERMAIN L'AUXERROIS (6) MAT",
+          "st_area_shape": 750770.6886202336,
+          "st_perimeter_shape": 23979.3366174026,
+          "diff_overall": 16866.9210302985,
+          "diff_zone": 16333.5238284117
+        },
+        {
+          "lib_etab_1": "PARC DES PRINCES (27) MAT",
+          "st_area_shape": 640378.2623751475,
+          "st_perimeter_shape": 19336.3468072631,
+          "diff_overall": 12223.931220159,
+          "diff_zone": 11690.5340182722
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each for one of the largest sector‑area ecoles maternelles in 2021‑2022, showing the school name (lib_etab_1), sector area, sector perimeter, difference from the year‑wide average perimeter, and difference from the average perimeter of schools in the same zone."
+    },
+    {
+      "id": "e2fafae5",
+      "question": "Quelles sont les surfaces prescrites surfaciques totales et moyennes pour chaque type de prescription dans le PLU de Paris 2024 ?",
+      "keywords": [
+        "surfaciques"
+      ],
+      "relevant_table_ids": [
+        "plub_gpu_ps"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_gpu_ps"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['idurba'] == '75056_PLU_20241120']\n    .groupby('lib_attr2', as_index=False)\n    .agg(total_area=('st_area_shape', 'sum'), average_area=('st_area_shape', 'mean'))\n)",
+      "reference_result": [
+        {
+          "lib_attr2": "BENEFICIAIRE",
+          "total_area": 92075.7629567926,
+          "average_area": 2046.1280657065
+        },
+        {
+          "lib_attr2": "DESTINATION",
+          "total_area": 3090121.3195351865,
+          "average_area": 7984.809611202
+        },
+        {
+          "lib_attr2": "HAUTEUR",
+          "total_area": 83872255.33622397,
+          "average_area": 723036.6839329653
+        },
+        {
+          "lib_attr2": "IDENTIFICATION",
+          "total_area": 9568871.692696562,
+          "average_area": 26216.0868293056
+        },
+        {
+          "lib_attr2": "NOM",
+          "total_area": 18353158.00379665,
+          "average_area": 166846.8909436059
+        },
+        {
+          "lib_attr2": "R_PLUS_UN",
+          "total_area": 8569.0440962679,
+          "average_area": 133.8913140042
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per prescription type (value of lib_attr2) showing the total surfaciques area (sum of st_area_shape) and the average surfaciques area (mean of st_area_shape) for the 2024 PLU."
+    },
+    {
+      "id": "7ae0e738",
+      "question": "Sur la base des mesures respirons, quelle mini‑station du 20ème arrondissement de Paris a enregistré la plus forte moyenne de concentration de NO₂ durant l'été 2019, et quelle était la moyenne à la station de référence Airparif BP Est pour la même période ?",
+      "keywords": [
+        "respirons"
+      ],
+      "relevant_table_ids": [
+        "respirons-mieux-dans-le-20eme-donnees-mini-stations"
+      ],
+      "table_aliases": {
+        "Table_0": "respirons-mieux-dans-le-20eme-donnees-mini-stations"
+      },
+      "reference_code": "import pandas as pd, numpy as np\nTable_0['month'] = pd.to_datetime(Table_0['date_time']).dt.month\nsummer_df = Table_0[(pd.to_datetime(Table_0['date_time']).dt.year == 2019) & (Table_0['month'].isin([6, 7, 8]))]\nagg = pd.DataFrame({\n    'avg_pere_lachaise': [summer_df['pere_lachaise'].mean()],\n    'avg_parc_de_belleville': [summer_df['parc_de_belleville'].mean()],\n    'avg_bd_menilmontant': [summer_df['bd_menilmontant'].mean()],\n    'avg_stade_louis_lumiere': [summer_df['stade_louis_lumiere'].mean()],\n    'avg_rue_menilmontant': [summer_df['rue_menilmontant'].mean()],\n    'avg_rue_des_pyrenees': [summer_df['rue_des_pyrenees'].mean()],\n    'avg_place_st_fargeau': [summer_df['place_st_fargeau'].mean()],\n    'avg_echangeur_a3_bp': [summer_df['echangeur_a3_bp'].mean()],\n    'avg_bp_est': [summer_df['station_reference_bp_est'].mean()]\n})\nstation_cols = [\n    'avg_pere_lachaise', 'avg_parc_de_belleville', 'avg_bd_menilmontant',\n    'avg_stade_louis_lumiere', 'avg_rue_menilmontant', 'avg_rue_des_pyrenees',\n    'avg_place_st_fargeau', 'avg_echangeur_a3_bp'\n]\nagg['max_station_avg'] = agg[station_cols].max(axis=1)\nagg['is_top_pere_lachaise'] = agg['avg_pere_lachaise'] == agg['max_station_avg']\nagg['is_top_parc_de_belleville'] = agg['avg_parc_de_belleville'] == agg['max_station_avg']\nagg['is_top_bd_menilmontant'] = agg['avg_bd_menilmontant'] == agg['max_station_avg']\nagg['is_top_stade_louis_lumiere'] = agg['avg_stade_louis_lumiere'] == agg['max_station_avg']\nagg['is_top_rue_menilmontant'] = agg['avg_rue_menilmontant'] == agg['max_station_avg']\nagg['is_top_rue_des_pyrenees'] = agg['avg_rue_des_pyrenees'] == agg['max_station_avg']\nagg['is_top_place_st_fargeau'] = agg['avg_place_st_fargeau'] == agg['max_station_avg']\nagg['is_top_echangeur_a3_bp'] = agg['avg_echangeur_a3_bp'] == agg['max_station_avg']\nconditions = [\n    agg['is_top_pere_lachaise'], agg['is_top_parc_de_belleville'], agg['is_top_bd_menilmontant'],\n    agg['is_top_stade_louis_lumiere'], agg['is_top_rue_menilmontant'], agg['is_top_rue_des_pyrenees'],\n    agg['is_top_place_st_fargeau'], agg['is_top_echangeur_a3_bp']\n]\nchoices = [\n    'pere_lachaise', 'parc_de_belleville', 'bd_menilmontant', 'stade_louis_lumiere',\n    'rue_menilmontant', 'rue_des_pyrenees', 'place_st_fargeau', 'echangeur_a3_bp'\n]\nagg['top_station_name'] = np.select(conditions, choices, default=None)\nresult = agg[['top_station_name', 'max_station_avg', 'avg_bp_est']]",
+      "reference_result": [
+        {
+          "top_station_name": "echangeur_a3_bp",
+          "max_station_avg": 53.2788405732,
+          "avg_bp_est": 60.1331818182
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table containing the name of the mini‑station with the highest summer‑2019 average NO₂ (column 'top_station_name'), its average concentration (column 'max_station_avg'), and the average NO₂ measured at the BP Est reference station over the same period (column 'avg_bp_est')."
+    },
+    {
+      "id": "ef884921",
+      "question": "En 2024, combien de femmes y avait‑il au total dans le corps des fonctionnaires permanents, les contrats temps, le personnel effectue et le personnel permanents de la Ville de Paris ?",
+      "keywords": [
+        "corps",
+        "temps",
+        "effectue",
+        "permanents"
+      ],
+      "relevant_table_ids": [
+        "titularisations",
+        "bilan-social-temps-de-travail-non-titulaires-permanents-temps-partiel",
+        "bilan-social-effectifs-non-titulaires-permanents",
+        "effectifs-titulaires-permanents"
+      ],
+      "table_aliases": {
+        "Table_0": "titularisations",
+        "Table_1": "bilan-social-temps-de-travail-non-titulaires-permanents-temps-partiel",
+        "Table_2": "bilan-social-effectifs-non-titulaires-permanents",
+        "Table_3": "effectifs-titulaires-permanents"
+      },
+      "reference_code": "t0_filtered = Table_0[\n    Table_0['annee'].str.startswith('2024') &\n    (Table_0['collectivite'] == 'VILLE DE PARIS')\n]\ntotal_femmes_titularisees = t0_filtered['nombre_de_femmes_titularisees'].sum()\nt1_filtered = Table_1[\n    (Table_1['annee'] == 2024) &\n    (Table_1['collectivite'] == 'VILLE DE PARIS')\n]\ntotal_femmes_temps = t1_filtered['nombre_de_femmes_au_31_decembre'].sum()\nt2_filtered = Table_2[\n    (Table_2['annee'] == 2024) &\n    (Table_2['collectivite'] == 'VILLE DE PARIS')\n]\ntotal_femmes_effectue = t2_filtered['nombre_de_femmes'].sum()\nt3_filtered = Table_3[\n    (Table_3['annee'] == 2024) &\n    (Table_3['collectivite'] == 'VILLE DE PARIS')\n]\ntotal_femmes_permanent = t3_filtered['nombre_de_femmes'].sum()\ntotal_women_all = (\n    total_femmes_titularisees +\n    total_femmes_temps +\n    total_femmes_effectue +\n    total_femmes_permanent\n)\ntotal_women_all",
+      "reference_result": [
+        {
+          "result": 30154.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of women across all four staff categories in the City of Paris for the year 2024."
+    },
+    {
+      "id": "4e734b33",
+      "question": "Pour le Centre d'Action Sociale de la Ville de Paris (CASVP) en 2017, quelle part des dépenses totales d'exploitation chaque budget annexe (EHPAD, CHRS, SSIAD et DNA) représente-t-elle, et quelle annexe a la part la plus élevée ?",
+      "keywords": [
+        "exploitation"
+      ],
+      "relevant_table_ids": [
+        "compte-administratif-budgets-annexes-casvp"
+      ],
+      "table_aliases": {
+        "Table_0": "compte-administratif-budgets-annexes-casvp"
+      },
+      "reference_code": "total_all = Table_0[(Table_0['exercice'] == 2017) & (Table_0['sens'] == 'Dépenses')]['credits_votes_2017'].sum()\nresult = (\n    Table_0[(Table_0['exercice'] == 2017) & (Table_0['sens'] == 'Dépenses')]\n    .groupby('budget', as_index=False)\n    .agg(total_annex=('credits_votes_2017', 'sum'))\n    .assign(share=lambda x: x['total_annex'] / total_all)\n    .assign(is_highest=lambda x: x['share'] == x['share'].max())\n    .sort_values('share', ascending=False)\n)",
+      "reference_result": [
+        {
+          "budget": "BUDGET ANNEXE EHPAD",
+          "total_annex": 128079300.0,
+          "share": 0.8491670122,
+          "is_highest": true
+        },
+        {
+          "budget": "BUDGET ANNEXE CHRS",
+          "total_annex": 14652850.0,
+          "share": 0.0971485389,
+          "is_highest": false
+        },
+        {
+          "budget": "BUDGET ANNEXE SSIAD",
+          "total_annex": 7425190.0,
+          "share": 0.0492290824,
+          "is_highest": false
+        },
+        {
+          "budget": "BUDGET ANNEXE D N A",
+          "total_annex": 672000.0,
+          "share": 0.0044553666,
+          "is_highest": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per budget annex (EHPAD, CHRS, SSIAD, DNA) showing its share of total exploitation expenses for 2017 and a boolean flag indicating whether it has the highest share."
+    },
+    {
+      "id": "7d8f9777",
+      "question": "Pour les 19e et 15e arrondissements, lequel présente une longueur moyenne des secteurs de vote (longueur totale divisée par le nombre de secteurs) plus élevée lors de l'élection de Paris 2014 ?",
+      "keywords": [
+        "vote"
+      ],
+      "relevant_table_ids": [
+        "zones-de-rattachement-des-bureaux-de-vote-en-2014"
+      ],
+      "table_aliases": {
+        "Table_0": "zones-de-rattachement-des-bureaux-de-vote-en-2014"
+      },
+      "reference_code": "result = str(\n    Table_0[Table_0['num_arr'].isin([19, 15])]\n    .groupby('num_arr', as_index=False)\n    .agg(avg_length=('shape_leng', 'mean'))\n    .sort_values('avg_length', ascending=False)\n    .iloc[0]['num_arr']\n)",
+      "reference_result": [
+        {
+          "result": "19.0"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the arrondissement (either \"19\" or \"15\") that has the larger average sector perimeter length for the 2014 election."
+    },
+    {
+      "id": "25b4e50e",
+      "question": "Quel pourcentage des chaussées (chaussees) à Paris ont le numéro de revêtement le plus fréquent selon le Plan de voirie (PVP) ?",
+      "keywords": [
+        "chaussees"
+      ],
+      "relevant_table_ids": [
+        "plan-de-voirie-chaussees"
+      ],
+      "table_aliases": {
+        "Table_0": "plan-de-voirie-chaussees"
+      },
+      "reference_code": "total_chaussees = Table_0['objectid'].count()\ndf = (\n    Table_0.groupby('num_pave')['objectid']\n    .count()\n    .reset_index(name='count_per_pave')\n    .sort_values(by='count_per_pave', ascending=False)\n    .head(1)\n)\ndf['pct_common'] = df['count_per_pave'] / total_chaussees * 100\nresult = df['pct_common']",
+      "reference_result": [
+        {
+          "pct_common": 0.8119209094
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Percentage of Parisian chaussées that share the most frequent pavement number in the Road Plan."
+    },
+    {
+      "id": "df58bc74",
+      "question": "Combien de parcelles sont couvertes par des protections patrimoniales de base dans le PLU bioclimatique de Paris 2026?",
+      "keywords": [
+        "protections"
+      ],
+      "relevant_table_ids": [
+        "plub_pvp"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_pvp"
+      },
+      "reference_code": "parcel_count = Table_0[Table_0['typ_prot'] == 'BP'].shape[0]",
+      "reference_result": [
+        {
+          "result": 5553
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of parcels with basic protection (BP) in the 2026 PLU bioclimatique."
+    },
+    {
+      "id": "6e7d0e48",
+      "question": "Quels sont les cinq arrondissements de Paris qui ont enregistré le plus grand nombre total de sites de chantier en 2019, 2021 et 2022, et quels sont les décomptes pour chaque année ?",
+      "keywords": [
+        "2019",
+        "chantier",
+        "2021",
+        "2022"
+      ],
+      "relevant_table_ids": [
+        "chantiers-a-paris-copie",
+        "chantiers-a-paris-copie1",
+        "chantiers-a-paris-copie2"
+      ],
+      "table_aliases": {
+        "Table_0": "chantiers-a-paris-copie",
+        "Table_1": "chantiers-a-paris-copie1",
+        "Table_2": "chantiers-a-paris-copie2"
+      },
+      "reference_code": "import pandas as pd\nall_chantiers = pd.concat([Table_0, Table_1, Table_2], ignore_index=True)\nall_chantiers['year'] = all_chantiers['date_debut'].str[:4]\nyearly_counts = (\n    all_chantiers\n    .groupby(['cp_arrondissement', 'year'])\n    .size()\n    .reset_index(name='year_count')\n)\nyearly_counts = yearly_counts[yearly_counts['year'].isin(['2019', '2021', '2022'])]\ntotal_counts = (\n    yearly_counts\n    .groupby('cp_arrondissement')['year_count']\n    .sum()\n    .reset_index(name='total_count')\n)\ntop5_arr = total_counts.sort_values('total_count', ascending=False).head(5)\nresult = yearly_counts.merge(top5_arr, on='cp_arrondissement', how='inner')\nfinal_output = result[['cp_arrondissement', 'year', 'year_count', 'total_count']]",
+      "reference_result": [
+        {
+          "cp_arrondissement": "75008",
+          "year": "2019",
+          "year_count": 1493,
+          "total_count": 5733
+        },
+        {
+          "cp_arrondissement": "75008",
+          "year": "2021",
+          "year_count": 2601,
+          "total_count": 5733
+        },
+        {
+          "cp_arrondissement": "75008",
+          "year": "2022",
+          "year_count": 1639,
+          "total_count": 5733
+        },
+        {
+          "cp_arrondissement": "75015",
+          "year": "2019",
+          "year_count": 1469,
+          "total_count": 5297
+        },
+        {
+          "cp_arrondissement": "75015",
+          "year": "2021",
+          "year_count": 2113,
+          "total_count": 5297
+        },
+        {
+          "cp_arrondissement": "75015",
+          "year": "2022",
+          "year_count": 1715,
+          "total_count": 5297
+        },
+        {
+          "cp_arrondissement": "75016",
+          "year": "2019",
+          "year_count": 1911,
+          "total_count": 6438
+        },
+        {
+          "cp_arrondissement": "75016",
+          "year": "2021",
+          "year_count": 2809,
+          "total_count": 6438
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per arrondissement‑year combination for the five arrondissements with the highest total chantier sites across 2019, 2021 and 2022, showing the count for each year and the overall total per arrondissement."
+    },
+    {
+      "id": "70698087",
+      "question": "Pour le reglementaire « Constructions - Autres constructions » et son domaine lié dans le budget M57 2018, quel est le ratio du budget total voté sur le montant total mandaté pour chaque combinaison de type d'opération et de direction gestionnaire, et quelles sont les trois combinaisons ayant les ratios les plus élevés ?",
+      "keywords": [
+        "reglementaire",
+        "domaine"
+      ],
+      "relevant_table_ids": [
+        "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "comptes-administratifs-autorisations-de-programmes-a-partir-de-2018-m57-ville-de"
+      ],
+      "table_aliases": {
+        "Table_0": "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "Table_1": "comptes-administratifs-autorisations-de-programmes-a-partir-de-2018-m57-ville-de"
+      },
+      "reference_code": "merged = Table_0.merge(\n    Table_1,\n    left_on='nature_reglementaire_cle_non_composee',\n    right_on='nature_budgetaire_cle',\n    how='inner'\n)\nfiltered = merged[\n    (merged['exercice_comptable_x'] == 2018) &\n    (merged['exercice_comptable_y'] == 2018) &\n    (merged['nature_reglementaire_texte'] == 'Constructions - Autres constructions') &\n    (merged['nature_budgetaire_texte'] == 'Constructions - Autres constructions')\n]\ngrouped = (\n    filtered\n    .groupby(\n        ['type_d_operation_r_o_i_m_x', 'direction_gestionnaire_texte'],\n        as_index=False\n    )\n    .agg(\n        sum_voted=('budgets_votes_pmt', 'sum'),\n        sum_mandate=('mandate_titre_apres_regul', 'sum')\n    )\n)\ngrouped['ratio'] = grouped['sum_voted'] / grouped['sum_mandate']\nresult = (\n    grouped\n    .sort_values(by='ratio', ascending=False)\n    .head(3)\n    [['type_d_operation_r_o_i_m_x', 'direction_gestionnaire_texte', 'ratio']]\n)",
+      "reference_result": [
+        {
+          "type_d_operation_r_o_i_m_x": "Investissement",
+          "direction_gestionnaire_texte": "DFA",
+          "ratio": 9353.8283927245
+        },
+        {
+          "type_d_operation_r_o_i_m_x": "Investissement",
+          "direction_gestionnaire_texte": "DGRI",
+          "ratio": 4495.8290286395
+        },
+        {
+          "type_d_operation_r_o_i_m_x": "Investissement",
+          "direction_gestionnaire_texte": "DAJ",
+          "ratio": 4008.7517842635
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing operation_type, managing_direction, and the ratio (total voted budget / total mandated amount) for the top three combinations with the highest ratios, expressed as a decimal."
+    },
+    {
+      "id": "db2a39a5",
+      "question": "What was the average initial capital of Paris's dette for each type of interest rate in the 2017 publication?",
+      "keywords": [
+        "dette"
+      ],
+      "relevant_table_ids": [
+        "dette-propre"
+      ],
+      "table_aliases": {
+        "Table_0": "dette-propre"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['annee_de_publication'] == 2017]\n    .groupby('type_de_taux_d_interet', as_index=False)['capital_initial']\n    .mean()\n    .rename(columns={'capital_initial': 'avg_initial_capital'})\n)",
+      "reference_result": [
+        {
+          "type_de_taux_d_interet": "Fixe",
+          "avg_initial_capital": 71358846.32471427
+        },
+        {
+          "type_de_taux_d_interet": "Indexé",
+          "avg_initial_capital": 50967024.32733333
+        },
+        {
+          "type_de_taux_d_interet": "Structuré",
+          "avg_initial_capital": 26000000.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per interest‑rate type showing the average initial capital (in euros) of debt issued in the 2017 publication."
+    },
+    {
+      "id": "ff56ff6b",
+      "question": "Pour chaque exercice fiscal de 2014 à 2025, quel est le nombre total de ménages bénéficiaires de l'aide Paris energie familles, et quelle année a connu la plus forte hausse par rapport à l'année précédente ?",
+      "keywords": [
+        "energie"
+      ],
+      "relevant_table_ids": [
+        "paris-energie-familles"
+      ],
+      "table_aliases": {
+        "Table_0": "paris-energie-familles"
+      },
+      "reference_code": "df = Table_0.groupby('exercice', as_index=False).agg(total_beneficiaires=('beneficiaires', 'sum'))\ndf = df.sort_values('exercice')\ndf['increase'] = df['total_beneficiaires'].diff()\nmax_increase = df['increase'].max()\ndf['is_max'] = df['increase'] == max_increase\nresult = df[['exercice', 'total_beneficiaires', 'increase', 'is_max']]",
+      "reference_result": [
+        {
+          "exercice": 2014,
+          "total_beneficiaires": 33519,
+          "increase": null,
+          "is_max": false
+        },
+        {
+          "exercice": 2015,
+          "total_beneficiaires": 34380,
+          "increase": 861.0,
+          "is_max": true
+        },
+        {
+          "exercice": 2016,
+          "total_beneficiaires": 34539,
+          "increase": 159.0,
+          "is_max": false
+        },
+        {
+          "exercice": 2017,
+          "total_beneficiaires": 34033,
+          "increase": -506.0,
+          "is_max": false
+        },
+        {
+          "exercice": 2018,
+          "total_beneficiaires": 33000,
+          "increase": -1033.0,
+          "is_max": false
+        },
+        {
+          "exercice": 2019,
+          "total_beneficiaires": 32121,
+          "increase": -879.0,
+          "is_max": false
+        },
+        {
+          "exercice": 2020,
+          "total_beneficiaires": 30191,
+          "increase": -1930.0,
+          "is_max": false
+        },
+        {
+          "exercice": 2021,
+          "total_beneficiaires": 29144,
+          "increase": -1047.0,
+          "is_max": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per fiscal year (2014‑2025) showing the total number of beneficiary households (total_beneficiaires) and the year‑over‑year increase in that total (increase). An additional boolean column (is_max) is true for the year that had the largest increase, identifying which year saw the biggest growth."
+    },
+    {
+      "id": "104e3610",
+      "question": "Quel est le périmètre total des cinq zones concerte de Paris issues de l'amendement du PLU du 19 December 2025 qui ont plus de 20 parcelles et la plus grande surface par parcelle, et quelle est la surface moyenne par parcelle de ces cinq zones ?",
+      "keywords": [
+        "concerte"
+      ],
+      "relevant_table_ids": [
+        "plu-annexes-zones-damenagement-concerte"
+      ],
+      "table_aliases": {
+        "Table_0": "plu-annexes-zones-damenagement-concerte"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(surface_per_parcel=lambda df: df['surface'] / df['n_sq_zac'])\n    .loc[lambda df: df['n_sq_zac'] > 20]\n    .nlargest(5, 'surface_per_parcel')\n    .agg({'st_perimet': 'sum', 'surface_per_parcel': 'mean'})\n    .rename({'st_perimet': 'total_perimeter', 'surface_per_parcel': 'avg_surface_per_parcel'})\n    .to_frame()\n    .T\n)",
+      "reference_result": [
+        {
+          "total_perimeter": 17014.64628169,
+          "avg_surface_per_parcel": 14053.7974960312
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with two columns: total_perimeter (sum of st_perimet for the selected five zones, in meters) and avg_surface_per_parcel (average of surface divided by parcels for those zones, in square meters per parcel)."
+    },
+    {
+      "id": "f1ef5bd4",
+      "question": "Quelle est la superficie moyenne des suffrages de 2022 pour les bureaux de vote à Paris qui ont également été utilisés lors de l'élection municipale de 2026 ?",
+      "keywords": [
+        "2026",
+        "2022",
+        "suffrages",
+        "bureaux"
+      ],
+      "relevant_table_ids": [
+        "bureaux_votes_2026",
+        "bureaux-de-votes",
+        "secteurs-des-bureaux-de-vote"
+      ],
+      "table_aliases": {
+        "Table_0": "bureaux_votes_2026",
+        "Table_1": "bureaux-de-votes",
+        "Table_2": "secteurs-des-bureaux-de-vote"
+      },
+      "reference_code": "avg_area = (\n    Table_0.merge(Table_1, on='id_bv', how='inner')\n          .merge(Table_2[['id_bv', 'st_area_shape']], on='id_bv', how='inner')\n          ['st_area_shape']\n          .mean()\n)",
+      "reference_result": [
+        {
+          "result": 97066.3672355734
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average area (in square meters) of voting bureaus that were used in both the 2022 and 2026 municipal elections."
+    },
+    {
+      "id": "94d58f44",
+      "question": "Quelle année entre 2009 et 2017 a présenté la plus grande différence entre la part des crédits d'investissement dans le total des crédits de vote des etats des arrondissements de Paris et la part des crédits d'investissement dans le total des crédits budgetaire m14, et quelles étaient les deux parts cette année ?",
+      "keywords": [
+        "etats",
+        "vote",
+        "budgetaire",
+        "m14"
+      ],
+      "relevant_table_ids": [
+        "budgets-votes-etats-speciaux-darrondissements",
+        "bugdet-votes-principaux"
+      ],
+      "table_aliases": {
+        "Table_0": "budgets-votes-etats-speciaux-darrondissements",
+        "Table_1": "bugdet-votes-principaux"
+      },
+      "reference_code": "import pandas as pd\ntotal_arr = (\n    Table_0.groupby('exercice_comptable')['credits_votes_pmt']\n    .sum()\n    .reset_index(name='total_arr')\n)\ninvest_arr_df = Table_0[Table_0['section_budgetaire_i_f'] == 'Investissement']\ninvest_arr = (\n    invest_arr_df.groupby('exercice_comptable')['credits_votes_pmt']\n    .sum()\n    .reset_index(name='invest_arr')\n)\narr_share = pd.merge(invest_arr, total_arr, on='exercice_comptable', how='inner')\narr_share['share_arr'] = arr_share['invest_arr'] / arr_share['total_arr']\nm14_df = Table_1[Table_1['budget'] == 'M14 Ville']\ntotal_m14 = (\n    m14_df.groupby('exercice_comptable')['credits_votes_pmt']\n    .sum()\n    .reset_index(name='total_m14')\n)\ninvest_m14_df = m14_df[m14_df['section_budgetaire_i_f'] == 'Investissement']\ninvest_m14 = (\n    invest_m14_df.groupby('exercice_comptable')['credits_votes_pmt']\n    .sum()\n    .reset_index(name='invest_m14')\n)\nm14_share = pd.merge(invest_m14, total_m14, on='exercice_comptable', how='inner')\nm14_share['share_m14'] = m14_share['invest_m14'] / m14_share['total_m14']\njoined = pd.merge(\n    arr_share[['exercice_comptable', 'share_arr']],\n    m14_share[['exercice_comptable', 'share_m14']],\n    on='exercice_comptable',\n    how='inner'\n)\njoined['share_diff'] = (joined['share_arr'] - joined['share_m14']).abs()\njoined_sorted = joined.sort_values('share_diff', ascending=False)\nresult = joined_sorted.head(1)",
+      "reference_result": [
+        {
+          "exercice_comptable": 2011,
+          "share_arr": 0.0708887021,
+          "share_m14": 0.4003430353,
+          "share_diff": 0.3294543332
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the fiscal year (2009‑2017) with the largest absolute difference between the investment‑credit share of Paris arrondissement votes and the investment‑credit share of the M14 principal budget, together with the two share values (share_arr and share_m14) and the computed difference (share_diff), all expressed as fractions of their respective totals."
+    },
+    {
+      "id": "baa5263f",
+      "question": "Selon le bilan et effectue, pour chaque année de 2020 à 2024 à Paris, quel est l'écart entre les femmes titularisées comme fonctionnaires permanents et les femmes agents permanents non titulaires ?",
+      "keywords": [
+        "bilan",
+        "effectue"
+      ],
+      "relevant_table_ids": [
+        "titularisations",
+        "bilan-social-effectifs-non-titulaires-permanents"
+      ],
+      "table_aliases": {
+        "Table_0": "titularisations",
+        "Table_1": "bilan-social-effectifs-non-titulaires-permanents"
+      },
+      "reference_code": "bilan = (\n    Table_0\n    .assign(annee_int=lambda df: pd.to_datetime(df['annee']).dt.year)\n    .loc[lambda df: (df['collectivite'].str.lower() == 'ville de paris'.lower()) &\n                    (df['annee_int'] >= 2020) & (df['annee_int'] <= 2024)]\n    .groupby(['annee_int', 'collectivite'], as_index=False)\n    .agg(total_women_bilan=('nombre_de_femmes_titularisees', 'sum'))\n    .rename(columns={'annee_int': 'annee'})\n)\neffectue = (\n    Table_1\n    .loc[lambda df: (df['collectivite'].str.lower() == 'ville de paris'.lower()) &\n                    (df['annee'] >= 2020) & (df['annee'] <= 2024)]\n    .groupby(['annee', 'collectivite'], as_index=False)\n    .agg(total_women_effectue=('nombre_de_femmes', 'sum'))\n)\njoined = bilan.merge(effectue, on=['annee', 'collectivite'], how='inner')\njoined['gap'] = joined['total_women_bilan'] - joined['total_women_effectue']\nresult = joined[['annee', 'gap']]",
+      "reference_result": [
+        {
+          "annee": 2020,
+          "gap": -2836.0
+        },
+        {
+          "annee": 2021,
+          "gap": -3079.0
+        },
+        {
+          "annee": 2022,
+          "gap": -2894.0
+        },
+        {
+          "annee": 2023,
+          "gap": -2939.0
+        },
+        {
+          "annee": 2024,
+          "gap": -3255.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per year (2020‑2024) with a column 'gap' showing the difference: women appointed as permanent civil servants (bilan) minus women non‑titulary permanent agents (effectue)."
+    },
+    {
+      "id": "5c563412",
+      "question": "Quelle est la longueur moyenne des secteurs (leng) des bureaux de vote de Paris présents dans les secteurs de 2012, les données election de 2021, la liste arrondissement‑bv de 2024, le jeu de données centre de 2025 et celui de 2026 ?",
+      "keywords": [
+        "leng",
+        "election",
+        "arrondissement",
+        "bv",
+        "centre",
+        "2025"
+      ],
+      "relevant_table_ids": [
+        "zones-de-rattachement-des-bureaux-de-vote-en-2012",
+        "secteurs-des-bureaux-de-vote-en-2021",
+        "secteurs-des-bureaux-de-vote-2024",
+        "secteurs-des-bureaux-de-vote-2026",
+        "secteurs-des-bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "zones-de-rattachement-des-bureaux-de-vote-en-2012",
+        "Table_1": "secteurs-des-bureaux-de-vote-en-2021",
+        "Table_2": "secteurs-des-bureaux-de-vote-2024",
+        "Table_3": "secteurs-des-bureaux-de-vote-2026",
+        "Table_4": "secteurs-des-bureaux-de-vote-2025"
+      },
+      "reference_code": "avg_leng = (\n    Table_0\n    .merge(Table_1[['id_bv']], on='id_bv')\n    .merge(Table_2[['id_bv']], on='id_bv')\n    .merge(Table_3[['id_bv']], on='id_bv')\n    .merge(Table_4[['id_bv']], on='id_bv')\n    ['shape_leng']\n    .mean()\n)",
+      "reference_result": [
+        {
+          "result": 1475.1947896878
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average sector length (in meters) of voting bureaus that are present in all five datasets."
+    },
+    {
+      "id": "c101a903",
+      "question": "Quel montant total de subventions chaque secteur d'activité a-t-il reçu en 2026 ?",
+      "keywords": [
+        "subventions"
+      ],
+      "relevant_table_ids": [
+        "subventions-associations-votees-"
+      ],
+      "table_aliases": {
+        "Table_0": "subventions-associations-votees-"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['annee_budgetaire'] == 2026]\n    .groupby('secteurs_d_activites_definies_par_l_association', as_index=False)['montant_vote']\n    .sum()\n    .rename(columns={'montant_vote': 'total_amount'})\n)",
+      "reference_result": [
+        {
+          "secteurs_d_activites_definies_par_l_association": "Aides aux associations",
+          "total_amount": 199500
+        },
+        {
+          "secteurs_d_activites_definies_par_l_association": "Communication & média",
+          "total_amount": 34000
+        },
+        {
+          "secteurs_d_activites_definies_par_l_association": "Culture & Arts",
+          "total_amount": 43559960
+        },
+        {
+          "secteurs_d_activites_definies_par_l_association": "Défense des droits et des intérêts",
+          "total_amount": 40000
+        },
+        {
+          "secteurs_d_activites_definies_par_l_association": "Déplacements et transports",
+          "total_amount": 15000
+        },
+        {
+          "secteurs_d_activites_definies_par_l_association": "Economie",
+          "total_amount": 670337
+        },
+        {
+          "secteurs_d_activites_definies_par_l_association": "Education & formation",
+          "total_amount": 4045129
+        },
+        {
+          "secteurs_d_activites_definies_par_l_association": "Emploi",
+          "total_amount": 1032500
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per activity sector showing the total voted amount of subventions awarded in 2026."
+    },
+    {
+      "id": "54828bdc",
+      "question": "En 2017, combien le budget principal a-t-il dépensé pour le chapitre du personnel dans le secteur administratif, combien a-t-il été voté pour le même chapitre dans les budgets annexes du CASVP, combien a-t-il été alloué dans les budgets annexes votés, et quelle part du total combiné chaque source représente‑t‑elle ?",
+      "keywords": [
+        "administratif",
+        "chapitre",
+        "budgets"
+      ],
+      "relevant_table_ids": [
+        "compte-administratif-budget-general-casvp",
+        "budgest-votes-annexes-casvp",
+        "budgets-votes-annexes"
+      ],
+      "table_aliases": {
+        "Table_0": "compte-administratif-budget-general-casvp",
+        "Table_1": "budgest-votes-annexes-casvp",
+        "Table_2": "budgets-votes-annexes"
+      },
+      "reference_code": "principal_spend = Table_0.loc[\n    (Table_0['exercice'] == 2017) &\n    (Table_0['secteur'] == 'ADMINISTRATION GENERALE') &\n    (Table_0['chapitre_budgetaire_texte'] == 'DEPENSES AFFERENTES AU PERSONNEL'),\n    'ca'\n].sum()\ncasvp_voted = Table_1.loc[\n    (Table_1['exercice'] == 2017) &\n    (Table_1['chapitre_budgetaire_texte'] == 'DEPENSES AFFERENTES AU PERSONNEL'),\n    'bp_2017'\n].sum()\nannex_voted = Table_2.loc[\n    (Table_2['exercice_comptable'] == 2017) &\n    (Table_2['chapitre_budgetaire_texte'] == 'DEPENSES AFFERENTES AU PERSONNEL'),\n    'credits_votes_pmt'\n].sum()\ncombined_total = principal_spend + casvp_voted + annex_voted\nprincipal_share = principal_spend / combined_total if combined_total != 0 else pd.NA\ncasvp_share = casvp_voted / combined_total if combined_total != 0 else pd.NA\nannex_share = annex_voted / combined_total if combined_total != 0 else pd.NA\nresult = pd.DataFrame({\n    'principal_spend': [principal_spend],\n    'casvp_voted': [casvp_voted],\n    'annex_voted': [annex_voted],\n    'principal_share': [principal_share],\n    'casvp_share': [casvp_share],\n    'annex_share': [annex_share]\n})",
+      "reference_result": [
+        {
+          "principal_spend": 50410302.910000004,
+          "casvp_voted": 98795740.0,
+          "annex_voted": 0.0,
+          "principal_share": 0.337856979,
+          "casvp_share": 0.662143021,
+          "annex_share": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table with columns principal_spend, casvp_voted, annex_voted (amounts in euros) and their respective shares of the combined total."
+    },
+    {
+      "id": "4ae4666b",
+      "question": "Combien de sites wi‑Fi opérationnels y a-t-il à Paris ?",
+      "keywords": [
+        "wi"
+      ],
+      "relevant_table_ids": [
+        "sites-disposant-du-service-paris-wi-fi"
+      ],
+      "table_aliases": {
+        "Table_0": "sites-disposant-du-service-paris-wi-fi"
+      },
+      "reference_code": "operational_site_count = Table_0.loc[Table_0['etat2'] == 'Opérationnel', 'idpw'].count()",
+      "reference_result": [
+        {
+          "0": 293
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of Wi‑Fi sites in Paris whose status is \"Opérationnel\"."
+    },
+    {
+      "id": "40189a8e",
+      "question": "Dans le PLU bioclimatique de Paris 2025, quelle combinaison de classe de hauteur et de code de cour parmi les filets présente la longueur moyenne la plus élevée, et quelles sont la longueur moyenne et la longueur totale de cette combinaison ?",
+      "keywords": [
+        "filets"
+      ],
+      "relevant_table_ids": [
+        "plub_filet"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_filet"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby(['haut', 'cour'], as_index=False)\n    .agg(avg_length=('st_length_shape', 'mean'), total_length=('st_length_shape', 'sum'))\n    .sort_values(by='avg_length', ascending=False)\n    .head(1)\n    .loc[:, ['haut', 'cour', 'avg_length', 'total_length']]\n)",
+      "reference_result": [
+        {
+          "haut": "N",
+          "cour": "L",
+          "avg_length": 144.4166078554,
+          "total_length": 288.8332157108
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the height class (haut), court code (cour), the highest average length of filets (in meters), and the corresponding total length (in meters) for that combination."
+    },
+    {
+      "id": "ba2f2dfa",
+      "question": "Combien de familles ont reçu l'aide au logement Paris Logement Familles en 2017 ?",
+      "keywords": [
+        "familles",
+        "logement"
+      ],
+      "relevant_table_ids": [
+        "nombre-de-beneficiaires-paris-logement-familles"
+      ],
+      "table_aliases": {
+        "Table_0": "nombre-de-beneficiaires-paris-logement-familles"
+      },
+      "reference_code": "total_2017 = (\n    Table_0[Table_0['exercice'] == 2017]\n    .groupby('arrondissement', as_index=False)\n    .agg(max_beneficiaries=('beneficiaires', 'max'))['max_beneficiaries']\n    .sum()\n)",
+      "reference_result": [
+        {
+          "0": 19155
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of distinct families that received the Paris Logement Familles housing allowance in the year 2017."
+    },
+    {
+      "id": "ba1a77d1",
+      "question": "Pour chaque arrondissement de Paris, quel est le nombre total de secteurs de bureaux de vote en combinant les données created de 2020, les suffrages de 2022, les secteurs d'élection de 2024, les données st de 2025 et les données centre de 2026 ?",
+      "keywords": [
+        "arrondissement",
+        "centre",
+        "2022",
+        "suffrages",
+        "2025",
+        "st",
+        "2020",
+        "created"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote-2024",
+        "secteurs-des-bureaux-de-vote-2026",
+        "secteurs-des-bureaux-de-vote",
+        "secteurs-des-bureaux-de-vote-2025",
+        "secteurs-des-bureaux-de-vote-en-2020"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote-2024",
+        "Table_1": "secteurs-des-bureaux-de-vote-2026",
+        "Table_2": "secteurs-des-bureaux-de-vote",
+        "Table_3": "secteurs-des-bureaux-de-vote-2025",
+        "Table_4": "secteurs-des-bureaux-de-vote-en-2020"
+      },
+      "reference_code": "df0 = Table_0.rename(columns={'arrondissement_bv': 'arrondissement'})\ncombined = pd.concat([\n    df0[['id_bv', 'arrondissement']],\n    Table_1[['id_bv', 'arrondissement']],\n    Table_2[['id_bv', 'arrondissement']],\n    Table_3[['id_bv', 'arrondissement']],\n    Table_4[['id_bv', 'arrondissement']]\n], ignore_index=True)\nresult = (\n    combined\n    .groupby('arrondissement', as_index=False)\n    .agg(sector_count=('id_bv', 'count'))\n    .sort_values('sector_count', ascending=False)\n)",
+      "reference_result": [
+        {
+          "arrondissement": 15,
+          "sector_count": 478
+        },
+        {
+          "arrondissement": 20,
+          "sector_count": 380
+        },
+        {
+          "arrondissement": 13,
+          "sector_count": 358
+        },
+        {
+          "arrondissement": 19,
+          "sector_count": 356
+        },
+        {
+          "arrondissement": 17,
+          "sector_count": 342
+        },
+        {
+          "arrondissement": 16,
+          "sector_count": 340
+        },
+        {
+          "arrondissement": 18,
+          "sector_count": 340
+        },
+        {
+          "arrondissement": 12,
+          "sector_count": 320
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per arrondissement with the total number of voting bureau sectors combined from the 2020, 2022, 2024, 2025, and 2026 datasets, sorted descending by count."
+    },
+    {
+      "id": "1858b07f",
+      "question": "Combien de logements sociaux financés pour rénovation à Paris en 2013 ?",
+      "keywords": [
+        "sociaux"
+      ],
+      "relevant_table_ids": [
+        "indicateur-dlh-logements-sociaux-finances-pour-renovation"
+      ],
+      "table_aliases": {
+        "Table_0": "indicateur-dlh-logements-sociaux-finances-pour-renovation"
+      },
+      "reference_code": "total_units = Table_0.loc[Table_0['annee_de_financement'] == 2013, 'nombre_de_logements_sociaux_finances'].sum()",
+      "reference_result": [
+        {
+          "result": 5885.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of social housing units in Paris that were financed for energy renovation in the year 2013."
+    },
+    {
+      "id": "49fb6861",
+      "question": "Quel lieu, Paris ou Hors Paris, possède le plus grand nombre total de paves dans le Plan de voirie – Pavés mosaïques du Plan de voirie de Paris ?",
+      "keywords": [
+        "paves"
+      ],
+      "relevant_table_ids": [
+        "plan-de-voirie-paves-mosaiques-du-plan-de-voirie-de-paris"
+      ],
+      "table_aliases": {
+        "Table_0": "plan-de-voirie-paves-mosaiques-du-plan-de-voirie-de-paris"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby(['localisation'])\n    .agg(pave_count=('objectid', 'count'))\n    .reset_index()\n    .sort_values(by='pave_count', ascending=False)\n    .head(1)\n    .iloc[0]['localisation']\n)",
+      "reference_result": [
+        {
+          "result": "Paris"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "A single word, either 'Paris' or 'Hors Paris', indicating which location contains more pavement tiles."
+    },
+    {
+      "id": "07646671",
+      "question": "Quelles sont les cinq catégories de prescriptions qui possèdent la plus grande surface totale de prescriptions surfaciques pour les réglementations de hauteur dans le PLU de Paris 2024, et quel est le périmètre moyen de leurs prescriptions ?",
+      "keywords": [
+        "surfaciques"
+      ],
+      "relevant_table_ids": [
+        "plub_gpu_ps"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_gpu_ps"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[lambda df: (\n        df['idurba'] == '75056_PLU_20241120') &\n        (\n            df['lib_attr2'].fillna('').str.lower() == 'hauteur'\n        ) |\n        df['libelle'].str.lower().str.contains('hauteur')]\n    .groupby('libelle', as_index=False)\n    .agg(\n        total_area=('st_area_shape', 'sum'),\n        average_perimeter=('st_perimeter_shape', 'mean')\n    )\n    .sort_values('total_area', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "libelle": "Hauteur plafond",
+          "total_area": 83872255.33622397,
+          "average_perimeter": 4002.8595095824
+        },
+        {
+          "libelle": "Hauteur maximale des constructions",
+          "total_area": 168118.603675716,
+          "average_perimeter": 275.3531621993
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table of the top five prescription categories (libelle) for height regulations, sorted by descending total surfaciques area, showing each category's total area (sum of st_area_shape) and the average perimeter (mean of st_perimeter_shape)."
+    },
+    {
+      "id": "c5859f03",
+      "question": "Quels sont les trois arrondissements qui ont le périmètre total le plus élevé des secteurs de vote 2025, lorsque le périmètre de chaque secteur est pondéré par le nombre de bureaux de vote 2026 qu’il contient ?",
+      "keywords": [
+        "2026",
+        "2025",
+        "secteurs"
+      ],
+      "relevant_table_ids": [
+        "bureaux_votes_2026",
+        "secteurs-des-bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "bureaux_votes_2026",
+        "Table_1": "secteurs-des-bureaux-de-vote-2025"
+      },
+      "reference_code": "result = (\n    Table_0\n    .merge(Table_1[['id_bv', 'arrondissement', 'st_perimeter_shape']], on='id_bv', how='inner')\n    .groupby('arrondissement', as_index=False)['st_perimeter_shape']\n    .sum()\n    .rename(columns={'st_perimeter_shape': 'total_weighted_perimeter'})\n    .sort_values('total_weighted_perimeter', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "arrondissement": 15,
+          "total_weighted_perimeter": 133136.7332127301
+        },
+        {
+          "arrondissement": 13,
+          "total_weighted_perimeter": 113938.7453987721
+        },
+        {
+          "arrondissement": 16,
+          "total_weighted_perimeter": 111455.3204500134
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each row showing the arrondissement number and the summed perimeter (in meters) of its 2025 voting sectors weighted by the number of 2026 voting stations in each sector, sorted descending by the weighted perimeter."
+    },
+    {
+      "id": "ccf962f6",
+      "question": "Combien de panneaux électoraux ont été placés dans le 1er arrondissement de Paris pour l'élection européenne de juin 2024 ?",
+      "keywords": [
+        "electoraux"
+      ],
+      "relevant_table_ids": [
+        "emplacement_panneaux_elections"
+      ],
+      "table_aliases": {
+        "Table_0": "emplacement_panneaux_elections"
+      },
+      "reference_code": "panel_count = Table_0[Table_0['arrdt'] == 1].shape[0]",
+      "reference_result": [
+        {
+          "result": 10
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of electoral panels placed in the 1st arrondissement for the June 2024 European Parliament election."
+    },
+    {
+      "id": "1e596de5",
+      "question": "Quel était le montant total des recettes du budget m14 en 2015 ?",
+      "keywords": [
+        "m14"
+      ],
+      "relevant_table_ids": [
+        "comptes-administratifs-principaux-ville-departement"
+      ],
+      "table_aliases": {
+        "Table_0": "comptes-administratifs-principaux-ville-departement"
+      },
+      "reference_code": "total_receipts = Table_0.loc[(Table_0['budget'] == 'M14 Ville') & (Table_0['sens_depense_recette'] == 'Recettes') & (Table_0['exercice_comptable'] == 2015), 'mandate_titre_apres_regul'].sum()",
+      "reference_result": [
+        {
+          "result": 7815544191.27
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total monetary amount of receipts for the M14 budget in fiscal year 2015, expressed in euros."
+    },
+    {
+      "id": "ecdae655",
+      "question": "Combien de liaisons PPC sont proposées dans la version 2024 du PLU bioclimatique de Paris ?",
+      "keywords": [
+        "liaisons"
+      ],
+      "relevant_table_ids": [
+        "plub_lpcppc"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_lpcppc"
+      },
+      "reference_code": "ppc_count = Table_0[Table_0['type'] == 'PPC'].shape[0]",
+      "reference_result": [
+        {
+          "result": 161
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing how many liaisons of type PPC are proposed in the 2024 PLU."
+    },
+    {
+      "id": "603d42f1",
+      "question": "Quel bureau de vote du 7e arrondissement avait la plus grande superficie lors des suffrages de 2022 ?",
+      "keywords": [
+        "2022",
+        "suffrages"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote",
+        "bureaux-de-vote-2024"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote",
+        "Table_1": "bureaux-de-vote-2024"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['arrondissement'] == 7, ['arrondissement', 'st_area_shape', 'num_bv']]\n    .sort_values(by='st_area_shape', ascending=False)\n    .head(1)\n    .merge(\n        Table_1,\n        left_on=['arrondissement', 'num_bv'],\n        right_on=['arrrondissement_bv', 'numero_bv'],\n        how='inner'\n    )\n    [['num_bv', 'adresse_bv']]\n)",
+      "reference_result": [
+        {
+          "num_bv": 2,
+          "adresse_bv": "27 RUE LAS CASES"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the bureau number (num_bv) and its address (adresse_bv) for the voting bureau in the 7th arrondissement that has the largest sector area in the 2022 data."
+    },
+    {
+      "id": "c5b2dbaf",
+      "question": "Combien d'associations sportives sont listées à Paris ?",
+      "keywords": [
+        "associations"
+      ],
+      "relevant_table_ids": [
+        "liste_des_associations_parisiennes"
+      ],
+      "table_aliases": {
+        "Table_0": "liste_des_associations_parisiennes"
+      },
+      "reference_code": "sport_assoc_count = (\n    Table_0\n    .loc[lambda df: (df['sa_secteur_d_activit_1'] == 'Sport') & (df['cp_adresse_ville'] == 'PARIS')]\n    .shape[0]\n)",
+      "reference_result": [
+        {
+          "result": 27570
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of sport associations located in Paris."
+    },
+    {
+      "id": "7bfe2cc6",
+      "question": "Parmi les commerces gérés par la SEMAEST à Paris au 31 December 2015, quelle catégorie d'activité représente le plus grand nombre de locaux et quel pourcentage du total cela représente-t-il ?",
+      "keywords": [
+        "commerces"
+      ],
+      "relevant_table_ids": [
+        "commerces-semaest"
+      ],
+      "table_aliases": {
+        "Table_0": "commerces-semaest"
+      },
+      "reference_code": "df = Table_0[Table_0['ville'] == 'Paris']\ntotal_commerces = df['id_carto'].count()\ncat_counts = (\n    df.groupby('categorie_activite')\n      .agg(cat_count=('id_carto', 'count'))\n      .reset_index()\n)\ncat_counts['share'] = cat_counts['cat_count'] / total_commerces\ncat_counts['percentage'] = cat_counts['share'] * 100\nresult = cat_counts.sort_values(by='percentage', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "categorie_activite": "CULTUREL",
+          "cat_count": 69,
+          "share": 0.2218649518,
+          "percentage": 22.1864951768
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with the activity category that has the most premises and its percentage of the total premises in Paris as of 31 December 2015."
+    },
+    {
+      "id": "d18cf5d9",
+      "question": "Quel arrondissement a eu la plus grande surface totale des sites de chantier en 2019, et quelle était cette surface totale ?",
+      "keywords": [
+        "2019",
+        "chantier"
+      ],
+      "relevant_table_ids": [
+        "chantiers-a-paris-copie"
+      ],
+      "table_aliases": {
+        "Table_0": "chantiers-a-paris-copie"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['date_debut'].str.startswith('2019')]\n    .groupby('cp_arrondissement', as_index=False)\n    .agg(total_surface=('surface', 'sum'))\n    .sort_values('total_surface', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "cp_arrondissement": "75007",
+          "total_surface": 768439.16
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the arrondissement code with the highest total surface area of chantier sites in 2019 and the corresponding total surface area (in square meters)."
+    },
+    {
+      "id": "46c9eb36",
+      "question": "Quelle rue à Paris a eu la plus longue durée moyenne des evenements de fermeture de route qui ont commencé en 2025 ?",
+      "keywords": [
+        "evenements"
+      ],
+      "relevant_table_ids": [
+        "circulation_evenement"
+      ],
+      "table_aliases": {
+        "Table_0": "circulation_evenement"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(\n        starttime=pd.to_datetime(Table_0['starttime']),\n        endtime=pd.to_datetime(Table_0['endtime'])\n    )\n    .loc[lambda d: (d['type'] == 'ROAD_CLOSED') & (d['starttime'].dt.year == 2025)]\n    .assign(duration_days=lambda d: (d['endtime'] - d['starttime']).dt.total_seconds() / 86400)\n    .groupby('street', as_index=False)\n    .agg(avg_duration=('duration_days', 'mean'))\n    .sort_values('avg_duration', ascending=False)\n    .head(1)\n    [['street']]\n)",
+      "reference_result": [
+        {
+          "street": "Av_Clichy"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the street with the highest average duration (in days) among road‑closed events that started in 2025."
+    },
+    {
+      "id": "c0d0676e",
+      "question": "Combien de suffrages ont été mis en place pour l'élection de Paris 2021 ?",
+      "keywords": [
+        "suffrages"
+      ],
+      "relevant_table_ids": [
+        "bureaux-de-vote-en-2021"
+      ],
+      "table_aliases": {
+        "Table_0": "bureaux-de-vote-en-2021"
+      },
+      "reference_code": "total_stations = Table_0.loc[Table_0['cp'].between(75001, 75020), 'objectid'].count()",
+      "reference_result": [
+        {
+          "0": 898
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of voting stations (suffrages) that were set up for the 2021 Paris election."
+    },
+    {
+      "id": "c4cb46a9",
+      "question": "Dans les comptes de Paris pour 2021, quel était le montant total des dépenses pour chaque catégorie budgétaire ?",
+      "keywords": [
+        "comptes"
+      ],
+      "relevant_table_ids": [
+        "comptes-administratifs-budgets-annexes"
+      ],
+      "table_aliases": {
+        "Table_0": "comptes-administratifs-budgets-annexes"
+      },
+      "reference_code": "result = (\n    Table_0[(Table_0['exercice_comptable'] == 2021) & (Table_0['sens_depense_recette'] == 'Dépenses')]\n    .groupby('budget', as_index=False)['mandate_titre_apres_regul']\n    .sum()\n    .rename(columns={'mandate_titre_apres_regul': 'expense_total_2021'})\n)",
+      "reference_result": [
+        {
+          "budget": "M22 ASE",
+          "expense_total_2021": 65557187.39
+        },
+        {
+          "budget": "M4 TAM",
+          "expense_total_2021": 47415509.47
+        },
+        {
+          "budget": "M49 Assainissement",
+          "expense_total_2021": 167755686.73
+        },
+        {
+          "budget": "M49 Eau",
+          "expense_total_2021": 2089862.73
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per budget annex (column 'budget') with the total expense amount for 2021 in euros (column 'expense_total_2021')."
+    },
+    {
+      "id": "1e1ae9a4",
+      "question": "Parmi les aires piétonnes qui sont des rues scolaires, quel arrondissement contient le plus de zones, et quelle est la date de publication la plus ancienne d’une zone dans cet arrondissement ?",
+      "keywords": [
+        "aires"
+      ],
+      "relevant_table_ids": [
+        "aires-pietonnes"
+      ],
+      "table_aliases": {
+        "Table_0": "aires-pietonnes"
+      },
+      "reference_code": "school_df = Table_0[Table_0['rue_aux_ecoles'] == 'Oui']\ntop_arr = (\n    school_df.groupby('arrondissement')\n    .size()\n    .reset_index(name='school_zone_count')\n    .sort_values('school_zone_count', ascending=False)\n    .head(1)\n    .assign(top_arrondissement=lambda x: x['arrondissement'])\n    ['top_arrondissement'].iat[0]\n)\nresult = (\n    school_df[school_df['arrondissement'] == top_arr]\n    .groupby('arrondissement', as_index=False)\n    .agg(earliest_paru=('paru_bovp', 'min'))\n)\nresult",
+      "reference_result": [
+        {
+          "arrondissement": 20,
+          "earliest_paru": "2020-09-15T02:00:00+00:00"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table with two columns: the arrondissement that has the highest number of school‑street pedestrian zones, and the earliest publication date (paru_bovp) among those zones."
+    },
+    {
+      "id": "43bf80cc",
+      "question": "According to the City of Paris climate budget evaluation (DTEC), how did the amount of resultats favourables change from year to year for each public policy between 2020 and 2025, and which three policies experienced the greatest total increase in resultats favourables over that period?",
+      "keywords": [
+        "resultats"
+      ],
+      "relevant_table_ids": [
+        "evaluation-climat-budget_par_politique_publique"
+      ],
+      "table_aliases": {
+        "Table_0": "evaluation-climat-budget_par_politique_publique"
+      },
+      "reference_code": "agg = Table_0.groupby(['politique_publique', 'annee'])['resultats_favorables'].sum().reset_index()\npivot = agg.pivot(index='politique_publique', columns='annee', values='resultats_favorables')\npivot = pivot.rename(columns=lambda x: f'fav_{x}')\nfor yr in range(2021, 2026):\n    pivot[f'diff_{yr}'] = pivot[f'fav_{yr}'] - pivot[f'fav_{yr-1}']\npivot['total_increase'] = pivot['fav_2025'] - pivot['fav_2020']\nresult = pivot.reset_index().sort_values(by='total_increase', ascending=False)\nresult",
+      "reference_result": [
+        {
+          "politique_publique": "7 - Environnement",
+          "fav_2020": 230675490.44992,
+          "fav_2021": 261127616.713604,
+          "fav_2022": 512858240.3809578,
+          "fav_2023": 318993239.68192375,
+          "fav_2024": 371394329.9029782,
+          "fav_2025": 352322204.4191884,
+          "diff_2021": 30452126.263684005,
+          "diff_2022": 251730623.66735378,
+          "diff_2023": -193865000.69903404,
+          "diff_2024": 52401090.221054435,
+          "diff_2025": -19072125.4837898,
+          "total_increase": 121646713.96926838
+        },
+        {
+          "politique_publique": "8 - Transports",
+          "fav_2020": 526786280.6419999,
+          "fav_2021": 573692828.613334,
+          "fav_2022": 648543631.2976303,
+          "fav_2023": 716723519.4013547,
+          "fav_2024": 701270498.444351,
+          "fav_2025": 631095758.3820271,
+          "diff_2021": 46906547.97133404,
+          "diff_2022": 74850802.68429637,
+          "diff_2023": 68179888.10372436,
+          "diff_2024": -15453020.957003713,
+          "diff_2025": -70174740.06232381,
+          "total_increase": 104309477.74002725
+        },
+        {
+          "politique_publique": "5 - Aménagement des territoires et habitat",
+          "fav_2020": 98300052.2476,
+          "fav_2021": 55399960.11658709,
+          "fav_2022": 151830556.6140655,
+          "fav_2023": 179879705.76620522,
+          "fav_2024": 178736839.42473605,
+          "fav_2025": 183287693.9154951,
+          "diff_2021": -42900092.13101292,
+          "diff_2022": 96430596.49747841,
+          "diff_2023": 28049149.152139723,
+          "diff_2024": -1142866.3414691687,
+          "diff_2025": 4550854.490759045,
+          "total_increase": 84987641.6678951
+        },
+        {
+          "politique_publique": "3 - Culture, vie sociale, jeunesse, sports et loisirs",
+          "fav_2020": 5489792.8316,
+          "fav_2021": 28464129.95472,
+          "fav_2022": 143479163.93184966,
+          "fav_2023": 77875645.0321437,
+          "fav_2024": 51697051.899735,
+          "fav_2025": 51354467.18385198,
+          "diff_2021": 22974337.123120002,
+          "diff_2022": 115015033.97712965,
+          "diff_2023": -65603518.89970596,
+          "diff_2024": -26178593.132408693,
+          "diff_2025": -342584.715883024,
+          "total_increase": 45864674.35225198
+        },
+        {
+          "politique_publique": "2 - Enseignement, formation professionnelle et apprentissage",
+          "fav_2020": 48357317.648,
+          "fav_2021": 12275770.487168005,
+          "fav_2022": 62635565.067229584,
+          "fav_2023": 54506743.11887961,
+          "fav_2024": 54981740.99899999,
+          "fav_2025": 76884936.835,
+          "diff_2021": -36081547.160831995,
+          "diff_2022": 50359794.58006158,
+          "diff_2023": -8128821.948349975,
+          "diff_2024": 474997.8801203817,
+          "diff_2025": 21903195.836000003,
+          "total_increase": 28527619.18699999
+        },
+        {
+          "politique_publique": "4 - Santé",
+          "fav_2020": 0.0,
+          "fav_2021": 690061.2219519999,
+          "fav_2022": 6891383.23083682,
+          "fav_2023": 7417674.439999999,
+          "fav_2024": 6374456.834401001,
+          "fav_2025": 2452706.577267,
+          "diff_2021": 690061.2219519999,
+          "diff_2022": 6201322.00888482,
+          "diff_2023": 526291.2091631787,
+          "diff_2024": -1043217.6055989973,
+          "diff_2025": -3921750.2571340012,
+          "total_increase": 2452706.577267
+        },
+        {
+          "politique_publique": "1 - Sécurité",
+          "fav_2020": 0.0,
+          "fav_2021": 863.224152,
+          "fav_2022": 3431021.629147928,
+          "fav_2023": 646716.8499572816,
+          "fav_2024": 0.0,
+          "fav_2025": 0.0,
+          "diff_2021": 863.224152,
+          "diff_2022": 3430158.404995928,
+          "diff_2023": -2784304.7791906465,
+          "diff_2024": -646716.8499572816,
+          "diff_2025": 0.0,
+          "total_increase": 0.0
+        },
+        {
+          "politique_publique": "6 - Action économique",
+          "fav_2020": 8439122.416573636,
+          "fav_2021": 13958841.598648,
+          "fav_2022": 6704426.922850658,
+          "fav_2023": 7125495.87,
+          "fav_2024": 10479266.9,
+          "fav_2025": 7345077.795354999,
+          "diff_2021": 5519719.182074364,
+          "diff_2022": -7254414.675797342,
+          "diff_2023": 421068.9471493419,
+          "diff_2024": 3353771.0300000003,
+          "diff_2025": -3134189.1046450017,
+          "total_increase": -1094044.6212186376
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per public policy showing resultats_favorables for each year 2020‑2025, the year‑to‑year differences (2021‑2020, 2022‑2021, 2023‑2022, 2024‑2023, 2025‑2024), and the total increase from 2020 to 2025, sorted descending by total increase so the top three policies are the first rows."
+    },
+    {
+      "id": "ce8cb735",
+      "question": "Quelle catégorie de document a été la plus réservée parmi les 1000 titres les plus réservés dans les bibliothèques de prêt de Paris en 2022, et combien de fois a-t-elle été réservée au total ?",
+      "keywords": [
+        "1000"
+      ],
+      "relevant_table_ids": [
+        "les-1000-titres-les-plus-reserves-dans-les-bibliotheques-de-pret"
+      ],
+      "table_aliases": {
+        "Table_0": "les-1000-titres-les-plus-reserves-dans-les-bibliotheques-de-pret"
+      },
+      "reference_code": "result = (\n    Table_0.groupby('type_de_document', dropna=False)['reservations']\n    .sum()\n    .reset_index(name='total_reservations')\n    .sort_values('total_reservations', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "type_de_document": "Livre adulte",
+          "total_reservations": 35729.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the document type that accumulated the highest total number of reservations among the top 1000 items and the corresponding total reservation count."
+    },
+    {
+      "id": "37f2cae1",
+      "question": "Which five arrondissements have the strongest positive correlation between sector length in 2012 and sector perimeter in 2025, considering only voting bureaus that are present in the 2021 election, the 2024 arrondissement‑bv list, and the 2026 centre dataset, and what are the correlation values?",
+      "keywords": [
+        "election",
+        "arrondissement",
+        "bv",
+        "centre",
+        "2025"
+      ],
+      "relevant_table_ids": [
+        "zones-de-rattachement-des-bureaux-de-vote-en-2012",
+        "secteurs-des-bureaux-de-vote-en-2021",
+        "secteurs-des-bureaux-de-vote-2024",
+        "secteurs-des-bureaux-de-vote-2026",
+        "secteurs-des-bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "zones-de-rattachement-des-bureaux-de-vote-en-2012",
+        "Table_1": "secteurs-des-bureaux-de-vote-en-2021",
+        "Table_2": "secteurs-des-bureaux-de-vote-2024",
+        "Table_3": "secteurs-des-bureaux-de-vote-2026",
+        "Table_4": "secteurs-des-bureaux-de-vote-2025"
+      },
+      "reference_code": "result = (\n    Table_0\n    .merge(Table_1[['id_bv']], on='id_bv', how='inner')\n    .merge(Table_2[['id_bv']], on='id_bv', how='inner')\n    .merge(Table_3[['id_bv']], on='id_bv', how='inner')\n    .merge(Table_4[['id_bv', 'st_perimeter_shape', 'arrondissement']], on='id_bv', how='inner')\n    .groupby('arrondisse')\n    .apply(lambda g: g['shape_leng'].corr(g['st_perimeter_shape']))\n    .reset_index(name='corr_val')\n    .sort_values('corr_val', ascending=False)\n    .head(5)\n)",
+      "reference_result": [
+        {
+          "arrondisse": 1,
+          "corr_val": 0.9999907234
+        },
+        {
+          "arrondisse": 8,
+          "corr_val": 0.9999512954
+        },
+        {
+          "arrondisse": 20,
+          "corr_val": 0.999854444
+        },
+        {
+          "arrondisse": 6,
+          "corr_val": 0.9989582721
+        },
+        {
+          "arrondisse": 15,
+          "corr_val": 0.9949072884
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Top five arrondissements with the highest positive Pearson correlation between 2012 sector length and 2025 sector perimeter, showing the correlation coefficient for each."
+    },
+    {
+      "id": "fff80e8f",
+      "question": "Listez les trois premiers secteurs administratifs selon la length totale des routes prioritaire à l'intérieur du QAA, et indiquez la part de chaque sector de la length globale des routes prioritaire dans le QAA.",
+      "keywords": [
+        "prioritaire",
+        "sector",
+        "length",
+        "QAA"
+      ],
+      "relevant_table_ids": [
+        "parcoursqaa"
+      ],
+      "table_aliases": {
+        "Table_0": "parcoursqaa"
+      },
+      "reference_code": "overall_total = Table_0[Table_0['b_perim_qaa'] == 'Tracé dans QAA']['st_length_shape'].sum()\nresult = (\n    Table_0[Table_0['b_perim_qaa'] == 'Tracé dans QAA']\n    .groupby('secteur_admin', as_index=False)['st_length_shape']\n    .sum()\n    .rename(columns={'st_length_shape': 'sector_total'})\n)\nresult['share'] = result['sector_total'] / overall_total\nresult = result.sort_values(by='sector_total', ascending=False).head(3)",
+      "reference_result": [
+        {
+          "secteur_admin": "9",
+          "sector_total": 3421.9079490449,
+          "share": 0.1081002877
+        },
+        {
+          "secteur_admin": "12",
+          "sector_total": 3356.611826088,
+          "share": 0.1060375409
+        },
+        {
+          "secteur_admin": "11",
+          "sector_total": 2377.2616830427,
+          "share": 0.0750992358
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows (one per top sector) showing secteur_admin, the total length of \"Tracé dans QAA\" routes for that sector, and the sector's percentage share of the overall QAA prioritaire route length."
+    },
+    {
+      "id": "90deba81",
+      "question": "Pour les cinq arrondissements ayant la plus grande superficie totale des bureaux de vote lors des suffrages 2022, quelle est l'adresse du bureau qui présentait le périmètre le plus long en 2022 dans chaque arrondissement ?",
+      "keywords": [
+        "2022",
+        "suffrages"
+      ],
+      "relevant_table_ids": [
+        "secteurs-des-bureaux-de-vote",
+        "bureaux-de-vote-2024"
+      ],
+      "table_aliases": {
+        "Table_0": "secteurs-des-bureaux-de-vote",
+        "Table_1": "bureaux-de-vote-2024"
+      },
+      "reference_code": "import pandas as pd\narea_by_arr = (\n    Table_0.groupby('arrondissement', as_index=False)['st_area_shape']\n    .sum()\n    .rename(columns={'st_area_shape': 'total_area'})\n)\ntop5_arr = (\n    area_by_arr.sort_values('total_area', ascending=False)\n    .head(5)\n)\nfiltered = Table_0[Table_0['arrondissement'].isin(top5_arr['arrondissement'])]\nfiltered = filtered.assign(\n    perim_rank=filtered.groupby('arrondissement')['st_perimeter_shape']\n    .rank(method='first', ascending=False)\n)\nlongest_perim = filtered[filtered['perim_rank'] == 1]\nmerged = longest_perim.merge(\n    Table_1,\n    left_on=['arrondissement', 'num_bv'],\n    right_on=['arrrondissement_bv', 'numero_bv'],\n    how='inner'\n)\nresult = merged[['arrondissement', 'adresse_bv']]",
+      "reference_result": [
+        {
+          "arrondissement": 13,
+          "adresse_bv": "21 RUE PRIMO LEVI"
+        },
+        {
+          "arrondissement": 16,
+          "adresse_bv": "10 RUE CHERNOVIZ"
+        },
+        {
+          "arrondissement": 15,
+          "adresse_bv": "95 RUE BALARD"
+        },
+        {
+          "arrondissement": 19,
+          "adresse_bv": "141 BOULEVARD MACDONALD"
+        },
+        {
+          "arrondissement": 12,
+          "adresse_bv": "4 RUE DE POMMARD"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per arrondissement (the five with the highest total sector area in 2022), showing the address of the bureau in that arrondissement that had the longest perimeter in 2022."
+    },
+    {
+      "id": "4cf2b2c8",
+      "question": "Comment la dépense moyenne reglementaire pour chaque type d'opération (Investissement, Pour Ordre, Réel) a-t-elle évolué entre 2013 (budget municipal m14), 2018 (budget principal de la ville de Paris) et 2021 (budget principal de la ville de Paris), et quel type d'opération a présenté la plus forte augmentation globale ?",
+      "keywords": [
+        "reglementaire",
+        "budget",
+        "m14"
+      ],
+      "relevant_table_ids": [
+        "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "budgets-votes-principaux-a-partir-de-2019-m57-ville-departement",
+        "comptes-administratifs-principaux-ville-departement"
+      ],
+      "table_aliases": {
+        "Table_0": "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "Table_1": "budgets-votes-principaux-a-partir-de-2019-m57-ville-departement",
+        "Table_2": "comptes-administratifs-principaux-ville-departement"
+      },
+      "reference_code": "df_2013 = Table_2.query(\"budget == 'M14 Ville' and sens_depense_recette == 'Dépenses' and exercice_comptable == 2013\")\navg_2013 = (\n    df_2013.groupby('type_d_operation_r_o_i_m')['mandate_titre_apres_regul']\n    .mean()\n    .reset_index()\n    .rename(columns={'mandate_titre_apres_regul': 'avg_2013'})\n)\ndf_2018 = Table_0.query(\"budget == 'M57 Ville' and sens_depense_recette == 'Dépenses' and exercice_comptable == 2018\")\navg_2018 = (\n    df_2018.groupby('type_d_operation_r_o_i_m')['budgets_votes_pmt']\n    .mean()\n    .reset_index()\n    .rename(columns={'budgets_votes_pmt': 'avg_2018'})\n)\ndf_2021 = Table_1.query(\"budget == 'M57 Ville' and sens_depense_recette == 'Dépenses' and exercice_comptable == 2021\")\navg_2021 = (\n    df_2021.groupby('type_d_operation_r_o_i_m')['budget_vote_pmt']\n    .mean()\n    .reset_index()\n    .rename(columns={'budget_vote_pmt': 'avg_2021'})\n)\nmerged = (\n    avg_2013.merge(avg_2018, on='type_d_operation_r_o_i_m', how='inner')\n    .merge(avg_2021, on='type_d_operation_r_o_i_m', how='inner')\n)\nmerged['increase'] = merged['avg_2021'] - merged['avg_2013']\nmerged['rank'] = merged['increase'].rank(method='dense', ascending=False).astype(int)\nresult = merged[['type_d_operation_r_o_i_m', 'avg_2013', 'avg_2018', 'avg_2021', 'increase', 'rank']]",
+      "reference_result": [
+        {
+          "type_d_operation_r_o_i_m": "Investissement",
+          "avg_2013": 5753036.5108,
+          "avg_2018": 20872680.291,
+          "avg_2021": 22656369.0,
+          "increase": 16903332.4892,
+          "rank": 1
+        },
+        {
+          "type_d_operation_r_o_i_m": "Pour Ordre",
+          "avg_2013": 25000485.113913044,
+          "avg_2018": 62384700.93777779,
+          "avg_2021": 14993184.6,
+          "increase": -10007300.513913045,
+          "rank": 3
+        },
+        {
+          "type_d_operation_r_o_i_m": "Réel",
+          "avg_2013": 3435641.13298419,
+          "avg_2018": 2814037.2663078797,
+          "avg_2021": 706534.378250591,
+          "increase": -2729106.754733599,
+          "rank": 2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per operation type (Investissement, Pour Ordre, Réel) with columns avg_2013, avg_2018, avg_2021, increase (avg_2021 - avg_2013) and rank (1 = largest increase)."
+    },
+    {
+      "id": "855fbfde",
+      "question": "Combien de votes ont été exprimés au 2eme tour de l'élection législative de 2025 pour la 2eme circonscription de Paris ?",
+      "keywords": [
+        "2eme"
+      ],
+      "relevant_table_ids": [
+        "elections-legislative-partielle-2025-2eme-circonscription-2emetour"
+      ],
+      "table_aliases": {
+        "Table_0": "elections-legislative-partielle-2025-2eme-circonscription-2emetour"
+      },
+      "reference_code": "total_votes = Table_0.loc[(Table_0['tour'] == 2) & (Table_0['annee'] == 2025), 'nb_votant'].sum()",
+      "reference_result": [
+        {
+          "result": 18300.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of votes cast (nb_votant) in the second round of the 2025 legislative election for Paris's 2nd constituency."
+    },
+    {
+      "id": "3a8e4f7f",
+      "question": "Combien d'établissements ehpad y a-t-il à Paris ?",
+      "keywords": [
+        "ehpad"
+      ],
+      "relevant_table_ids": [
+        "liste-des-ehpad"
+      ],
+      "table_aliases": {
+        "Table_0": "liste-des-ehpad"
+      },
+      "reference_code": "ehpad_count = Table_0.loc[Table_0['ville'] == 'Paris', 'nom_de_l_ehpad'].count()",
+      "reference_result": [
+        {
+          "0": 10
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of EHPAD facilities located in Paris."
+    },
+    {
+      "id": "e8eb439a",
+      "question": "Quelle est la capacité de stationnement vélo du site du Grand Palais pour les Jeux Olympiques Paris 2024 ?",
+      "keywords": [
+        "capacite"
+      ],
+      "relevant_table_ids": [
+        "velo_stationnement_site_olympique"
+      ],
+      "table_aliases": {
+        "Table_0": "velo_stationnement_site_olympique"
+      },
+      "reference_code": "Table_0.loc[Table_0['site'] == 'Grand Palais', 'capacite'].iloc[0]",
+      "reference_result": [
+        {
+          "0": 492
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of bike parking spaces available at the Grand Palais site for the Paris 2024 Olympics."
+    },
+    {
+      "id": "f7df629b",
+      "question": "Combien de secteurs sont classés comme limitees dans le PLU bioclimatique de Paris ?",
+      "keywords": [
+        "limitees"
+      ],
+      "relevant_table_ids": [
+        "plub_stcal"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_stcal"
+      },
+      "reference_code": "Table_0[Table_0['projet'] == 'N'].shape[0]",
+      "reference_result": [
+        {
+          "result": 144
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of sectors classified as limited (limitees) in the Paris bioclimatic PLU."
+    },
+    {
+      "id": "a50f4732",
+      "question": "Combien d'événements mobilites ont eu lieu chaque année de 2020 à 2024, ventilés par type d'événement ?",
+      "keywords": [
+        "mobilites"
+      ],
+      "relevant_table_ids": [
+        "observatoire-des-mobilites-evenements-exceptionnels-indicateurs-de-mobilites"
+      ],
+      "table_aliases": {
+        "Table_0": "observatoire-des-mobilites-evenements-exceptionnels-indicateurs-de-mobilites"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(event_year=pd.to_datetime(Table_0['date_debut_evenement'], errors='coerce').dt.year)\n    .loc[lambda df: df['event_year'].between(2020, 2024)]\n    .groupby(['event_year', 'categorie_evenements'], as_index=False)\n    .size()\n    .rename(columns={'size': 'event_count'})\n)",
+      "reference_result": [
+        {
+          "event_year": 2020,
+          "categorie_evenements": "Circulation",
+          "event_count": 2
+        },
+        {
+          "event_year": 2020,
+          "categorie_evenements": "Général",
+          "event_count": 10
+        },
+        {
+          "event_year": 2020,
+          "categorie_evenements": "Stationnement",
+          "event_count": 2
+        },
+        {
+          "event_year": 2020,
+          "categorie_evenements": "Vélo et marche",
+          "event_count": 8
+        },
+        {
+          "event_year": 2021,
+          "categorie_evenements": "Circulation",
+          "event_count": 4
+        },
+        {
+          "event_year": 2021,
+          "categorie_evenements": "Général",
+          "event_count": 7
+        },
+        {
+          "event_year": 2021,
+          "categorie_evenements": "Stationnement",
+          "event_count": 4
+        },
+        {
+          "event_year": 2021,
+          "categorie_evenements": "Vélo et marche",
+          "event_count": 6
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per combination of year (2020‑2024) and event category, showing the count of mobilites events for that year and category."
+    },
+    {
+      "id": "f4d0b6ea",
+      "question": "Quel type de contrat a enregistré la plus forte augmentation des recettes totales des concessions liquidées entre 2014 et 2015 ?",
+      "keywords": [
+        "concessions"
+      ],
+      "relevant_table_ids": [
+        "concessions-redevances-percues"
+      ],
+      "table_aliases": {
+        "Table_0": "concessions-redevances-percues"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby(['nature_du_contrat', 'exercice_comptable'])['somme_de_montant_liquide']\n    .sum()\n    .unstack(fill_value=0)\n    .reset_index()\n    .rename(columns={2014: 'total_2014', 2015: 'total_2015'})\n    .assign(increase=lambda df: df['total_2015'] - df['total_2014'])\n    .sort_values('increase', ascending=False)\n    .head(1)[['nature_du_contrat', 'increase']]\n)",
+      "reference_result": [
+        {
+          "nature_du_contrat": "Bail emphyt. admin.",
+          "increase": 15979163.079999998
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the contract type (nature_du_contrat) that experienced the greatest increase in total liquidated concession revenue between 2014 and 2015, together with the euro amount of that increase."
+    },
+    {
+      "id": "d4ed27a0",
+      "question": "Quel type de colonnes de collecte de verre (aérienne ou enterrée) compte le plus d'unités à Paris, et combien en existe-t-il ?",
+      "keywords": [
+        "colonnes"
+      ],
+      "relevant_table_ids": [
+        "dechets-menagers-points-dapport-volontaire-colonnes-a-verre"
+      ],
+      "table_aliases": {
+        "Table_0": "dechets-menagers-points-dapport-volontaire-colonnes-a-verre"
+      },
+      "reference_code": "Table_0.dropna(subset=['type_mobilier']).groupby('type_mobilier')['id_emplacement'].count().reset_index(name='count_per_type').sort_values('count_per_type', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "type_mobilier": "Aérienne",
+          "count_per_type": 803
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the type of glass waste collection column (Aérienne or Enterrée) that has the highest count in Paris and the corresponding number of units."
+    },
+    {
+      "id": "01cf9efa",
+      "question": "Combien d'agents masculins dans la tranche d'age 55 à 60 y avait‑il en 2018 pour chaque corps de la fonction publique de la Ville de Paris ?",
+      "keywords": [
+        "age"
+      ],
+      "relevant_table_ids": [
+        "bilan-social-tranche-dage-detaillees-pour-15-corps"
+      ],
+      "table_aliases": {
+        "Table_0": "bilan-social-tranche-dage-detaillees-pour-15-corps"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(year=Table_0['annee'].str[:4].astype(int))\n    .loc[lambda df: (df['year'] == 2018) & (df['tranches_d_age'] == 'Age >=55 ans et < 60 ans')]\n    .groupby('corps', as_index=False)['nombre_d_hommes']\n    .sum()\n    .rename(columns={'nombre_d_hommes': 'male_55_60_2018'})\n)",
+      "reference_result": [
+        {
+          "corps": "ADJOINTS ADMINISTRATIFS",
+          "male_55_60_2018": 167.0
+        },
+        {
+          "corps": "ADJOINTS D'ANIMATION ET D'ACTION SPORTIVE",
+          "male_55_60_2018": 72.0
+        },
+        {
+          "corps": "ADJOINTS TECHNIQUES",
+          "male_55_60_2018": 723.0
+        },
+        {
+          "corps": "AGENT DE LOGISTIQUE GÉNÉRALE",
+          "male_55_60_2018": 123.0
+        },
+        {
+          "corps": "AGENT DE SURVEILLANCE DE PARIS",
+          "male_55_60_2018": 93.0
+        },
+        {
+          "corps": "AGENTS SPÉCIALISÉS DES ÉCOLES MATERNELLES",
+          "male_55_60_2018": 2.0
+        },
+        {
+          "corps": "AGENTS TECHNIQUES DE LA PETITE ENFANCE",
+          "male_55_60_2018": 8.0
+        },
+        {
+          "corps": "AGENTS TECHNIQUES DES ÉCOLES",
+          "male_55_60_2018": 59.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per corps with the total number of male employees aged 55‑60 in 2018."
+    },
+    {
+      "id": "34c2a531",
+      "question": "Quel domaine (Alignement, Jardin, Cimetière, etc.) a présenté la plus grande circonférence moyenne du tronc pour les arbres de rue plantés à Paris dans le cadre du peuplement entre 2022 et 2024 ?",
+      "keywords": [
+        "peuplement"
+      ],
+      "relevant_table_ids": [
+        "arbres-plantes-hors-peuplement-forestier"
+      ],
+      "table_aliases": {
+        "Table_0": "arbres-plantes-hors-peuplement-forestier"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(plant_year=pd.to_datetime(Table_0['dateplantation']).dt.year)\n    .loc[lambda df: df['plant_year'].between(2022, 2024)]\n    .groupby('domanialite', as_index=False)['circonferenceencm']\n    .mean()\n    .rename(columns={'circonferenceencm': 'avg_circumference'})\n    .sort_values('avg_circumference', ascending=False)\n    .head(1)['domanialite']\n    .iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "DAC"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The domain name (e.g., Alignement, Jardin, Cimetière) that achieved the highest average trunk circumference among trees planted between 2022 and 2024."
+    },
+    {
+      "id": "54e225f0",
+      "question": "Quelle collectivité a connu la plus forte augmentation du nombre total de jours de formation pour les hommes entre 2014 et 2018 dans les categories A et B ?",
+      "keywords": [
+        "categories"
+      ],
+      "relevant_table_ids": [
+        "formation-par-categories-bilan-social"
+      ],
+      "table_aliases": {
+        "Table_0": "formation-par-categories-bilan-social"
+      },
+      "reference_code": "df = (\n    Table_0[Table_0['annee'].isin([2014, 2018]) & Table_0['categorie'].isin(['A', 'B'])]\n    .groupby(['collectivite', 'annee'], as_index=False)['jours_hommes']\n    .sum()\n    .rename(columns={'jours_hommes': 'sum_jours_men'})\n)\ndf_inc = (\n    df.pivot(index='collectivite', columns='annee', values='sum_jours_men')\n    .reset_index()\n    .rename_axis(columns=None)\n    .assign(increase_days=lambda x: x[2018].fillna(0) - x[2014].fillna(0))\n)\nresult = (\n    df_inc.sort_values(by='increase_days', ascending=False)\n    .head(1)['collectivite']\n    .iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "VILLE DE PARIS"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "Name of the collectivity with the greatest increase in total men's training days between 2014 and 2018 for categories A and B."
+    },
+    {
+      "id": "a371c22c",
+      "question": "Quel est le montant total voté et le montant total autorisé du programme pour AP de Projet fonds dans le budget principal 2018, et quelle est la différence entre les deux telle qu'indiquée dans le texte administratif ?",
+      "keywords": [
+        "principal",
+        "texte",
+        "fonds"
+      ],
+      "relevant_table_ids": [
+        "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "comptes-administratifs-principaux-2018-m57-ville-departement",
+        "budgets-votes-autorisations-de-programmes-a-partir-de-2018-m57-ville-departement"
+      ],
+      "table_aliases": {
+        "Table_0": "bugdet-votes-principaux_2018_m57_ville_dpt",
+        "Table_1": "comptes-administratifs-principaux-2018-m57-ville-departement",
+        "Table_2": "budgets-votes-autorisations-de-programmes-a-partir-de-2018-m57-ville-departement"
+      },
+      "reference_code": "import pandas as pd\nt0_agg = (\n    Table_0\n    .loc[\n        (Table_0['exercice_comptable'] == 2018) &\n        (Table_0['sens_depense_recette'].str.lower() == 'dépenses') &\n        (Table_0['budget'].str.lower() == 'm57 ville')\n    ]\n    .groupby(['exercice_comptable', 'budget', 'sens_depense_recette'], as_index=False)\n    .agg(voted_total=('budgets_votes_pmt', 'sum'))\n)\nt2_agg = (\n    Table_2\n    .loc[\n        (Table_2['exercice_comptable'] == 2018) &\n        (Table_2['sens_depense_recette'].str.lower() == 'dépenses') &\n        (Table_2['budget'].str.lower() == 'm57 ville') &\n        (Table_2['type_de_fonds'].fillna('').str.lower() == 'ap de projet')\n    ]\n    .groupby(['exercice_comptable', 'budget', 'sens_depense_recette'], as_index=False)\n    .agg(authorized_total=('budgets_votes_eng', 'sum'))\n)\nt1_agg = (\n    Table_1\n    .loc[\n        (Table_1['exercice_comptable_cle_non_composee'] == 2018) &\n        (Table_1['sens_depense_recette_texte'].str.lower() == 'dépenses')\n    ]\n    .groupby(['exercice_comptable_cle_non_composee', 'sens_depense_recette_texte'], as_index=False)\n    .agg(admin_total=('mandate_titre_x000d_apres_regul', 'sum'))\n)\nmerged = (\n    t0_agg\n    .merge(\n        t2_agg,\n        on=['exercice_comptable', 'budget', 'sens_depense_recette'],\n        how='inner',\n        suffixes=('', '_2')\n    )\n    .merge(\n        t1_agg,\n        left_on=['exercice_comptable', 'sens_depense_recette'],\n        right_on=['exercice_comptable_cle_non_composee', 'sens_depense_recette_texte'],\n        how='inner',\n        suffixes=('', '_1')\n    )\n)\nmerged['difference'] = merged['authorized_total'] - merged['voted_total']\nresult = merged[['voted_total', 'authorized_total', 'admin_total', 'difference']]",
+      "reference_result": [
+        {
+          "voted_total": 8259811169.44,
+          "authorized_total": 79019647,
+          "admin_total": 10717360350.81,
+          "difference": -8180791522.44
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with four columns: voted_total (total voted amount), authorized_total (total authorized program amount for AP de Projet fonds), admin_total (total amount shown in the administrative texte), and difference (authorized_total minus voted_total)."
+    },
+    {
+      "id": "9bb5448e",
+      "question": "Quels sont les trois codes de zone qui présentent la moyenne la plus élevée d’identifiant de jardin parmi les jardins partagés protégés affichés dans les pictos du PLU bioclimatique approuvé le 20 November 2024 pour Paris, et quel est le nombre total de jardins dans chacun de ces zones ?",
+      "keywords": [
+        "pictos"
+      ],
+      "relevant_table_ids": [
+        "plub_jpp_picto"
+      ],
+      "table_aliases": {
+        "Table_0": "plub_jpp_picto"
+      },
+      "reference_code": "(Table_0.groupby('n_sq_ca')\n    .agg(avg_garden_id=('n_sq_jpp', 'mean'), garden_count=('objectid', 'count'))\n    .reset_index()\n    .sort_values('avg_garden_id', ascending=False)\n    .head(3))",
+      "reference_result": [
+        {
+          "n_sq_ca": 18,
+          "avg_garden_id": 100013.4,
+          "garden_count": 5
+        },
+        {
+          "n_sq_ca": 20,
+          "avg_garden_id": 100011.25,
+          "garden_count": 4
+        },
+        {
+          "n_sq_ca": 11,
+          "avg_garden_id": 100011.0,
+          "garden_count": 1
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing a zone code, the average garden identifier in that zone, and the total number of gardens in the zone, ordered by descending average identifier."
+    },
+    {
+      "id": "b50415a4",
+      "question": "Quels sont les trois arrondissements de Paris qui ont enregistré la plus forte augmentation de la longueur totale du périmètre des secteurs de bureaux de vote entre les élections de 2012 et celles de 2025, et quelles sont les augmentations absolues et en pourcentage ?",
+      "keywords": [
+        "2025"
+      ],
+      "relevant_table_ids": [
+        "zones-de-rattachement-des-bureaux-de-vote-en-2012",
+        "secteurs-des-bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "zones-de-rattachement-des-bureaux-de-vote-en-2012",
+        "Table_1": "secteurs-des-bureaux-de-vote-2025"
+      },
+      "reference_code": "import pandas as pd\nagg_2012 = (\n    Table_0\n    .groupby('arrondisse', as_index=False)\n    .agg(perimeter_2012=('shape_leng', 'sum'))\n    .rename(columns={'arrondisse': 'arrondissement'})\n)\nagg_2025 = (\n    Table_1\n    .groupby('arrondissement', as_index=False)\n    .agg(perimeter_2025=('st_perimeter_shape', 'sum'))\n)\nmerged = agg_2012.merge(agg_2025, how='inner', on='arrondissement')\nmerged['increase_abs'] = merged['perimeter_2025'] - merged['perimeter_2012']\nmerged['increase_pct'] = (merged['increase_abs'] / merged['perimeter_2012']) * 100\nresult = (\n    merged\n    .sort_values(by='increase_abs', ascending=False)\n    .head(3)\n    [['arrondissement', 'perimeter_2012', 'perimeter_2025', 'increase_abs', 'increase_pct']]\n)",
+      "reference_result": [
+        {
+          "arrondissement": 17,
+          "perimeter_2012": 91396.456802957,
+          "perimeter_2025": 95676.7763166798,
+          "increase_abs": 4280.3195137228,
+          "increase_pct": 4.6832444752
+        },
+        {
+          "arrondissement": 13,
+          "perimeter_2012": 110642.023127659,
+          "perimeter_2025": 113938.7453987721,
+          "increase_abs": 3296.7222711131,
+          "increase_pct": 2.9796294192
+        },
+        {
+          "arrondissement": 12,
+          "perimeter_2012": 86717.166059427,
+          "perimeter_2025": 89742.3556555626,
+          "increase_abs": 3025.1895961356,
+          "increase_pct": 3.4885706413
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each with arrondissement, perimeter_2012, perimeter_2025, increase_abs, increase_pct, sorted by increase_abs descending."
+    },
+    {
+      "id": "4a729074",
+      "question": "Combien de m2 d'espaces verts supplémentaires ont été ajoutés à Paris en 2023 ?",
+      "keywords": [
+        "m2"
+      ],
+      "relevant_table_ids": [
+        "espaces_verts_supplementaires"
+      ],
+      "table_aliases": {
+        "Table_0": "espaces_verts_supplementaires"
+      },
+      "reference_code": "total_m2 = Table_0.loc[Table_0['date_fin_t'] == 2023, 'ind_ev_suppl'].sum() * 10000",
+      "reference_result": [
+        {
+          "result": 50610000.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of square metres of new green space added in Paris during 2023."
+    },
+    {
+      "id": "f6120c5d",
+      "question": "Quel est le nombre total de sites de chantier enregistrés à Paris en 2019, 2021 et 2022 ?",
+      "keywords": [
+        "2019",
+        "chantier",
+        "2021",
+        "2022"
+      ],
+      "relevant_table_ids": [
+        "chantiers-a-paris-copie",
+        "chantiers-a-paris-copie1",
+        "chantiers-a-paris-copie2"
+      ],
+      "table_aliases": {
+        "Table_0": "chantiers-a-paris-copie",
+        "Table_1": "chantiers-a-paris-copie1",
+        "Table_2": "chantiers-a-paris-copie2"
+      },
+      "reference_code": "total_sites = (\n    pd.concat([Table_0, Table_1, Table_2], ignore_index=True)\n    .loc[lambda df: df['date_debut'].str[:4].isin(['2019', '2021', '2022'])]\n    .loc[lambda df: df['cp_arrondissement'].astype(str).str.startswith('75')]\n    .shape[0]\n)",
+      "reference_result": [
+        {
+          "result": 74210
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of chantier sites recorded in Paris across the years 2019, 2021 and 2022."
+    },
+    {
+      "id": "904f399e",
+      "question": "Quelle est la longueur moyenne des secteurs pour chaque arrondissement à Paris, en n'utilisant que les bureaux de vote présents dans l'election 2021, répertoriés dans les données 2024 arrondissement‑bv, et inclus dans les jeux de données 2025 et 2026 centre ?",
+      "keywords": [
+        "election",
+        "arrondissement",
+        "bv",
+        "centre",
+        "2025"
+      ],
+      "relevant_table_ids": [
+        "zones-de-rattachement-des-bureaux-de-vote-en-2012",
+        "secteurs-des-bureaux-de-vote-en-2021",
+        "secteurs-des-bureaux-de-vote-2024",
+        "secteurs-des-bureaux-de-vote-2026",
+        "secteurs-des-bureaux-de-vote-2025"
+      ],
+      "table_aliases": {
+        "Table_0": "zones-de-rattachement-des-bureaux-de-vote-en-2012",
+        "Table_1": "secteurs-des-bureaux-de-vote-en-2021",
+        "Table_2": "secteurs-des-bureaux-de-vote-2024",
+        "Table_3": "secteurs-des-bureaux-de-vote-2026",
+        "Table_4": "secteurs-des-bureaux-de-vote-2025"
+      },
+      "reference_code": "merged = (\n    Table_0\n    .merge(Table_1[['id_bv']], on='id_bv', how='inner')\n    .merge(Table_2[['id_bv']], on='id_bv', how='inner')\n    .merge(Table_3[['id_bv']], on='id_bv', how='inner')\n    .merge(Table_4[['id_bv']], on='id_bv', how='inner')\n)\nresult = merged.groupby('arrondisse')['shape_leng'].mean().reset_index(name='avg_leng')",
+      "reference_result": [
+        {
+          "arrondisse": 1,
+          "avg_leng": 1854.878508616
+        },
+        {
+          "arrondisse": 5,
+          "avg_leng": 1473.967776402
+        },
+        {
+          "arrondisse": 6,
+          "avg_leng": 1402.4572768014
+        },
+        {
+          "arrondisse": 7,
+          "avg_leng": 1877.3102315217
+        },
+        {
+          "arrondisse": 8,
+          "avg_leng": 2086.8139835815
+        },
+        {
+          "arrondisse": 9,
+          "avg_leng": 1390.8572066762
+        },
+        {
+          "arrondisse": 10,
+          "avg_leng": 1485.4373582758
+        },
+        {
+          "arrondisse": 11,
+          "avg_leng": 1288.8073862607
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per arrondissement with the average sector length (meters) of bureaus that appear in all four datasets."
+    },
+    {
+      "id": "7083900a",
+      "question": "Pour la Ville de Paris, quel est l'effectif du personnel permanent selon le type de travail : temps plein et temps partiel ?",
+      "keywords": [
+        "effectif",
+        "travail"
+      ],
+      "relevant_table_ids": [
+        "bilan-social-temps-de-travail-des-effectifs-titulaires-permanents"
+      ],
+      "table_aliases": {
+        "Table_0": "bilan-social-temps-de-travail-des-effectifs-titulaires-permanents"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['collectivite'] == 'VILLE DE PARIS']\n    .assign(\n        total_effectif=lambda df: df['nombre_de_femmes_au_31_decembre'] + df['nombre_d_hommes_au_31_decembre'],\n        work_time=lambda df: df['temps_de_travail'].replace({\n            'TEMPS PLEIN': 'full-time',\n            'Temps plein': 'full-time',\n            'TEMPS PARTIEL': 'part-time',\n            'Temps partiel': 'part-time'\n        })\n    )\n    .groupby('work_time', as_index=False)['total_effectif']\n    .sum()\n    .rename(columns={'total_effectif': 'staff_total'})\n    .sort_values('staff_total', ascending=False)\n)",
+      "reference_result": [
+        {
+          "work_time": "full-time",
+          "staff_total": 343564
+        },
+        {
+          "work_time": "part-time",
+          "staff_total": 25507
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one per work‑time modality (full‑time and part‑time), each showing the total number of permanent staff employed by the City of Paris across all years."
+    }
+  ]
+}

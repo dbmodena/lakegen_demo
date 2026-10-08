@@ -27,8 +27,11 @@ DEFAULT_CORE = "nyc"
 SUPPORTED_MODELS = (
     DEFAULT_MODEL,
     "meta.llama-3.3-70b-instruct",
+    "ollama.gpt-oss-20b",
+    "ollama.qwen3.8-27b",
+    "together.gpt-oss-120b",
 )
-SUPPORTED_CORES = ("nyc", "valencia", "bologna", "paris", "uk")
+SUPPORTED_CORES = ("nyc", "valencia", "bologna", "paris", "uk", "kramabench", "target_bird", "chicago")
 
 
 class FrozenModel(BaseModel):
@@ -38,6 +41,11 @@ class FrozenModel(BaseModel):
 class DiscoveryArchitecture(StrEnum):
     UNIFIED = "unified"
     DIVIDED = "divided"
+
+
+class TableSelector(StrEnum):
+    LLM = "llm"
+    JEV = "jev"
 
 
 class ToolAccess(StrEnum):
@@ -190,6 +198,16 @@ class DiscoveryConfig(FrozenModel):
     # previous behaviour.
     state_board: bool = True
     compact_history: bool = True
+    # Who picks tables among the retrieved candidates in the divided
+    # architecture: the LLM judge, or TypeSafe's Jev decision model
+    # (lakegen.phases.jev_selector), which falls back to the LLM judge when
+    # its API fails. jev_model is pinned so a model release cannot move the
+    # thresholds, which were tuned on jev-1.13.0.
+    selector: TableSelector = TableSelector.LLM
+    jev_model: str = "jev-1.13.0"
+    jev_max_candidates: int = Field(default=8, gt=0)
+    jev_threshold: float = Field(default=0.5, gt=0, lt=1)
+    jev_reject_floor: float = Field(default=0.15, ge=0, lt=1)
 
     @property
     def fetch_floor(self) -> int:
@@ -206,6 +224,8 @@ class DiscoveryConfig(FrozenModel):
             raise ValueError(
                 "initial_shortlist_size must not exceed max_inspected_candidates"
             )
+        if self.jev_reject_floor >= self.jev_threshold:
+            raise ValueError("jev_reject_floor must be below jev_threshold")
         return self
 
 
@@ -301,6 +321,15 @@ class ExperimentConfig(FrozenModel):
                 raise ValueError(
                     "no_semantic_revision currently supports coder_context_level=full only"
                 )
+        if (
+            self.discovery.selector == TableSelector.JEV
+            and self.discovery_architecture != DiscoveryArchitecture.DIVIDED
+        ):
+            raise ValueError(
+                "discovery.selector=jev needs discovery_architecture=divided: the "
+                "unified architecture searches and selects in one agent turn, so "
+                "there is no separate selection step to hand to Jev"
+            )
         if self.gates.plan or self.gates.result:
             raise ValueError("plan and result gates are not implemented")
         if not self.gates.keywords or not self.gates.datasets:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from llama_index.core import Settings
@@ -14,8 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from lakegen.agents.agent_runner import run_agent_workflow
 from lakegen.core.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.core.types import SolrMetadata, StreamCallback
-from lakegen.experiment_config import DiscoveryArchitecture
+from lakegen.experiment_config import DiscoveryArchitecture, DiscoveryConfig, TableSelector
 from lakegen.keyword_terms import keyword_terms
+from lakegen.phases.jev_selector import JevSelectorError, select_with_jev
 from lakegen.orchestrated_context import (
     PreparedDiscoveryContext,
     prepare_discovery_context,
@@ -188,8 +190,27 @@ def select_from_prepared_context(
     *, query: str, llm: LLM, context: PreparedDiscoveryContext,
     all_files: list[str], architecture: DiscoveryArchitecture, hint: str = "",
     stream_callback: StreamCallback | None = None, cancel_check=None,
+    discovery: DiscoveryConfig | None = None, table_dir: Path | None = None,
 ) -> tuple[list[str], str, str, int]:
     """Divided architecture's second, distinct tool-free agent."""
+    jev_fallback_note = ""
+    if discovery is not None and discovery.selector == TableSelector.JEV:
+        try:
+            jev = select_with_jev(
+                query,
+                [item.dataset for item in context.candidates],
+                {item.dataset: item.metadata for item in context.candidates},
+                table_dir,
+                discovery,
+            )
+        except JevSelectorError as exc:
+            jev_fallback_note = f"[jev selector unavailable, using the LLM selector] {exc}\n"
+            print(jev_fallback_note, flush=True)
+        else:
+            print(jev.trace, flush=True)
+            if stream_callback is not None:
+                stream_callback(f"\n**Jev table selector**\n{jev.reasoning}\n")
+            return jev.selected, jev.reasoning, jev.trace, 0
     system, user = _selector_prompts(context, hint)
     try:
         response, stream, tokens = _run_tool_free_turn(
@@ -228,7 +249,7 @@ def select_from_prepared_context(
             raise OrchestratedSelectorError(str(exc)) from exc
         stream += "\n--- Protocol correction ---\n" + correction_stream
         tokens += correction_tokens
-    return selected, reasoning, "--- Divided Orchestrated Selector ---\n" + stream, tokens
+    return selected, reasoning, jev_fallback_note + "--- Divided Orchestrated Selector ---\n" + stream, tokens
 
 
 def run_unified_orchestrated_discovery(

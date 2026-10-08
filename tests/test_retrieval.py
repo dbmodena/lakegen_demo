@@ -2,6 +2,7 @@ import json
 import math
 import csv
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -1215,6 +1216,127 @@ def test_judge_all_returns_verdicts_in_document_order_across_workers():
     assert [judgment.relevant for judgment in judgments] == [True, False, True, False, True]
 
 
+class _FakeChatEndpoint:
+    """An OpenAI-compatible client that records requests and replays answers."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.requests = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **request):
+        self.requests.append(json.loads(json.dumps(request)))
+        text = self.answers.pop(0)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
+
+
+def _endpoint_chat_client(endpoint, **settings):
+    from scripts_pneuma.pneuma_oci import OCICompatOpenAI, OCISettings
+
+    # Built without __init__: no OCI config is needed to exercise the chat path.
+    client = object.__new__(OCICompatOpenAI)
+    client._oci_settings = OCISettings(
+        chat_base_url="http://127.0.0.1:11434/v1", retry_initial_delay=0, **settings
+    )
+    client._chat_client = endpoint
+    client._oci_client = None
+    return client
+
+
+def test_pneuma_chat_on_an_openai_endpoint_keeps_the_oci_contract():
+    """Judge requests reach the local model with the settings OCI would get."""
+    endpoint = _FakeChatEndpoint('{"relevant": true, "reason": "r"}')
+    client = _endpoint_chat_client(endpoint)
+    schema = {"type": "object", "properties": {"relevant": {"type": "boolean"}}}
+
+    text = client.chat_completion(
+        [{"role": "system", "content": "judge"}, {"role": "user", "content": "doc"}],
+        model="gpt-4o-mini", max_tokens=200, temperature=0.0, top_p=1.0, seed=7,
+        json_schema=schema, json_schema_name="verdict",
+    )
+
+    assert text == '{"relevant": true, "reason": "r"}'
+    [request] = endpoint.requests
+    # Pneuma's OpenAI default name never reaches the endpoint.
+    assert request["model"] == "gpt-oss:20b"
+    assert request["max_tokens"] == 1024  # the OCI floor, as for OCI
+    assert request["reasoning_effort"] == "low" and request["seed"] == 7
+    assert request["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {"name": "verdict", "schema": schema, "strict": True},
+    }
+
+
+def test_pneuma_narration_through_openai_client_surface_uses_the_endpoint():
+    """Pneuma's summarizer calls chat.completions.create on the client it holds."""
+    endpoint = _FakeChatEndpoint("", "The borough of the incident.")
+    client = _endpoint_chat_client(endpoint, chat_model="local-model")
+    from scripts_pneuma.pneuma_oci import _Chat
+
+    client.chat = _Chat(client)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": "Describe the boro column."}],
+        max_tokens=400,
+    )
+
+    assert response.choices[0].message.content == "The borough of the incident."
+    first, second = endpoint.requests
+    assert first["model"] == second["model"] == "local-model"
+    # An empty answer is retried with twice the budget and a plain-text nudge.
+    assert second["max_tokens"] == 2 * first["max_tokens"]
+    assert second["messages"][-1]["content"].endswith("Return the requested brief answer as plain text.")
+    assert "response_format" not in first
+
+
+def test_concurrent_narration_answers_every_conversation_in_place_and_in_order():
+    """Pneuma reads the answer appended to each conversation; concurrency must not reorder."""
+    from openai import APIConnectionError
+
+    from scripts_pneuma.pneuma_narration import concurrent_prompt_openai_llm
+
+    failures = {"c2": 1}  # one transient failure, retried like Pneuma's own loop
+
+    def create(**request):
+        column = request["messages"][0]["content"]
+        time.sleep(0.01 * (5 - int(column[1])))  # later columns answer first
+        if failures.get(column):
+            failures[column] -= 1
+            raise APIConnectionError(request=None)
+        assert request["seed"] == 42 and request["max_tokens"] == 400
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=f"about {column}"))])
+
+    llm = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    conversations = [[{"role": "user", "content": f"c{index}"}] for index in range(5)]
+
+    returned = concurrent_prompt_openai_llm(4)(llm, conversations, max_new_tokens=400)
+
+    assert returned is conversations
+    assert [conversation[-1]["content"] for conversation in conversations] == [
+        f"about c{index}" for index in range(5)
+    ]
+
+
+def test_row_sample_cells_are_capped_without_touching_other_values():
+    import pandas as pd
+
+    from scripts_pneuma.pneuma_narration import cap_long_cells
+
+    frame = pd.DataFrame({
+        "the_geom": ["MULTIPOLYGON (((" + "1 2, " * 500 + ")))", None],
+        "boro": ["Brooklyn", "Queens"],
+        "count": [3, 4],
+    })
+
+    capped = cap_long_cells(frame, 20)
+
+    assert capped.loc[0, "the_geom"] == frame.loc[0, "the_geom"][:20] + "…"
+    assert pd.isna(capped.loc[1, "the_geom"])
+    assert capped["boro"].tolist() == ["Brooklyn", "Queens"]
+    assert capped["count"].tolist() == [3, 4]
+    assert frame.loc[0, "the_geom"].endswith(")))")  # the input is not modified
+
+
 def test_order_by_relevance_moves_irrelevant_documents_behind_in_fused_order():
     def verdict(relevant):
         return RelevanceJudgment(relevant=relevant, reason="r")
@@ -1627,11 +1749,14 @@ def test_a_failing_reranker_keeps_the_retrieval_order_and_the_search_succeeds():
     assert "rerank service unavailable" in runs[0].rerank_error
 
 
-def test_only_keyword_semantic_and_hybrid_are_reranked():
+def test_only_keyword_semantic_and_the_hybrids_are_reranked():
     from lakegen.retrieval import TableRetrievalService
 
     assert [mode for mode in RetrievalMode if mode.reranked] == [
-        RetrievalMode.KEYWORD, RetrievalMode.SEMANTIC, RetrievalMode.HYBRID
+        RetrievalMode.KEYWORD,
+        RetrievalMode.SEMANTIC,
+        RetrievalMode.HYBRID,
+        RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
     ]
     # No model, no reranking, whatever the mode.
     service = TableRetrievalService(
@@ -1642,6 +1767,49 @@ def test_only_keyword_semantic_and_hybrid_are_reranked():
     assert service.reranker is None
     hits = service.retrieve(question="q", keywords=["x"], top_k=2)
     assert [hit.rerank_score for hit in hits] == [None, None]
+
+
+def test_the_duckdb_semantic_hybrid_is_reranked_after_rrf(tmp_path):
+    import pandas as pd
+    from lakegen.retrieval import TableRetrievalService
+
+    pd.DataFrame({"connection_type": ["fiber", "fiber", "dsl"]}).to_parquet(
+        tmp_path / "DS___b.parquet"
+    )
+    pd.DataFrame({"connection_type": ["fiber", "dsl", "dsl"]}).to_parquet(
+        tmp_path / "DS___c.parquet"
+    )
+    catalog = [
+        {"dataset_id": "DS", "resource_id": "b", "title": "Broadband B"},
+        {"dataset_id": "DS", "resource_id": "c", "title": "Broadband C"},
+    ]
+    reranker = ReversingReranker()
+    runs = []
+    service = TableRetrievalService(
+        FakeSolr(knn_docs=[{**catalog[0], "score": 0.9}, {**catalog[1], "score": 0.8}]),
+        RetrievalConfig(
+            mode=RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+            fusion_method=FusionMethod.RRF,
+            rerank_model="test-rerank",
+        ),
+        embedding_model=FakeEmbedding(),
+        pneuma_document_resolver=SolrPneumaDocumentResolver(FakeCatalogSolr(catalog)),
+        table_dir=str(tmp_path),
+        reranker=reranker,
+        observer=runs.append,
+    )
+
+    hits = service.retrieve(question="Which schools have fiber?", keywords=["fiber"], top_k=2)
+
+    # RRF puts b first (first in both branches); the reranker reverses it.
+    assert [hit.document["resource_id"] for hit in hits] == ["c", "b"]
+    assert [hit.rerank_score for hit in hits] == [1.0, 0.0]
+    assert (hits[1].lexical_rank, hits[1].semantic_rank) == (1, 1)
+    # DuckDB's evidence stays on the hit but is not shown to the reranker.
+    assert hits[0].document["duckdb_evidence"]["term_counts"]["fiber"] == 1
+    assert "Broadband B" in reranker.calls[0][1][0]
+    assert not any("DuckDB keyword evidence" in text for text in reranker.calls[0][1])
+    assert (runs[0].rerank_model, runs[0].rerank_error) == ("test-rerank", "")
 
 
 def test_production_configurations_rerank_with_cohere_unless_turned_off(monkeypatch):
@@ -1748,3 +1916,49 @@ def test_count_matching_rows_reads_parquet_and_csv_and_reports_unreadable(tmp_pa
     assert count_matching_rows(tmp_path / "t.csv", patterns, max_rows=100, max_columns=40) == [2, 2]
     assert count_matching_rows(tmp_path / "t.csv", patterns, max_rows=1, max_columns=40) == [1, 1]
     assert count_matching_rows(tmp_path / "missing.parquet", patterns, max_rows=10, max_columns=40) is None
+
+
+def test_pneuma_routes_cover_the_rebuilt_portals(monkeypatch):
+    base = RetrievalConfig(mode="pneuma")
+    for portal, port in (("valencia", 8771), ("paris", 8772), ("bologna", 8773)):
+        routed = base.for_portal(portal)
+        assert routed.pneuma_base_url == f"http://localhost:{port}"
+        assert routed.pneuma_index_name == "lakegen-cohere-v4-1024"
+    monkeypatch.setenv("LAKEGEN_PNEUMA_PARIS_BASE_URL", "http://localhost:9999")
+    assert base.for_portal("paris").pneuma_base_url == "http://localhost:9999"
+    assert base.for_portal("unknown").pneuma_base_url == base.pneuma_base_url
+
+
+def test_seeker_entity_extraction_can_run_on_together(monkeypatch):
+    from lakegen.retrieval import pneuma
+
+    sent = {}
+
+    class Reply:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"entities": ["N Lake Shore Dr", "60611"]}'}}]}
+
+    def fake_post(url, headers, json, timeout):
+        sent.update(url=url, auth=headers["Authorization"], payload=json)
+        return Reply()
+
+    monkeypatch.setenv("TOGETHERAI_API_KEY", "together-secret")
+    monkeypatch.setattr(pneuma.requests, "post", fake_post)
+    pneuma._together_entities.cache_clear()
+    extractor = pneuma.entity_extractor_for("together.gpt-oss-120b")
+
+    assert isinstance(extractor, pneuma.TogetherEntityExtractor)
+    assert extractor.entities("Crashes on N Lake Shore Dr in 60611?") == ["N Lake Shore Dr", "60611"]
+    assert sent["url"] == pneuma.TOGETHER_CHAT_URL
+    assert sent["auth"] == "Bearer together-secret"
+    assert sent["payload"]["model"] == "openai/gpt-oss-120b"
+    assert sent["payload"]["messages"][0]["content"] == pneuma.ENTITY_EXTRACTION_PROMPT
+    assert sent["payload"]["temperature"] == 0.0
+    # OCI model ids keep the OCI path.
+    assert isinstance(pneuma.entity_extractor_for("openai.gpt-oss-120b"), pneuma.OCIEntityExtractor)

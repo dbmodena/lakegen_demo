@@ -7,10 +7,12 @@ Run locally with::
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
 import os
+import time
 import statistics
 import sys
 import threading
@@ -61,7 +63,9 @@ DEFAULT_CORE = SOLR_CORE_OPTIONS[0]
 MAX_BATCH_QUESTIONS = 10_000
 MAX_CONFIG_UPLOAD_BYTES = 1_000_000
 MAX_QUESTIONS_UPLOAD_BYTES = 25_000_000
-JOB_DIR = BASE_DIR / ".lakegen_jobs"
+# LAKEGEN_JOB_DIR gives an API instance its own job folder, so a second run
+# neither shows nor resumes the jobs another instance left unfinished.
+JOB_DIR = BASE_DIR / (os.environ.get("LAKEGEN_JOB_DIR") or ".lakegen_jobs")
 BENCHMARK_DIR = BASE_DIR / "benchmark"
 # Use Uvicorn's configured application logger so batch progress is visible in
 # the same terminal as the HTTP access log when the API is run with Uvicorn.
@@ -131,6 +135,118 @@ _executor = ThreadPoolExecutor(
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 _workflow_lock = threading.BoundedSemaphore(WORKFLOW_WORKERS)
+
+
+def _non_negative_float_from_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r; using %s", name, raw, default)
+        return default
+    if value < 0:
+        logger.warning("Ignoring negative %s=%r; using %s", name, raw, default)
+        return default
+    return value
+
+
+# A breather inside long batches: after every LAKEGEN_BATCH_PAUSE_EVERY finished
+# questions a job sleeps LAKEGEN_BATCH_PAUSE_SECONDS before its next question,
+# which keeps a run of hundreds of questions under the provider's rate limits.
+# Either value at 0 (the default) disables it. The pause is taken outside the
+# workflow lock, so it never holds a slot another job's question could use.
+BATCH_PAUSE_EVERY = int(_non_negative_float_from_env("LAKEGEN_BATCH_PAUSE_EVERY", 0))
+BATCH_PAUSE_SECONDS = _non_negative_float_from_env("LAKEGEN_BATCH_PAUSE_SECONDS", 0.0)
+# A rest sized by usage: after each question a job sleeps as long as that
+# question's tokens take at LAKEGEN_BATCH_TOKENS_PER_MINUTE, so the job's
+# average rate stays at that figure however heavy single questions are. It adds
+# to the fixed pause above; 0 (the default) disables it.
+BATCH_TOKENS_PER_MINUTE = _non_negative_float_from_env("LAKEGEN_BATCH_TOKENS_PER_MINUTE", 0.0)
+# A file holding the rate overrides it and is read before every rest, so a long
+# run can be sped up or slowed down without a restart; a missing or unreadable
+# file falls back to the variable.
+BATCH_TOKENS_PER_MINUTE_FILE = os.environ.get("LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE", "").strip()
+
+
+def _tokens_per_minute() -> float:
+    """The batch token rate now: the rate file's number, else the variable."""
+    if BATCH_TOKENS_PER_MINUTE_FILE:
+        try:
+            value = float(Path(BATCH_TOKENS_PER_MINUTE_FILE).read_text().strip())
+        except (OSError, ValueError):
+            return BATCH_TOKENS_PER_MINUTE
+        if value >= 0:
+            return value
+    return BATCH_TOKENS_PER_MINUTE
+
+
+def _batch_pause_seconds(
+    finished_in_run: int,
+    remaining: int,
+    *,
+    every: int | None = None,
+    seconds: float | None = None,
+) -> float:
+    """How long a batch rests now: ``seconds`` after each ``every`` questions, never after the last."""
+    every = BATCH_PAUSE_EVERY if every is None else every
+    seconds = BATCH_PAUSE_SECONDS if seconds is None else seconds
+    if every <= 0 or seconds <= 0 or finished_in_run <= 0 or remaining <= 0:
+        return 0.0
+    return float(seconds) if finished_in_run % every == 0 else 0.0
+
+
+def _question_tokens(result: dict[str, Any]) -> int:
+    """LLM tokens one finished question spent: every phase plus the code judge.
+
+    The judge is counted per coder-context variant when the variants ran, since
+    each variant is judged; the top-level evaluation repeats one of them.
+    """
+    spent = sum(int(value or 0) for value in (result.get("tokens") or {}).values())
+    variants = (result.get("coder_context_experiment") or {}).get("variants") or {}
+    evaluations = (
+        [variant.get("code_evaluation") or {} for variant in variants.values()]
+        if variants
+        else [result.get("code_evaluation") or {}]
+    )
+    return spent + sum(
+        int(evaluation.get("semantic_judge_tokens") or 0) for evaluation in evaluations
+    )
+
+
+def _token_pause_seconds(
+    tokens: int, remaining: int, *, per_minute: float | None = None
+) -> float:
+    """How long ``tokens`` take at the batch token rate; never after the last question."""
+    per_minute = _tokens_per_minute() if per_minute is None else per_minute
+    if per_minute <= 0 or tokens <= 0 or remaining <= 0:
+        return 0.0
+    return tokens * 60.0 / per_minute
+
+
+# A share of a batch's questions on a second model: with LAKEGEN_SPLIT_MODEL set
+# and LAKEGEN_SPLIT_SHARE above 0, a question whose id hashes below the share runs
+# with that model wherever the job's config names the job's model (pipeline, code
+# judge, Pneuma entity extraction). The hash depends on the question id only, so
+# a question gets the same model in every job of a grid. Off by default.
+SPLIT_MODEL = os.environ.get("LAKEGEN_SPLIT_MODEL", "").strip()
+SPLIT_SHARE = min(_non_negative_float_from_env("LAKEGEN_SPLIT_SHARE", 0.0), 1.0)
+
+
+def _split_fraction(source_id: Any) -> float:
+    """A stable number in [0, 1) for a question id."""
+    digest = hashlib.sha256(str(source_id).encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) / 0x100000000
+
+
+def _swap_model(value: Any, model: str, replacement: str) -> Any:
+    """``value`` with every string equal to ``model`` replaced, at any depth."""
+    if isinstance(value, dict):
+        return {key: _swap_model(item, model, replacement) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_swap_model(item, model, replacement) for item in value]
+    return replacement if value == model else value
 
 
 def _resolve_api_config(
@@ -724,6 +840,18 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
     try:
         config = ExperimentConfig.model_validate(settings["resolved_config"])
         runner = ExperimentRunner(config)
+        job_model = settings["resolved_config"].get("model")
+        split_runner = None
+        if SPLIT_MODEL and SPLIT_SHARE > 0 and job_model and SPLIT_MODEL != job_model:
+            split_runner = ExperimentRunner(ExperimentConfig.model_validate(
+                _swap_model(settings["resolved_config"], job_model, SPLIT_MODEL)
+            ))
+            logger.info(
+                "Batch %s: %d of %d pending questions on %s, the rest on %s",
+                job_id,
+                sum(_split_fraction(q["source_id"]) < SPLIT_SHARE for q in pending_questions),
+                len(pending_questions), SPLIT_MODEL, job_model,
+            )
         nltk_error = bootstrap_nltk_data()
         if nltk_error:
             raise RuntimeError(nltk_error)
@@ -738,11 +866,16 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
             )
             logger.info("Embedding health check passed: %s", health)
 
+        finished_in_run = 0
         for source in pending_questions:
             source_key = _batch_source_key(source)
             execution_attempt = attempts.get(source_key, 0) + 1
+            on_split = (
+                split_runner is not None
+                and _split_fraction(source["source_id"]) < SPLIT_SHARE
+            )
             with _workflow_lock:
-                query_result = runner.run(
+                query_result = (split_runner if on_split else runner).run(
                     source["question"],
                     question_id=source["source_id"],
                     log_context={
@@ -758,6 +891,8 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
                 "source_id": source["source_id"],
                 "result": query_result,
             }
+            if split_runner is not None:
+                entry["model"] = SPLIT_MODEL if on_split else job_model
             _append_result(job_id, entry)
             with _jobs_lock:
                 job = _jobs[job_id]
@@ -769,6 +904,18 @@ def _run_batch(job_id: str, questions: list[dict[str, Any]], settings: dict[str,
                 job["updated_at"] = _now()
                 snapshot = json.loads(json.dumps(job))
             _persist_job(snapshot)
+            finished_in_run += 1
+            remaining = len(pending_questions) - finished_in_run
+            tokens = _question_tokens(query_result)
+            pause = _batch_pause_seconds(finished_in_run, remaining) + _token_pause_seconds(
+                tokens, remaining
+            )
+            if pause:
+                logger.info(
+                    "Batch %s: pausing %.0fs after %d questions (last one spent %d tokens)",
+                    job_id, pause, finished_in_run, tokens,
+                )
+                time.sleep(pause)
 
         with _jobs_lock:
             completed_results = json.loads(json.dumps(_jobs[job_id]["results"]))
@@ -1059,10 +1206,19 @@ def _recover_incomplete_jobs() -> list[str]:
     if not JOB_DIR.is_dir():
         return []
     recovered: list[str] = []
-    for path in sorted(JOB_DIR.glob("*.json")):
+
+    def submitted_at(path: Path) -> tuple[str, str]:
+        try:
+            created = json.loads(path.read_text(encoding="utf-8")).get("created_at")
+        except (OSError, json.JSONDecodeError):
+            created = None
+        return str(created or ""), path.stem
+
+    # Oldest first, so the queue a restart rebuilds is the queue that was
+    # submitted; file names are random ids and say nothing about order.
+    job_paths = [path for path in JOB_DIR.glob("*.json") if _valid_job_id(path.stem)]
+    for path in sorted(job_paths, key=submitted_at):
         job_id = path.stem
-        if not _valid_job_id(job_id):
-            continue
         try:
             metadata = json.loads(path.read_text(encoding="utf-8"))
             if metadata.get("status") not in {"queued", "running"}:

@@ -1,0 +1,3286 @@
+{
+  "sample_metadata": {
+    "source": "/home/bilel/gits/orqa/data/valencia/candidates_discovery/generated_queries_semantic.json",
+    "sampling_seed": 42,
+    "count": 100,
+    "status_filter": "success",
+    "selection": "balanced_by_difficulty_and_table_scope",
+    "difficulty_quotas": {
+      "easy": 34,
+      "medium": 33,
+      "hard": 33
+    },
+    "table_scope_requirements": {
+      "multi_table": 34,
+      "single_table": 66
+    },
+    "strata": {
+      "easy": {
+        "multi_table": 11,
+        "single_table": 23
+      },
+      "medium": {
+        "multi_table": 11,
+        "single_table": 22
+      },
+      "hard": {
+        "multi_table": 12,
+        "single_table": 21
+      }
+    },
+    "skipped_invalid_generated_records": 19
+  },
+  "cases": [
+    {
+      "id": "ceb8c5cb",
+      "question": "¿Cuáles fueron los niveles promedio de ruido diurnos y nocturnos registrados por el sensor vivons en Ruzafa para cada tipo de entidad entre 2022 y 2024?",
+      "keywords": [
+        "vivons"
+      ],
+      "relevant_table_ids": [
+        "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      ],
+      "table_aliases": {
+        "Table_0": "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      },
+      "reference_code": "result = (\n    Table_0[(Table_0['dateobserved'] >= '2022-01-01') & (Table_0['dateobserved'] <= '2024-12-31')]\n    .groupby('entitytype', as_index=False)\n    .agg(avg_day=('laeq_d', 'mean'), avg_night=('laeq_n', 'mean'))\n)",
+      "reference_result": [
+        {
+          "entitytype": "NoiseLevelObservedAgreggated",
+          "avg_day": 62.0091619289,
+          "avg_night": 55.9264451874
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per entitytype showing the average daytime LAeq (laeq_d) and average nighttime LAeq (laeq_n) in decibels for the period 2022‑01‑01 to 2024‑12‑31."
+    },
+    {
+      "id": "03aa1418",
+      "question": "¿Cuál de los cuatro sensores – el etiquetado t248655, el sensor de la calle doctor Serrano, el sensor de la calle cuba, y el sensor de la calle Cádiz 16 – tiene el nivel medio de ruido diurno más alto, y cuáles son sus niveles medios de ruido vespertino y nocturno, y la diferencia porcentual entre sus promedios diurno y nocturno?",
+      "keywords": [
+        "t248655",
+        "doctor",
+        "cuba",
+        "sensor"
+      ],
+      "relevant_table_ids": [
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4",
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65"
+      ],
+      "table_aliases": {
+        "Table_0": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "Table_1": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_2": "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4",
+        "Table_3": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65"
+      },
+      "reference_code": "df = pd.concat([Table_0, Table_1, Table_2, Table_3], ignore_index=True)\nagg = (df.groupby('entityid')\n         .agg(avg_day=('laeq_d', 'mean'),\n              avg_even=('laeq_e', 'mean'),\n              avg_night=('laeq_n', 'mean'))\n         .reset_index())\nagg['pct_diff'] = ((agg['avg_day'] - agg['avg_night']) / agg['avg_night']) * 100\nresult = agg.sort_values(by='avg_day', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "entityid": "T248655-daily",
+          "avg_day": 65.889391771,
+          "avg_even": 65.1037091723,
+          "avg_night": 60.8838416816,
+          "pct_diff": 8.2214754378
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the sensor identifier (entityid) with the highest average daytime LAeq, its average evening LAeq, its average night LAeq, and the percentage difference between its daytime and nighttime averages."
+    },
+    {
+      "id": "356d5bbf",
+      "question": "¿Cuál fue el número total de recargas en la zona de Valencia entre el 31 March 2024 y el 31 August 2025 en los días que el número de abonados era 1 y las transacciones fueron realizadas por usuarios locales?",
+      "keywords": [
+        "zona",
+        "que",
+        "transacciones"
+      ],
+      "relevant_table_ids": [
+        "41ef3f0e-4c32-42ef-a6d6-d8f50e527a2e___9f1ac8cc-f40d-4486-9f5a-e6fffd6067c3",
+        "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20",
+        "0fc6c40b-cabf-40c1-8002-1183a9ac20a9___55547882-c949-4a65-9a60-4774eef1b4fc"
+      ],
+      "table_aliases": {
+        "Table_0": "41ef3f0e-4c32-42ef-a6d6-d8f50e527a2e___9f1ac8cc-f40d-4486-9f5a-e6fffd6067c3",
+        "Table_1": "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20",
+        "Table_2": "0fc6c40b-cabf-40c1-8002-1183a9ac20a9___55547882-c949-4a65-9a60-4774eef1b4fc"
+      },
+      "reference_code": "import pandas as pd\nt0 = Table_0.copy()\nt0['calc_dt'] = pd.to_datetime(t0['calculationperiod'])\nmask0 = (\n    (t0['calc_dt'] >= pd.Timestamp('2024-03-31')) &\n    (t0['calc_dt'] <= pd.Timestamp('2025-08-31')) &\n    (t0['sliceanddicevalue1'] == 'Valencia')\n)\nfiltered_0 = t0.loc[mask0]\nt1 = Table_1.copy()\nt1['calc_dt'] = pd.to_datetime(t1['calculationperiod'])\nmask1 = (\n    (t1['calc_dt'] >= pd.Timestamp('2024-03-31')) &\n    (t1['calc_dt'] <= pd.Timestamp('2025-08-31')) &\n    (t1['kpivalue'] == 1)\n)\nfiltered_1 = t1.loc[mask1][['calc_dt']]\nt2 = Table_2.copy()\nt2['calc_dt'] = pd.to_datetime(t2['calculationperiod'])\nmask2 = (\n    (t2['calc_dt'] >= pd.Timestamp('2024-03-31')) &\n    (t2['calc_dt'] <= pd.Timestamp('2025-08-31')) &\n    (t2['sliceanddicevalue1'] == 'Local')\n)\nfiltered_2 = t2.loc[mask2][['calc_dt']]\nmerged = (\n    filtered_0\n    .merge(filtered_1, on='calc_dt', how='inner')\n    .merge(filtered_2, on='calc_dt', how='inner')\n)\ntotal_recharges = merged['kpivalue'].sum()",
+      "reference_result": [
+        {
+          "0": 0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single integer representing the total number of recharges in the Valencia zone between 31 March 2024 and 31 August 2025 on days where the subscriber count was exactly 1 and the transactions were performed by Local users."
+    },
+    {
+      "id": "c2d20db0",
+      "question": "¿Cuál fue el nivel medio de ruido registrado en la calle Sueca 32 del barrio de Ruzafa el 2026-09-18?",
+      "keywords": [
+        "32"
+      ],
+      "relevant_table_ids": [
+        "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      ],
+      "table_aliases": {
+        "Table_0": "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      },
+      "reference_code": "avg_la_eq = Table_0.loc[(Table_0['dateobserved'] == '2026-09-18') & (Table_0['entityid'] == 'T248680-daily'), 'laeq'].mean()",
+      "reference_result": [
+        {
+          "result": 61.08
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average overall LAeq noise level (in dB) recorded at 32 Sueca street in Ruzafa on 2026-09-18."
+    },
+    {
+      "id": "8032cf58",
+      "question": "¿Cuál es el total proyectado de ingresos municipales para el código económico 13000 en Valencia en cada año presupuestario 2023, 2024 y 2025, y cuál es la descripción de la actividad y el objeto vinculados a ese código?",
+      "keywords": [
+        "economico",
+        "codigo"
+      ],
+      "relevant_table_ids": [
+        "263d3466-f23f-41ca-a710-2a0d87250ea3___0104a091-95c4-452b-835d-27d2a6a9901c",
+        "72ad8807-4aa4-4806-a59c-b77bfd83dc79___e67b061c-f6c7-4546-9576-840ff8fca29b"
+      ],
+      "table_aliases": {
+        "Table_0": "263d3466-f23f-41ca-a710-2a0d87250ea3___0104a091-95c4-452b-835d-27d2a6a9901c",
+        "Table_1": "72ad8807-4aa4-4806-a59c-b77bfd83dc79___e67b061c-f6c7-4546-9576-840ff8fca29b"
+      },
+      "reference_code": "agg0 = (\n    Table_0[Table_0['Codigo economico'] == 13000]\n    .groupby('Periodo presupuestario', as_index=False)\n    .agg(\n        total0=('Valor', 'sum'),\n        activity_desc=('Descripcion codigo economico', 'first')\n    )\n)\nagg1 = (\n    Table_1[Table_1['Código económico'] == 13000]\n    .groupby('Periodo presupuestario', as_index=False)\n    .agg(\n        total1=('Valor', 'sum'),\n        object_desc=('Objeto', 'first')\n    )\n)\nresult = (\n    agg0.merge(agg1, on='Periodo presupuestario', how='inner')\n    .assign(total_income=lambda df: df['total0'] + df['total1'])\n    .loc[:, ['Periodo presupuestario', 'total_income', 'activity_desc', 'object_desc']]\n    .sort_values('Periodo presupuestario', ascending=True)\n)",
+      "reference_result": [
+        {
+          "Periodo presupuestario": 2023,
+          "total_income": 53000000.0,
+          "activity_desc": "I.S/ACTIVIDADES ECONOMICA",
+          "object_desc": "I.S/ACTIVIDADES ECONOMICA"
+        },
+        {
+          "Periodo presupuestario": 2024,
+          "total_income": 57600000.0,
+          "activity_desc": "IMPUESTO ACTIVIDADES ECONOMICAS",
+          "object_desc": "IMPUESTO ACTIVIDADES ECONOMICAS"
+        },
+        {
+          "Periodo presupuestario": 2025,
+          "total_income": 58000000.0,
+          "activity_desc": "IMPUESTO ACTIVIDADES ECONOMICAS",
+          "object_desc": "IMPUESTO ACTIVIDADES ECONOMICAS"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per budget year (2023, 2024, 2025) showing the total projected municipal income for economic code 13000, the activity description, and the object description."
+    },
+    {
+      "id": "f64fe112",
+      "question": "¿Qué area de gasto recibió el mayor presupuesto en el presupuesto municipal de la Ajuntament de València de 2024?",
+      "keywords": [
+        "area"
+      ],
+      "relevant_table_ids": [
+        "bc89937a-e122-4dd2-8b0d-bd2095da78d1___21946763-2114-45cb-a241-3fa4415703b9"
+      ],
+      "table_aliases": {
+        "Table_0": "bc89937a-e122-4dd2-8b0d-bd2095da78d1___21946763-2114-45cb-a241-3fa4415703b9"
+      },
+      "reference_code": "top_spending_area = (\n    Table_0[Table_0['Periodo presupuestario'] == 2024]\n    .sort_values(by='Valor', ascending=False)\n    .head(1)['Área de gasto'].iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "SERVICIOS PUBLICOS BASIC"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the spending area that received the highest allocated budget in the 2024 municipal budget."
+    },
+    {
+      "id": "2b7a3162",
+      "question": "¿Cuántos casos de ayuda por exclusión hídrica se resolvieron en Valencia en junio de 2025?",
+      "keywords": [
+        "se"
+      ],
+      "relevant_table_ids": [
+        "d9043bfc-82b5-42b2-bd62-036a68785d17___e9108cd8-c9d4-4e07-98e5-42644feec49a"
+      ],
+      "table_aliases": {
+        "Table_0": "d9043bfc-82b5-42b2-bd62-036a68785d17___e9108cd8-c9d4-4e07-98e5-42644feec49a"
+      },
+      "reference_code": "total_cases = Table_0.loc[Table_0['calculationperiod'] == '6M2025', 'kpivalue'].sum()",
+      "reference_result": [
+        {
+          "0": 2065
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of water‑exclusion aid cases resolved in Valencia during June 2025."
+    },
+    {
+      "id": "b1ddcd64",
+      "question": "Según los datos de financiacion del Ajuntament de València, ¿qué fuente de financiacion recibió la mayor cantidad cada año entre 2020 y 2025?",
+      "keywords": [
+        "financiacion"
+      ],
+      "relevant_table_ids": [
+        "ac512105-82a5-484e-ae52-611b3db50d9b___983b2423-e71e-4e0b-aa6c-48f9f4f73d9b"
+      ],
+      "table_aliases": {
+        "Table_0": "ac512105-82a5-484e-ae52-611b3db50d9b___983b2423-e71e-4e0b-aa6c-48f9f4f73d9b"
+      },
+      "reference_code": "(Table_0\n.assign(rank=lambda df: df.groupby('Periodo presupuestario')['Valor'].rank(method='first', ascending=False))\n.query('rank == 1')\n[['Periodo presupuestario', 'Denominacion', 'Valor']])",
+      "reference_result": [
+        {
+          "Periodo presupuestario": 2021,
+          "Denominacion": "TRANSFERENCIAS",
+          "Valor": 388638806.4
+        },
+        {
+          "Periodo presupuestario": 2022,
+          "Denominacion": "TRANSFERENCIAS",
+          "Valor": 464976280.5
+        },
+        {
+          "Periodo presupuestario": 2020,
+          "Denominacion": "IMPUESTOS",
+          "Valor": 397467448.0
+        },
+        {
+          "Periodo presupuestario": 2025,
+          "Denominacion": "TRANSFERENCIAS",
+          "Valor": 599214103.2
+        },
+        {
+          "Periodo presupuestario": 2023,
+          "Denominacion": "TRANSFERENCIAS",
+          "Valor": 490727938.9
+        },
+        {
+          "Periodo presupuestario": 2024,
+          "Denominacion": "TRANSFERENCIAS",
+          "Valor": 604645450.9
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per fiscal year (2020‑2025) showing the financing source (Denominacion) that received the highest amount and the corresponding amount (Valor)."
+    },
+    {
+      "id": "a6f9f04f",
+      "question": "Para cada mes de 2024 en Valencia, ¿cuáles fueron el total de incidencias de equipos, el total de incidencias por mal estacionamiento, la media de estaciones de recarga y el tiempo medio de recarga, y qué mes tuvo la mayor proporción de incidencias de equipos respecto a estaciones de recarga?",
+      "keywords": [
+        "incidencias",
+        "mal"
+      ],
+      "relevant_table_ids": [
+        "058cca56-eee6-49fa-ae7a-0ae83cb0de63___a51d0bb2-2789-4932-aca9-93c146dd05a2",
+        "e1ae94be-e088-40a8-9e44-38ce0eeeeba9___f4310a91-cf72-4fc7-bd9d-4c9e888f2f47",
+        "63f02f3d-d585-4f7e-b9af-114b87ed9f10___73d169ae-7593-42d2-b3b7-8fe8629e1d1b",
+        "f042c58d-9aaa-4d62-8616-cef764ab964c___807e7fac-cfb5-4a09-a077-e5e5b4a1e863"
+      ],
+      "table_aliases": {
+        "Table_0": "058cca56-eee6-49fa-ae7a-0ae83cb0de63___a51d0bb2-2789-4932-aca9-93c146dd05a2",
+        "Table_1": "e1ae94be-e088-40a8-9e44-38ce0eeeeba9___f4310a91-cf72-4fc7-bd9d-4c9e888f2f47",
+        "Table_2": "63f02f3d-d585-4f7e-b9af-114b87ed9f10___73d169ae-7593-42d2-b3b7-8fe8629e1d1b",
+        "Table_3": "f042c58d-9aaa-4d62-8616-cef764ab964c___807e7fac-cfb5-4a09-a077-e5e5b4a1e863"
+      },
+      "reference_code": "df = Table_0.assign(eq_kpivalue=Table_0['kpivalue']).drop(columns=['kpivalue'])\ndf = df.merge(\n    Table_1[['calculationperiod', 'kpivalue']].rename(columns={'kpivalue': 'bp_kpivalue'}),\n    on='calculationperiod',\n    how='inner'\n)\ndf = df.merge(\n    Table_2[['calculationperiod', 'kpivalue']].rename(columns={'kpivalue': 'stations'}),\n    on='calculationperiod',\n    how='inner'\n)\ndf = df.merge(\n    Table_3[['calculationperiod', 'kpivalue']].rename(columns={'kpivalue': 'charging_time'}),\n    on='calculationperiod',\n    how='inner'\n)\ndf = df.assign(month=pd.to_datetime(df['calculationperiod']).dt.strftime('%Y-%m'))\ndf = df[df['calculationperiod'].str.startswith('2024')]\nresult = (\n    df.groupby('month', as_index=False)\n      .agg(\n          total_eq_incidents=('eq_kpivalue', 'sum'),\n          total_bad_parking=('bp_kpivalue', 'sum'),\n          avg_stations=('stations', 'mean'),\n          avg_charging_time=('charging_time', 'mean')\n      )\n)\nresult = result.assign(\n    ratio_eq_to_station=result['total_eq_incidents'] / result['avg_stations']\n)\nresult = result.assign(\n    ratio_rank=result['ratio_eq_to_station'].rank(method='average', ascending=False).astype(int)\n)\nresult = result.sort_values('month')",
+      "reference_result": [
+        {
+          "month": "2024-04",
+          "total_eq_incidents": 324.0,
+          "total_bad_parking": 6267.0,
+          "avg_stations": 34.0,
+          "avg_charging_time": 0.0,
+          "ratio_eq_to_station": 9.5294117647,
+          "ratio_rank": 6
+        },
+        {
+          "month": "2024-05",
+          "total_eq_incidents": 1065.0,
+          "total_bad_parking": 41313.0,
+          "avg_stations": 34.0,
+          "avg_charging_time": 0.0,
+          "ratio_eq_to_station": 31.3235294118,
+          "ratio_rank": 4
+        },
+        {
+          "month": "2024-07",
+          "total_eq_incidents": 967.0,
+          "total_bad_parking": 31302.0,
+          "avg_stations": 34.0,
+          "avg_charging_time": 0.0,
+          "ratio_eq_to_station": 28.4411764706,
+          "ratio_rank": 5
+        },
+        {
+          "month": "2024-08",
+          "total_eq_incidents": 1559.0,
+          "total_bad_parking": 53189.0,
+          "avg_stations": 34.0,
+          "avg_charging_time": 0.0055356074,
+          "ratio_eq_to_station": 45.8529411765,
+          "ratio_rank": 2
+        },
+        {
+          "month": "2024-09",
+          "total_eq_incidents": 1686.0,
+          "total_bad_parking": 58201.0,
+          "avg_stations": 34.0,
+          "avg_charging_time": 0.1755555556,
+          "ratio_eq_to_station": 49.5882352941,
+          "ratio_rank": 1
+        },
+        {
+          "month": "2024-10",
+          "total_eq_incidents": 1371.0,
+          "total_bad_parking": 49173.0,
+          "avg_stations": 34.0,
+          "avg_charging_time": 0.6634408602,
+          "ratio_eq_to_station": 40.3235294118,
+          "ratio_rank": 3
+        },
+        {
+          "month": "2024-11",
+          "total_eq_incidents": 78.0,
+          "total_bad_parking": 2842.0,
+          "avg_stations": 34.0,
+          "avg_charging_time": 0.0,
+          "ratio_eq_to_station": 2.2941176471,
+          "ratio_rank": 8
+        },
+        {
+          "month": "2024-12",
+          "total_eq_incidents": 170.0,
+          "total_bad_parking": 6271.0,
+          "avg_stations": 34.0,
+          "avg_charging_time": 0.0,
+          "ratio_eq_to_station": 5.0,
+          "ratio_rank": 7
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per month in 2024 with columns: month, total_eq_incidents, total_bad_parking, avg_stations, avg_charging_time, ratio_eq_to_station, and ratio_rank (1 = highest ratio)."
+    },
+    {
+      "id": "9cbbf6d1",
+      "question": "¿Cómo se comparó el nivel medio de ruido de la tarde con el nivel medio de ruido de la noche en el sensor salvador Abril durante el mes pasado?",
+      "keywords": [
+        "salvador"
+      ],
+      "relevant_table_ids": [
+        "eb3bce72-b02d-4d44-9c14-86fb0b6328d4___64e4b7b4-e633-4753-b0ef-a57d785076f8"
+      ],
+      "table_aliases": {
+        "Table_0": "eb3bce72-b02d-4d44-9c14-86fb0b6328d4___64e4b7b4-e633-4753-b0ef-a57d785076f8"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(_date=pd.to_datetime(Table_0['dateobserved'], errors='coerce'))\n    .loc[lambda df: df['_date'] >= df['_date'].max() - pd.Timedelta(days=30)]\n    .agg({'laeq_e': 'mean', 'laeq_n': 'mean'})\n    .rename({'laeq_e': 'avg_evening', 'laeq_n': 'avg_night'})\n    .to_frame()\n    .T\n)",
+      "reference_result": [
+        {
+          "avg_evening": 60.0412905293,
+          "avg_night": 58.0519356266
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with two columns: avg_evening (average evening LAeq in dB) and avg_night (average night LAeq in dB) for the most recent 30‑day period."
+    },
+    {
+      "id": "fbc9d442",
+      "question": "En Valencia, ¿cuál de los dos periodos — del 25 abril 2024 al 4 mayo 2024 o el resto de 2024 — tuvo más flotas registradas, y qué parte del total anual de flotas representa cada periodo?",
+      "keywords": [
+        "flotas"
+      ],
+      "relevant_table_ids": [
+        "e82b159b-af13-4c9d-aab8-56a3b7f2ed6e___bf58eda0-11a4-4d66-8792-32e0811e6360"
+      ],
+      "table_aliases": {
+        "Table_0": "e82b159b-af13-4c9d-aab8-56a3b7f2ed6e___bf58eda0-11a4-4d66-8792-32e0811e6360"
+      },
+      "reference_code": "df = (\n    Table_0\n    .assign(_dt=pd.to_datetime(Table_0['calculationperiod']))\n    .assign(year=lambda x: x['_dt'].dt.year)\n    .query(\"year == 2024\")\n    .assign(is_target_window=lambda x: (x['_dt'] >= pd.Timestamp('2024-04-25')) & (x['_dt'] <= pd.Timestamp('2024-05-04')))\n)\ntotal_2024 = df.shape[0]\nresult = (\n    df\n    .groupby('is_target_window')\n    .size()\n    .reset_index(name='period_count')\n    .assign(share_percent=lambda x: x['period_count'] / total_2024 * 100)\n)",
+      "reference_result": [
+        {
+          "is_target_window": false,
+          "period_count": 205,
+          "share_percent": 95.7943925234
+        },
+        {
+          "is_target_window": true,
+          "period_count": 9,
+          "share_percent": 4.2056074766
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A two‑row table: one row for the period 25 Apr 2024‑4 May 2024 and one row for the rest of 2024, each showing the count of flotas in that period and its percentage share of the total 2024 flotas. The period with the higher count is identified by the larger share."
+    },
+    {
+      "id": "5e7916e5",
+      "question": "¿Cuáles son las cinco calles con mayor longitud total de sus ejes en Valencia, y cómo se compara la longitud media de los ejes de cada calle con la media de los ejes de la ciudad?",
+      "keywords": [
+        "ejes"
+      ],
+      "relevant_table_ids": [
+        "694b7f70-b9ab-40f9-adcf-9075a083d988___57a75220-f4d7-4340-9268-40a46843a7dd"
+      ],
+      "table_aliases": {
+        "Table_0": "694b7f70-b9ab-40f9-adcf-9075a083d988___57a75220-f4d7-4340-9268-40a46843a7dd"
+      },
+      "reference_code": "city_avg = Table_0['longitud'].mean()\nresult = (\n    Table_0.groupby('nomcalle', as_index=False)\n    .agg(total_length=('longitud', 'sum'), avg_length=('longitud', 'mean'))\n    .sort_values('total_length', ascending=False)\n    .head(5)\n    .assign(avg_vs_city=lambda df: df['avg_length'] / city_avg)\n)",
+      "reference_result": [
+        {
+          "nomcalle": "V-30",
+          "total_length": 22334.62754,
+          "avg_length": 620.4063205556,
+          "avg_vs_city": 6.9707099305
+        },
+        {
+          "nomcalle": "V-15",
+          "total_length": 11294.72678,
+          "avg_length": 470.6136158333,
+          "avg_vs_city": 5.2876814704
+        },
+        {
+          "nomcalle": "CID",
+          "total_length": 10750.77757,
+          "avg_length": 105.399780098,
+          "avg_vs_city": 1.1842421159
+        },
+        {
+          "nomcalle": "MOLLS",
+          "total_length": 9892.58963,
+          "avg_length": 471.0756966667,
+          "avg_vs_city": 5.2928732799
+        },
+        {
+          "nomcalle": "PINARS",
+          "total_length": 8977.93088,
+          "avg_length": 1122.24136,
+          "avg_vs_city": 12.6091864853
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Five rows, each representing one of the streets with the highest total segment length, showing the street name (nomcalle), its total length (total_length), its average segment length (avg_length), and the ratio of that average to the city‑wide average segment length (avg_vs_city)."
+    },
+    {
+      "id": "c19a1abd",
+      "question": "¿Qué proporción de centros públicos, concertados y privados hay en el municipio de València?",
+      "keywords": [
+        "centros"
+      ],
+      "relevant_table_ids": [
+        "11436f0c-082b-4e5b-9659-005f5b528bde___9b95b4a2-08c8-43ee-adf5-ee9194742ace"
+      ],
+      "table_aliases": {
+        "Table_0": "11436f0c-082b-4e5b-9659-005f5b528bde___9b95b4a2-08c8-43ee-adf5-ee9194742ace"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['municipio_'] == 'València']\n    .groupby('regimen')\n    .agg(regimen_count=('codcen', 'count'))\n    .reset_index()\n)\ntotal_count = result['regimen_count'].sum()\nresult['share'] = result['regimen_count'] / total_count",
+      "reference_result": [
+        {
+          "regimen": "CONCERTADO",
+          "regimen_count": 105,
+          "share": 0.2019230769
+        },
+        {
+          "regimen": "PRIVADO",
+          "regimen_count": 255,
+          "share": 0.4903846154
+        },
+        {
+          "regimen": "PÚBLICO",
+          "regimen_count": 160,
+          "share": 0.3076923077
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per regime (PÚBLICO, CONCERTADO, PRIVADO) showing the proportion of centres of that regime within València."
+    },
+    {
+      "id": "a03b0688",
+      "question": "¿Qué distrito de Valencia tiene la mayor cantidad de plazas de aparcamiento gratuitas por habitante y cuál es el número de plazas de aparcamiento regulado por habitante en ese mismo distrito?",
+      "keywords": [
+        "distrito"
+      ],
+      "relevant_table_ids": [
+        "f94550e7-4617-4324-b1ad-6eea05c122d6___6810cb63-d55c-4ffa-9b5d-5dcbbdce171c"
+      ],
+      "table_aliases": {
+        "Table_0": "f94550e7-4617-4324-b1ad-6eea05c122d6___6810cb63-d55c-4ffa-9b5d-5dcbbdce171c"
+      },
+      "reference_code": "result = (\n    Table_0\n    .assign(\n        free_per_resident=lambda df: df['LIBRES'] / df['HABITANTES'],\n        regulated_per_resident=lambda df: df['ORA'] / df['HABITANTES']\n    )\n    .sort_values(by='free_per_resident', ascending=False)\n    .head(1)\n    .loc[:, ['DISTRITO', 'free_per_resident', 'regulated_per_resident']]\n)",
+      "reference_result": [
+        {
+          "DISTRITO": "QUATRE CARRERES",
+          "free_per_resident": 0.6346523242,
+          "regulated_per_resident": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the district name, its free parking spaces per resident, and its regulated parking spaces per resident."
+    },
+    {
+      "id": "46d27489",
+      "question": "¿Qué descripción de servicio tuvo el mayor coste en Valencia en 2014 y cuál fue el importe?",
+      "keywords": [
+        "coste"
+      ],
+      "relevant_table_ids": [
+        "59a923ee-ba3f-417f-8b0c-38a1d38510f2___6158347a-7b31-4268-83ad-c10b9c674a63"
+      ],
+      "table_aliases": {
+        "Table_0": "59a923ee-ba3f-417f-8b0c-38a1d38510f2___6158347a-7b31-4268-83ad-c10b9c674a63"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['Periodo'] == 2014]\n    .sort_values(by='Coste efectivo', ascending=False)\n    .head(1)\n    [['Descripcion', 'Coste efectivo']]\n)",
+      "reference_result": [
+        {
+          "Descripcion": "Policia local",
+          "Coste efectivo": 94574569.34
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the service description with the highest effective cost in Valencia for 2014 and the corresponding cost amount (Coste efectivo) in euros."
+    },
+    {
+      "id": "66d2e332",
+      "question": "El 2026-09-15, ¿cuál de los tres sensores del barrio de Ruzafa – el sensor de Cádiz 3, el sensor de Sueca 61 o el sensor de carles Cervera 34 – registró el nivel de ruido total más alto?",
+      "keywords": [
+        "61",
+        "carles"
+      ],
+      "relevant_table_ids": [
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "f5ce9865-05c6-4d05-9deb-287bdbec92a3___8058f1a5-c605-4baa-afff-2f638efb767f",
+        "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      ],
+      "table_aliases": {
+        "Table_0": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "Table_1": "f5ce9865-05c6-4d05-9deb-287bdbec92a3___8058f1a5-c605-4baa-afff-2f638efb767f",
+        "Table_2": "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      },
+      "reference_code": "df = pd.concat([\n    Table_0[['dateobserved', 'laeq', 'entityid']],\n    Table_1[['dateobserved', 'laeq', 'entityid']],\n    Table_2[['dateobserved', 'laeq', 'entityid']]\n], ignore_index=True)\ndf = df[df['dateobserved'] == '2026-09-15']\ndf = df.sort_values(by='laeq', ascending=False).head(1)\nresult = df['entityid'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "T248655-daily"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The sensor identifier (entityid) of the sensor that recorded the highest overall LAeq noise level on 2026-09-15."
+    },
+    {
+      "id": "9b5f5a79",
+      "question": "¿Qué combinación de tipo de centro y financiación entre los hospitales de Valencia tiene el mayor promedio de camas, y cuál es ese promedio, según los datos de 2021?",
+      "keywords": [
+        "hospitales"
+      ],
+      "relevant_table_ids": [
+        "c389b148-0fad-46b2-8c7b-f5c5aa866a65___8bb6b219-db30-4b01-aa24-0a8c6c0f89d9"
+      ],
+      "table_aliases": {
+        "Table_0": "c389b148-0fad-46b2-8c7b-f5c5aa866a65___8bb6b219-db30-4b01-aa24-0a8c6c0f89d9"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[(Table_0['Tipo'] == 'Hospital') & (Table_0['Fecha'] == '2021-06-30')]\n    .groupby(['Tipo', 'Financiaci'], as_index=False)['Camas']\n    .mean()\n    .rename(columns={'Camas': 'avg_beds'})\n    .sort_values(by='avg_beds', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "Tipo": "Hospital",
+          "Financiaci": "Publico",
+          "avg_beds": 407.75
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row showing the facility type and financing combination with the highest average beds among hospitals in Valencia for 2021, together with that average bed count."
+    },
+    {
+      "id": "a0311111",
+      "question": "¿Cuál fue el nivel de ruido total registrado por el sensor en la calle Carles Cervera, en la zona reina, el 18 de septiembre de 2026?",
+      "keywords": [
+        "reina"
+      ],
+      "relevant_table_ids": [
+        "0d84a4ac-7131-4c9a-8ed9-6be68c39b49e___ea008906-e06a-4c72-9fe6-3238e212aae4"
+      ],
+      "table_aliases": {
+        "Table_0": "0d84a4ac-7131-4c9a-8ed9-6be68c39b49e___ea008906-e06a-4c72-9fe6-3238e212aae4"
+      },
+      "reference_code": "overall_noise = Table_0[Table_0['dateobserved'] == '2026-09-18']['laeq'].mean()",
+      "reference_result": [
+        {
+          "result": 62.11
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The overall LAeq noise level (in dB) recorded by the sensor on Carles Cervera street in the Reina area on 18 September 2026."
+    },
+    {
+      "id": "e02344d2",
+      "question": "Entre el 27 de abril de 2021 y el 16 de septiembre de 2025, ¿qué sensor de los cinco — el de doctor Serrano 21, el de cuba 3, el de Cádiz 16, el de Cádiz 3 y el de General prim — registró el nivel medio más alto de ruido diurno, y cuál fue ese promedio?",
+      "keywords": [
+        "doctor",
+        "cuba",
+        "sensor",
+        "prim"
+      ],
+      "relevant_table_ids": [
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4",
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "466e1b85-eb8a-4454-ae7c-c1955e6b1533___3b2fe345-08fc-49d7-85c8-8cccf6a7e814"
+      ],
+      "table_aliases": {
+        "Table_0": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_1": "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4",
+        "Table_2": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_3": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "Table_4": "466e1b85-eb8a-4454-ae7c-c1955e6b1533___3b2fe345-08fc-49d7-85c8-8cccf6a7e814"
+      },
+      "reference_code": "import pandas as pd\ncombined = pd.concat([\n    Table_0,\n    Table_1,\n    Table_2,\n    Table_3,\n    Table_4\n], ignore_index=True)[['entityid', 'laeq_d', 'dateobserved']]\nfiltered = combined[(combined['dateobserved'] >= '2021-04-27') & (combined['dateobserved'] <= '2025-09-16')]\navg_per_sensor = (\n    filtered.groupby('entityid', as_index=False)['laeq_d']\n    .mean()\n    .rename(columns={'laeq_d': 'avg_laeq_d'})\n)\nresult = avg_per_sensor.sort_values(by='avg_laeq_d', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "entityid": "T248655-daily",
+          "avg_laeq_d": 65.9262011913
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row with the sensor identifier (entityid) that recorded the highest average daytime LAeq (laeq_d) between 27 April 2021 and 16 September 2025, and the corresponding average value."
+    },
+    {
+      "id": "98db83d0",
+      "question": "El 4 de septiembre de 2026, ¿qué sensor entre los de Cádiz 16, Cádiz 3, carles Cervera, salvador Abril y cuba registró el nivel de ruido total más alto?",
+      "keywords": [
+        "sensor",
+        "carles",
+        "salvador",
+        "cuba"
+      ],
+      "relevant_table_ids": [
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd",
+        "eb3bce72-b02d-4d44-9c14-86fb0b6328d4___64e4b7b4-e633-4753-b0ef-a57d785076f8",
+        "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4"
+      ],
+      "table_aliases": {
+        "Table_0": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_1": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "Table_2": "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd",
+        "Table_3": "eb3bce72-b02d-4d44-9c14-86fb0b6328d4___64e4b7b4-e633-4753-b0ef-a57d785076f8",
+        "Table_4": "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4"
+      },
+      "reference_code": "result = (\n    pd.concat([Table_0, Table_1, Table_2, Table_3, Table_4], ignore_index=True)\n    .loc[lambda df: df['dateobserved'] == '2026-09-04']\n    .sort_values(by='laeq', ascending=False)\n    .head(1)['entityid'].iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "T248655-daily"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The identifier (entityid) of the sensor that recorded the highest overall LAeq on 2026-09-04."
+    },
+    {
+      "id": "f7aa2df0",
+      "question": "Para cada año de 2024 a 2026, ¿cuáles son los tres tipos de incidentes que más aportan a las incidencias en Valencia y qué porcentaje representan?",
+      "keywords": [
+        "incidencias"
+      ],
+      "relevant_table_ids": [
+        "058cca56-eee6-49fa-ae7a-0ae83cb0de63___a51d0bb2-2789-4932-aca9-93c146dd05a2"
+      ],
+      "table_aliases": {
+        "Table_0": "058cca56-eee6-49fa-ae7a-0ae83cb0de63___a51d0bb2-2789-4932-aca9-93c146dd05a2"
+      },
+      "reference_code": "df = (\n    Table_0\n    .assign(year=Table_0['calculationperiod'].str[:4].astype(int))\n    .query(\"year in [2024, 2025, 2026]\")\n    .groupby(['year', 'sliceanddicevalue1'])\n    .size()\n    .reset_index(name='type_count')\n    .assign(year_total=lambda x: x.groupby('year')['type_count'].transform('sum'))\n    .assign(share_pct=lambda x: x['type_count'] / x['year_total'] * 100)\n    .assign(rank=lambda x: x.groupby('year')['share_pct'].rank(method='dense', ascending=False))\n    .query(\"rank <= 3\")\n    .rename(columns={'sliceanddicevalue1': 'incident_type'})\n    .sort_values(['year', 'rank'])\n    .reset_index(drop=True)\n)",
+      "reference_result": [
+        {
+          "year": 2024,
+          "incident_type": "DVA-NoCommunication:Fallada de comunicacions",
+          "type_count": 202,
+          "year_total": 7521,
+          "share_pct": 2.6858130568,
+          "rank": 1.0
+        },
+        {
+          "year": 2024,
+          "incident_type": "PDR-NoCommunication:Fallada de comunicacions",
+          "type_count": 202,
+          "year_total": 7521,
+          "share_pct": 2.6858130568,
+          "rank": 1.0
+        },
+        {
+          "year": 2024,
+          "incident_type": "CONECTOR-ConnectorLockFailure:Fallada en bloquejar o desbloquejar el connector.",
+          "type_count": 201,
+          "year_total": 7521,
+          "share_pct": 2.6725169525,
+          "rank": 2.0
+        },
+        {
+          "year": 2024,
+          "incident_type": "CONECTOR-EVCommunicationError:Fallada de comunicacio amb el vehicle, pot ser Mode 3 o un altre problema de protocol de comunicacio.",
+          "type_count": 201,
+          "year_total": 7521,
+          "share_pct": 2.6725169525,
+          "rank": 2.0
+        },
+        {
+          "year": 2024,
+          "incident_type": "CONECTOR-GroundFailure:S ha activat l interruptor de circuit de presa de terra.",
+          "type_count": 201,
+          "year_total": 7521,
+          "share_pct": 2.6725169525,
+          "rank": 2.0
+        },
+        {
+          "year": 2024,
+          "incident_type": "CONECTOR-HighTemperature:La temperatura dins del punt de carrega es massa alta.",
+          "type_count": 201,
+          "year_total": 7521,
+          "share_pct": 2.6725169525,
+          "rank": 2.0
+        },
+        {
+          "year": 2024,
+          "incident_type": "CONECTOR-InternalError:Error al component intern de maquinari o programari.",
+          "type_count": 201,
+          "year_total": 7521,
+          "share_pct": 2.6725169525,
+          "rank": 2.0
+        },
+        {
+          "year": 2024,
+          "incident_type": "CONECTOR-LocalListConflict:La informacio d autoritzacio del sistema central rebuda esta en conflicte amb LocalAuthorizationList.",
+          "type_count": 201,
+          "year_total": 7521,
+          "share_pct": 2.6725169525,
+          "rank": 2.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with columns year, incident_type, share_pct, and rank, containing the top three incident types by percentage of total incidencias for each year 2024‑2026 in Valencia."
+    },
+    {
+      "id": "177f0a65",
+      "question": "¿Cuáles son los niveles medios de ruido diurnos y nocturnos para cada sensor — el sensor en Cádiz 16, el sensor doctor en Doctor Serrano 21, el sensor en Sueca, el sensor t248655 en Cádiz 3 y el sensor carles en Carles Cervera 34 — y cuál sensor tiene el nivel medio diurno más alto?",
+      "keywords": [
+        "sensor",
+        "doctor",
+        "t248655",
+        "carles"
+      ],
+      "relevant_table_ids": [
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "356d056f-f16c-4819-8d0a-e19e1dc54702___a54fb175-8013-460a-a2f0-22de7a210d7a",
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      ],
+      "table_aliases": {
+        "Table_0": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_1": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_2": "356d056f-f16c-4819-8d0a-e19e1dc54702___a54fb175-8013-460a-a2f0-22de7a210d7a",
+        "Table_3": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "Table_4": "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      },
+      "reference_code": "df = pd.concat([\n    Table_0[['entityid', 'laeq_d', 'laeq_n']],\n    Table_1[['entityid', 'laeq_d', 'laeq_n']],\n    Table_2[['entityid', 'laeq_d', 'laeq_n']],\n    Table_3[['entityid', 'laeq_d', 'laeq_n']],\n    Table_4[['entityid', 'laeq_d', 'laeq_n']]\n], ignore_index=True)\nresult = df.groupby('entityid', as_index=False).agg(\n    avg_daytime=('laeq_d', 'mean'),\n    avg_night=('laeq_n', 'mean')\n)\nresult = result.sort_values('avg_daytime', ascending=False)",
+      "reference_result": [
+        {
+          "entityid": "T248655-daily",
+          "avg_daytime": 65.889391771,
+          "avg_night": 60.8838416816
+        },
+        {
+          "entityid": "T248671-daily",
+          "avg_daytime": 62.5967918552,
+          "avg_night": 57.1253257919
+        },
+        {
+          "entityid": "T248669-daily",
+          "avg_daytime": 61.9459999911,
+          "avg_night": 56.223583302
+        },
+        {
+          "entityid": "T248652-daily",
+          "avg_daytime": 60.3648523422,
+          "avg_night": 55.7144551935
+        },
+        {
+          "entityid": "T248678-daily",
+          "avg_daytime": 58.3345406035,
+          "avg_night": 54.1713728395
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per sensor (Cádiz 16, Doctor Serrano 21, Sueca, Cádiz 3, Carles Cervera 34) showing the average daytime (laeq_d) and nighttime (laeq_n) noise levels, sorted descending by average daytime noise so the first row is the sensor with the highest daytime average."
+    },
+    {
+      "id": "5765342a",
+      "question": "¿Qué tres capítulos tienen el mayor ingreso proyectado combinado para la actividad economico con codigo 13000 al sumar los importes de 2024 de la lista detallada y los de 2023 de la clasificación por código, y qué proporción del ingreso total combinado representa cada uno?",
+      "keywords": [
+        "economico",
+        "codigo"
+      ],
+      "relevant_table_ids": [
+        "263d3466-f23f-41ca-a710-2a0d87250ea3___0104a091-95c4-452b-835d-27d2a6a9901c",
+        "72ad8807-4aa4-4806-a59c-b77bfd83dc79___e67b061c-f6c7-4546-9576-840ff8fca29b"
+      ],
+      "table_aliases": {
+        "Table_0": "263d3466-f23f-41ca-a710-2a0d87250ea3___0104a091-95c4-452b-835d-27d2a6a9901c",
+        "Table_1": "72ad8807-4aa4-4806-a59c-b77bfd83dc79___e67b061c-f6c7-4546-9576-840ff8fca29b"
+      },
+      "reference_code": "import pandas as pd\nfiltered_0 = Table_0[(Table_0['Periodo presupuestario'] == 2024) & (Table_0['Codigo economico'] == 13000)][['Capítulo', 'Valor']]\nfiltered_1 = Table_1[(Table_1['Periodo presupuestario'] == 2023) & (Table_1['Código económico'] == 13000)][['Capítulo', 'Valor']]\ncombined = pd.concat([filtered_0, filtered_1], ignore_index=True)\nagg = combined.groupby('Capítulo', as_index=False).agg(combined_income=('Valor', 'sum'))\nall_chapters = pd.concat([Table_0['Capítulo'], Table_1['Capítulo']]).unique()\nagg = agg.set_index('Capítulo').reindex(all_chapters, fill_value=0).reset_index()\ntotal_income = agg['combined_income'].sum()\nagg['share_percent'] = agg['combined_income'] / total_income * 100\nresult = agg.sort_values('combined_income', ascending=False).head(3)",
+      "reference_result": [
+        {
+          "Capítulo": 1,
+          "combined_income": 55300000.0,
+          "share_percent": 100.0
+        },
+        {
+          "Capítulo": 2,
+          "combined_income": 0.0,
+          "share_percent": 0.0
+        },
+        {
+          "Capítulo": 3,
+          "combined_income": 0.0,
+          "share_percent": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each representing a chapter (Capítulo) that has the highest combined projected income for economic code 13000, showing the combined income amount (sum of 2024 detailed list and 2023 classification) and the percentage share of the total combined income that each chapter contributes."
+    },
+    {
+      "id": "8f244254",
+      "question": "En 2024, ¿cuál fue la proporción mensual de suscriptores de carga de vehículos eléctricos que recargaron dos veces en Valencia, y qué tres meses tuvieron la mayor proporción?",
+      "keywords": [
+        "que"
+      ],
+      "relevant_table_ids": [
+        "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20"
+      ],
+      "table_aliases": {
+        "Table_0": "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['calculationperiod'].str.startswith('2024')]\n    .assign(\n        month=lambda d: pd.to_datetime(d['calculationperiod']).dt.month,\n        recharged_twice=lambda d: (d['kpivalue'] == 2).astype(int),\n        any_recharge=lambda d: (d['kpivalue'] > 0).astype(int)\n    )\n    .groupby('month', as_index=False)\n    .agg(cnt_twice=('recharged_twice','sum'), cnt_any=('any_recharge','sum'))\n    .assign(share_twice=lambda d: d['cnt_twice'] / d['cnt_any'])\n    .sort_values('share_twice', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "month": 12,
+          "cnt_twice": 1,
+          "cnt_any": 1,
+          "share_twice": 1.0
+        },
+        {
+          "month": 7,
+          "cnt_twice": 0,
+          "cnt_any": 1,
+          "share_twice": 0.0
+        },
+        {
+          "month": 8,
+          "cnt_twice": 0,
+          "cnt_any": 1,
+          "share_twice": 0.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing a month and the share (percentage) of subscribers who recharged exactly twice that month, ordered from highest to lowest share."
+    },
+    {
+      "id": "2a13a50f",
+      "question": "Para cada mes de 2024, ¿cuál es el numero medio diario de nuevos abonados en Valencia, el numero total de abonados que han hecho uso del servicio de recarga de vehículos eléctricos, y la proporción de recargas respecto a los nuevos abonados de ese mes?",
+      "keywords": [
+        "numero",
+        "que"
+      ],
+      "relevant_table_ids": [
+        "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064",
+        "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20"
+      ],
+      "table_aliases": {
+        "Table_0": "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064",
+        "Table_1": "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20"
+      },
+      "reference_code": "import pandas as pd\nTable_0['calc_dt'] = pd.to_datetime(Table_0['calculationperiod'], errors='coerce')\nTable_1['calc_dt'] = pd.to_datetime(Table_1['calculationperiod'], errors='coerce')\nt0_2024 = Table_0[Table_0['calc_dt'].dt.year == 2024].copy()\nt1_2024 = Table_1[Table_1['calc_dt'].dt.year == 2024].copy()\nt0_2024['month'] = t0_2024['calc_dt'].dt.to_period('M').astype(str)\nt1_2024['month'] = t1_2024['calc_dt'].dt.to_period('M').astype(str)\navg_sub = (\n    t0_2024.groupby('month')['kpivalue']\n    .mean()\n    .reset_index(name='avg_new_subscribers')\n)\ntotal_rech = (\n    t1_2024.groupby('month')['kpivalue']\n    .sum()\n    .reset_index(name='total_recharges')\n)\nresult = pd.merge(avg_sub, total_rech, on='month', how='outer')\nresult['ratio'] = result['total_recharges'] / result['avg_new_subscribers']\nresult = result.sort_values('month').reset_index(drop=True)",
+      "reference_result": [
+        {
+          "month": "2024-03",
+          "avg_new_subscribers": null,
+          "total_recharges": 0.0,
+          "ratio": null
+        },
+        {
+          "month": "2024-04",
+          "avg_new_subscribers": 93.0,
+          "total_recharges": null,
+          "ratio": null
+        },
+        {
+          "month": "2024-05",
+          "avg_new_subscribers": 93.75,
+          "total_recharges": null,
+          "ratio": null
+        },
+        {
+          "month": "2024-06",
+          "avg_new_subscribers": null,
+          "total_recharges": 0.0,
+          "ratio": null
+        },
+        {
+          "month": "2024-07",
+          "avg_new_subscribers": 94.0,
+          "total_recharges": 1.0,
+          "ratio": 0.0106382979
+        },
+        {
+          "month": "2024-08",
+          "avg_new_subscribers": 94.0,
+          "total_recharges": 1.0,
+          "ratio": 0.0106382979
+        },
+        {
+          "month": "2024-09",
+          "avg_new_subscribers": 94.0,
+          "total_recharges": 1.0,
+          "ratio": 0.0106382979
+        },
+        {
+          "month": "2024-10",
+          "avg_new_subscribers": 94.0,
+          "total_recharges": 1.0,
+          "ratio": 0.0106382979
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per month in 2024 with the average daily number of new subscribers, the total number of EV‑service recharges, and the ratio of recharges to new subscribers for that month."
+    },
+    {
+      "id": "280a30d0",
+      "question": "¿Cuánta energia se suministró a usuarios locales el 25 de abril de 2024 en Valencia?",
+      "keywords": [
+        "energia"
+      ],
+      "relevant_table_ids": [
+        "0cf57752-32e3-4e79-a1b5-7f3af6fcd6d0___4fb1bada-37f2-4fbd-9f3c-fd4cb0addb62"
+      ],
+      "table_aliases": {
+        "Table_0": "0cf57752-32e3-4e79-a1b5-7f3af6fcd6d0___4fb1bada-37f2-4fbd-9f3c-fd4cb0addb62"
+      },
+      "reference_code": "total_local_energia = (\n    Table_0.loc[\n        (Table_0['sliceanddicevalue1'] == 'Local') &\n        (Table_0['calculationperiod'] == '2024-04-25 22:00:00.0'),\n        'kpivalue'\n    ].sum()\n)",
+      "reference_result": [
+        {
+          "result": 0.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total energia (kpivalue) supplied to Local users in Valencia on 25 April 2024, in the same units as the source data."
+    },
+    {
+      "id": "8284d998",
+      "question": "¿Cuál fue el nivel de ruido total registrado por el sensor en la calle carles Cervera el 2026-09-15?",
+      "keywords": [
+        "carles"
+      ],
+      "relevant_table_ids": [
+        "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      ],
+      "table_aliases": {
+        "Table_0": "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      },
+      "reference_code": "Table_0.loc[Table_0['dateobserved'] == '2026-09-15', 'laeq'].iloc[0]",
+      "reference_result": [
+        {
+          "result": 55.1599998474
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The overall LAeq noise level (in dB) recorded on 2026-09-15 at the Carles Cervera sensor."
+    },
+    {
+      "id": "d6a0b949",
+      "question": "Entre los conjuntos de datos EMT viajeros y el conjunto de datos EMT travelers, ¿cuál registró el mayor aumento porcentual en los viajes en autobús con youth-pass entre 2020 y 2022, y cuál fue ese aumento?",
+      "keywords": [
+        "viajeros",
+        "travelers"
+      ],
+      "relevant_table_ids": [
+        "9fa22935-2756-4835-9db8-eba4cdc027dc___347f575e-2037-4688-9385-436eaab36b15",
+        "9fa22935-2756-4835-9db8-eba4cdc027dc___83167f29-9b9e-4814-8588-581e56014136",
+        "9fa22935-2756-4835-9db8-eba4cdc027dc___8eca528e-a388-427e-b55d-4d83317a25eb"
+      ],
+      "table_aliases": {
+        "Table_0": "9fa22935-2756-4835-9db8-eba4cdc027dc___347f575e-2037-4688-9385-436eaab36b15",
+        "Table_1": "9fa22935-2756-4835-9db8-eba4cdc027dc___83167f29-9b9e-4814-8588-581e56014136",
+        "Table_2": "9fa22935-2756-4835-9db8-eba4cdc027dc___8eca528e-a388-427e-b55d-4d83317a25eb"
+      },
+      "reference_code": "import pandas as pd\nimport numpy as np\ndef _prepare(df, col):\n    return pd.to_numeric(df[col].astype(str).str.replace(' ', ''), errors='coerce')\n_tbl0 = Table_0.copy()\ncol0 = _prepare(_tbl0, 'Abonament mensual Jove')\nsum_0_2020 = col0[_tbl0['Any'] == 2020].sum()\nsum_0_2022 = col0[_tbl0['Any'] == 2022].sum()\nincrease_percent_0 = (sum_0_2022 - sum_0_2020) / sum_0_2020 * 100 if sum_0_2020 != 0 else np.nan\n_df0 = pd.DataFrame({'dataset': ['Table_0'], 'increase_percent': [increase_percent_0]})\n_tbl1 = Table_1.copy()\ncol1 = _prepare(_tbl1, 'Abono mensual Jove')\nsum_1_2020 = col1[_tbl1['Año'] == 2020].sum()\nsum_1_2022 = col1[_tbl1['Año'] == 2022].sum()\nincrease_percent_1 = (sum_1_2022 - sum_1_2020) / sum_1_2020 * 100 if sum_1_2020 != 0 else np.nan\n_df1 = pd.DataFrame({'dataset': ['Table_1'], 'increase_percent': [increase_percent_1]})\n_tbl2 = Table_2.copy()\ncol2 = _prepare(_tbl2, 'Abono mensual Jove')\nsum_2_2020 = col2[_tbl2['Año'] == 2020].sum()\nsum_2_2022 = col2[_tbl2['Año'] == 2022].sum()\nincrease_percent_2 = (sum_2_2022 - sum_2_2020) / sum_2_2020 * 100 if sum_2_2020 != 0 else np.nan\n_df2 = pd.DataFrame({'dataset': ['Table_2'], 'increase_percent': [increase_percent_2]})\nresult = (\n    pd.concat([_df0, _df1, _df2], ignore_index=True)\n      .dropna(subset=['increase_percent'])\n      .sort_values(by='increase_percent', ascending=False)\n      .head(1)\n      .reset_index(drop=True)\n)\nresult['increase_percent'] = result['increase_percent'].round(2)",
+      "reference_result": [
+        {
+          "dataset": "Table_0",
+          "increase_percent": -5.48
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A one‑row table with two columns: \"dataset\" (the alias of the dataset with the highest increase) and \"increase_percent\" (the percentage increase from 2020 to 2022, rounded to two decimals)."
+    },
+    {
+      "id": "53776b0a",
+      "question": "¿Cuáles son los números de viajes en autobús realizados con abono mensual en Valencia en 2020 según los conjuntos de datos EMT viajeros y el conjunto de datos EMT travelers?",
+      "keywords": [
+        "viajeros",
+        "travelers"
+      ],
+      "relevant_table_ids": [
+        "9fa22935-2756-4835-9db8-eba4cdc027dc___347f575e-2037-4688-9385-436eaab36b15",
+        "9fa22935-2756-4835-9db8-eba4cdc027dc___83167f29-9b9e-4814-8588-581e56014136",
+        "9fa22935-2756-4835-9db8-eba4cdc027dc___8eca528e-a388-427e-b55d-4d83317a25eb"
+      ],
+      "table_aliases": {
+        "Table_0": "9fa22935-2756-4835-9db8-eba4cdc027dc___347f575e-2037-4688-9385-436eaab36b15",
+        "Table_1": "9fa22935-2756-4835-9db8-eba4cdc027dc___83167f29-9b9e-4814-8588-581e56014136",
+        "Table_2": "9fa22935-2756-4835-9db8-eba4cdc027dc___8eca528e-a388-427e-b55d-4d83317a25eb"
+      },
+      "reference_code": "total_passes_0 = pd.to_numeric(\n    Table_0.loc[Table_0['Any'] == 2020, 'Abonament mensual']\n    .str.replace(' ', ''),\n    errors='coerce'\n).sum()\ntotal_passes_1 = pd.to_numeric(\n    Table_1.loc[Table_1['Año'] == 2020, 'Abona mensual']\n    .str.replace(' ', ''),\n    errors='coerce'\n).sum()\ntotal_passes_2 = pd.to_numeric(\n    Table_2.loc[Table_2['Año'] == 2020, 'Abona mensual']\n    .str.replace(' ', ''),\n    errors='coerce'\n).sum()\nresult = [total_passes_0, total_passes_1, total_passes_2]",
+      "reference_result": [
+        {
+          "0": 3254140
+        },
+        {
+          "0": 3254140
+        },
+        {
+          "0": 3254140
+        }
+      ],
+      "expected_result_type": "list",
+      "expected_result_description": "A list of three numbers representing the total bus trips made with a monthly pass in 2020, in the order: Table_0 (EMT viajeros), Table_1 (EMT viajeros), Table_2 (EMT travelers)."
+    },
+    {
+      "id": "911f905b",
+      "question": "Para los sensores doctor Serrano y cuba, ¿cuáles fueron los niveles promedio de ruido diurno y nocturno durante el mes más reciente de datos de cada sensor, y cuánto mayor fue el nivel diurno que el nocturno?",
+      "keywords": [
+        "doctor",
+        "cuba"
+      ],
+      "relevant_table_ids": [
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4"
+      ],
+      "table_aliases": {
+        "Table_0": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_1": "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4"
+      },
+      "reference_code": "import pandas as pd\ncombined = pd.concat([Table_0, Table_1], ignore_index=True)\nfiltered = (\n    combined\n    .assign(dateobserved=lambda df: pd.to_datetime(df['dateobserved']))\n    .assign(year_month=lambda df: df['dateobserved'].dt.to_period('M'))\n    .loc[lambda df: df['year_month'] == df.groupby('entityid')['year_month'].transform('max')]\n)\nresult = (\n    filtered\n    .groupby('entityid', as_index=False)\n    .agg(avg_day=('laeq_d', 'mean'), avg_night=('laeq_n', 'mean'))\n    .assign(diff=lambda df: df['avg_day'] - df['avg_night'])\n    [['entityid', 'avg_day', 'avg_night', 'diff']]\n)",
+      "reference_result": [
+        {
+          "entityid": "T248669-daily",
+          "avg_day": 66.7999992371,
+          "avg_night": 57.0979995728,
+          "diff": 9.7019996643
+        },
+        {
+          "entityid": "T248682-daily",
+          "avg_day": 61.5644444444,
+          "avg_night": 59.5511111111,
+          "diff": 2.0133333333
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one per sensor (Doctor Serrano and Cuba), each showing the average daytime LAeq, the average night‑time LAeq for the sensor's most recent month, and the difference (daytime minus night‑time) in decibels."
+    },
+    {
+      "id": "96e1a4c8",
+      "question": "¿Cuál es el total de subvenciones que otorgó el Ayuntamiento de Valencia en 2023?",
+      "keywords": [
+        "subvenciones"
+      ],
+      "relevant_table_ids": [
+        "904f9107-0d66-43ab-b247-f99c06a30f3f___6cf94de2-4dd4-41e7-89b6-7638263599ee"
+      ],
+      "table_aliases": {
+        "Table_0": "904f9107-0d66-43ab-b247-f99c06a30f3f___6cf94de2-4dd4-41e7-89b6-7638263599ee"
+      },
+      "reference_code": "total_amount = Table_0.loc[Table_0['PERIODO PRESUPUESTARIO'] == 2023, 'Importe'].sum()",
+      "reference_result": [
+        {
+          "result": 12064901.399999999
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total amount of subvenciones awarded by the Ayuntamiento de Valencia in the fiscal year 2023, expressed in euros."
+    },
+    {
+      "id": "b6c8961e",
+      "question": "¿Qué trimestre entre March 2024 y August 2025 tuvo el mayor aumento en el numero de nuevos suscriptores, y cuánto cambió el numero de abonados que usaron el servicio de carga de vehículos eléctricos en ese mismo trimestre?",
+      "keywords": [
+        "numero",
+        "que"
+      ],
+      "relevant_table_ids": [
+        "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064",
+        "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20"
+      ],
+      "table_aliases": {
+        "Table_0": "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064",
+        "Table_1": "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20"
+      },
+      "reference_code": "combined = pd.concat([Table_0, Table_1], ignore_index=True)\ncombined['calculationperiod'] = pd.to_datetime(combined['calculationperiod'], errors='coerce')\nmask = combined['calculationperiod'].between('2024-03-01', '2025-08-31')\ncombined = combined.loc[mask]\ncombined['quarter'] = combined['calculationperiod'].dt.to_period('Q').astype(str)\nagg = (\n    combined.groupby(['quarter', 'kpi id'], as_index=False)['kpivalue']\n    .sum()\n    .rename(columns={'kpivalue': 'total'})\n)\nsub_df = (\n    agg[agg['kpi id'] == 'IS_SCT_230304']\n    .sort_values('quarter')\n    .assign(prev_total=lambda x: x['total'].shift(1))\n    .assign(sub_change=lambda x: x['total'] - x['prev_total'])\n    .dropna(subset=['sub_change'])\n)\nsub_df['rank'] = sub_df['sub_change'].rank(method='first', ascending=False).astype(int)\ntop_sub = sub_df.loc[sub_df['rank'] == 1, ['quarter', 'sub_change']]\nev_df = (\n    agg[agg['kpi id'] == 'IS_SCT_230321']\n    .sort_values('quarter')\n    .assign(prev_total=lambda x: x['total'].shift(1))\n    .assign(ev_change=lambda x: x['total'] - x['prev_total'])\n    .rename(columns={'ev_change': 'ev_change'})\n)\nresult = top_sub.merge(ev_df[['quarter', 'ev_change']], on='quarter', how='left')\nresult = result[['quarter', 'sub_change', 'ev_change']]",
+      "reference_result": [
+        {
+          "quarter": "2024Q3",
+          "sub_change": 5089.0,
+          "ev_change": 3.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table with the quarter (e.g., 2024Q2) that had the largest increase in new subscribers, the magnitude of that increase, and the total number of electric‑vehicle charging service subscribers in the same quarter."
+    },
+    {
+      "id": "25ce8e8f",
+      "question": "Enumera las tres estaciones de commuter más al norte de Valencia con sus direcciones y códigos de estación, e indica cuál de ellas tiene la mayor longitud.",
+      "keywords": [
+        "commuter"
+      ],
+      "relevant_table_ids": [
+        "d80f8165-4154-4228-ac44-547bddd92548___2c1f8e35-91f5-4bb9-ba32-a2fd652bd41e"
+      ],
+      "table_aliases": {
+        "Table_0": "d80f8165-4154-4228-ac44-547bddd92548___2c1f8e35-91f5-4bb9-ba32-a2fd652bd41e"
+      },
+      "reference_code": "result = (\n    Table_0\n    .sort_values(by='LATITUD', ascending=False)\n    .head(3)\n    .assign(is_max_longitude=lambda df: df['LONGITUD'] == df['LONGITUD'].max())\n    .loc[:, ['CÓDIGO', 'DESCRIPCIÓN', 'DIRECCIÓN', 'LONGITUD', 'is_max_longitude']]\n)",
+      "reference_result": [
+        {
+          "CÓDIGO": 65300,
+          "DESCRIPCIÓN": "CASTELLO DE LA PLANA",
+          "DIRECCIÓN": "CALLE PINTOR OLIET",
+          "LONGITUD": -0.052266,
+          "is_max_longitude": true
+        },
+        {
+          "CÓDIGO": 65209,
+          "DESCRIPCIÓN": "ALMASSORA",
+          "DIRECCIÓN": "CARRER ESTACIO FERROCARRIL",
+          "LONGITUD": -0.0775039,
+          "is_max_longitude": false
+        },
+        {
+          "CÓDIGO": 67211,
+          "DESCRIPCIÓN": "CAUDIEL",
+          "DIRECCIÓN": "AVENIDA ESTACION",
+          "LONGITUD": -0.572027,
+          "is_max_longitude": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing the station code, name, street address, longitude, and a boolean column indicating which station has the highest longitude among the three."
+    },
+    {
+      "id": "d4aa3fe5",
+      "question": "¿Qué tres meses de 2021 tuvieron la mayor relación de ejecucion de pagos respecto a los créditos iniciales del Ajuntament de València, y cuáles fueron esas relaciones?",
+      "keywords": [
+        "ejecucion"
+      ],
+      "relevant_table_ids": [
+        "0874772f-62d0-4e1d-b42f-133089ec1733___6322ba4e-139d-4b14-b89e-ef10e6749848"
+      ],
+      "table_aliases": {
+        "Table_0": "0874772f-62d0-4e1d-b42f-133089ec1733___6322ba4e-139d-4b14-b89e-ef10e6749848"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['ESTADO A'].str.endswith('/2021')]\n    .assign(\n        MONTH=lambda d: d['ESTADO A'].str.split('/').str[1].astype(int),\n        PAYMENTS_NUM=lambda d: pd.to_numeric(d['PAGOS'], errors='coerce'),\n        CREDITS_NUM=lambda d: pd.to_numeric(d['CRÉDITOS INICIALES'], errors='coerce')\n    )\n    .groupby('MONTH', as_index=False)\n    .agg(\n        sum_payments=('PAYMENTS_NUM', 'sum'),\n        sum_credits=('CREDITS_NUM', 'sum')\n    )\n    .assign(payment_credit_ratio=lambda d: d['sum_payments'] / d['sum_credits'])\n    .sort_values('payment_credit_ratio', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "MONTH": 10,
+          "sum_payments": 70497827.0,
+          "sum_credits": 883729502.0,
+          "payment_credit_ratio": 0.0797730831
+        },
+        {
+          "MONTH": 9,
+          "sum_payments": 60713158.0,
+          "sum_credits": 883729502.0,
+          "payment_credit_ratio": 0.068701065
+        },
+        {
+          "MONTH": 8,
+          "sum_payments": 53170140.0,
+          "sum_credits": 883729502.0,
+          "payment_credit_ratio": 0.0601656275
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each containing a month of 2021 and the corresponding ratio (total payments ÷ total initial credits) for that month, sorted from highest to lowest ratio."
+    },
+    {
+      "id": "1f35f125",
+      "question": "¿Qué servicio y centro administrativo, en conjunto, recibieron la mayor cantidad total de subvenciones en 2023 para el Ayuntamiento de Valencia, y qué porcentaje del total de subvenciones de 2023 representa esa combinación?",
+      "keywords": [
+        "subvenciones"
+      ],
+      "relevant_table_ids": [
+        "904f9107-0d66-43ab-b247-f99c06a30f3f___6cf94de2-4dd4-41e7-89b6-7638263599ee"
+      ],
+      "table_aliases": {
+        "Table_0": "904f9107-0d66-43ab-b247-f99c06a30f3f___6cf94de2-4dd4-41e7-89b6-7638263599ee"
+      },
+      "reference_code": "df = Table_0[Table_0['PERIODO PRESUPUESTARIO'] == 2023]\ngroup_totals = df.groupby(['Servicio', 'Centro sector'], as_index=False).agg(group_total=('Importe', 'sum'))\ntotal_all = df['Importe'].sum()\nresult = (\n    group_totals.assign(total_all=total_all)\n    .sort_values(by='group_total', ascending=False)\n    .head(1)\n    .assign(share=lambda x: x['group_total'] / x['total_all'])\n    [['Servicio', 'Centro sector', 'group_total', 'share']]\n)",
+      "reference_result": [
+        {
+          "Servicio": "PARTICIPACION CIUDADANA Y GOBIERNO ABIERTO",
+          "Centro sector": "KC150",
+          "group_total": 2131266.61,
+          "share": 0.1766501473
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the Servicio, Centro sector, the total Importe awarded to that combination in 2023, and the percentage share of this total relative to all 2023 subvenciones."
+    },
+    {
+      "id": "13e2357d",
+      "question": "¿Cuál es la cantidad total de emisiones de CO2 del sector transporte en València según los datos?",
+      "keywords": [
+        "datos"
+      ],
+      "relevant_table_ids": [
+        "32649714-be6d-466c-9a78-3ad34b700e5d___5c8e2d6b-5498-4baa-b804-b52412861541"
+      ],
+      "table_aliases": {
+        "Table_0": "32649714-be6d-466c-9a78-3ad34b700e5d___5c8e2d6b-5498-4baa-b804-b52412861541"
+      },
+      "reference_code": "total_transport_emissions = (\n    Table_0.loc[Table_0['SECTOR'] == 'TRANSPORT', 'VALOR (tCO2)']\n    .str.replace('.', '', regex=False)\n    .str.replace(',', '.', regex=False)\n    .pipe(pd.to_numeric, errors='coerce')\n    .sum()\n)",
+      "reference_result": [
+        {
+          "result": 1305507.22
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total CO2 emissions (in tCO2) from the transport sector in València as reported in the datos."
+    },
+    {
+      "id": "9ce88c2c",
+      "question": "¿Cuántos expedientes de ayuda se abrieron (abierto) y cuántos se resolvieron (se) en junio de 2025 en Valencia?",
+      "keywords": [
+        "se",
+        "abierto"
+      ],
+      "relevant_table_ids": [
+        "d9043bfc-82b5-42b2-bd62-036a68785d17___e9108cd8-c9d4-4e07-98e5-42644feec49a",
+        "d96a7388-6962-41e4-af03-8ca6f5735d17___1937257d-b19a-4c90-9e84-8552756cbad1"
+      ],
+      "table_aliases": {
+        "Table_0": "d9043bfc-82b5-42b2-bd62-036a68785d17___e9108cd8-c9d4-4e07-98e5-42644feec49a",
+        "Table_1": "d96a7388-6962-41e4-af03-8ca6f5735d17___1937257d-b19a-4c90-9e84-8552756cbad1"
+      },
+      "reference_code": "filtered_0 = Table_0[Table_0['calculationperiod'] == '6M2025']\nfiltered_1 = Table_1[Table_1['calculationperiod'] == '6M2025']\nmerged = filtered_0.merge(filtered_1, on='calculationperiod', how='inner', suffixes=('_resolved', '_opened'))\nresult = merged.rename(columns={'kpivalue_resolved': 'resolved_cases', 'kpivalue_opened': 'opened_cases'})[['resolved_cases', 'opened_cases']]",
+      "reference_result": [
+        {
+          "resolved_cases": 2065,
+          "opened_cases": 1696
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with two columns: resolved_cases (number of aid cases resolved in June 2025 in Valencia) and opened_cases (number of aid cases opened in June 2025 in Valencia)."
+    },
+    {
+      "id": "70654a8d",
+      "question": "¿Cuál fue el nivel medio de ruido total registrado en la calle General prim en Ruzafa el 2026-09-18?",
+      "keywords": [
+        "prim"
+      ],
+      "relevant_table_ids": [
+        "466e1b85-eb8a-4454-ae7c-c1955e6b1533___3b2fe345-08fc-49d7-85c8-8cccf6a7e814"
+      ],
+      "table_aliases": {
+        "Table_0": "466e1b85-eb8a-4454-ae7c-c1955e6b1533___3b2fe345-08fc-49d7-85c8-8cccf6a7e814"
+      },
+      "reference_code": "avg_laeq = Table_0.loc[Table_0['dateobserved'] == '2026-09-18', 'laeq'].mean()",
+      "reference_result": [
+        {
+          "result": 61.5
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average overall LAeq (dB) recorded by the sensor on General Prim street in Ruzafa for the date 2026-09-18."
+    },
+    {
+      "id": "d2ff76c7",
+      "question": "¿Cuál fue el promedio diario numero de abonados en Valencia en 2024 y cómo se compara con el promedio diario de flotas registradas en la misma ciudad ese año?",
+      "keywords": [
+        "numero",
+        "flotas"
+      ],
+      "relevant_table_ids": [
+        "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064",
+        "e82b159b-af13-4c9d-aab8-56a3b7f2ed6e___bf58eda0-11a4-4d66-8792-32e0811e6360"
+      ],
+      "table_aliases": {
+        "Table_0": "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064",
+        "Table_1": "e82b159b-af13-4c9d-aab8-56a3b7f2ed6e___bf58eda0-11a4-4d66-8792-32e0811e6360"
+      },
+      "reference_code": "subscribers_avg = Table_0.loc[Table_0['calculationperiod'].str.startswith('2024-'), 'kpivalue'].mean()\nfleets_avg = Table_1.loc[Table_1['calculationperiod'].str.startswith('2024-'), 'kpivalue'].mean()\nresult = pd.DataFrame({\n    'average_daily_subscribers': [subscribers_avg],\n    'average_daily_fleets': [fleets_avg],\n    'difference': [subscribers_avg - fleets_avg]\n})",
+      "reference_result": [
+        {
+          "average_daily_subscribers": 93.9392523364,
+          "average_daily_fleets": 1.0,
+          "difference": 92.9392523364
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with three columns: average daily subscribers (abonados) in Valencia for 2024, average daily fleets registered in Valencia for 2024, and the difference (subscribers minus fleets)."
+    },
+    {
+      "id": "f42bb223",
+      "question": "¿Qué plataforma contribuyó más al aumento de descargas de la App de V.E. en Valencia entre 2024 y 2025?",
+      "keywords": [
+        "descargas"
+      ],
+      "relevant_table_ids": [
+        "cd201c99-b947-4083-8aa4-74c52d3b5945___96e44f8b-33b4-45fc-b043-ef9fefb65783"
+      ],
+      "table_aliases": {
+        "Table_0": "cd201c99-b947-4083-8aa4-74c52d3b5945___96e44f8b-33b4-45fc-b043-ef9fefb65783"
+      },
+      "reference_code": "top_platform = (\n    Table_0\n    .assign(year=Table_0['calculationperiod'].str[:4].astype(int))\n    .query('year == 2024 or year == 2025')\n    .groupby(['sliceanddicevalue1', 'year'], as_index=False)\n    .agg(downloads=('kpivalue', 'sum'))\n    .assign(join_key=1)\n    .pipe(lambda df: (\n        df.query('year == 2024')\n          .rename(columns={'downloads': 'downloads_2024'})\n          .drop(columns=['year'])\n    ))\n    .merge(\n        (\n            Table_0\n            .assign(year=Table_0['calculationperiod'].str[:4].astype(int))\n            .query('year == 2025')\n            .groupby(['sliceanddicevalue1', 'year'], as_index=False)\n            .agg(downloads=('kpivalue', 'sum'))\n            .assign(join_key=1)\n            .rename(columns={'downloads': 'downloads_2025'})\n            .drop(columns=['year'])\n        ),\n        on=['sliceanddicevalue1', 'join_key'],\n        how='inner'\n    )\n    .assign(increase=lambda df: df['downloads_2025'] - df['downloads_2024'])\n    .sort_values('increase', ascending=False)\n    .head(1)[['sliceanddicevalue1', 'increase']]\n)",
+      "reference_result": [
+        {
+          "sliceanddicevalue1": "Android",
+          "increase": -2
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table containing the platform (Android or iOS) that showed the largest increase in downloads from 2024 to 2025."
+    },
+    {
+      "id": "8a163f17",
+      "question": "Para el sensor T248680 (instalado en la calle Sueca 32 en Ruzafa, Valencia) en septiembre de 2026, ¿qué cinco días tuvieron los niveles de ruido por la tarde más altos y, para cada día, muestra el nivel de la tarde, el nivel medio total, el nivel del día, la diferencia entre ese nivel de la tarde y el nivel medio de la tarde de septiembre, y también dime la correlación entre los niveles de la tarde y del día durante el mes?",
+      "keywords": [
+        "32"
+      ],
+      "relevant_table_ids": [
+        "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      ],
+      "table_aliases": {
+        "Table_0": "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      },
+      "reference_code": "df_sep = Table_0[Table_0['dateobserved'].str.startswith('2026-09')].copy()\navg_evening = df_sep['laeq_e'].mean()\ndf_sep['diff_evening'] = df_sep['laeq_e'] - avg_evening\ncorr_evening_daytime = df_sep['laeq_e'].corr(df_sep['laeq_d'], method='pearson')\ndf_sep['corr_evening_daytime'] = corr_evening_daytime\nresult = (\n    df_sep.sort_values(by='laeq_e', ascending=False)\n    .head(5)\n    .loc[:, ['dateobserved', 'laeq_e', 'laeq', 'laeq_d', 'diff_evening', 'corr_evening_daytime']]\n)",
+      "reference_result": [
+        {
+          "dateobserved": "2026-09-16",
+          "laeq_e": 70.64,
+          "laeq": 64.66,
+          "laeq_d": 62.45,
+          "diff_evening": 8.2972222222,
+          "corr_evening_daytime": 0.4528614291
+        },
+        {
+          "dateobserved": "2026-09-12",
+          "laeq_e": 67.41,
+          "laeq": 63.94,
+          "laeq_d": 59.4,
+          "diff_evening": 5.0672222222,
+          "corr_evening_daytime": 0.4528614291
+        },
+        {
+          "dateobserved": "2026-09-05",
+          "laeq_e": 65.34,
+          "laeq": 61.75,
+          "laeq_d": 60.5,
+          "diff_evening": 2.9972222222,
+          "corr_evening_daytime": 0.4528614291
+        },
+        {
+          "dateobserved": "2026-09-11",
+          "laeq_e": 65.26,
+          "laeq": 61.63,
+          "laeq_d": 60.65,
+          "diff_evening": 2.9172222222,
+          "corr_evening_daytime": 0.4528614291
+        },
+        {
+          "dateobserved": "2026-09-18",
+          "laeq_e": 64.96,
+          "laeq": 61.08,
+          "laeq_d": 60.19,
+          "diff_evening": 2.6172222222,
+          "corr_evening_daytime": 0.4528614291
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Five rows (one per top evening‑noise day) showing date, evening LAeq (laeq_e), overall LAeq (laeq), daytime LAeq (laeq_d), the deviation of that day's evening level from the month’s average evening level, and the Pearson correlation coefficient between evening and daytime levels for September (repeated on each row)."
+    },
+    {
+      "id": "fd8a3aba",
+      "question": "En septiembre de 2025, ¿cuáles fueron los niveles de sonido promedio diurno, vespertino y nocturno registrados por el sensor en Cádiz 16, el sensor doctor Serrano y el sensor Sueca, y cuál de estos sensores mostró la mayor diferencia entre sus promedios diurno y nocturno?",
+      "keywords": [
+        "sensor",
+        "doctor"
+      ],
+      "relevant_table_ids": [
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "356d056f-f16c-4819-8d0a-e19e1dc54702___a54fb175-8013-460a-a2f0-22de7a210d7a"
+      ],
+      "table_aliases": {
+        "Table_0": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_1": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_2": "356d056f-f16c-4819-8d0a-e19e1dc54702___a54fb175-8013-460a-a2f0-22de7a210d7a"
+      },
+      "reference_code": "import pandas as pd\nunion_df = pd.concat([\n    Table_0[['entityid', 'dateobserved', 'laeq_d', 'laeq_e', 'laeq_n']],\n    Table_1[['entityid', 'dateobserved', 'laeq_d', 'laeq_e', 'laeq_n']],\n    Table_2[['entityid', 'dateobserved', 'laeq_d', 'laeq_e', 'laeq_n']]\n], ignore_index=True)\nsep_2025 = union_df[(union_df['dateobserved'] >= '2025-09-01') & (union_df['dateobserved'] <= '2025-09-30')]\nagg = (\n    sep_2025.groupby('entityid', as_index=False)\n    .agg(\n        avg_day=('laeq_d', 'mean'),\n        avg_evening=('laeq_e', 'mean'),\n        avg_night=('laeq_n', 'mean')\n    )\n)\nagg['gap'] = agg['avg_day'] - agg['avg_night']\nresult = agg.sort_values('gap', ascending=False)",
+      "reference_result": [
+        {
+          "entityid": "T248669-daily",
+          "avg_day": 61.2071426937,
+          "avg_evening": 60.8582145146,
+          "avg_night": 55.4039284842,
+          "gap": 5.8032142094
+        },
+        {
+          "entityid": "T248671-daily",
+          "avg_day": 62.3872413793,
+          "avg_evening": 63.5282758621,
+          "avg_night": 57.7355172414,
+          "gap": 4.6517241379
+        },
+        {
+          "entityid": "T248652-daily",
+          "avg_day": 59.2082758621,
+          "avg_evening": 61.244137931,
+          "avg_night": 55.1837931034,
+          "gap": 4.0244827586
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, one per sensor (Cádiz 16, Doctor Serrano, Sueca), each showing the average daytime (avg_day), evening (avg_evening) and night (avg_night) sound levels for September 2025, plus a computed gap column equal to daytime average minus night average, sorted descending by gap."
+    },
+    {
+      "id": "5ddb8b4c",
+      "question": "¿Cuál fue el nivel medio de ruido día‑tarde‑noche en enero de 2025 para el sensor doctor Serrano y para el sensor vivons, y cuál sensor fue más ruidoso en promedio?",
+      "keywords": [
+        "doctor",
+        "vivons"
+      ],
+      "relevant_table_ids": [
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      ],
+      "table_aliases": {
+        "Table_0": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_1": "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      },
+      "reference_code": "doctor_avg = Table_0.loc[Table_0['dateobserved'].str.startswith('2025-01'), 'laeq_den'].mean()\nvivons_avg = Table_1.loc[Table_1['dateobserved'].str.startswith('2025-01'), 'laeq_den'].mean()\nresult = pd.DataFrame({\n    'avg_doctor': [doctor_avg],\n    'avg_vivons': [vivons_avg],\n    'louder_sensor': ['Doctor Serrano' if doctor_avg > vivons_avg else 'Vivons']\n})",
+      "reference_result": [
+        {
+          "avg_doctor": 64.2680645604,
+          "avg_vivons": 64.2061285204,
+          "louder_sensor": "Doctor Serrano"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table with three columns: avg_doctor (average day‑evening‑night LAeq for Doctor Serrano in Jan 2025), avg_vivons (average for Vivons in Jan 2025), and louder_sensor (the sensor name that had the higher average)."
+    },
+    {
+      "id": "72c212ce",
+      "question": "¿Cuál fue la potencia instalada de los puntos de recarga de vehículos eléctricos en Valencia cada día del 2024-04-25 al 2024-04-30, qué día tuvo la mayor potencia y cómo varió la potencia de un día a otro?",
+      "keywords": [
+        "potencia"
+      ],
+      "relevant_table_ids": [
+        "9b6e6d4b-c4e9-47c6-83e6-7d8f298cbab1___1ff8780a-9150-4e31-a261-6d16ccf39468"
+      ],
+      "table_aliases": {
+        "Table_0": "9b6e6d4b-c4e9-47c6-83e6-7d8f298cbab1___1ff8780a-9150-4e31-a261-6d16ccf39468"
+      },
+      "reference_code": "full_dates = pd.DataFrame({'date': pd.date_range('2024-04-25', '2024-04-30')})\nagg = (\n    Table_0\n    .loc[lambda d: (pd.to_datetime(d['calculationperiod']) >= pd.Timestamp('2024-04-25')) &\n                   (pd.to_datetime(d['calculationperiod']) <= pd.Timestamp('2024-04-30'))]\n    .assign(date=lambda d: pd.to_datetime(d['calculationperiod']).dt.normalize())\n    .groupby('date', as_index=False)\n    .agg(potencia=('kpivalue', 'max'))\n)\nresult = (\n    full_dates\n    .merge(agg, on='date', how='left')\n    .sort_values('date')\n    .assign(change=lambda d: d['potencia'].diff())\n    .assign(rank=lambda d: d['potencia'].rank(method='first', ascending=False))\n    .assign(is_highest=lambda d: d['rank'] == 1)\n    .loc[:, ['date', 'potencia', 'change', 'is_highest']]\n)",
+      "reference_result": [
+        {
+          "date": "2024-04-25T00:00:00.000",
+          "potencia": 2808.0,
+          "change": null,
+          "is_highest": true
+        },
+        {
+          "date": "2024-04-26T00:00:00.000",
+          "potencia": 2808.0,
+          "change": 0.0,
+          "is_highest": false
+        },
+        {
+          "date": "2024-04-27T00:00:00.000",
+          "potencia": 2808.0,
+          "change": 0.0,
+          "is_highest": false
+        },
+        {
+          "date": "2024-04-28T00:00:00.000",
+          "potencia": 2808.0,
+          "change": 0.0,
+          "is_highest": false
+        },
+        {
+          "date": "2024-04-29T00:00:00.000",
+          "potencia": 2808.0,
+          "change": 0.0,
+          "is_highest": false
+        },
+        {
+          "date": "2024-04-30T00:00:00.000",
+          "potencia": null,
+          "change": null,
+          "is_highest": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per day from 2024‑04‑25 to 2024‑04‑30 showing the installed potencia (kW) for that day, the day‑to‑day change in potencia (kW) compared with the previous day, and a boolean flag indicating which day had the highest potencia."
+    },
+    {
+      "id": "da63dea3",
+      "question": "¿Cuáles fueron los números totales de EMT travelers por tipo de billete en 2021, y qué tipo de billete tuvo el mayor número de travelers ese año?",
+      "keywords": [
+        "travelers"
+      ],
+      "relevant_table_ids": [
+        "9fa22935-2756-4835-9db8-eba4cdc027dc___8eca528e-a388-427e-b55d-4d83317a25eb"
+      ],
+      "table_aliases": {
+        "Table_0": "9fa22935-2756-4835-9db8-eba4cdc027dc___8eca528e-a388-427e-b55d-4d83317a25eb"
+      },
+      "reference_code": "import pandas as pd\n_df = Table_0.assign(\n    **{\n        'B.Ordinario_num': pd.to_numeric(Table_0['B.Ordinario'], errors='coerce'),\n        'Bono Bus_num': pd.to_numeric(Table_0['Bono Bus'], errors='coerce'),\n        'Emt Jove_num': pd.to_numeric(Table_0['Emt Jove'], errors='coerce'),\n        'Bono10_num': pd.to_numeric(Table_0['Bono10'], errors='coerce'),\n        'Abona mensual_num': pd.to_numeric(Table_0['Abona mensual'], errors='coerce'),\n        'Abono mensual Jove_num': pd.to_numeric(Table_0['Abono mensual Jove'], errors='coerce'),\n        'Turista_num': pd.to_numeric(Table_0['Turista'], errors='coerce'),\n        'Bono Oro_num': pd.to_numeric(Table_0['Bono Oro'], errors='coerce'),\n        'Ambtu_num': pd.to_numeric(Table_0['Ambtu'], errors='coerce'),\n        'Infantil_num': pd.to_numeric(Table_0['Infantil'], errors='coerce'),\n        'Pases_num': pd.to_numeric(Table_0['Pases'], errors='coerce'),\n        'Mascota_num': pd.to_numeric(Table_0['Mascota'], errors='coerce'),\n        'Otros_num': pd.to_numeric(Table_0['Otros'], errors='coerce')\n    }\n)\n_df2021 = _df[_df['Año'] == 2021]\n_totals = _df2021[[\n    'B.Ordinario_num', 'Bono Bus_num', 'Emt Jove_num', 'Bono10_num',\n    'Abona mensual_num', 'Abono mensual Jove_num', 'Turista_num',\n    'Bono Oro_num', 'Ambtu_num', 'Infantil_num', 'Pases_num',\n    'Mascota_num', 'Otros_num'\n]].sum()\nresult = pd.DataFrame({\n    'total_B_Ordinario': [_totals['B.Ordinario_num']],\n    'total_Bono_Bus': [_totals['Bono Bus_num']],\n    'total_Emt_Jove': [_totals['Emt Jove_num']],\n    'total_Bono10': [_totals['Bono10_num']],\n    'total_Abona_mensual': [_totals['Abona mensual_num']],\n    'total_Abono_mensual_Jove': [_totals['Abono mensual Jove_num']],\n    'total_Turista': [_totals['Turista_num']],\n    'total_Bono_Oro': [_totals['Bono Oro_num']],\n    'total_Ambtu': [_totals['Ambtu_num']],\n    'total_Infantil': [_totals['Infantil_num']],\n    'total_Pases': [_totals['Pases_num']],\n    'total_Mascota': [_totals['Mascota_num']],\n    'total_Otros': [_totals['Otros_num']]\n})\n_ticket_cols = [c for c in result.columns if c.startswith('total_')]\nresult['max_total'] = result[_ticket_cols].max(axis=1)\nresult['max_ticket_type'] = result[_ticket_cols].idxmax(axis=1).str.replace('total_', '')\nresult",
+      "reference_result": [
+        {
+          "total_B_Ordinario": 0.0,
+          "total_Bono_Bus": 0.0,
+          "total_Emt_Jove": 0.0,
+          "total_Bono10": 0.0,
+          "total_Abona_mensual": 0.0,
+          "total_Abono_mensual_Jove": 0.0,
+          "total_Turista": 580.0,
+          "total_Bono_Oro": 0.0,
+          "total_Ambtu": 0.0,
+          "total_Infantil": 0.0,
+          "total_Pases": 0.0,
+          "total_Mascota": 0.0,
+          "total_Otros": 0.0,
+          "max_total": 580.0,
+          "max_ticket_type": "Turista"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table where each ticket‑type column (e.g., total_B_Ordinario, total_Bono_Bus, …) shows the total number of EMT travelers in 2021, plus a column max_total with the highest total and a column max_ticket_type indicating which ticket type achieved that maximum."
+    },
+    {
+      "id": "336d780f",
+      "question": "¿Cuál fue el total de ingresos presupuestado para Valencia en enero de 2022?",
+      "keywords": [
+        "ingresos"
+      ],
+      "relevant_table_ids": [
+        "b95f3146-31dc-4d40-b9d5-1273786517e1___60a63909-93bb-433e-9e73-590a6b52eaac"
+      ],
+      "table_aliases": {
+        "Table_0": "b95f3146-31dc-4d40-b9d5-1273786517e1___60a63909-93bb-433e-9e73-590a6b52eaac"
+      },
+      "reference_code": "total_ingresos = (\n    Table_0\n    .assign(FECHA_dt=pd.to_datetime(Table_0['FECHA'], dayfirst=True, errors='coerce'))\n    .loc[lambda df: (df['FECHA_dt'].dt.year == 2022) & (df['FECHA_dt'].dt.month == 1)]\n    .assign(Iniciales_num=lambda df: pd.to_numeric(\n        df['Iniciales'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False),\n        errors='coerce'\n    ))\n    ['Iniciales_num']\n    .sum()\n)",
+      "reference_result": [
+        {
+          "result": 1010878200.01
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total amount budgeted for ingresos in Valencia for January 2022, expressed in euros."
+    },
+    {
+      "id": "976e8be6",
+      "question": "¿Cuáles fueron los niveles de ruido nocturnos registrados el 16 de septiembre de 2025 por el sensor doctor Serrano y por el sensor carles Cervera?",
+      "keywords": [
+        "doctor",
+        "carles"
+      ],
+      "relevant_table_ids": [
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      ],
+      "table_aliases": {
+        "Table_0": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_1": "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      },
+      "reference_code": "import pandas as pd\ndoctor_df = Table_0[Table_0['dateobserved'] == '2025-09-16']\ncarles_df = Table_1[Table_1['dateobserved'] == '2025-09-16']\nmerged = pd.merge(carles_df, doctor_df, on='dateobserved', how='inner', suffixes=('_carles', '_doctor'))\nmerged = merged.rename(columns={'laeq_n_carles': 'carles_laeq_n', 'laeq_n_doctor': 'doctor_laeq_n'})\nresult = merged[['doctor_laeq_n', 'carles_laeq_n']].sort_values(by=['doctor_laeq_n', 'carles_laeq_n'], ascending=True)",
+      "reference_result": [
+        {
+          "doctor_laeq_n": 53.5600013733,
+          "carles_laeq_n": 49.9300003052
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row with two columns: doctor_laeq_n and carles_laeq_n, containing the night‑time LAeq values recorded on 16 September 2025 by the Doctor Serrano and Carles Cervera sensors respectively."
+    },
+    {
+      "id": "87b659f5",
+      "question": "¿Cuántas estaciones commuter hay en Valencia?",
+      "keywords": [
+        "commuter"
+      ],
+      "relevant_table_ids": [
+        "d80f8165-4154-4228-ac44-547bddd92548___2c1f8e35-91f5-4bb9-ba32-a2fd652bd41e"
+      ],
+      "table_aliases": {
+        "Table_0": "d80f8165-4154-4228-ac44-547bddd92548___2c1f8e35-91f5-4bb9-ba32-a2fd652bd41e"
+      },
+      "reference_code": "station_count = Table_0['CÓDIGO'].count()",
+      "reference_result": [
+        {
+          "0": 66
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total number of commuter rail stations in the province of Valencia."
+    },
+    {
+      "id": "ff9683f8",
+      "question": "¿Cuál fue el nivel medio de ruido el 2026-09-15 para el sensor en Cádiz 16, el sensor en General prim, el sensor en Sueca 32 y el sensor en cuba 3?",
+      "keywords": [
+        "sensor",
+        "prim",
+        "32",
+        "cuba"
+      ],
+      "relevant_table_ids": [
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "466e1b85-eb8a-4454-ae7c-c1955e6b1533___3b2fe345-08fc-49d7-85c8-8cccf6a7e814",
+        "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74",
+        "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4"
+      ],
+      "table_aliases": {
+        "Table_0": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_1": "466e1b85-eb8a-4454-ae7c-c1955e6b1533___3b2fe345-08fc-49d7-85c8-8cccf6a7e814",
+        "Table_2": "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74",
+        "Table_3": "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4"
+      },
+      "reference_code": "laeq_vals = pd.concat([\n    Table_0.loc[Table_0['dateobserved'] == '2026-09-15', 'laeq'].rename('laeq_0'),\n    Table_1.loc[Table_1['dateobserved'] == '2026-09-15', 'laeq'].rename('laeq_1'),\n    Table_2.loc[Table_2['dateobserved'] == '2026-09-15', 'laeq'].rename('laeq_2'),\n    Table_3.loc[Table_3['dateobserved'] == '2026-09-15', 'laeq'].rename('laeq_3')\n], axis=1)\nresult = laeq_vals.mean().tolist()",
+      "reference_result": [
+        {
+          "0": null
+        },
+        {
+          "0": 55.0099983215
+        },
+        {
+          "0": 58.49
+        },
+        {
+          "0": 59.46
+        }
+      ],
+      "expected_result_type": "list",
+      "expected_result_description": "A list of the average LAeq values for the four sensors on 2026-09-15, in the order: Cádiz 16, General Prim, Sueca 32, Cuba 3."
+    },
+    {
+      "id": "e33275e5",
+      "question": "¿Qué mes de 2024 tuvo la mayor diferencia de energia total entre usuarios Local e Interoperabilitat en Valencia?",
+      "keywords": [
+        "energia"
+      ],
+      "relevant_table_ids": [
+        "0cf57752-32e3-4e79-a1b5-7f3af6fcd6d0___4fb1bada-37f2-4fbd-9f3c-fd4cb0addb62"
+      ],
+      "table_aliases": {
+        "Table_0": "0cf57752-32e3-4e79-a1b5-7f3af6fcd6d0___4fb1bada-37f2-4fbd-9f3c-fd4cb0addb62"
+      },
+      "reference_code": "Table_0['year'] = pd.to_datetime(Table_0['calculationperiod']).dt.year\nTable_0['month'] = pd.to_datetime(Table_0['calculationperiod']).dt.month\ndf_2024 = Table_0[Table_0['year'] == 2024]\nmonthly = (\n    df_2024.groupby(['month', 'sliceanddicevalue1'], as_index=False)['kpivalue']\n    .sum()\n    .rename(columns={'kpivalue': 'monthly_total'})\n)\nmonthly_extremes = (\n    monthly.groupby('month', as_index=False)\n    .agg(max_total=('monthly_total', 'max'), min_total=('monthly_total', 'min'))\n)\nmonthly_extremes['diff_per_month'] = (monthly_extremes['max_total'] - monthly_extremes['min_total']).abs()\nmonthly_extremes['rank'] = monthly_extremes['diff_per_month'].rank(method='dense', ascending=False)\ntop_month = monthly_extremes[monthly_extremes['rank'] == 1].head(1)\ntop_month['month_str'] = top_month['month'].apply(lambda m: f'2024-{int(m):02d}')\nresult = top_month['month_str']",
+      "reference_result": [
+        {
+          "month_str": "2024-10"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The month in 2024 (formatted as YYYY-MM) with the greatest absolute difference between total energia for Local and Interoperabilitat users."
+    },
+    {
+      "id": "e24af49b",
+      "question": "Para cada distrito de Valencia en 2021, compara la vulnerabilidad demográfica media con la vulnerabilidad socio‑económica media, lista los distritos donde la vulnerabilidad demográfica es mayor y ordénalos por la magnitud de la diferencia de forma descendente.",
+      "keywords": [
+        "vulnerabilidad"
+      ],
+      "relevant_table_ids": [
+        "ca18278b-d040-4274-b9c7-c1a9daae54b9___6648d1d5-4d35-410d-8260-432069045334"
+      ],
+      "table_aliases": {
+        "Table_0": "ca18278b-d040-4274-b9c7-c1a9daae54b9___6648d1d5-4d35-410d-8260-432069045334"
+      },
+      "reference_code": "result = (Table_0.groupby('Distrito')\n    .agg(avg_dem=('Ind_Dem', 'mean'), avg_econ=('Ind_Econom', 'mean'))\n    .reset_index()\n    .assign(diff=lambda df: df['avg_dem'] - df['avg_econ'])\n    .loc[lambda df: df['diff'] > 0]\n    .sort_values('diff', ascending=False)\n    [['Distrito', 'avg_dem', 'avg_econ', 'diff']])",
+      "reference_result": [
+        {
+          "Distrito": "BENICALAP",
+          "avg_dem": 3.2,
+          "avg_econ": 2.1,
+          "diff": 1.1
+        },
+        {
+          "Distrito": "POBLATS MARÍTIMS",
+          "avg_dem": 2.96,
+          "avg_econ": 2.08,
+          "diff": 0.88
+        },
+        {
+          "Distrito": "RASCANYA",
+          "avg_dem": 3.1666666667,
+          "avg_econ": 2.4,
+          "diff": 0.7666666667
+        },
+        {
+          "Distrito": "JESUS",
+          "avg_dem": 3.1,
+          "avg_econ": 2.4,
+          "diff": 0.7
+        },
+        {
+          "Distrito": "L'OLIVERETA",
+          "avg_dem": 2.78,
+          "avg_econ": 2.16,
+          "diff": 0.62
+        },
+        {
+          "Distrito": "QUATRE CARRERES",
+          "avg_dem": 3.0142857143,
+          "avg_econ": 2.6285714286,
+          "diff": 0.3857142857
+        },
+        {
+          "Distrito": "PATRAIX",
+          "avg_dem": 3.24,
+          "avg_econ": 3.1,
+          "diff": 0.14
+        },
+        {
+          "Distrito": "LA SAÏDIA",
+          "avg_dem": 2.64,
+          "avg_econ": 2.52,
+          "diff": 0.12
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per district where the average demographic vulnerability exceeds the average socio‑economic vulnerability, showing the district name, avg_dem, avg_econ, and the difference (avg_dem - avg_econ), sorted by difference descending."
+    },
+    {
+      "id": "689f9c60",
+      "question": "¿Cuál es la longitud media de los tramos de calle para cada tipo de calle (ejes) en Valencia, y qué tipo de calle tiene la media más larga?",
+      "keywords": [
+        "ejes"
+      ],
+      "relevant_table_ids": [
+        "694b7f70-b9ab-40f9-adcf-9075a083d988___57a75220-f4d7-4340-9268-40a46843a7dd"
+      ],
+      "table_aliases": {
+        "Table_0": "694b7f70-b9ab-40f9-adcf-9075a083d988___57a75220-f4d7-4340-9268-40a46843a7dd"
+      },
+      "reference_code": "avg_length_by_type = (\n    Table_0\n    .groupby('tipcalle', as_index=False)['longitud']\n    .mean()\n    .rename(columns={'longitud': 'avg_length'})\n    .sort_values('avg_length', ascending=False)\n)",
+      "reference_result": [
+        {
+          "tipcalle": "LLOC",
+          "avg_length": 449.4305962281
+        },
+        {
+          "tipcalle": "CAMÍ",
+          "avg_length": 181.6530281081
+        },
+        {
+          "tipcalle": "CAMÍ NOU",
+          "avg_length": 178.2639513953
+        },
+        {
+          "tipcalle": "CAMÍ VELL",
+          "avg_length": 172.1518929412
+        },
+        {
+          "tipcalle": "CARRETERA",
+          "avg_length": 152.14713
+        },
+        {
+          "tipcalle": "ENTRADOR",
+          "avg_length": 150.7394990674
+        },
+        {
+          "tipcalle": "CAMÍ FONDO",
+          "avg_length": 150.50177
+        },
+        {
+          "tipcalle": "PASSEIG",
+          "avg_length": 142.416684
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per street type (`tipcalle`) with its average segment length in meters, sorted descending so the first row is the street type with the longest average."
+    },
+    {
+      "id": "2c2c2b6b",
+      "question": "¿Cuál fue el numero de abonados el 2024-05-01 en Valencia?",
+      "keywords": [
+        "numero"
+      ],
+      "relevant_table_ids": [
+        "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064"
+      ],
+      "table_aliases": {
+        "Table_0": "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064"
+      },
+      "reference_code": "subscribers_on_day = (\n    Table_0.loc[\n        pd.to_datetime(Table_0['calculationperiod']).dt.date == pd.to_datetime('2024-05-01').date(),\n        'kpivalue'\n    ].sum()\n)",
+      "reference_result": [
+        {
+          "0": 93
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of subscribers recorded for Valencia on 2024-05-01."
+    },
+    {
+      "id": "ca7f314f",
+      "question": "¿Cuál de los cuatro sensores — el de Cádiz 16, el de 61 Sueca, el de carles Cervera 34 y el de doctor Serrano 21 — registró el nivel de ruido más alto durante la noche, y cuál fue ese nivel?",
+      "keywords": [
+        "61",
+        "carles",
+        "doctor"
+      ],
+      "relevant_table_ids": [
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "f5ce9865-05c6-4d05-9deb-287bdbec92a3___8058f1a5-c605-4baa-afff-2f638efb767f",
+        "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd",
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643"
+      ],
+      "table_aliases": {
+        "Table_0": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_1": "f5ce9865-05c6-4d05-9deb-287bdbec92a3___8058f1a5-c605-4baa-afff-2f638efb767f",
+        "Table_2": "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd",
+        "Table_3": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643"
+      },
+      "reference_code": "df = pd.concat([\n    Table_0[['entityid', 'laeq_n']],\n    Table_1[['entityid', 'laeq_n']],\n    Table_2[['entityid', 'laeq_n']],\n    Table_3[['entityid', 'laeq_n']]\n], ignore_index=True)\ndf = df.rename(columns={'entityid': 'sensor_id', 'laeq_n': 'night_noise'})\nmax_n = df['night_noise'].max()\nresult = df[df['night_noise'] == max_n][['sensor_id', 'night_noise']].head(1)",
+      "reference_result": [
+        {
+          "sensor_id": "T248678-daily",
+          "night_noise": 90.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the sensor identifier (entityid) that recorded the highest night‑time noise level and the corresponding night‑time LAeq_n value in decibels."
+    },
+    {
+      "id": "7c1c9a01",
+      "question": "Para cada año entre 2021 y 2025, ¿cuál es la correlación entre los niveles nocturnos de ruido registrados por el sensor doctor Serrano y el sensor vivons, y qué año muestra la correlación más alta; en ese año, ¿qué sensor tuvo el nivel medio nocturno de ruido más elevado?",
+      "keywords": [
+        "doctor",
+        "vivons"
+      ],
+      "relevant_table_ids": [
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      ],
+      "table_aliases": {
+        "Table_0": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_1": "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      },
+      "reference_code": "import pandas as pd\nimport numpy as np\nmerged = Table_0.merge(Table_1, on='dateobserved', suffixes=('_doc', '_viv'))\nmerged = merged.assign(year=pd.to_datetime(merged['dateobserved']).dt.year)\nfiltered = merged[merged['year'].between(2021, 2025)]\ncorr_df = (\n    filtered.groupby('year')\n    .apply(lambda g: g['laeq_n_doc'].corr(g['laeq_n_viv']))\n    .reset_index(name='corr')\n)\navg_df = (\n    filtered.groupby('year')\n    .agg(avg_doctor_n=('laeq_n_doc', 'mean'), avg_vivons_n=('laeq_n_viv', 'mean'))\n    .reset_index()\n)\nresult = (\n    corr_df.merge(avg_df, on='year')\n    .assign(\n        louder_sensor=lambda df: np.where(df['avg_doctor_n'] > df['avg_vivons_n'],\n                                            'Doctor Serrano', 'Vivons'),\n        is_strongest=False\n    )\n)\nresult.loc[result['corr'].idxmax(), 'is_strongest'] = True",
+      "reference_result": [
+        {
+          "year": 2021,
+          "corr": 0.8117816781,
+          "avg_doctor_n": 54.7263157828,
+          "avg_vivons_n": 55.5935672626,
+          "louder_sensor": "Vivons",
+          "is_strongest": false
+        },
+        {
+          "year": 2022,
+          "corr": 0.8754808832,
+          "avg_doctor_n": 57.1838198004,
+          "avg_vivons_n": 56.2899690474,
+          "louder_sensor": "Doctor Serrano",
+          "is_strongest": false
+        },
+        {
+          "year": 2023,
+          "corr": 0.9284821935,
+          "avg_doctor_n": 56.2416727933,
+          "avg_vivons_n": 55.5504727312,
+          "louder_sensor": "Doctor Serrano",
+          "is_strongest": true
+        },
+        {
+          "year": 2024,
+          "corr": 0.9001579846,
+          "avg_doctor_n": 57.076044513,
+          "avg_vivons_n": 55.9921171459,
+          "louder_sensor": "Doctor Serrano",
+          "is_strongest": false
+        },
+        {
+          "year": 2025,
+          "corr": 0.8237068183,
+          "avg_doctor_n": 56.2655139578,
+          "avg_vivons_n": 56.044392559,
+          "louder_sensor": "Doctor Serrano",
+          "is_strongest": false
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the year (2021‑2025) with the highest Pearson correlation between nightly noise levels of the Doctor Serrano and Vivons sensors, the correlation value, the average nightly noise for each sensor in that year, and the sensor with the higher average (louder_sensor)."
+    },
+    {
+      "id": "6ce68efa",
+      "question": "En la semana con el mayor número de incidencias de mal estacionamiento en Valencia, ¿qué tipo de incidente de equipamiento mostró el mayor aumento porcentual respecto a la semana anterior y cuál fue ese aumento?",
+      "keywords": [
+        "incidencias",
+        "mal"
+      ],
+      "relevant_table_ids": [
+        "058cca56-eee6-49fa-ae7a-0ae83cb0de63___a51d0bb2-2789-4932-aca9-93c146dd05a2",
+        "e1ae94be-e088-40a8-9e44-38ce0eeeeba9___f4310a91-cf72-4fc7-bd9d-4c9e888f2f47"
+      ],
+      "table_aliases": {
+        "Table_0": "058cca56-eee6-49fa-ae7a-0ae83cb0de63___a51d0bb2-2789-4932-aca9-93c146dd05a2",
+        "Table_1": "e1ae94be-e088-40a8-9e44-38ce0eeeeba9___f4310a91-cf72-4fc7-bd9d-4c9e888f2f47"
+      },
+      "reference_code": "df_bad = Table_1.assign(\n    week_id=pd.to_datetime(Table_1['calculationperiod']).dt.isocalendar().week\n)\nweekly_bad = df_bad.groupby('week_id', as_index=False).agg(\n    mal_week_total=('kpivalue', 'sum')\n)\npeak_week_row = (\n    weekly_bad.sort_values('mal_week_total', ascending=False)\n    .head(1)\n    .rename(columns={'week_id': 'peak_week'})\n)\npeak_week = peak_week_row['peak_week'].iloc[0]\nprevious_week = peak_week - 1\ndf_eq = Table_0.assign(\n    week_id_eq=pd.to_datetime(Table_0['calculationperiod']).dt.isocalendar().week\n)\ncount_peak = (\n    df_eq[df_eq['week_id_eq'] == peak_week]\n    .groupby('sliceanddicevalue1', as_index=False)\n    .agg(count_peak=('sliceanddicevalue1', 'size'))\n)\ncount_prev = (\n    df_eq[df_eq['week_id_eq'] == previous_week]\n    .groupby('sliceanddicevalue1', as_index=False)\n    .agg(count_prev=('sliceanddicevalue1', 'size'))\n)\npct_change = (\n    pd.merge(count_peak, count_prev, on='sliceanddicevalue1', how='inner')\n    .assign(pct_change=lambda x: ((x['count_peak'] - x['count_prev']) / x['count_prev']) * 100)\n    .sort_values('pct_change', ascending=False)\n    .head(1)[['sliceanddicevalue1', 'pct_change']]\n)\nresult = pct_change",
+      "reference_result": [
+        {
+          "sliceanddicevalue1": "CONECTOR-ChargePointMalfunction:El punt de recarrega no funciona",
+          "pct_change": 85.7142857143
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single‑row table containing the equipment incident type that experienced the largest week‑over‑week percentage increase and the percentage value (e.g., 'CONECTOR‑InternalError: 250%')."
+    },
+    {
+      "id": "9803055f",
+      "question": "En el cuadro del Área de Prioridad Residencia, ¿qué punto de acceso registró el mayor número de pasadas de vehículos en 2023 y cuántas pasadas tuvo?",
+      "keywords": [
+        "cuadro"
+      ],
+      "relevant_table_ids": [
+        "ef51bc65-073e-4370-8f54-b0664dad0a13___f17c25cc-05aa-4973-beaa-841f7a74dbb7"
+      ],
+      "table_aliases": {
+        "Table_0": "ef51bc65-073e-4370-8f54-b0664dad0a13___f17c25cc-05aa-4973-beaa-841f7a74dbb7"
+      },
+      "reference_code": "for col in ['CALLE CORONA - PASOS', 'PLAZA PORTAL NOU - PASOS', 'AV. M. CRISTINA - PASOS', 'CALLE DERECHOS - PASOS']:\n    Table_0[col] = pd.to_numeric(Table_0[col].str.replace(',', '.'), errors='coerce')\ndf_2023 = Table_0[Table_0['FECHA'].str.startswith('2023')]\nsums = {\n    'CALLE CORONA': df_2023['CALLE CORONA - PASOS'].sum(),\n    'PLAZA PORTAL NOU': df_2023['PLAZA PORTAL NOU - PASOS'].sum(),\n    'CALLE SALVADOR': df_2023['CALLE SALVADOR - PASOS'].sum(),\n    'AV. M. CRISTINA': df_2023['AV. M. CRISTINA - PASOS'].sum(),\n    'PLAZA C. BRUJAS': df_2023['PLAZA C. BRUJAS - PASOS'].sum(),\n    'CALLE DERECHOS': df_2023['CALLE DERECHOS - PASOS'].sum()\n}\nmax_passages = max(sums.values())\ntop_location = max(sums, key=sums.get)\nresult = [top_location, max_passages]",
+      "reference_result": [
+        {
+          "0": "CALLE SALVADOR"
+        },
+        {
+          "0": 363270.0
+        }
+      ],
+      "expected_result_type": "list",
+      "expected_result_description": "A two‑element list where the first element is the name of the access point with the highest total vehicle passages in 2023, and the second element is that total number of passages."
+    },
+    {
+      "id": "9f5e8e14",
+      "question": "Para septiembre de 2025, ¿cuál fue el nivel medio de ruido nocturno registrado por cada uno de los cuatro sensores — el sensor en Cádiz 3, el sensor del doctor Serrano, el sensor en Cádiz 16 y el sensor en Sueca 32 — y cuál sensor tuvo el promedio más alto?",
+      "keywords": [
+        "doctor",
+        "sensor",
+        "32"
+      ],
+      "relevant_table_ids": [
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      ],
+      "table_aliases": {
+        "Table_0": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "Table_1": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_2": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_3": "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      },
+      "reference_code": "t0 = Table_0.loc[(Table_0['dateobserved'] >= '2025-09-01') & (Table_0['dateobserved'] <= '2025-09-30')]\nt1 = Table_1.loc[(Table_1['dateobserved'] >= '2025-09-01') & (Table_1['dateobserved'] <= '2025-09-30')]\nt2 = Table_2.loc[(Table_2['dateobserved'] >= '2025-09-01') & (Table_2['dateobserved'] <= '2025-09-30')]\nt3 = Table_3.loc[(Table_3['dateobserved'] >= '2025-09-01') & (Table_3['dateobserved'] <= '2025-09-30')]\ncombined = pd.concat([\n    t0[['entityid', 'laeq_n']],\n    t1[['entityid', 'laeq_n']],\n    t2[['entityid', 'laeq_n']],\n    t3[['entityid', 'laeq_n']]\n], ignore_index=True)\nresult = (\n    combined\n    .groupby('entityid', as_index=False)['laeq_n']\n    .mean()\n    .rename(columns={'laeq_n': 'avg_night'})\n    .sort_values(by='avg_night', ascending=False)\n    [['entityid', 'avg_night']]\n)",
+      "reference_result": [
+        {
+          "entityid": "T248655-daily",
+          "avg_night": 61.3427586207
+        },
+        {
+          "entityid": "T248671-daily",
+          "avg_night": 57.7355172414
+        },
+        {
+          "entityid": "T248680-daily",
+          "avg_night": 56.0217241379
+        },
+        {
+          "entityid": "T248669-daily",
+          "avg_night": 55.4039284842
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per sensor (identified by entityid) with its average nighttime LAeq (laeq_n) for September 2025, sorted descending so the top row is the sensor with the highest average."
+    },
+    {
+      "id": "a5c6a58a",
+      "question": "¿Cuál fue el importe medio de las subvenciones por cada servicio del Ayuntamiento de Valencia en 2024?",
+      "keywords": [
+        "subvenciones"
+      ],
+      "relevant_table_ids": [
+        "904f9107-0d66-43ab-b247-f99c06a30f3f___6cf94de2-4dd4-41e7-89b6-7638263599ee"
+      ],
+      "table_aliases": {
+        "Table_0": "904f9107-0d66-43ab-b247-f99c06a30f3f___6cf94de2-4dd4-41e7-89b6-7638263599ee"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['PERIODO PRESUPUESTARIO'] == 2024]\n    .groupby('Servicio', as_index=False)\n    .agg(avg_amount=('Importe', 'mean'))\n)",
+      "reference_result": [
+        {
+          "Servicio": "ACCION CULTURAL",
+          "avg_amount": 31363.6363636364
+        },
+        {
+          "Servicio": "ADICCIONES",
+          "avg_amount": 69350.0
+        },
+        {
+          "Servicio": "AGRICULTURA",
+          "avg_amount": 313304.38
+        },
+        {
+          "Servicio": "BANDA SINFONICA",
+          "avg_amount": 6518.5185185185
+        },
+        {
+          "Servicio": "BIENESTAR SOCIAL E INTEGRACION",
+          "avg_amount": 72024.71828125
+        },
+        {
+          "Servicio": "CEMENTERIOS Y SERVICIOS FUNERARIOS",
+          "avg_amount": 9022.995
+        },
+        {
+          "Servicio": "COMERCIO Y MERCADOS",
+          "avg_amount": 561607.7566666667
+        },
+        {
+          "Servicio": "DE MAYORES",
+          "avg_amount": 1725.9259259259
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per Servicio showing the average Importe of subvenciones awarded in 2024, expressed in euros."
+    },
+    {
+      "id": "d64a5664",
+      "question": "¿Cuáles son las cinco estaciones (Cercanías) más septentrionales de la provincia de València con mayor latitud, y cuál es su latitud media y longitud media?",
+      "keywords": [
+        "estaciones"
+      ],
+      "relevant_table_ids": [
+        "d80f8165-4154-4228-ac44-547bddd92548___87cda973-aaa4-490a-9ed9-38f4dd65db87"
+      ],
+      "table_aliases": {
+        "Table_0": "d80f8165-4154-4228-ac44-547bddd92548___87cda973-aaa4-490a-9ed9-38f4dd65db87"
+      },
+      "reference_code": "result = (\n    Table_0.sort_values(by=['LATITUD'], ascending=False)\n    .head(5)\n    .assign(\n        avg_latitude=lambda df: df['LATITUD'].mean(),\n        avg_longitude=lambda df: df['LONGITUD'].mean()\n    )\n)",
+      "reference_result": [
+        {
+          "CÓDIGO": 65300,
+          "DESCRIPCIÓN": "CASTELLO DE LA PLANA",
+          "LATITUD": 39.988259,
+          "LONGITUD": -0.052266,
+          "DIRECCIÓN": "CALLE PINTOR OLIET",
+          "avg_latitude": 39.94747116,
+          "avg_longitude": -0.2737009
+        },
+        {
+          "CÓDIGO": 65209,
+          "DESCRIPCIÓN": "ALMASSORA",
+          "LATITUD": 39.9543523,
+          "LONGITUD": -0.0775039,
+          "DIRECCIÓN": "CARRER ESTACIO FERROCARRIL",
+          "avg_latitude": 39.94747116,
+          "avg_longitude": -0.2737009
+        },
+        {
+          "CÓDIGO": 67211,
+          "DESCRIPCIÓN": "CAUDIEL",
+          "LATITUD": 39.94733,
+          "LONGITUD": -0.572027,
+          "DIRECCIÓN": "AVENIDA ESTACION",
+          "avg_latitude": 39.94747116,
+          "avg_longitude": -0.2737009
+        },
+        {
+          "CÓDIGO": 65208,
+          "DESCRIPCIÓN": "VILA-REAL",
+          "LATITUD": 39.9322174,
+          "LONGITUD": -0.0973214,
+          "DIRECCIÓN": "AVENIDA DE FRANCIA",
+          "avg_latitude": 39.94747116,
+          "avg_longitude": -0.2737009
+        },
+        {
+          "CÓDIGO": 67212,
+          "DESCRIPCIÓN": "JERICA-VIVER",
+          "LATITUD": 39.9151971,
+          "LONGITUD": -0.5693862,
+          "DIRECCIÓN": "CALLE ESTACION DE FERROCARRIL",
+          "avg_latitude": 39.94747116,
+          "avg_longitude": -0.2737009
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Five rows, each representing one of the northernmost stations with columns: station code (CÓDIGO), description (DESCRIPCIÓN), latitude (LATITUD), longitude (LONGITUD). Two additional columns, avg_latitude and avg_longitude, contain the average latitude and longitude across the five stations (repeated on each row)."
+    },
+    {
+      "id": "f64cc105",
+      "question": "¿Cuál fue el nivel de ruido diario más reciente registrado por el sensor en Cádiz 16, el sensor en puerto Rico 21 y el sensor en carles Cervera 34?",
+      "keywords": [
+        "sensor",
+        "puerto",
+        "carles"
+      ],
+      "relevant_table_ids": [
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "80fac6be-310e-4293-aefc-02322c4a1c39___1b41d86b-3939-488b-9035-92d851245924",
+        "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      ],
+      "table_aliases": {
+        "Table_0": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_1": "80fac6be-310e-4293-aefc-02322c4a1c39___1b41d86b-3939-488b-9035-92d851245924",
+        "Table_2": "f4a398ee-5e4b-441c-ad88-7a5c1e5e9e41___b26d42ae-2be9-481a-9b79-71392d9e80bd"
+      },
+      "reference_code": "df0_latest = Table_0.sort_values(by='dateobserved', ascending=False).head(1)[['entityid', 'laeq_n']]\ndf1_latest = Table_1.sort_values(by='dateobserved', ascending=False).head(1)[['entityid', 'laeq_n']]\ndf2_latest = Table_2.sort_values(by='dateobserved', ascending=False).head(1)[['entityid', 'laeq_n']]\nresult = pd.concat([df0_latest, df1_latest, df2_latest], ignore_index=True).sort_values(by='entityid', ascending=True)",
+      "reference_result": [
+        {
+          "entityid": "T248671-daily",
+          "laeq_n": 62.45
+        },
+        {
+          "entityid": "T248672-daily",
+          "laeq_n": 56.55
+        },
+        {
+          "entityid": "T248678-daily",
+          "laeq_n": 49.2999992371
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, one per sensor (Cádiz 16, Puerto Rico 21, Carles Cervera 34), showing the most recent LAeq_n value for each sensor, ordered as Cádiz 16, Puerto Rico 21, Carles Cervera 34."
+    },
+    {
+      "id": "c2e133c7",
+      "question": "¿Cuáles son las tres categorías de protección con mayor altura media entre las alineaciones del Plan General de Ordenación Urbana (PGOU) de Valencia en el código de zona 114302, y cuáles son esas alturas medias?",
+      "keywords": [
+        "alineaciones"
+      ],
+      "relevant_table_ids": [
+        "dfb61c95-8f04-4228-b075-1ff49a1e3de7___5f3ba9a8-5e44-48ef-b719-4d5a65dad36c"
+      ],
+      "table_aliases": {
+        "Table_0": "dfb61c95-8f04-4228-b075-1ff49a1e3de7___5f3ba9a8-5e44-48ef-b719-4d5a65dad36c"
+      },
+      "reference_code": "import pandas as pd\nresult = (\n    Table_0\n    .loc[lambda df: df['ttggss'] == '114302']\n    .loc[lambda df: ~df['altura'].isin(['PROTEGIDO-DOT', 'PTIPOLOGICA'])]\n    .assign(altura=lambda df: pd.to_numeric(df['altura'], errors='coerce'))\n    .groupby('protec', dropna=False)['altura']\n    .mean()\n    .reset_index(name='avg_height')\n    .sort_values(by='avg_height', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "protec": " ",
+          "avg_height": 995.0451283988
+        },
+        {
+          "protec": "BRL",
+          "avg_height": 5.0
+        },
+        {
+          "protec": "BIC-M",
+          "avg_height": 1.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Table with three rows, each showing a protection category (protec) and its average height, ordered from highest to lowest average height."
+    },
+    {
+      "id": "77e74b49",
+      "question": "Durante la semana del 1 September 2026 al 7 September 2026, ¿qué sensor de los tres en Ruzafa — el sensor de Cádiz 16, el sensor doctor Serrano 21 o el sensor de la calle Sueca — tuvo el nivel medio de ruido nocturno más alto?",
+      "keywords": [
+        "sensor",
+        "doctor"
+      ],
+      "relevant_table_ids": [
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "356d056f-f16c-4819-8d0a-e19e1dc54702___a54fb175-8013-460a-a2f0-22de7a210d7a"
+      ],
+      "table_aliases": {
+        "Table_0": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_1": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_2": "356d056f-f16c-4819-8d0a-e19e1dc54702___a54fb175-8013-460a-a2f0-22de7a210d7a"
+      },
+      "reference_code": "filtered_0 = Table_0[(Table_0['dateobserved'] >= '2026-09-01') & (Table_0['dateobserved'] <= '2026-09-07')]\navg_laeq_n_0 = filtered_0['laeq_n'].mean()\nfiltered_1 = Table_1[(Table_1['dateobserved'] >= '2026-09-01') & (Table_1['dateobserved'] <= '2026-09-07')]\navg_laeq_n_1 = filtered_1['laeq_n'].mean()\nfiltered_2 = Table_2[(Table_2['dateobserved'] >= '2026-09-01') & (Table_2['dateobserved'] <= '2026-09-07')]\navg_laeq_n_2 = filtered_2['laeq_n'].mean()\nif avg_laeq_n_0 > avg_laeq_n_1 and avg_laeq_n_0 > avg_laeq_n_2:\n    max_sensor = 'Cádiz 16'\nelif avg_laeq_n_1 > avg_laeq_n_2:\n    max_sensor = 'Doctor Serrano 21'\nelse:\n    max_sensor = 'Sueca street'\nmax_sensor",
+      "reference_result": [
+        {
+          "result": "Sueca street"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the sensor (Cádiz 16, Doctor Serrano 21, or Sueca street) that recorded the highest average night‑time LAeq (laeq_n) during the week of 2026‑09‑01 to 2026‑09‑07."
+    },
+    {
+      "id": "8d8463ab",
+      "question": "¿Cuál es el nivel medio de ruido total registrado por los sensores en la calle Cádiz 3, en la calle doctor Serrano 21, en la calle cuba 3 y en la calle Cádiz 16 durante todo el periodo cubierto por los datos?",
+      "keywords": [
+        "doctor",
+        "cuba"
+      ],
+      "relevant_table_ids": [
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4",
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65"
+      ],
+      "table_aliases": {
+        "Table_0": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "Table_1": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_2": "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4",
+        "Table_3": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65"
+      },
+      "reference_code": "sum_la_eq_0 = Table_0['laeq'].sum(skipna=True)\ncount_0 = Table_0['laeq'].count()\nsum_la_eq_1 = Table_1['laeq'].sum(skipna=True)\ncount_1 = Table_1['laeq'].count()\nsum_la_eq_2 = Table_2['laeq'].sum(skipna=True)\ncount_2 = Table_2['laeq'].count()\nsum_la_eq_3 = Table_3['laeq'].sum(skipna=True)\ncount_3 = Table_3['laeq'].count()\noverall_sum = sum_la_eq_0 + sum_la_eq_1 + sum_la_eq_2 + sum_la_eq_3\noverall_count = count_0 + count_1 + count_2 + count_3\noverall_average = overall_sum / overall_count",
+      "reference_result": [
+        {
+          "result": 62.3034644277
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The mean LAeq (overall noise level in dB) across all four sensors for the entire observation period."
+    },
+    {
+      "id": "18dcbe3d",
+      "question": "¿Cuál fue el nivel de ruido total el 2026-09-18 en el esq de Sueca y Denia del barrio de Ruzafa?",
+      "keywords": [
+        "esq"
+      ],
+      "relevant_table_ids": [
+        "356d056f-f16c-4819-8d0a-e19e1dc54702___a54fb175-8013-460a-a2f0-22de7a210d7a"
+      ],
+      "table_aliases": {
+        "Table_0": "356d056f-f16c-4819-8d0a-e19e1dc54702___a54fb175-8013-460a-a2f0-22de7a210d7a"
+      },
+      "reference_code": "overall_noise = Table_0.loc[Table_0['dateobserved'] == '2026-09-18', 'laeq'].mean()",
+      "reference_result": [
+        {
+          "result": 59.61
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The overall equivalent continuous sound level (LAeq) measured on 2026-09-18 at the Sueca‑Denia corner in the Ruzafa neighbourhood, expressed in dB(A)."
+    },
+    {
+      "id": "017bb7ab",
+      "question": "¿Qué mes de 2021 tuvo la mayor cantidad de pases de jóvenes entre los viajeros EMT?",
+      "keywords": [
+        "viajeros"
+      ],
+      "relevant_table_ids": [
+        "9fa22935-2756-4835-9db8-eba4cdc027dc___347f575e-2037-4688-9385-436eaab36b15"
+      ],
+      "table_aliases": {
+        "Table_0": "9fa22935-2756-4835-9db8-eba4cdc027dc___347f575e-2037-4688-9385-436eaab36b15"
+      },
+      "reference_code": "Table_0['Emt Jove'] = pd.to_numeric(Table_0['Emt Jove'].replace('-', pd.NA), errors='coerce')\nresult = (\n    Table_0[Table_0['Any'] == 2021]\n    .nlargest(1, 'Emt Jove')['Mes']\n    .iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "GENER"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the month in 2021 that recorded the highest number of youth passes (Emt Jove)."
+    },
+    {
+      "id": "6aa3ae3d",
+      "question": "¿Qué días de la semana pasada en la calle Sueca, 32 del barrio de Ruzafa en Valencia mostraron la mayor diferencia entre los niveles de ruido diurnos y nocturnos, y cuáles fueron los niveles promedio diurnos y nocturnos en esos días?",
+      "keywords": [
+        "32"
+      ],
+      "relevant_table_ids": [
+        "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      ],
+      "table_aliases": {
+        "Table_0": "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      },
+      "reference_code": "import pandas as pd\nresult = (\n    Table_0\n    .loc[pd.to_datetime(Table_0['dateobserved']).between('2026-09-16', '2026-09-22')]\n    .assign(diff_dn=lambda df: df['laeq_d'] - df['laeq_n'])\n    .sort_values('diff_dn', ascending=False)\n    .head(1)\n    .loc[:, ['dateobserved', 'laeq_d', 'laeq_n', 'diff_dn']]\n)",
+      "reference_result": [
+        {
+          "dateobserved": "2026-09-16",
+          "laeq_d": 62.45,
+          "laeq_n": 54.85,
+          "diff_dn": 7.6
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row representing the day in the past week with the largest daytime‑nighttime noise difference, showing the date, average daytime LAeq (laeq_d), average nighttime LAeq (laeq_n), and the computed difference."
+    },
+    {
+      "id": "dc76891f",
+      "question": "Según el resumen, ¿qué tres relaciones tienen más ítems y qué porcentaje del inventario total representa cada una?",
+      "keywords": [
+        "resumen"
+      ],
+      "relevant_table_ids": [
+        "a6a8fafb-d205-4d6e-9ef8-248cb21bbdcb___7331efc2-e47c-430e-a17c-8c9218c8212a"
+      ],
+      "table_aliases": {
+        "Table_0": "a6a8fafb-d205-4d6e-9ef8-248cb21bbdcb___7331efc2-e47c-430e-a17c-8c9218c8212a"
+      },
+      "reference_code": "total_items = Table_0['N.Bienes'].sum()\nresult = (\n    Table_0.sort_values(by='N.Bienes', ascending=False)\n    .head(3)\n    .assign(share_pct=lambda df: (df['N.Bienes'] / total_items) * 100)\n    [['Relacion', 'N.Bienes', 'share_pct']]\n)",
+      "reference_result": [
+        {
+          "Relacion": "SUELO ESPACIOS LIBRES",
+          "N.Bienes": 613.0,
+          "share_pct": 21.6604253076
+        },
+        {
+          "Relacion": "HIGIENICO-FUENTES PUBLICAS",
+          "N.Bienes": 440.0,
+          "share_pct": 15.5474504655
+        },
+        {
+          "Relacion": "SUELO NO EDIFICABLE POR SI MISMO",
+          "N.Bienes": 338.0,
+          "share_pct": 11.9432687667
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with three rows, each showing a relation name, its item count, and its percentage share of the total inventory, ordered by descending share."
+    },
+    {
+      "id": "55e4e742",
+      "question": "¿Cuáles fueron las recargas totales, la energía total suministrada y el coste total de la energía el 2024-04-25 para cada zona en Valencia?",
+      "keywords": [
+        "zona"
+      ],
+      "relevant_table_ids": [
+        "41ef3f0e-4c32-42ef-a6d6-d8f50e527a2e___9f1ac8cc-f40d-4486-9f5a-e6fffd6067c3",
+        "01d22172-8200-411c-99da-37cbd7c07ab0___778f2e70-6119-4152-92d9-7c28d9cc7dde",
+        "259c6456-636b-49be-aa14-91b9cadb3bd2___cd177d58-4e38-4a69-9000-9a8b3be34f27"
+      ],
+      "table_aliases": {
+        "Table_0": "41ef3f0e-4c32-42ef-a6d6-d8f50e527a2e___9f1ac8cc-f40d-4486-9f5a-e6fffd6067c3",
+        "Table_1": "01d22172-8200-411c-99da-37cbd7c07ab0___778f2e70-6119-4152-92d9-7c28d9cc7dde",
+        "Table_2": "259c6456-636b-49be-aa14-91b9cadb3bd2___cd177d58-4e38-4a69-9000-9a8b3be34f27"
+      },
+      "reference_code": "recharges = (\n    Table_0[\n        Table_0['calculationperiod'].str.startswith('2024-04-25') &\n        Table_0['sliceanddicevalue1'].str.lower().isin(['ayuntamiento', 'valencia'])\n    ]\n    .groupby('sliceanddicevalue1', as_index=False)['kpivalue']\n    .sum()\n    .rename(columns={'kpivalue': 'total_recharges'})\n)\nenergy = (\n    Table_1[\n        Table_1['calculationperiod'].str.startswith('2024-04-25') &\n        Table_1['sliceanddicevalue1'].str.lower().isin(['ayuntamiento', 'valencia'])\n    ]\n    .groupby('sliceanddicevalue1', as_index=False)['kpivalue']\n    .sum()\n    .rename(columns={'kpivalue': 'total_energy'})\n)\ncost = (\n    Table_2[\n        Table_2['calculationperiod'].str.startswith('2024-04-25') &\n        Table_2['sliceanddicevalue1'].str.lower().isin(['ayuntamiento', 'valencia'])\n    ]\n    .groupby('sliceanddicevalue1', as_index=False)['kpivalue']\n    .sum()\n    .rename(columns={'kpivalue': 'total_cost'})\n)\nresult = (\n    recharges\n    .merge(energy, on='sliceanddicevalue1', how='inner')\n    .merge(cost, on='sliceanddicevalue1', how='inner')\n)",
+      "reference_result": [
+        {
+          "sliceanddicevalue1": "Ayuntamiento",
+          "total_recharges": 0,
+          "total_energy": 0.0,
+          "total_cost": 0
+        },
+        {
+          "sliceanddicevalue1": "Valencia",
+          "total_recharges": 0,
+          "total_energy": 0.0,
+          "total_cost": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per zona (Ayuntamiento, Valencia) with three columns: total_recharges, total_energy, total_cost for the date 2024-04-25."
+    },
+    {
+      "id": "4ffd6e4c",
+      "question": "Para cada categoría de ingresos en 2022, ¿qué variación porcentual hubo entre la cantidad inicialmente prevista y la cantidad definitiva final, y cuáles son las tres categorías que mostraron el mayor aumento?",
+      "keywords": [
+        "ingresos"
+      ],
+      "relevant_table_ids": [
+        "b95f3146-31dc-4d40-b9d5-1273786517e1___60a63909-93bb-433e-9e73-590a6b52eaac"
+      ],
+      "table_aliases": {
+        "Table_0": "b95f3146-31dc-4d40-b9d5-1273786517e1___60a63909-93bb-433e-9e73-590a6b52eaac"
+      },
+      "reference_code": "import pandas as pd\nimport numpy as np\nresult = (\n    Table_0\n    .loc[Table_0['FECHA'].str.contains('2022')]\n    .assign(\n        Iniciales=lambda df: pd.to_numeric(\n            df['Iniciales'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False),\n            errors='coerce'\n        ),\n        Definitivas=lambda df: pd.to_numeric(\n            df['Definitivas'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False),\n            errors='coerce'\n        )\n    )\n    .groupby('Texto Subconcepto', as_index=False)\n    .agg(\n        sum_initial=('Iniciales', 'sum'),\n        sum_definitive=('Definitivas', 'sum')\n    )\n    .assign(\n        pct_change=lambda df: np.where(\n            df['sum_initial'] != 0,\n            (df['sum_definitive'] - df['sum_initial']) / df['sum_initial'] * 100,\n            np.nan\n        )\n    )\n    .dropna(subset=['pct_change'])\n    .sort_values('pct_change', ascending=False)\n    .head(3)\n)",
+      "reference_result": [
+        {
+          "Texto Subconcepto": "C.EDUC.INV.CULT.DEP.-PLAN COOPERAC.C.DOCENTES PUBL",
+          "sum_initial": 61213249.44,
+          "sum_definitive": 327530679.28000003,
+          "pct_change": 435.0650100695
+        },
+        {
+          "Texto Subconcepto": "CE PYTO S4ALLCITIES",
+          "sum_initial": 593940.0,
+          "sum_definitive": 929495.0,
+          "pct_change": 56.4964474526
+        },
+        {
+          "Texto Subconcepto": "NEXT GENERATION -PLAN REC,TRANSF. RESILIENCIA-INV.",
+          "sum_initial": 209914171.56,
+          "sum_definitive": 283886237.92,
+          "pct_change": 35.2391960058
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Table with one row per income category for 2022, showing the category name and the percentage change between the initially planned amount and the definitive amount, sorted descending so the three categories with the largest increase appear at the top."
+    },
+    {
+      "id": "7bd53e83",
+      "question": "¿Cuál fue el nivel medio de ruido registrado por el sensor vivons en Ruzafa entre 2021 y 2025?",
+      "keywords": [
+        "vivons"
+      ],
+      "relevant_table_ids": [
+        "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      ],
+      "table_aliases": {
+        "Table_0": "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      },
+      "reference_code": "avg_la_eq = Table_0.query(\"dateobserved >= '2021-01-01' and dateobserved <= '2025-12-31'\")['laeq'].mean()",
+      "reference_result": [
+        {
+          "result": 61.2571052841
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The average overall LAeq (in dB) recorded by the Vivons sensor in the Ruzafa neighbourhood across all days from 2021‑01‑01 to 2025‑12‑31."
+    },
+    {
+      "id": "8f4749e6",
+      "question": "¿Cuál es el ingreso total proyectado para el código económico 11400 en el año 2023 en Valencia?",
+      "keywords": [
+        "codigo"
+      ],
+      "relevant_table_ids": [
+        "72ad8807-4aa4-4806-a59c-b77bfd83dc79___e67b061c-f6c7-4546-9576-840ff8fca29b"
+      ],
+      "table_aliases": {
+        "Table_0": "72ad8807-4aa4-4806-a59c-b77bfd83dc79___e67b061c-f6c7-4546-9576-840ff8fca29b"
+      },
+      "reference_code": "total_income = Table_0.loc[(Table_0['Periodo presupuestario'] == 2023) & (Table_0['Código económico'] == 11400), 'Valor'].sum()",
+      "reference_result": [
+        {
+          "result": 7297500.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "Total projected income (Valor) for economic code 11400 in 2023, expressed in euros."
+    },
+    {
+      "id": "e9887970",
+      "question": "¿Cuál es la longitud total de todos los ejes de las calles en Valencia?",
+      "keywords": [
+        "ejes"
+      ],
+      "relevant_table_ids": [
+        "694b7f70-b9ab-40f9-adcf-9075a083d988___57a75220-f4d7-4340-9268-40a46843a7dd"
+      ],
+      "table_aliases": {
+        "Table_0": "694b7f70-b9ab-40f9-adcf-9075a083d988___57a75220-f4d7-4340-9268-40a46843a7dd"
+      },
+      "reference_code": "total_length = Table_0[Table_0['longitud'].notna()]['longitud'].sum()",
+      "reference_result": [
+        {
+          "result": 1093477.15374
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total length of all street segments in Valencia, expressed in meters."
+    },
+    {
+      "id": "8f6a6c67",
+      "question": "¿Cuál fue el numero de abonados y el porcentaje de abonados de electricidad registrados el 2024-04-28 en València?",
+      "keywords": [
+        "numero",
+        "porcentaje"
+      ],
+      "relevant_table_ids": [
+        "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064",
+        "d85c46a5-eaf9-4a3b-adf3-e76d986e2650___6a71f28e-8d2e-4cf5-8f4e-6cdf132a4bdf"
+      ],
+      "table_aliases": {
+        "Table_0": "03833075-8ac8-4064-8e96-9b5c8938b9b9___b51406f3-126b-402e-a0d1-fbe5a87fc064",
+        "Table_1": "d85c46a5-eaf9-4a3b-adf3-e76d986e2650___6a71f28e-8d2e-4cf5-8f4e-6cdf132a4bdf"
+      },
+      "reference_code": "df0 = Table_0.loc[Table_0['calculationperiod'] == '2024-04-28 22:00:00.0', ['calculationperiod', 'kpivalue']].copy()\ndf0 = df0.rename(columns={'kpivalue': 'number_subscribers'})\ndf1 = Table_1.loc[Table_1['calculationperiod'] == '2024-04-28 22:00:00.0', ['calculationperiod', 'kpivalue']].copy()\ndf1 = df1.rename(columns={'kpivalue': 'percentage_subscribers'})\nresult = df0.merge(df1, on='calculationperiod', how='inner')[['number_subscribers', 'percentage_subscribers']]",
+      "reference_result": [
+        {
+          "number_subscribers": 93,
+          "percentage_subscribers": 0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row with the number of subscribers and the percentage of electricity subscribers registered in Valencia on 2024-04-28."
+    },
+    {
+      "id": "f3285409",
+      "question": "¿Cuál fue el nivel de ruido total registrado por el sensor t248655 el 2026-09-18?",
+      "keywords": [
+        "t248655"
+      ],
+      "relevant_table_ids": [
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de"
+      ],
+      "table_aliases": {
+        "Table_0": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de"
+      },
+      "reference_code": "result = Table_0[Table_0['dateobserved'] == '2026-09-18']['laeq'].iloc[0]",
+      "reference_result": [
+        {
+          "result": 64.74
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The overall equivalent continuous noise level (laeq) recorded by sensor T248655 on 2026-09-18, expressed in decibels (dB)."
+    },
+    {
+      "id": "0fdc2968",
+      "question": "¿Cuáles son los tres destinos concretos que recibieron el mayor aumento de presupuesto asignado por la Generalitat Valenciana entre 2022 y 2025 a nivel autonómico, y cuáles fueron los importes asignados en cada uno de esos años?",
+      "keywords": [
+        "nivel"
+      ],
+      "relevant_table_ids": [
+        "8a2c3376-dbe2-4d46-8fd1-6b1c00b83795___6acf8e35-38e0-4573-960c-99bfbdeab1b7"
+      ],
+      "table_aliases": {
+        "Table_0": "8a2c3376-dbe2-4d46-8fd1-6b1c00b83795___6acf8e35-38e0-4573-960c-99bfbdeab1b7"
+      },
+      "reference_code": "df_2022 = Table_0[Table_0['Año prespuesto'] == 2022]\nagg_2022 = df_2022.groupby('Destino concreto', as_index=False)['Prespuesto'].sum().rename(columns={'Prespuesto': 'sum_2022'})\ndf_2025 = Table_0[Table_0['Año prespuesto'] == 2025]\nagg_2025 = df_2025.groupby('Destino concreto', as_index=False)['Prespuesto'].sum().rename(columns={'Prespuesto': 'sum_2025'})\nmerged = pd.merge(agg_2022, agg_2025, on='Destino concreto', how='inner')\nmerged['increase'] = merged['sum_2025'] - merged['sum_2022']\nmerged['rank_inc'] = merged['increase'].rank(method='dense', ascending=False)\nresult = merged.sort_values('rank_inc').head(3)[['Destino concreto', 'sum_2022', 'sum_2025', 'increase']]",
+      "reference_result": [
+        {
+          "Destino concreto": "CONVENIO SERVICIOS SOCIALES",
+          "sum_2022": 21069497.5,
+          "sum_2025": 27722671.31,
+          "increase": 6653173.809999999
+        },
+        {
+          "Destino concreto": "AUTORIDAD TRANSP MATROPOL VAL",
+          "sum_2022": 13671960.0,
+          "sum_2025": 15899935.02,
+          "increase": 2227975.0199999996
+        },
+        {
+          "Destino concreto": "COLEGIOS INFANTILES",
+          "sum_2022": 693100.0,
+          "sum_2025": 1597900.0,
+          "increase": 904800.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Three rows, each showing a Destino concreto, the allocated amount in 2022, the allocated amount in 2025, and the absolute increase between those years, ordered by the largest increase."
+    },
+    {
+      "id": "9b3ad77e",
+      "question": "En el programa de zonas verdes planificado de Valencia, para cada tipo de zonas, ¿qué mes tuvo la mayor superficie verde planificada total y cuál fue la cantidad?",
+      "keywords": [
+        "zonas"
+      ],
+      "relevant_table_ids": [
+        "01a5f50e-0f8b-4ca3-a6bd-ef4493de0aa3___8f30e64b-8b53-412f-929f-5a7cae3c361d"
+      ],
+      "table_aliases": {
+        "Table_0": "01a5f50e-0f8b-4ca3-a6bd-ef4493de0aa3___8f30e64b-8b53-412f-929f-5a7cae3c361d"
+      },
+      "reference_code": "result = (\n    Table_0\n    .loc[Table_0['NIVEL2'] == 'Zonas verdes']\n    .groupby('NIVEL3', as_index=False)\n    .agg({\n        'M2ZV_ENERO': 'sum',\n        'M2ZV_FEBRE': 'sum',\n        'M2ZV_MARZO': 'sum',\n        'M2ZV_ABRIL': 'sum',\n        'M2ZV_MAYO': 'sum',\n        'M2ZV_JUNIO': 'sum',\n        'M2ZV_JULIO': 'sum',\n        'M2ZV_AGOST': 'sum',\n        'M2ZV_OCTUB': 'sum',\n        'M2ZV_NOVIE': 'sum',\n        'M2ZV_DICIE': 'sum'\n    })\n    .assign(\n        max_total=lambda df: df[['M2ZV_ENERO', 'M2ZV_FEBRE', 'M2ZV_MARZO', 'M2ZV_ABRIL', 'M2ZV_MAYO', 'M2ZV_JUNIO', 'M2ZV_JULIO', 'M2ZV_AGOST', 'M2ZV_OCTUB', 'M2ZV_NOVIE', 'M2ZV_DICIE']].max(axis=1),\n        max_month=lambda df: df[['M2ZV_ENERO', 'M2ZV_FEBRE', 'M2ZV_MARZO', 'M2ZV_ABRIL', 'M2ZV_MAYO', 'M2ZV_JUNIO', 'M2ZV_JULIO', 'M2ZV_AGOST', 'M2ZV_OCTUB', 'M2ZV_NOVIE', 'M2ZV_DICIE']].idxmax(axis=1).str.replace('M2ZV_', '')\n    )\n    [['NIVEL3', 'max_month', 'max_total']]\n)",
+      "reference_result": [
+        {
+          "NIVEL3": "Jardin",
+          "max_month": "MAYO",
+          "max_total": 58160.989
+        },
+        {
+          "NIVEL3": "Jardines",
+          "max_month": "MAYO",
+          "max_total": 1307984.072
+        },
+        {
+          "NIVEL3": "Parques urbanos",
+          "max_month": "MAYO",
+          "max_total": 1374544.089
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per zone type (NIVEL3) showing the month with the greatest summed planned green surface and the corresponding amount in square metres."
+    },
+    {
+      "id": "9a30e27a",
+      "question": "¿Qué area de gasto en el presupuesto municipal del Ajuntament de València de 2023 a 2025 tuvo la mayor variación en su asignación anual, medida por la diferencia entre su presupuesto anual más alto y el más bajo?",
+      "keywords": [
+        "area"
+      ],
+      "relevant_table_ids": [
+        "bc89937a-e122-4dd2-8b0d-bd2095da78d1___21946763-2114-45cb-a241-3fa4415703b9"
+      ],
+      "table_aliases": {
+        "Table_0": "bc89937a-e122-4dd2-8b0d-bd2095da78d1___21946763-2114-45cb-a241-3fa4415703b9"
+      },
+      "reference_code": "result = (\n    Table_0\n    .groupby(['Área de gasto', 'Periodo presupuestario'], as_index=False)['Valor']\n    .sum()\n    .rename(columns={'Valor': 'yearly_total'})\n    .groupby('Área de gasto', as_index=False)\n    .agg(max_total=('yearly_total', 'max'), min_total=('yearly_total', 'min'))\n    .assign(variation=lambda df: df['max_total'] - df['min_total'])\n    .sort_values('variation', ascending=False)\n    .head(1)\n    ['Área de gasto']\n    .iloc[0]\n)",
+      "reference_result": [
+        {
+          "result": "SERVICIOS PUBLICOS BASIC"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The name of the spending area whose allocated budget varied the most across the years 2023‑2025, measured as the largest difference between its highest and lowest yearly total."
+    },
+    {
+      "id": "dff1ab50",
+      "question": "¿Cuál fue la longitud total de la ruta de la Cabalgata de Reyes 2023 en Valencia?",
+      "keywords": [
+        "ruta"
+      ],
+      "relevant_table_ids": [
+        "3c544efa-ac7e-4a8e-96e1-7461f5a83510___53417d9c-a8ea-40b6-967a-639be59e6a62"
+      ],
+      "table_aliases": {
+        "Table_0": "3c544efa-ac7e-4a8e-96e1-7461f5a83510___53417d9c-a8ea-40b6-967a-639be59e6a62"
+      },
+      "reference_code": "total_distance = Table_0.dropna(subset=['Distancia'])['Distancia'].sum()",
+      "reference_result": [
+        {
+          "result": 1651.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total length of the 2023 Three Kings' Parade route in Valencia, expressed in kilometres."
+    },
+    {
+      "id": "5f6397f8",
+      "question": "¿Cuánto en transferencias proporcionó cada administración fuente al presupuesto municipal de Valencia en 2023?",
+      "keywords": [
+        "transferencias"
+      ],
+      "relevant_table_ids": [
+        "909ca09b-8a26-4f9f-a83c-7ecdc7db083c___95048208-5ef7-4e6e-9ade-ef97d734ffba"
+      ],
+      "table_aliases": {
+        "Table_0": "909ca09b-8a26-4f9f-a83c-7ecdc7db083c___95048208-5ef7-4e6e-9ade-ef97d734ffba"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['Periodo pressupuestario'] == 2023]\n    .groupby('Administracion procedencia', as_index=False)\n    .agg(total_by_admin_2023=('Valor', 'sum'))\n)",
+      "reference_result": [
+        {
+          "Administracion procedencia": "ADMINISTRACION AUTONOMICA",
+          "total_by_admin_2023": 53616488.480000004
+        },
+        {
+          "Administracion procedencia": "ADMINISTRACION CENTRAL",
+          "total_by_admin_2023": 401011004.27000004
+        },
+        {
+          "Administracion procedencia": "OTROS ORGANISMOS",
+          "total_by_admin_2023": 4622046.46
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Table with each source administration and the total amount of transfers it provided to Valencia's municipal budget in 2023 (euros)."
+    },
+    {
+      "id": "3a7067df",
+      "question": "¿Cuáles fueron los niveles promedio de ruido diurnos y nocturnos en la calle General prim de Ruzafa durante la semana del 2026-09-11 al 2026-09-17, y cuál fue mayor?",
+      "keywords": [
+        "prim"
+      ],
+      "relevant_table_ids": [
+        "466e1b85-eb8a-4454-ae7c-c1955e6b1533___3b2fe345-08fc-49d7-85c8-8cccf6a7e814"
+      ],
+      "table_aliases": {
+        "Table_0": "466e1b85-eb8a-4454-ae7c-c1955e6b1533___3b2fe345-08fc-49d7-85c8-8cccf6a7e814"
+      },
+      "reference_code": "filtered = Table_0.loc[(Table_0['dateobserved'] >= '2026-09-11') & (Table_0['dateobserved'] <= '2026-09-17')]\nagg = filtered.agg({'laeq_d': 'mean', 'laeq_n': 'mean'}).rename({'laeq_d': 'avg_day', 'laeq_n': 'avg_night'})\nresult = agg.to_frame().T\nresult['day_higher'] = result['avg_day'] > result['avg_night']\nresult",
+      "reference_result": [
+        {
+          "avg_day": 55.6771430969,
+          "avg_night": 52.449999673,
+          "day_higher": true
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single-row table with three columns: avg_day (average daytime LAeq), avg_night (average nighttime LAeq) for the week 2026-09-11 to 2026-09-17, and day_higher (boolean) indicating whether the daytime average exceeds the nighttime average."
+    },
+    {
+      "id": "e667c7c7",
+      "question": "Entre el 2022‑01‑01 y el 2024‑12‑31, ¿qué mes registrado por el sensor vivons en Ruzafa mostró el mayor aumento del nivel medio total de ruido respecto al mes anterior, y cuáles fueron los niveles medios de ruido total de esos dos meses?",
+      "keywords": [
+        "vivons"
+      ],
+      "relevant_table_ids": [
+        "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      ],
+      "table_aliases": {
+        "Table_0": "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61"
+      },
+      "reference_code": "df = Table_0.loc[(Table_0['dateobserved'] >= '2022-01-01') & (Table_0['dateobserved'] <= '2024-12-31')]\ndf = df.assign(month_ym = df['dateobserved'].str.slice(0, 7))\nmonthly = df.groupby('month_ym', as_index=False).agg(avg_la_eq=('laeq', 'mean'))\nmonthly = monthly.assign(prev_month_ym = (pd.to_datetime(monthly['month_ym'], format='%Y-%m') - pd.DateOffset(months=1)).dt.strftime('%Y-%m'))\nmerged = monthly.merge(\n    monthly[['month_ym', 'avg_la_eq']].rename(columns={'month_ym': 'prev_month_ym', 'avg_la_eq': 'prev_avg_la_eq'}),\n    on='prev_month_ym',\n    how='inner'\n)\nmerged = merged.assign(avg_increase = merged['avg_la_eq'] - merged['prev_avg_la_eq'])\nresult = merged.sort_values(by='avg_increase', ascending=False).head(1)[['month_ym', 'avg_la_eq', 'prev_avg_la_eq', 'avg_increase']]",
+      "reference_result": [
+        {
+          "month_ym": "2024-03",
+          "avg_la_eq": 66.4106447774,
+          "prev_avg_la_eq": 60.9241377732,
+          "avg_increase": 5.4865070042
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the month (YYYY‑MM) with the greatest month‑over‑month increase, the average overall LAeq for that month, the average overall LAeq for the preceding month, and the computed increase (avg_increase) in LAeq between the two months."
+    },
+    {
+      "id": "5b13c7ad",
+      "question": "¿Cómo cambió el precio medio por metro cuadrado de vivienda libre entre 2021 y 2022 en Valencia y Barcelona?",
+      "keywords": [
+        "vivienda"
+      ],
+      "relevant_table_ids": [
+        "86123d64-c767-4ab0-8e2b-446904b89fdc___21336b01-62d5-4c8f-b94c-4f9a2d005f1b"
+      ],
+      "table_aliases": {
+        "Table_0": "86123d64-c767-4ab0-8e2b-446904b89fdc___21336b01-62d5-4c8f-b94c-4f9a2d005f1b"
+      },
+      "reference_code": "import pandas as pd\nresult = (\n    Table_0\n    .loc[lambda d: (\n        d['Tipus'].str.lower() == 'total'\n        ) & (\n        d['Ciutat/altre'].str.lower().isin(['valència', 'barcelona'])\n        ) & (\n        d['Any'].isin([2021, 2022])\n    )]\n    .replace({'---': pd.NA})\n    .assign(**{\n        col: lambda d, c=col: pd.to_numeric(\n            d[c].astype(str).str.replace(' ', ''), errors='coerce'\n        )\n        for col in ['1er Trimestre', '2n Trimestre', '3er Trimestre', '4t Trimestre']\n    })\n    .assign(row_avg=lambda d: d[[\n        '1er Trimestre', '2n Trimestre', '3er Trimestre', '4t Trimestre'\n    ]].mean(axis=1, skipna=True))\n    .groupby('Ciutat/altre')\n    .apply(lambda g: pd.Series({\n        'avg_price_2021': g.loc[g['Any'] == 2021, 'row_avg'].mean(),\n        'avg_price_2022': g.loc[g['Any'] == 2022, 'row_avg'].mean()\n    }))\n    .reset_index()\n    .assign(price_change=lambda d: d['avg_price_2022'] - d['avg_price_2021'])\n)",
+      "reference_result": [
+        {
+          "Ciutat/altre": "Barcelona",
+          "avg_price_2021": 3391.7,
+          "avg_price_2022": 3571.8,
+          "price_change": 180.1
+        },
+        {
+          "Ciutat/altre": "València",
+          "avg_price_2021": 1617.1,
+          "avg_price_2022": 1699.1,
+          "price_change": 82.0
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows (València and Barcelona) with columns avg_price_2021, avg_price_2022, and price_change representing the average price per square metre of free housing for each year and the year‑over‑year change (2022 minus 2021) in euros per square metre."
+    },
+    {
+      "id": "1bbb663c",
+      "question": "Entre 2021 y 2025, ¿qué año tuvo la mayor correlación entre los niveles medios de ruido diurnos y nocturnos de los tres sensores ubicados en la calle doctor Serrano, vivons Chaflán Cádiz y salvador Abril?",
+      "keywords": [
+        "doctor",
+        "vivons",
+        "salvador"
+      ],
+      "relevant_table_ids": [
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61",
+        "eb3bce72-b02d-4d44-9c14-86fb0b6328d4___64e4b7b4-e633-4753-b0ef-a57d785076f8"
+      ],
+      "table_aliases": {
+        "Table_0": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_1": "f4c53548-78d1-40b0-bccf-021ecd969742___ff8678b6-748e-4908-ab5b-9c7ff567da61",
+        "Table_2": "eb3bce72-b02d-4d44-9c14-86fb0b6328d4___64e4b7b4-e633-4753-b0ef-a57d785076f8"
+      },
+      "reference_code": "combined = pd.concat([\n    Table_0[['dateobserved', 'laeq_d', 'laeq_n']],\n    Table_1[['dateobserved', 'laeq_d', 'laeq_n']],\n    Table_2[['dateobserved', 'laeq_d', 'laeq_n']]\n], ignore_index=True)\nfiltered = combined[(combined['dateobserved'] >= '2021-01-01') & (combined['dateobserved'] <= '2025-12-31')]\nfiltered['year'] = pd.to_datetime(filtered['dateobserved']).dt.year\ncorr_by_year = (\n    filtered.groupby('year')\n    .apply(lambda g: g['laeq_d'].corr(g['laeq_n']))\n    .reset_index(name='corr')\n)\nresult = corr_by_year.sort_values('corr', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "year": 2023,
+          "corr": 0.598956805
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the year (between 2021‑2025) with the highest Pearson correlation coefficient between daytime (laeq_d) and nighttime (laeq_n) LAeq values across all three sensors, and the corresponding correlation value."
+    },
+    {
+      "id": "b82dc773",
+      "question": "Indica la calle en Valencia que alberga el mayor número de estaciones commuter, el número de estaciones en esa calle y los nombres de esas estaciones.",
+      "keywords": [
+        "commuter"
+      ],
+      "relevant_table_ids": [
+        "d80f8165-4154-4228-ac44-547bddd92548___2c1f8e35-91f5-4bb9-ba32-a2fd652bd41e"
+      ],
+      "table_aliases": {
+        "Table_0": "d80f8165-4154-4228-ac44-547bddd92548___2c1f8e35-91f5-4bb9-ba32-a2fd652bd41e"
+      },
+      "reference_code": "df_counts = Table_0.groupby('DIRECCIÓN', as_index=False).agg(station_count=('CÓDIGO', 'count'))\nmax_count = df_counts['station_count'].max()\ndf_counts = df_counts.assign(is_max_street=df_counts['station_count'] == max_count)\ndf_max = df_counts[df_counts['is_max_street']]\ndf_join = df_max.merge(Table_0, on='DIRECCIÓN', how='inner')\nresult = df_join[['DIRECCIÓN', 'station_count', 'DESCRIPCIÓN']]",
+      "reference_result": [
+        {
+          "DIRECCIÓN": "CALLE ESTACION FERROCARRIL",
+          "station_count": 10,
+          "DESCRIPCIÓN": "ALGEMESI"
+        },
+        {
+          "DIRECCIÓN": "CALLE ESTACION FERROCARRIL",
+          "station_count": 10,
+          "DESCRIPCIÓN": "ALMENARA"
+        },
+        {
+          "DIRECCIÓN": "CALLE ESTACION FERROCARRIL",
+          "station_count": 10,
+          "DESCRIPCIÓN": "ALZIRA"
+        },
+        {
+          "DIRECCIÓN": "CALLE ESTACION FERROCARRIL",
+          "station_count": 10,
+          "DESCRIPCIÓN": "BUÃOL"
+        },
+        {
+          "DIRECCIÓN": "CALLE ESTACION FERROCARRIL",
+          "station_count": 10,
+          "DESCRIPCIÓN": "BURRIANA-ALQUERIAS DEL NIÃO PERDIDO"
+        },
+        {
+          "DIRECCIÓN": "CALLE ESTACION FERROCARRIL",
+          "station_count": 10,
+          "DESCRIPCIÓN": "NAVAJAS"
+        },
+        {
+          "DIRECCIÓN": "CALLE ESTACION FERROCARRIL",
+          "station_count": 10,
+          "DESCRIPCIÓN": "SAN ANTONIO DE REQUENA"
+        },
+        {
+          "DIRECCIÓN": "CALLE ESTACION FERROCARRIL",
+          "station_count": 10,
+          "DESCRIPCIÓN": "SILLA"
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per station on the street with the most stations, showing the street name, the total count of stations on that street, and each station's name."
+    },
+    {
+      "id": "82f0d9b6",
+      "question": "Durante 2024, ¿qué tipo de entidad mostró la mayor diferencia entre el ruido medio diurno y el ruido medio nocturno en el sensor de Cádiz 16 y el sensor doctor en Doctor Serrano 21, y cuál fue esa diferencia?",
+      "keywords": [
+        "sensor",
+        "doctor"
+      ],
+      "relevant_table_ids": [
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643"
+      ],
+      "table_aliases": {
+        "Table_0": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_1": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643"
+      },
+      "reference_code": "import pandas as pd\nfiltered_0 = Table_0[Table_0['dateobserved'].str.startswith('2024-')]\nfiltered_1 = Table_1[Table_1['dateobserved'].str.startswith('2024-')]\nunion_df = pd.concat([\n    filtered_0[['entitytype', 'laeq_d', 'laeq_n']],\n    filtered_1[['entitytype', 'laeq_d', 'laeq_n']]\n], ignore_index=True)\nagg_df = union_df.groupby('entitytype', as_index=False).agg(\n    avg_laeq_d=('laeq_d', 'mean'),\n    avg_laeq_n=('laeq_n', 'mean')\n)\nagg_df['diff_day_night'] = (agg_df['avg_laeq_d'] - agg_df['avg_laeq_n']).abs()\nresult = agg_df.sort_values('diff_day_night', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "entitytype": "NoiseLevelObservedAgreggated",
+          "avg_laeq_d": 62.1511983463,
+          "avg_laeq_n": 57.4592148491,
+          "diff_day_night": 4.6919834971
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A single row containing the entity type with the largest absolute difference between its average daytime (LAeq_d) and nighttime (LAeq_n) noise levels in 2024 across both sensors, and the magnitude of that difference in decibels."
+    },
+    {
+      "id": "50b16f6c",
+      "question": "¿Qué zona mostró el mayor aumento en recargas totales entre abril de 2024 y diciembre de 2024 en los días en que el número de abonados era al menos 1 y el tipo de transacción era Interoperabilitat?",
+      "keywords": [
+        "zona",
+        "que"
+      ],
+      "relevant_table_ids": [
+        "41ef3f0e-4c32-42ef-a6d6-d8f50e527a2e___9f1ac8cc-f40d-4486-9f5a-e6fffd6067c3",
+        "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20",
+        "0fc6c40b-cabf-40c1-8002-1183a9ac20a9___55547882-c949-4a65-9a60-4774eef1b4fc"
+      ],
+      "table_aliases": {
+        "Table_0": "41ef3f0e-4c32-42ef-a6d6-d8f50e527a2e___9f1ac8cc-f40d-4486-9f5a-e6fffd6067c3",
+        "Table_1": "7644d00f-3111-48fb-91b6-6725ffa809ed___7bf170c2-2a18-49c5-90cd-601ba1a17c20",
+        "Table_2": "0fc6c40b-cabf-40c1-8002-1183a9ac20a9___55547882-c949-4a65-9a60-4774eef1b4fc"
+      },
+      "reference_code": "import pandas as pd\nt0 = Table_0.rename(columns={'kpivalue': 'recharge_count'})\nt1 = Table_1.rename(columns={'kpivalue': 'subscriber_count'})\nt2 = Table_2.rename(columns={'kpivalue': 'transaction_count'})\nmask0 = (pd.to_datetime(t0['calculationperiod']) >= '2024-04-01') & (pd.to_datetime(t0['calculationperiod']) <= '2024-12-31')\nt0_f = t0.loc[mask0]\nmask1 = (\n    (pd.to_datetime(t1['calculationperiod']) >= '2024-04-01') &\n    (pd.to_datetime(t1['calculationperiod']) <= '2024-12-31') &\n    (t1['subscriber_count'] >= 1)\n)\nt1_f = t1.loc[mask1]\nmask2 = (\n    (pd.to_datetime(t2['calculationperiod']) >= '2024-04-01') &\n    (pd.to_datetime(t2['calculationperiod']) <= '2024-12-31') &\n    (t2['sliceanddicevalue1'] == 'Interoperabilitat')\n)\nt2_f = t2.loc[mask2]\nmerged = t0_f.merge(t1_f[['calculationperiod']], on='calculationperiod', how='inner')\nmerged = merged.merge(t2_f[['calculationperiod']], on='calculationperiod', how='inner')\nmerged['month'] = pd.to_datetime(merged['calculationperiod']).dt.month\nagg = (\n    merged\n    .groupby('sliceanddicevalue1')\n    .apply(lambda df: pd.Series({\n        'april_sum': df.loc[df['month'] == 4, 'recharge_count'].sum(),\n        'dec_sum': df.loc[df['month'] == 12, 'recharge_count'].sum()\n    }))\n    .reset_index()\n)\nagg['increase'] = agg['dec_sum'] - agg['april_sum']\ntop_zone = agg.sort_values('increase', ascending=False).head(1)\nanswer = top_zone['sliceanddicevalue1'].iloc[0]",
+      "reference_result": [
+        {
+          "result": "Ayuntamiento"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The zone (Ayuntamiento or Valencia) that experienced the largest increase in total recharges between April and December 2024 under the specified subscriber and transaction-type conditions."
+    },
+    {
+      "id": "41f9fd57",
+      "question": "¿Cuántos hoteles hay en el distrito de Ciutat Vella de València en 2023?",
+      "keywords": [
+        "hoteles"
+      ],
+      "relevant_table_ids": [
+        "4ae89fb7-9293-4c28-972d-fe3478a134ab___22a28f87-6fd3-4be9-bcdb-4d5d4ee7dd4d"
+      ],
+      "table_aliases": {
+        "Table_0": "4ae89fb7-9293-4c28-972d-fe3478a134ab___22a28f87-6fd3-4be9-bcdb-4d5d4ee7dd4d"
+      },
+      "reference_code": "total_hoteles = (\n    Table_0\n    .loc[(Table_0['DISTRITO'] == 'CIUTAT VELLA') & (Table_0['Fecha_creacion'] == '2023-03-27'), 'Total_hoteles']\n    .sum()\n)",
+      "reference_result": [
+        {
+          "0": 34
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of hotels located in the Ciutat Vella district of València for the year 2023."
+    },
+    {
+      "id": "68f3095c",
+      "question": "¿Cuál es el importe total de expenses liquidado por el Ajuntament de València?",
+      "keywords": [
+        "expenses"
+      ],
+      "relevant_table_ids": [
+        "0874772f-62d0-4e1d-b42f-133089ec1733___8fd31f47-09e5-4fda-815e-edc0255c571a"
+      ],
+      "table_aliases": {
+        "Table_0": "0874772f-62d0-4e1d-b42f-133089ec1733___8fd31f47-09e5-4fda-815e-edc0255c571a"
+      },
+      "reference_code": "total_expenses = (\n    Table_0['GASTOS COMPROMETIDOS']\n    .replace(r'\\.(?=\\d{3}\\.)', '', regex=True)\n    .str.replace(' ', '', regex=False)\n    .replace(',', '.', regex=False)\n    .pipe(pd.to_numeric, errors='coerce')\n    .sum()\n)",
+      "reference_result": [
+        {
+          "result": 8959236670.409
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total amount of expenses settled by the Ajuntament de València, expressed in euros."
+    },
+    {
+      "id": "ca489126",
+      "question": "Según el resumen, ¿cuántos ítems se registran para la relación \"JARDINES\"?",
+      "keywords": [
+        "resumen"
+      ],
+      "relevant_table_ids": [
+        "a6a8fafb-d205-4d6e-9ef8-248cb21bbdcb___7331efc2-e47c-430e-a17c-8c9218c8212a"
+      ],
+      "table_aliases": {
+        "Table_0": "a6a8fafb-d205-4d6e-9ef8-248cb21bbdcb___7331efc2-e47c-430e-a17c-8c9218c8212a"
+      },
+      "reference_code": "result = Table_0[Table_0['Relacion'] == 'JARDINES']['N.Bienes'].sum()",
+      "reference_result": [
+        {
+          "result": 190.0
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of items recorded for the relation JARDINES, as reported in the resumen inventory."
+    },
+    {
+      "id": "47b9ec8e",
+      "question": "¿Cuál fue el precio medio por metro cuadrado de vivienda libre en Valencia en 2021?",
+      "keywords": [
+        "vivienda"
+      ],
+      "relevant_table_ids": [
+        "86123d64-c767-4ab0-8e2b-446904b89fdc___21336b01-62d5-4c8f-b94c-4f9a2d005f1b"
+      ],
+      "table_aliases": {
+        "Table_0": "86123d64-c767-4ab0-8e2b-446904b89fdc___21336b01-62d5-4c8f-b94c-4f9a2d005f1b"
+      },
+      "reference_code": "df = (\n    Table_0\n    .loc[\n        (Table_0['Ciutat/altre'].str.lower() == 'valència'.lower())\n        & (Table_0['Any'] == 2021)\n        & (Table_0['Tipus'].str.lower() == 'total')\n    ]\n    .replace({'---': pd.NA})\n    .assign(\n        **{\n            '1er Trimestre': lambda d: pd.to_numeric(d['1er Trimestre'].str.replace(' ', ''), errors='coerce'),\n            '2n Trimestre': lambda d: pd.to_numeric(d['2n Trimestre'].str.replace(' ', ''), errors='coerce'),\n            '3er Trimestre': lambda d: pd.to_numeric(d['3er Trimestre'].str.replace(' ', ''), errors='coerce'),\n            '4t Trimestre': lambda d: pd.to_numeric(d['4t Trimestre'].str.replace(' ', ''), errors='coerce'),\n        }\n    )\n    .assign(row_avg=lambda d: d[['1er Trimestre', '2n Trimestre', '3er Trimestre', '4t Trimestre']].mean(axis=1, skipna=True))\n)\navg_price = df['row_avg'].mean()",
+      "reference_result": [
+        {
+          "result": 1617.1
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "A single numeric value representing the average price per square metre of free vivienda in Valencia for 2021, expressed in euros per square metre."
+    },
+    {
+      "id": "ceb23165",
+      "question": "¿En cada servicio municipal de Valencia, qué año (2023 o 2024) tuvo más puestos asignados en todos los niveles?",
+      "keywords": [
+        "niveles"
+      ],
+      "relevant_table_ids": [
+        "4e9cd4f5-cff7-4cf2-b48e-6da4a4cd41b8___50bc28c5-25bf-4b62-8e97-e27aab4241a8"
+      ],
+      "table_aliases": {
+        "Table_0": "4e9cd4f5-cff7-4cf2-b48e-6da4a4cd41b8___50bc28c5-25bf-4b62-8e97-e27aab4241a8"
+      },
+      "reference_code": "result = (\n    Table_0.groupby(['Servicios', 'Año'], as_index=False)[['A1', 'A2', 'B', 'C1', 'C2', 'AP', 'F', 'L']]\n    .sum()\n    .assign(total_positions=lambda df: df[['A1', 'A2', 'B', 'C1', 'C2', 'AP', 'F', 'L']].sum(axis=1))\n    .assign(year_rank=lambda df: df.groupby('Servicios')['total_positions'].rank(method='dense', ascending=False))\n    .query(\"year_rank == 1\")\n    .rename(columns={'Año': 'YearWithMorePositions'})\n    [['Servicios', 'YearWithMorePositions']]\n)",
+      "reference_result": [
+        {
+          "Servicios": "ACCIO CULTURAL",
+          "YearWithMorePositions": 2023
+        },
+        {
+          "Servicios": "ACTIVITATS",
+          "YearWithMorePositions": 2023
+        },
+        {
+          "Servicios": "ADDICCIONS",
+          "YearWithMorePositions": 2023
+        },
+        {
+          "Servicios": "AREA D'ALCALDIA",
+          "YearWithMorePositions": 2023
+        },
+        {
+          "Servicios": "AREA D'ALCALDIA",
+          "YearWithMorePositions": 2024
+        },
+        {
+          "Servicios": "AREA PATRIMONI,RECURSOS HUMANS I TECNICS",
+          "YearWithMorePositions": 2024
+        },
+        {
+          "Servicios": "ASSESSORAMENT URBANISTIC I PROGRAMACIO",
+          "YearWithMorePositions": 2023
+        },
+        {
+          "Servicios": "ASSESSORIA JURIDICA MUNICIPAL",
+          "YearWithMorePositions": 2023
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per municipal service with two columns: the service name and the year (2023 or 2024) that had the higher total number of positions across all job levels."
+    },
+    {
+      "id": "18ec1075",
+      "question": "¿Qué mes entre 2024 y 2026 mostró el mayor aumento en los tiempos medios de recarga respecto al mes anterior en Valencia?",
+      "keywords": [
+        "tiempos"
+      ],
+      "relevant_table_ids": [
+        "f042c58d-9aaa-4d62-8616-cef764ab964c___807e7fac-cfb5-4a09-a077-e5e5b4a1e863"
+      ],
+      "table_aliases": {
+        "Table_0": "f042c58d-9aaa-4d62-8616-cef764ab964c___807e7fac-cfb5-4a09-a077-e5e5b4a1e863"
+      },
+      "reference_code": "Table_0['month'] = pd.to_datetime(Table_0['calculationperiod']).dt.strftime('%Y-%m')\ndf = Table_0[(Table_0['month'] >= '2024-01') & (Table_0['month'] <= '2026-12')]\ndf = df.groupby('month', as_index=False)['kpivalue'].mean().rename(columns={'kpivalue': 'avg_kpivalue'})\ndf = df.sort_values('month', ascending=True)\ndf['avg_change'] = df['avg_kpivalue'] - df['avg_kpivalue'].shift(1)\ndf = df[df['avg_change'].notna()]\ndf = df.sort_values('avg_change', ascending=False)\ndf = df.head(1)\nresult = df[['month']]",
+      "reference_result": [
+        {
+          "month": "2024-10"
+        }
+      ],
+      "expected_result_type": "text",
+      "expected_result_description": "The month (formatted as YYYY‑MM) between 2024 and 2026 that experienced the largest month‑over‑month increase in average charging time in Valencia."
+    },
+    {
+      "id": "1811a0fd",
+      "question": "¿Cuáles fueron los presupuestos totales por cada area de gasto en el presupuesto municipal del Ajuntament de València para 2023 y 2024?",
+      "keywords": [
+        "area"
+      ],
+      "relevant_table_ids": [
+        "bc89937a-e122-4dd2-8b0d-bd2095da78d1___21946763-2114-45cb-a241-3fa4415703b9"
+      ],
+      "table_aliases": {
+        "Table_0": "bc89937a-e122-4dd2-8b0d-bd2095da78d1___21946763-2114-45cb-a241-3fa4415703b9"
+      },
+      "reference_code": "result = (\n    Table_0[Table_0['Periodo presupuestario'].isin([2023, 2024])]\n    .groupby(['Área de gasto', 'Periodo presupuestario'], as_index=False)\n    .agg(total_valor=('Valor', 'sum'))\n    .sort_values(by=['Área de gasto', 'Periodo presupuestario'], ascending=True)\n)",
+      "reference_result": [
+        {
+          "Área de gasto": "ACT. CARACTER ECONOMICO",
+          "Periodo presupuestario": 2024,
+          "total_valor": 111598635.0
+        },
+        {
+          "Área de gasto": "ACT.PROTEC.Y PROM.SOCIAL",
+          "Periodo presupuestario": 2024,
+          "total_valor": 146033687.1
+        },
+        {
+          "Área de gasto": "ACT.PROTEC.Y PROMOCION SOCIAL",
+          "Periodo presupuestario": 2023,
+          "total_valor": 134714427.1
+        },
+        {
+          "Área de gasto": "ACTIVIDADES CARACTER ECONOMICO",
+          "Periodo presupuestario": 2023,
+          "total_valor": 135685414.6
+        },
+        {
+          "Área de gasto": "ACTUACIONES CARACTER GRAL",
+          "Periodo presupuestario": 2023,
+          "total_valor": 153825046.1
+        },
+        {
+          "Área de gasto": "ACTUACIONES CARACTER GRAL",
+          "Periodo presupuestario": 2024,
+          "total_valor": 160018059.5
+        },
+        {
+          "Área de gasto": "DEUDA PUBLICA",
+          "Periodo presupuestario": 2023,
+          "total_valor": 48696040.52
+        },
+        {
+          "Área de gasto": "DEUDA PUBLICA",
+          "Periodo presupuestario": 2024,
+          "total_valor": 45674531.9
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per spending area and fiscal year (2023 or 2024), showing the total allocated budget for that area and year."
+    },
+    {
+      "id": "5a4bf50b",
+      "question": "¿Cuál es la vulnerabilidad media del equipamiento por distrito en Valencia en 2021 y qué distrito tiene la media más baja?",
+      "keywords": [
+        "vulnerabilidad"
+      ],
+      "relevant_table_ids": [
+        "ca18278b-d040-4274-b9c7-c1a9daae54b9___6648d1d5-4d35-410d-8260-432069045334"
+      ],
+      "table_aliases": {
+        "Table_0": "ca18278b-d040-4274-b9c7-c1a9daae54b9___6648d1d5-4d35-410d-8260-432069045334"
+      },
+      "reference_code": "Table_0.groupby('Distrito', as_index=False).agg(avg_equip=('Ind_Equip', 'mean')).sort_values('avg_equip', ascending=True)",
+      "reference_result": [
+        {
+          "Distrito": "CIUTAT VELLA",
+          "avg_equip": 1.7333333333
+        },
+        {
+          "Distrito": "EL PLA DEL REAL",
+          "avg_equip": 2.0
+        },
+        {
+          "Distrito": "ALGIRÓS",
+          "avg_equip": 2.16
+        },
+        {
+          "Distrito": "CAMINS AL GRAU",
+          "avg_equip": 2.28
+        },
+        {
+          "Distrito": "JESUS",
+          "avg_equip": 2.28
+        },
+        {
+          "Distrito": "PATRAIX",
+          "avg_equip": 2.36
+        },
+        {
+          "Distrito": "LA SAÏDIA",
+          "avg_equip": 2.44
+        },
+        {
+          "Distrito": "L'OLIVERETA",
+          "avg_equip": 2.48
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row per district with the average equipment vulnerability (avg_equip) for 2021, sorted ascending so the first row corresponds to the district with the lowest average."
+    },
+    {
+      "id": "0a0ae16d",
+      "question": "Según el resumen, para las categorías A1 y A2, ¿qué relación tiene la mayor participación de ítems en cada categoría, cuáles son esas participaciones y en cuál de las dos categorías la relación principal tiene una participación mayor?",
+      "keywords": [
+        "resumen"
+      ],
+      "relevant_table_ids": [
+        "a6a8fafb-d205-4d6e-9ef8-248cb21bbdcb___7331efc2-e47c-430e-a17c-8c9218c8212a"
+      ],
+      "table_aliases": {
+        "Table_0": "a6a8fafb-d205-4d6e-9ef8-248cb21bbdcb___7331efc2-e47c-430e-a17c-8c9218c8212a"
+      },
+      "reference_code": "df = Table_0[Table_0['Epigrafe'].isin(['A1', 'A2'])]\ntotals = df.groupby('Epigrafe', as_index=False)['N.Bienes'].sum().rename(columns={'N.Bienes': 'total_items'})\ndf = df.merge(totals, on='Epigrafe', how='inner')\ndf['rank_rel'] = df.groupby('Epigrafe')['N.Bienes'].rank(method='first', ascending=False)\ndf = df[df['rank_rel'] == 1].copy()\ndf['share_pct'] = df['N.Bienes'] / df['total_items'] * 100\nmax_share = df['share_pct'].max()\ndf['is_winner'] = df['share_pct'] == max_share\nresult = df[['Epigrafe', 'Relacion', 'share_pct', 'is_winner']]",
+      "reference_result": [
+        {
+          "Epigrafe": "A1",
+          "Relacion": "PARQUES URBANOS",
+          "share_pct": 100.0,
+          "is_winner": true
+        },
+        {
+          "Epigrafe": "A2",
+          "Relacion": "JARDINES",
+          "share_pct": 100.0,
+          "is_winner": true
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "Two rows, one per category (A1 and A2), showing the relation with the highest item count, its share of the category total (as a percentage), and a boolean column indicating which category's top relation has the larger share."
+    },
+    {
+      "id": "64e2c015",
+      "question": "¿Cuántas alineaciones del Plan General de Ordenación Urbana (PGOU) de Valencia tienen un estado de protección?",
+      "keywords": [
+        "alineaciones"
+      ],
+      "relevant_table_ids": [
+        "dfb61c95-8f04-4228-b075-1ff49a1e3de7___5f3ba9a8-5e44-48ef-b719-4d5a65dad36c"
+      ],
+      "table_aliases": {
+        "Table_0": "dfb61c95-8f04-4228-b075-1ff49a1e3de7___5f3ba9a8-5e44-48ef-b719-4d5a65dad36c"
+      },
+      "reference_code": "count_alineaciones = (\n    Table_0\n    .loc[lambda df: (df['ttggss'] == '114302') & df['protec'].notna() & (df['protec'].str.strip() != '') & (df['protec'] != '*')]\n    .shape[0]\n)",
+      "reference_result": [
+        {
+          "result": 166
+        }
+      ],
+      "expected_result_type": "number",
+      "expected_result_description": "The total number of PGOU alineaciones in Valencia (area code 114302) that have a protection status."
+    },
+    {
+      "id": "6fd221d5",
+      "question": "¿Cuál fue el nivel medio de ruido nocturno registrado por el sensor en la calle Cádiz 3, el sensor en la calle cuba 3 y el sensor en la calle Cádiz 16 durante la semana del 2026-09-10 al 2026-09-16, y cuál de estos sensores tuvo el nivel medio nocturno más alto?",
+      "keywords": [
+        "cuba",
+        "sensor"
+      ],
+      "relevant_table_ids": [
+        "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4",
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65"
+      ],
+      "table_aliases": {
+        "Table_0": "17dbcad8-42dc-4290-828f-f206075f92b9___6fa5210b-f9c7-47c8-9d1f-ddb7568f62de",
+        "Table_1": "a3b1a786-c154-4e4d-a341-3e3e7aeb7248___5a050cef-1107-4b3b-8e61-5daf5cfb2ca4",
+        "Table_2": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65"
+      },
+      "reference_code": "filtered_0 = Table_0[(Table_0['dateobserved'] >= '2026-09-10') & (Table_0['dateobserved'] <= '2026-09-16')]\nfiltered_1 = Table_1[(Table_1['dateobserved'] >= '2026-09-10') & (Table_1['dateobserved'] <= '2026-09-16')]\nfiltered_2 = Table_2[(Table_2['dateobserved'] >= '2026-09-10') & (Table_2['dateobserved'] <= '2026-09-16')]\ncombined = pd.concat([\n    filtered_0[['entityid', 'laeq_n']],\n    filtered_1[['entityid', 'laeq_n']],\n    filtered_2[['entityid', 'laeq_n']]\n], ignore_index=True)\nagg = combined.groupby('entityid', as_index=False).agg(avg_night=('laeq_n', 'mean'))\nref = pd.concat([\n    Table_0[['entityid']].drop_duplicates(),\n    Table_1[['entityid']].drop_duplicates(),\n    Table_2[['entityid']].drop_duplicates()\n], ignore_index=True).drop_duplicates()\nresult = ref.merge(agg, on='entityid', how='left')\nresult['rank'] = result['avg_night'].rank(method='dense', ascending=False, na_option='bottom').astype(int)\nfinal = result.sort_values('rank')[['entityid', 'avg_night', 'rank']]",
+      "reference_result": [
+        {
+          "entityid": "T248655-daily",
+          "avg_night": 63.83,
+          "rank": 1
+        },
+        {
+          "entityid": "T248682-daily",
+          "avg_night": 60.0,
+          "rank": 2
+        },
+        {
+          "entityid": "T248671-daily",
+          "avg_night": null,
+          "rank": 3
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A table with one row per sensor (Cádiz 3, Cuba 3, Cádiz 16) showing the average nighttime LAeq (laeq_n) over the week 2026‑09‑10 to 2026‑09‑16, and a rank column where rank 1 indicates the sensor with the highest average nighttime level."
+    },
+    {
+      "id": "224bada7",
+      "question": "¿Qué estado de disponibilidad de las estaciones de recarga de vehículos eléctricos de Valencia mostró el mayor aumento en el porcentaje de tiempo (tiempo) que estuvieron en ese estado entre el 25 April 2024 y el 26 April 2024, y cuál fue el aumento y su proporción del aumento total?",
+      "keywords": [
+        "tiempo"
+      ],
+      "relevant_table_ids": [
+        "b08f7b7d-9905-4cb1-b6dd-3a861351a9c9___c97cd67b-2d7b-4bd3-8499-cc6c7467c233"
+      ],
+      "table_aliases": {
+        "Table_0": "b08f7b7d-9905-4cb1-b6dd-3a861351a9c9___c97cd67b-2d7b-4bd3-8499-cc6c7467c233"
+      },
+      "reference_code": "agg = (\n    Table_0\n    .loc[Table_0['calculationperiod'].isin(['2024-04-25 22:00:00.0', '2024-04-26 22:00:00.0'])]\n    .groupby('sliceanddicevalue1')\n    .agg(kpivalue_26=('kpivalue', 'max'), kpivalue_25=('kpivalue', 'min'))\n    .reset_index()\n    .assign(increase=lambda df: df['kpivalue_26'] - df['kpivalue_25'])\n)\ntotal_increase = agg['increase'].sum()\nresult = (\n    agg\n    .assign(share=lambda df: df['increase'] / total_increase)\n    .sort_values('increase', ascending=False)\n    .head(1)\n)",
+      "reference_result": [
+        {
+          "sliceanddicevalue1": "Disponible",
+          "kpivalue_26": 100.0,
+          "kpivalue_25": 52.638888889,
+          "increase": 47.361111111,
+          "share": 0.9956558895
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "One row containing the availability state that experienced the largest percentage increase between 25 April 2024 and 26 April 2024, the absolute increase amount, and the proportion of that increase relative to the total increase across all states."
+    },
+    {
+      "id": "79bf3210",
+      "question": "¿Qué mes de 2025 muestra la correlación más fuerte entre los niveles de ruido nocturnos registrados por el doctor sensor y el sensor en Cádiz, y cómo se compara esa correlación con la correlación entre el doctor sensor y el sensor en 32 Sueca para el mismo mes?",
+      "keywords": [
+        "doctor",
+        "sensor",
+        "32"
+      ],
+      "relevant_table_ids": [
+        "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      ],
+      "table_aliases": {
+        "Table_0": "3f3a91a3-70b0-43af-b61f-82fdc8da03b9___784f4732-abc5-41b1-857b-42decb306643",
+        "Table_1": "d53db684-17fe-44b0-af94-ff13bdaa3760___75a878a9-2bd9-4619-98ec-3224be867c65",
+        "Table_2": "d9bbf318-cc7f-4841-b761-37bba9fda91b___d842601d-35b4-4b88-96f7-42e8f68e1b74"
+      },
+      "reference_code": "import pandas as pd\ndoctor_2025 = Table_0[Table_0['dateobserved'].str.startswith('2025')]\ncadiz_2025 = Table_1[Table_1['dateobserved'].str.startswith('2025')]\nsueca_2025 = Table_2[Table_2['dateobserved'].str.startswith('2025')]\ndf = doctor_2025.merge(cadiz_2025, on='dateobserved', suffixes=('_doctor', '_cadiz'))\ndf = df.merge(sueca_2025, on='dateobserved', suffixes=('', '_sueca'))\ndf['month'] = pd.to_datetime(df['dateobserved']).dt.month\ndf = df.rename(columns={\n    'laeq_n_doctor': 'doctor_laeq_n',\n    'laeq_n_cadiz': 'cadiz_laeq_n',\n    'laeq_n': 'sueca_laeq_n'\n})\ncorr_df = (\n    df.groupby('month')\n      .apply(lambda g: pd.Series({\n          'corr_dc': g['doctor_laeq_n'].corr(g['cadiz_laeq_n'], method='pearson'),\n          'corr_ds': g['doctor_laeq_n'].corr(g['sueca_laeq_n'], method='pearson')\n      }))\n    .reset_index()\n)\nresult = corr_df.sort_values(by='corr_dc', ascending=False).head(1)",
+      "reference_result": [
+        {
+          "month": 1,
+          "corr_dc": 0.9534645119,
+          "corr_ds": 0.9501486706
+        }
+      ],
+      "expected_result_type": "table",
+      "expected_result_description": "A one‑row table with the month (1‑12) in 2025 that has the highest Pearson correlation between Doctor Serrano and Cádiz nighttime LAeq, and the Pearson correlation between Doctor Serrano and Sueca nighttime LAeq for that same month. Columns: month, corr_dc, corr_ds."
+    }
+  ]
+}

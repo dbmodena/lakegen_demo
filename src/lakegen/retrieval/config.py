@@ -15,6 +15,18 @@ DEFAULT_RERANK_DEPTH = 20
 PNEUMA_PORTAL_ROUTES = {
     "nyc": ("http://localhost:8765", "lakegen-cohere-v4-1024"),
     "uk": ("http://localhost:8766", "lakegen-cohere-v4-1024"),
+    # One Pneuma service per portal: a server holds one index folder. 8765 and
+    # 8766 are taken by the NYC and UK services, so the portals rebuilt in
+    # September get their own ports (experiments/portal_grid/start_services.sh
+    # starts them). LAKEGEN_PNEUMA_<PORTAL>_BASE_URL / _INDEX_NAME override.
+    "valencia": ("http://localhost:8771", "lakegen-cohere-v4-1024"),
+    "paris": ("http://localhost:8772", "lakegen-cohere-v4-1024"),
+    "bologna": ("http://localhost:8773", "lakegen-cohere-v4-1024"),
+    # Benchmark lakes (experiments/benchmark_lakes): KramaBench, TARGET's BIRD
+    # and Pneuma's Chicago Open Data, data on /data/bilel/lakegen_benchmarks.
+    "kramabench": ("http://localhost:8781", "lakegen-cohere-v4-1024"),
+    "target_bird": ("http://localhost:8782", "lakegen-cohere-v4-1024"),
+    "chicago": ("http://localhost:8783", "lakegen-cohere-v4-1024"),
 }
 
 
@@ -49,11 +61,17 @@ class RetrievalMode(StrEnum):
     def reranked(self) -> bool:
         """True for the modes a configured second-stage reranker reorders.
 
-        Cohere reranking was measured on keyword, semantic and hybrid
-        (experiments/rerank_lab). The DuckDB modes are not reranked yet, and the
-        Pneuma modes rank with their own LLM judge.
+        Cohere reranking was measured on keyword, semantic, hybrid and
+        hybrid (duckdb + semantic) (experiments/rerank_lab). ``duckdb_agentic``
+        alone is not reranked, and the Pneuma modes rank with their own LLM
+        judge.
         """
-        return self in (RetrievalMode.KEYWORD, RetrievalMode.SEMANTIC, RetrievalMode.HYBRID)
+        return self in (
+            RetrievalMode.KEYWORD,
+            RetrievalMode.SEMANTIC,
+            RetrievalMode.HYBRID,
+            RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+        )
 
     @property
     def is_pneuma(self) -> bool:

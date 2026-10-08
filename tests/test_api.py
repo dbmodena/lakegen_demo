@@ -574,3 +574,248 @@ async def test_multipart_batch_propagates_question_file_id(tmp_path, monkeypatch
     assert questions[0]["source_id"] == "file-q-7"
     assert questions[0]["log_fields"]["SOURCE_ID"] == "file-q-7"
     api._jobs.pop(response.job_id, None)
+
+
+def test_batch_pause_rests_after_every_n_questions_but_not_after_the_last(monkeypatch):
+    assert api._batch_pause_seconds(5, 10, every=5, seconds=30) == 30.0
+    assert api._batch_pause_seconds(10, 1, every=5, seconds=30) == 30.0
+    assert api._batch_pause_seconds(4, 10, every=5, seconds=30) == 0.0
+    assert api._batch_pause_seconds(5, 0, every=5, seconds=30) == 0.0
+    assert api._batch_pause_seconds(5, 10, every=0, seconds=30) == 0.0
+    assert api._batch_pause_seconds(5, 10, every=5, seconds=0) == 0.0
+    monkeypatch.setenv("TEST_LAKEGEN_PAUSE", "-3")
+    assert api._non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 0.0) == 0.0
+    monkeypatch.setenv("TEST_LAKEGEN_PAUSE", "invalid")
+    assert api._non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 1.5) == 1.5
+    monkeypatch.setenv("TEST_LAKEGEN_PAUSE", "30")
+    assert api._non_negative_float_from_env("TEST_LAKEGEN_PAUSE", 0.0) == 30.0
+
+
+def test_run_batch_pauses_between_groups_of_questions(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(api, "ExperimentConfig", type("Config", (), {
+        "model_validate": staticmethod(lambda _settings: object())
+    }))
+    monkeypatch.setattr(api, "BATCH_PAUSE_EVERY", 5)
+    monkeypatch.setattr(api, "BATCH_PAUSE_SECONDS", 30.0)
+    events = []
+    monkeypatch.setattr(api.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    class FakeResult:
+        def to_dict(self):
+            return {"status": "completed", "error": "", "tables": []}
+
+    class FakeRunner:
+        def __init__(self, _config):
+            pass
+
+        def run(self, question, **kwargs):
+            events.append(("run", question))
+            return FakeResult()
+
+    monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
+    monkeypatch.setattr(api, "_append_batch_table_metrics", lambda *_args: False)
+    job_id = "d" * 32
+    questions = [
+        {"question": f"Q{index}?", "source_path": f"$.cases[{index}].question",
+         "source_id": f"q{index}", "log_fields": {}}
+        for index in range(11)
+    ]
+    api._jobs[job_id] = {
+        "job_id": job_id, "status": "queued", "started_at": None, "updated_at": "start",
+        "processed": 0, "failed": 0, "metrics_logged": False, "results": [],
+    }
+
+    api._run_batch(job_id, questions, {"resolved_config": {}})
+
+    # A rest after the 5th and the 10th question, none after the last one.
+    assert [index for index, event in enumerate(events) if event[0] == "sleep"] == [5, 11]
+    assert [event[1] for event in events if event[0] == "sleep"] == [30.0, 30.0]
+    assert api._jobs[job_id]["status"] == "completed"
+    assert api._jobs[job_id]["processed"] == 11
+    api._jobs.pop(job_id, None)
+
+
+def test_question_tokens_count_every_phase_and_each_judged_variant():
+    result = {
+        "tokens": {"p1_p2": 1000, "p3": 600, "p4": 50},
+        "code_evaluation": {"semantic_judge_tokens": 70},
+        "coder_context_experiment": {"variants": {
+            "full": {"code_evaluation": {"semantic_judge_tokens": 70}},
+            "minimal": {"code_evaluation": {"semantic_judge_tokens": 30}},
+        }},
+    }
+    assert api._question_tokens(result) == 1650 + 70 + 30
+    # Without variants the top-level evaluation is the only judgement.
+    del result["coder_context_experiment"]
+    assert api._question_tokens(result) == 1650 + 70
+    assert api._question_tokens({"status": "failed"}) == 0
+
+
+def test_token_pause_lasts_as_long_as_the_tokens_take_at_the_rate():
+    assert api._token_pause_seconds(30_000, 5, per_minute=10_000) == 180.0
+    assert api._token_pause_seconds(30_000, 0, per_minute=10_000) == 0.0
+    assert api._token_pause_seconds(30_000, 5, per_minute=0) == 0.0
+    assert api._token_pause_seconds(0, 5, per_minute=10_000) == 0.0
+
+
+def test_token_rate_file_overrides_the_variable_and_is_reread(tmp_path, monkeypatch):
+    rate_file = tmp_path / "tokens_per_minute"
+    monkeypatch.setattr(api, "BATCH_TOKENS_PER_MINUTE", 6_000.0)
+    monkeypatch.setattr(api, "BATCH_TOKENS_PER_MINUTE_FILE", str(rate_file))
+    # No file yet, then garbage: the variable holds.
+    assert api._token_pause_seconds(30_000, 5) == 300.0
+    rate_file.write_text("fast\n")
+    assert api._token_pause_seconds(30_000, 5) == 300.0
+    rate_file.write_text("10000\n")
+    assert api._token_pause_seconds(30_000, 5) == 180.0
+    rate_file.write_text("0")
+    assert api._token_pause_seconds(30_000, 5) == 0.0
+
+
+def test_run_batch_rests_in_proportion_to_tokens(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(api, "ExperimentConfig", type("Config", (), {
+        "model_validate": staticmethod(lambda _settings: object())
+    }))
+    monkeypatch.setattr(api, "BATCH_PAUSE_EVERY", 0)
+    monkeypatch.setattr(api, "BATCH_TOKENS_PER_MINUTE", 6_000.0)
+    sleeps = []
+    monkeypatch.setattr(api.time, "sleep", sleeps.append)
+    spent = iter([1_000, 3_000, 2_000])
+
+    class FakeResult:
+        def __init__(self, tokens):
+            self.tokens = tokens
+
+        def to_dict(self):
+            return {"status": "completed", "error": "", "tables": [],
+                    "tokens": {"p1_p2": self.tokens, "p3": 0, "p4": 0}}
+
+    class FakeRunner:
+        def __init__(self, _config):
+            pass
+
+        def run(self, question, **kwargs):
+            return FakeResult(next(spent))
+
+    monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
+    monkeypatch.setattr(api, "_append_batch_table_metrics", lambda *_args: False)
+    job_id = "e" * 32
+    questions = [
+        {"question": f"Q{index}?", "source_path": f"$.cases[{index}].question",
+         "source_id": f"q{index}", "log_fields": {}}
+        for index in range(3)
+    ]
+    api._jobs[job_id] = {
+        "job_id": job_id, "status": "queued", "started_at": None, "updated_at": "start",
+        "processed": 0, "failed": 0, "metrics_logged": False, "results": [],
+    }
+
+    api._run_batch(job_id, questions, {"resolved_config": {}})
+
+    # 1,000 then 3,000 tokens at 6,000/min; no rest after the last question.
+    assert sleeps == [10.0, 30.0]
+    api._jobs.pop(job_id, None)
+
+
+def test_swap_model_replaces_the_job_model_at_any_depth():
+    config = {"model": "together.m", "experiment_id": "x",
+              "retrieval": {"pneuma_entity_model": "together.m", "mode": "pneuma"},
+              "semantic_code_judge_model": "together.m", "tags": ["together.m", "y"]}
+
+    swapped = api._swap_model(config, "together.m", "oci.m")
+
+    assert swapped == {"model": "oci.m", "experiment_id": "x",
+                       "retrieval": {"pneuma_entity_model": "oci.m", "mode": "pneuma"},
+                       "semantic_code_judge_model": "oci.m", "tags": ["oci.m", "y"]}
+    assert config["model"] == "together.m"
+
+
+def test_split_fraction_is_stable_and_spread():
+    ids = [f"q{index}" for index in range(2_000)]
+    share = sum(api._split_fraction(source_id) < 0.2 for source_id in ids) / len(ids)
+
+    assert api._split_fraction("21a96975-7ba") == api._split_fraction("21a96975-7ba")
+    assert 0.17 < share < 0.23
+
+
+def test_run_batch_sends_the_split_share_of_questions_to_the_split_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    monkeypatch.setattr(api, "bootstrap_nltk_data", lambda: None)
+    monkeypatch.setattr(api, "ExperimentConfig", type("Config", (), {
+        "model_validate": staticmethod(lambda settings: settings)
+    }))
+    monkeypatch.setattr(api, "BATCH_PAUSE_EVERY", 0)
+    monkeypatch.setattr(api, "BATCH_TOKENS_PER_MINUTE", 0.0)
+    monkeypatch.setattr(api, "SPLIT_MODEL", "oci.m")
+    monkeypatch.setattr(api, "SPLIT_SHARE", 0.5)
+    ran = []
+
+    class FakeResult:
+        def to_dict(self):
+            return {"status": "completed", "error": "", "tables": [], "tokens": {}}
+
+    class FakeRunner:
+        def __init__(self, config):
+            self.config = config
+
+        def run(self, question, **kwargs):
+            ran.append((kwargs["question_id"], self.config["model"],
+                        self.config["semantic_code_judge_model"]))
+            return FakeResult()
+
+    monkeypatch.setattr(api, "ExperimentRunner", FakeRunner)
+    monkeypatch.setattr(api, "_append_batch_table_metrics", lambda *_args: False)
+    job_id = "f" * 32
+    questions = [
+        {"question": f"Q{index}?", "source_path": f"$.cases[{index}].question",
+         "source_id": f"q{index}", "log_fields": {}}
+        for index in range(40)
+    ]
+    api._jobs[job_id] = {
+        "job_id": job_id, "status": "queued", "started_at": None, "updated_at": "start",
+        "processed": 0, "failed": 0, "metrics_logged": False, "results": [],
+    }
+    settings = {"resolved_config": {"model": "together.m",
+                                    "semantic_code_judge_model": "together.m"}}
+
+    api._run_batch(job_id, questions, settings)
+
+    expected = {f"q{index}": "oci.m" if api._split_fraction(f"q{index}") < 0.5 else "together.m"
+                for index in range(40)}
+    assert {question_id: model for question_id, model, _judge in ran} == expected
+    assert all(model == judge for _id, model, judge in ran)
+    assert {"oci.m", "together.m"} == set(expected.values())
+    assert [entry["model"] for entry in api._jobs[job_id]["results"]] == list(expected.values())
+    api._jobs.pop(job_id, None)
+
+
+def test_recovery_requeues_jobs_in_submission_order(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "JOB_DIR", tmp_path)
+    submitted = []
+    monkeypatch.setattr(
+        api._executor, "submit", lambda _function, job_id, *_args: submitted.append(job_id)
+    )
+    # The job with the smaller id was submitted later; a completed job is left alone.
+    jobs = {
+        "a" * 32: ("queued", "2026-09-27T10:00:02+00:00"),
+        "f" * 32: ("running", "2026-09-27T10:00:01+00:00"),
+        "b" * 32: ("completed", "2026-09-27T10:00:00+00:00"),
+    }
+    for job_id, (status, created_at) in jobs.items():
+        api._persist_job({
+            "job_id": job_id, "status": status, "created_at": created_at, "updated_at": created_at,
+            "processed": 0, "failed": 0, "settings": {"resolved_config": {}}, "results": [],
+        })
+        api._persist_questions(job_id, [
+            {"question": "One?", "source_path": "$.cases[0].question", "source_id": "q1", "log_fields": {}},
+        ])
+
+    recovered = api._recover_incomplete_jobs()
+
+    assert recovered == submitted == ["f" * 32, "a" * 32]
+    for job_id in recovered:
+        api._jobs.pop(job_id, None)

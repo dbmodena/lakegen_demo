@@ -378,6 +378,8 @@ async def _select_tables_once(
                             architecture=session.runtime.experiment.discovery_architecture,
                             hint=hint, stream_callback=bridge.emit,
                             cancel_check=session.check_cancelled,
+                            discovery=session.runtime.experiment.discovery,
+                            table_dir=session.runtime.csv_dir,
                         )
                     except WorkflowCancelled:
                         raise
@@ -421,6 +423,7 @@ async def _select_tables_once(
                     excluded_tables=set(session.excluded_tables),
                     carried_tables=list(session.carried_tables),
                     carried_metadata=dict(session.carried_metadata),
+                    discovery=session.runtime.experiment.discovery,
                 )
             session.phase_seconds["discovery"] += time.monotonic() - phase_started
             session.llm_call_counts["discovery"] += (

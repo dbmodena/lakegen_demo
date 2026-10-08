@@ -50,14 +50,15 @@ Deviations, all visible in the results rather than hidden:
   alone; ``pneuma_content_fusion: fill`` selects the reference merge, except
   that only tables matching an entity fill a slot (the reference pads with
   zero-score tables in name order).
-* **Cells, not occurrences.** The reference code counts every regex occurrence
-  in text columns; the shared scanner counts matching cells in every column
-  cast to text. Both read every row: the grep modality's per-file row and
-  column caps do not apply here.
 * **A table's name is its catalog title.** The reference code matches the
-  DuckDB table name, and counts that match once per text column. The lakes here
-  name files by opaque id (``43nn-pn8j``), so the title the resolver returns for
-  the file is matched instead, once per table.
+  DuckDB table name. The lakes here name files by opaque id (``43nn-pn8j``), so
+  the title the resolver returns for the file is matched instead -- counted,
+  like the reference's name match, once per text column.
+
+As in the reference, only text (String) columns are searched, for cells and
+column names alike, every row is read (the grep modality's per-file row and
+column caps do not apply), and every regex occurrence counts, so a cell naming
+an entity twice counts twice. A table without text columns scores nothing.
 * **Enumeration is an agent action in the paper**, invoked on demand by the
   Conductor. Retrieval here is a single call, so enumeration runs automatically
   from the fused ranking instead.
@@ -83,11 +84,13 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 import json
 import math
+import os
 from pathlib import Path
 import re
 import time
 from typing import Any, Protocol
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import requests
 
@@ -101,7 +104,7 @@ from lakegen.retrieval.duckdb_agentic import count_matching_rows
 from lakegen.retrieval.models import RetrievalHit, document_key, min_max_normalize
 from lakegen.retrieval.rerank import _oci_client
 
-# Every column is cast to text in isolated worker processes, one column and one
+# Text columns are scanned in isolated worker processes, one file and one
 # bounded chunk at a time. This keeps Pneuma-Seeker's content scan independent
 # from any optional retrieval implementation.
 ScanResult = tuple[dict[str, dict[str, int]], tuple[str, ...], int]
@@ -124,7 +127,7 @@ def scan_many(
 ) -> list[ScanResult | None]:
     patterns = _patterns(terms, pattern)
     return cell_scan.run(
-        "scan",
+        "scan_text",
         [(str(path), patterns, max_columns, max_rows) for path in paths],
         workers=workers,
     )
@@ -278,6 +281,67 @@ def _oci_entities(model_id: str, question: str) -> tuple[str, ...]:
         getattr(part, "text", None) or "" for part in message.content or ()
     )
     return tuple(_parse_entities(text))
+
+
+# Together AI models for the same extraction (pneuma_entity_model "together.*"),
+# so Pneuma-Seeker needs no OCI chat model: LakeGen model name -> Together id.
+TOGETHER_ENTITY_MODELS = {"together.gpt-oss-120b": "openai/gpt-oss-120b"}
+TOGETHER_CHAT_URL = "https://api.together.xyz/v1/chat/completions"
+
+
+@lru_cache(maxsize=512)
+def _together_entities(model: str, question: str) -> tuple[str, ...]:
+    """The reference extraction on Together: same prompt, temperature 0, JSON-object reply."""
+    api_key = (os.environ.get("TOGETHERAI_API_KEY") or os.environ.get("TOGETHER_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError(f"{model} needs a Together AI key: set TOGETHERAI_API_KEY")
+    payload = {
+        "model": TOGETHER_ENTITY_MODELS[model],
+        "messages": [
+            {"role": "system", "content": ENTITY_EXTRACTION_PROMPT},
+            {"role": "user", "content": question},
+        ],
+        # Room for a reasoning model's thinking before the JSON, as on OCI.
+        "max_tokens": 4096,
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"},
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    started = time.monotonic()
+    for attempt in range(10_000):
+        response = requests.post(TOGETHER_CHAT_URL, headers=headers, json=payload, timeout=120)
+        if response.status_code == 402 and time.monotonic() - started < 86400:
+            time.sleep(300)  # credit limit reached: wait for credit, as the LLM client does
+            continue
+        if response.status_code in (429, 500, 502, 503, 504) and attempt < 5:
+            # Together's dynamic limits: wait at least its suggested interval.
+            try:
+                suggested = float(response.headers.get("x-ratelimit-reset") or 0)
+            except ValueError:
+                suggested = 0.0
+            time.sleep(max(suggested, min(60.0, 2.0 * 2 ** attempt)))
+            continue
+        response.raise_for_status()
+        text = (response.json()["choices"][0]["message"].get("content") or "")
+        return tuple(_parse_entities(text))
+    raise RuntimeError("Together kept refusing the entity extraction")
+
+
+class TogetherEntityExtractor:
+    """The reference entity extraction through Together AI, cached per process."""
+
+    def __init__(self, model: str) -> None:
+        if model not in TOGETHER_ENTITY_MODELS:
+            raise ValueError(f"unknown Together entity model {model!r}")
+        self.model = model
+
+    def entities(self, question: str) -> list[str]:
+        return list(_together_entities(self.model, question))
+
+
+def entity_extractor_for(model: str) -> EntityExtractor:
+    """Together for ``together.*`` names, OCI for OCI model ids."""
+    return TogetherEntityExtractor(model) if model in TOGETHER_ENTITY_MODELS else OCIEntityExtractor(model)
 
 
 class OCIEntityExtractor:
@@ -446,6 +510,8 @@ class _FileFacts:
     path: Path
     stem: str
     columns: tuple[str, ...]
+    # The String columns: the only ones the reference searches.
+    text_columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -507,7 +573,7 @@ class PneumaRetriever:
         # pneuma_entity_model).
         self.entity_extractor: EntityExtractor | None = None
         if self.content_search and config.pneuma_entity_model:
-            self.entity_extractor = entity_extractor or OCIEntityExtractor(
+            self.entity_extractor = entity_extractor or entity_extractor_for(
                 config.pneuma_entity_model
             )
         # Plain pneuma's optional value scan of its own pool (see
@@ -568,9 +634,23 @@ class PneumaRetriever:
             try:
                 parquet = pq.ParquetFile(path)
                 columns = tuple(field_.name for field_ in parquet.schema_arrow)
+                text_columns = tuple(
+                    field_.name
+                    for field_ in parquet.schema_arrow
+                    if pa.types.is_string(field_.type)
+                    or pa.types.is_large_string(field_.type)
+                    or pa.types.is_string_view(field_.type)
+                )
             except (OSError, ValueError):
                 continue
-            facts.append(_FileFacts(path=path, stem=path.stem, columns=columns))
+            facts.append(
+                _FileFacts(
+                    path=path,
+                    stem=path.stem,
+                    columns=columns,
+                    text_columns=text_columns,
+                )
+            )
         return facts
 
     def _scan_pool(
@@ -654,10 +734,10 @@ class PneumaRetriever:
 
         Also returns how many files the scanner could not read at all.
 
-        Per entity, a match in the table's catalog title, its matching column
-        names, and its matching cells are weighted by
-        ``pneuma_table_name_weight``, ``pneuma_column_name_weight`` and
-        ``pneuma_cell_weight`` and summed, and ``log1p`` damps the sum -- the
+        Per entity, a match in the table's catalog title (once per text column),
+        its matching text-column names, and its occurrences in text cells are
+        weighted by ``pneuma_table_name_weight``, ``pneuma_column_name_weight``
+        and ``pneuma_cell_weight`` and summed, and ``log1p`` damps the sum -- the
         paper's ``log(1 + tf)``: a 100k-row table mentioning a year 100k times
         must not swamp a small table that is exactly on topic. Each entity is
         then divided by its maximum over the pool, which stops one
@@ -666,8 +746,8 @@ class PneumaRetriever:
         fraction of entities it matched at all, so a table matching every entity
         beats one matching a single entity many times.
 
-        Every row and every column is read: the grep modality's per-file caps
-        do not apply here.
+        Every row of every text column is read: the grep modality's per-file
+        caps do not apply here.
         """
         table_weight = self.config.pneuma_table_name_weight
         column_weight = self.config.pneuma_column_name_weight
@@ -703,12 +783,19 @@ class PneumaRetriever:
             for term in terms:
                 cell_hits = sum(counts.get(term, {}).values())
                 name_hits = (
-                    sum(1 for name in facts.columns if patterns[term].search(name))
+                    sum(
+                        1
+                        for name in facts.text_columns
+                        if patterns[term].search(name)
+                    )
                     if column_weight
                     else 0
                 )
-                title_hit = int(
-                    bool(table_weight and title and patterns[term].search(title))
+                # The reference tests the table name once per text column.
+                title_hit = (
+                    len(facts.text_columns)
+                    if table_weight and title and patterns[term].search(title)
+                    else 0
                 )
                 if cell_hits:
                     cells[term] = cell_hits

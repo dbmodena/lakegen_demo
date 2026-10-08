@@ -451,7 +451,9 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                     selected, reasoning, trace, tok2 = select_from_prepared_context(
                         query=question, llm=llm, context=prepared, all_files=all_files,
                         architecture=runtime.experiment.discovery_architecture,
-                        hint=keyword_hint,                    )
+                        hint=keyword_hint, discovery=runtime.experiment.discovery,
+                        table_dir=runtime.csv_dir,
+                    )
                 except OrchestratedSelectorError as exc:
                     tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
                     record_orchestrated(prepared, 2)
@@ -477,6 +479,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                 portal_name=runtime.portal_name,
                 retrieval_config=runtime.retrieval,
                 entities=intent_entities(raw_content),
+                discovery=runtime.experiment.discovery,
             )
         phase_seconds["discovery"] += time.monotonic() - phase_started
         llm_call_counts["discovery"] += selector_calls if runtime.experiment.tool_access == ToolAccess.ORCHESTRATED_CONTEXT else 1
@@ -674,7 +677,9 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                                 query=question, llm=llm, context=prepared,
                                 all_files=all_files,
                                 architecture=runtime.experiment.discovery_architecture,
-                                hint=keyword_hint,                            )
+                                hint=keyword_hint, discovery=runtime.experiment.discovery,
+                                table_dir=runtime.csv_dir,
+                            )
                         except OrchestratedSelectorError as exc:
                             tool_access_telemetry["selector_error"] = f"{type(exc).__name__}: {exc}"
                             record_orchestrated(prepared, 2)
@@ -698,6 +703,7 @@ def run_cli_workflow(question: str, runtime: RuntimeSettings) -> None:
                         portal_name=runtime.portal_name,
                         retrieval_config=runtime.retrieval,
                         entities=intent_entities(raw_content),
+                        discovery=runtime.experiment.discovery,
                     )
                     rerun_selector_calls = 1
                 phase_seconds["discovery"] += time.monotonic() - phase_started

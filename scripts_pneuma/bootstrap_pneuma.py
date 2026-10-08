@@ -17,6 +17,7 @@ from typing import Any
 import duckdb
 from pneuma import Pneuma
 
+from pneuma_narration import cap_long_cells, concurrent_prompt_openai_llm
 from pneuma_oci import (
     DEFAULT_OCI_EMBED_MODEL,
     DEFAULT_OCI_LLM_MODEL,
@@ -34,6 +35,8 @@ EMBEDDING_NON_FINITE_FALLBACK_PREFIX = "Represent this dataset for retrieval. "
 BOUNDED_TABLE_IDS: set[str] = set()
 BOUNDED_TABLE_ROW_LIMIT = DEFAULT_EXTERNAL_VIEW_ROW_LIMIT
 BOUNDED_TABLE_COLUMN_LIMIT = DEFAULT_EXTERNAL_VIEW_COLUMN_LIMIT
+# ``prefix`` exposes a table's first rows; ``reservoir`` a sample from across it.
+BOUNDED_TABLE_SAMPLING = "prefix"
 BOUNDED_TRUNCATED_TABLE_IDS: set[str] = set()
 
 
@@ -102,7 +105,15 @@ def tune_duckdb_connections() -> None:
                                 flush=True,
                             )
                             BOUNDED_TRUNCATED_TABLE_IDS.add(table_id)
-                    query = f"{query.rstrip()} LIMIT {BOUNDED_TABLE_ROW_LIMIT}"
+                    if BOUNDED_TABLE_SAMPLING == "reservoir":
+                        # Pneuma draws its 5 row samples from these rows, so they
+                        # come from the whole table, the same ones on every run.
+                        query = (
+                            f"{query.rstrip()} USING SAMPLE "
+                            f"reservoir({BOUNDED_TABLE_ROW_LIMIT} ROWS) REPEATABLE (0)"
+                        )
+                    else:
+                        query = f"{query.rstrip()} LIMIT {BOUNDED_TABLE_ROW_LIMIT}"
             return self._connection.sql(query, *args, **kwargs)
 
     def connect(*args: Any, **kwargs: Any):
@@ -309,10 +320,11 @@ def register_external_view(
 
 
 def configure_bounded_external_views(
-    db_path: Path, *, row_limit: int, column_limit: int
+    db_path: Path, *, row_limit: int, column_limit: int, sampling: str = "prefix"
 ) -> int:
     """Limit direct Parquet reads for external views during summarization."""
     global BOUNDED_TABLE_IDS, BOUNDED_TABLE_ROW_LIMIT, BOUNDED_TABLE_COLUMN_LIMIT
+    global BOUNDED_TABLE_SAMPLING
     with duckdb.connect(str(db_path), read_only=True) as connection:
         table_ids = [
             row[0]
@@ -328,6 +340,7 @@ def configure_bounded_external_views(
     }
     BOUNDED_TABLE_ROW_LIMIT = row_limit
     BOUNDED_TABLE_COLUMN_LIMIT = column_limit
+    BOUNDED_TABLE_SAMPLING = sampling
     return len(BOUNDED_TABLE_IDS)
 
 
@@ -511,6 +524,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--oci-llm-model", default=DEFAULT_OCI_LLM_MODEL)
     parser.add_argument("--oci-embedding-model", default=DEFAULT_OCI_EMBED_MODEL)
     parser.add_argument("--oci-embedding-dimensions", type=int)
+    parser.add_argument(
+        "--chat-base-url",
+        help="with --provider oci: chat requests (column narration, relevance judge) go to "
+        "this OpenAI-compatible endpoint instead, e.g. http://127.0.0.1:11434/v1 for a "
+        "local Ollama; embeddings stay on OCI",
+    )
+    parser.add_argument("--chat-model", default="gpt-oss:20b", help="model name at --chat-base-url")
     parser.add_argument("--skip-summaries", action="store_true")
     parser.add_argument(
         "--summary-limit",
@@ -541,6 +561,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum representative columns exposed during external-view summaries",
     )
     parser.add_argument(
+        "--external-view-sampling",
+        choices=("prefix", "reservoir"),
+        default="prefix",
+        help="Rows an external view exposes during summaries: its first ones, or a "
+        "repeatable reservoir sample of the whole table",
+    )
+    parser.add_argument(
+        "--row-sample-value-limit",
+        type=int,
+        default=0,
+        help="Cut text cells longer than this in row samples (0 keeps Pneuma's rows as-is)",
+    )
+    parser.add_argument(
+        "--narration-workers",
+        type=int,
+        default=1,
+        help="Column narrations of one table requested concurrently",
+    )
+    parser.add_argument(
         "--embedding-batch-size",
         type=int,
         default=DEFAULT_EMBEDDING_BATCH_SIZE,
@@ -556,7 +595,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.chat_base_url and args.provider != "oci":
+        parser.error("--chat-base-url needs --provider oci (embeddings stay on OCI)")
+    if args.narration_workers < 1:
+        parser.error("--narration-workers must be at least 1")
+    if args.row_sample_value_limit < 0:
+        parser.error("--row-sample-value-limit must not be negative")
     tune_duckdb_connections()
     root = Path(__file__).resolve().parents[1]
     default_dataset_dir = (
@@ -625,13 +671,21 @@ def main() -> None:
                 embedding_dimensions=args.oci_embedding_dimensions,
                 config_file=args.oci_config_file,
                 profile=args.oci_profile,
+                chat_base_url=args.chat_base_url,
+                chat_model=args.chat_model,
             )
         )
         pneuma.llm = oci_client
         pneuma.embed_model = oci_client
         provider_record = {
             "provider": "oci",
-            "llm_model": args.oci_llm_model,
+            "llm_model": args.chat_model if args.chat_base_url else args.oci_llm_model,
+            "chat_base_url": args.chat_base_url,
+            "external_view_sampling": args.external_view_sampling,
+            "external_view_row_limit": args.external_view_row_limit,
+            "external_view_column_limit": args.external_view_column_limit,
+            "row_sample_value_limit": args.row_sample_value_limit,
+            "narration_workers": args.narration_workers,
             "embedding_model": args.oci_embedding_model,
             "embedding_dimensions": args.oci_embedding_dimensions,
         }
@@ -708,11 +762,28 @@ def main() -> None:
             db_path,
             row_limit=args.external_view_row_limit,
             column_limit=args.external_view_column_limit,
+            sampling=args.external_view_sampling,
         )
+        import pneuma.summarizer.summarizer as pneuma_summarizer
+
+        if args.narration_workers > 1:
+            pneuma_summarizer.prompt_openai_llm = concurrent_prompt_openai_llm(
+                args.narration_workers
+            )
+        if args.row_sample_value_limit > 0:
+            summarizer = pneuma_summarizer.Summarizer
+            generate_row_samples = summarizer._Summarizer__generate_row_samples
+            limit = args.row_sample_value_limit
+            summarizer._Summarizer__generate_row_samples = (
+                lambda self, frame: generate_row_samples(self, cap_long_cells(frame, limit))
+            )
         print(
             f"[summarize] bounded_external_views={bounded_views} "
             f"row_limit={args.external_view_row_limit} "
-            f"column_limit={args.external_view_column_limit}",
+            f"column_limit={args.external_view_column_limit} "
+            f"sampling={args.external_view_sampling} "
+            f"narration_workers={args.narration_workers} "
+            f"row_sample_value_limit={args.row_sample_value_limit}",
             flush=True,
         )
         pending_summaries = pending_summary_ids(db_path)

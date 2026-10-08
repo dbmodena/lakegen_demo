@@ -424,6 +424,8 @@ def append_benchmark_metrics_log(
     rows: list[dict[str, Any]] = []
     timestamp = str(report.get("created_at") or datetime.now(timezone.utc).isoformat())
     for label, experiment in report.get("experiments", {}).items():
+        if experiment.get("status") == "skipped":
+            continue  # recorded in the report with its reason; it has no metrics
         config = experiment["config"]
         metrics = experiment["mean_metrics"]
         code_metrics = experiment.get("code_metrics", {})

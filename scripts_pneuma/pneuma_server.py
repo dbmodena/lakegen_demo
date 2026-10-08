@@ -45,6 +45,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--oci-embedding-model", default=DEFAULT_OCI_EMBED_MODEL)
     parser.add_argument("--oci-embedding-dimensions", type=int)
     parser.add_argument(
+        "--chat-base-url",
+        help="with --provider oci: chat requests (column narration, relevance judge) go to "
+        "this OpenAI-compatible endpoint instead, e.g. http://127.0.0.1:11434/v1 for a "
+        "local Ollama; embeddings stay on OCI",
+    )
+    parser.add_argument("--chat-model", default="gpt-oss:20b", help="model name at --chat-base-url")
+    parser.add_argument(
         "--judge-workers",
         default=8,
         type=int,
@@ -183,6 +190,8 @@ def main() -> None:
         parser.error("--judge-workers must be at least 1")
     if args.judge_max_attempts < 1:
         parser.error("--judge-max-attempts must be at least 1")
+    if args.chat_base_url and args.provider != "oci":
+        parser.error("--chat-base-url needs --provider oci (embeddings stay on OCI)")
     if args.provider == "openai":
         os.environ["OPENAI_BASE_URL"] = args.openai_base_url.rstrip("/")
         os.environ.setdefault("OPENAI_API_KEY", "ollama")
@@ -231,8 +240,12 @@ def main() -> None:
                 embedding_dimensions=args.oci_embedding_dimensions,
                 config_file=args.oci_config_file,
                 profile=args.oci_profile,
+                chat_base_url=args.chat_base_url,
+                chat_model=args.chat_model,
             )
         )
+        if args.chat_base_url:
+            print(f"Chat (judge) on {args.chat_base_url} model {args.chat_model}", flush=True)
         backend.llm = oci_client
         backend.embed_model = oci_client
 
