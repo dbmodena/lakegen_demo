@@ -62,3 +62,7 @@ branch moves code without changing what a run does.
   sidebar nothing. Every lake now takes its starters from its curated
   `benchmark/100q_<lake>.json`, and the UK sidebar reads that file's cases
   (the generated-queries shape is still read when a file holds it).
+- **The example config's benchmark path is in the repository.**
+  `config/experiment.example.yaml` named a file in another user's home
+  directory as its retrieval-benchmark input; it now names
+  `benchmark/100q_nyc.json`, as the UK examples name theirs.
