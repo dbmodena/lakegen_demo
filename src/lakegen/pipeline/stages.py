@@ -568,7 +568,13 @@ class _Coding:
         state.hint = CORRECTION_HEADER + json.dumps(feedback, ensure_ascii=False, sort_keys=True)
 
     def rejected(self, outcome: CodeOutcome, selection_record: dict[str, Any], *, who: str, level: str | None) -> None:
-        """The coder rejected the tables: remember the selection, hint the next round."""
+        """The coder rejected the tables: remember the selection, hint the next round.
+
+        The coder's own per-table judgment feeds the same cross-round memory
+        as an architect rejection: a table it proved unusable is banned
+        outright, one it found partially useful carries forward. The direct
+        coder and the sweep both pass through here.
+        """
         run, state, result = self.run, self.run.state, self.run.result
         state.last_coder_rejection = {
             "reason": outcome.error,
@@ -589,6 +595,7 @@ class _Coding:
         )
         state.error = outcome.error
         state.after_coder_rejection = True
+        state.carry(outcome.keep_tables, outcome.skip_tables)
 
 
 class CoderSweep(_Coding):
@@ -739,12 +746,7 @@ class CodingStage(_Coding):
                         continue
                     if not isinstance(answer, Rediscover):
                         raise TypeError(f"a coder rejection is answered with Force or Rediscover, not {answer!r}")
-                # The coder's own per-table judgment feeds the same cross-round
-                # memory as an architect rejection: a table it proved unusable
-                # is banned outright, one it found partially useful carries
-                # forward. (The sweep does not carry yet: see phase 5.3.)
                 self.rejected(outcome, selection_record, who="The code generator", level=None)
-                state.carry(outcome.keep_tables, outcome.skip_tables)
                 return self._after_break(attempt)
             if outcome.status is CodeStatus.SUCCESS:
                 verdict = yield from self._succeeded(outcome, generated, code_attempt, details)

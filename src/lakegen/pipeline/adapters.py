@@ -161,6 +161,8 @@ def sweep_outcome(variant: Mapping[str, Any], *, require_semantic_plan: bool) ->
         error=str(variant.get("error") or ""),
         raw_status=raw_status,
         rejection_details=dict(variant.get("rejection_details") or {}),
+        keep_tables=list(variant.get("rejection_keep_tables") or []),
+        skip_tables=list(variant.get("rejection_skip_tables") or []),
         audit=variant.get("coder_context_audit"),
         execution_error=execution_error,
         coder_runs=int(variant.get("coder_runs") or 0),

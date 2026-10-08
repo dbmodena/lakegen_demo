@@ -163,6 +163,10 @@ def run_coder_context_sweep(
             "generation_turns": len(attempts) if evaluation_enabled else attempt_index + 1,
             "repair_attempts": repair_attempts,
             "coder_lifecycle": getattr(generated, "coder_lifecycle", ""),
+            # The coder's per-table judgment of a rejection, for the next
+            # round's exclusions and carried tables.
+            "rejection_keep_tables": list(getattr(generated, "rejection_keep_tables", None) or []),
+            "rejection_skip_tables": list(getattr(generated, "rejection_skip_tables", None) or []),
             "stop_reason": getattr(generated, "stop_reason", ""),
             "finalization_mode": getattr(generated, "finalization_mode", ""),
             "tokens": tokens,

@@ -611,10 +611,12 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
     )
     discovery_calls = []
     selection_state_ids = []
+    excluded_seen = []
 
     def discover(**kwargs):
         discovery_calls.append("called")
         selection_state_ids.append(id(kwargs["state"]))
+        excluded_seen.append(set(kwargs["state"].excluded_tables))
         # The second discovery turn ignores the feedback and repeats the exact
         # rejected set. Service must block it before invoking the coder.
         table = "first.csv" if len(discovery_calls) <= 2 else "second.csv"
@@ -635,6 +637,7 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
             structured_result=None if rejected else 42,
             structured_result_error="", coder_runs=1,
             execution_error=None, coder_review=None,
+            rejection_skip_tables=["first.csv"] if rejected else [],
         )
 
     monkeypatch.setattr("lakegen.service.phase3_generate_and_execute", generate)
@@ -666,4 +669,10 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
         "tables_rejected",
         "rejected_selection_excluded",
         "accepted",
+    ]
+    # The sweep's rejection carries the coder's per-table judgment into the
+    # next rounds, as the direct coder's does.
+    assert excluded_seen == [set(), {"first.csv"}, {"first.csv"}]
+    assert [attempt["skipped_tables"] for attempt in result.discovery["selection_attempts"]] == [
+        [], ["first.csv"], ["first.csv"],
     ]

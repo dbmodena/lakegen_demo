@@ -16,3 +16,10 @@ branch moves code without changing what a run does.
   memory (`<name>.lock`, with `fcntl.flock`), and a run of an experiment
   remembers in `runs/<experiment>/memory.json`; runs outside an experiment
   (the default id) keep `.lakegen_keyword_memory.json`.
+- **The coder sweep's rejection carries the coder's per-table judgment.**
+  With `automatic_test_coder`, a full-context rejection returned to
+  discovery without excluding the tables the coder proved unusable or
+  carrying the ones it found useful, as the direct coder did. Both paths
+  now apply the judgment (`CodingStage`/`CoderSweep` share it); the
+  sweep's recorded variants gain `rejection_keep_tables` and
+  `rejection_skip_tables`.
