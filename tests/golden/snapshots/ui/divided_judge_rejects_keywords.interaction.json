@@ -1,0 +1,110 @@
+{
+  "events": [
+    {
+      "step": "Phase 1 - Keyword Generation",
+      "type": "llm"
+    },
+    {
+      "output": "Keywords: `parks`, `district`\n\nTokens: `2`",
+      "step_done": "Phase 1 - Keyword Generation"
+    },
+    {
+      "answer": "approve",
+      "ask_choice": "Review extracted keywords:\n\n`parks`, `district`",
+      "buttons": [
+        "Approve and proceed",
+        "Recalculate"
+      ]
+    },
+    {
+      "open": true,
+      "output": "**Confirmed keywords**\n`parks`, `district`\n\n- Approval hint: _none_\n- Total tokens: `2`\n\n**Generation attempts**\n1. Initial generation - hint: _none_; tokens: `2`; keywords: `parks`, `district`",
+      "step_update": "Phase 1 - Keyword Generation"
+    },
+    {
+      "step": "Phase 2 - Table Selection",
+      "type": "run"
+    },
+    {
+      "output": "Keywords rejected: the keywords only find fishing licences",
+      "step_done": "Phase 2 - Table Selection"
+    },
+    {
+      "elements": [],
+      "message": "The Data Architect rejected the generated keywords.\n\nFeedback: the keywords only find fishing licences\n\n🔄 **Auto-correcting:** Sending feedback to Phase 1 for new keywords..."
+    },
+    {
+      "open": false,
+      "output": "Keywords rejected: the keywords only find fishing licences",
+      "step_update": "Phase 2 - Table Selection"
+    },
+    {
+      "step": "Phase 1 - Keyword Generation",
+      "type": "llm"
+    },
+    {
+      "output": "Keywords: `parks`, `district`, `count`\n\nTokens: `2`",
+      "step_done": "Phase 1 - Keyword Generation"
+    },
+    {
+      "answer": "approve",
+      "ask_choice": "Review extracted keywords:\n\n`parks`, `district`, `count`",
+      "buttons": [
+        "Approve and proceed",
+        "Recalculate"
+      ]
+    },
+    {
+      "open": true,
+      "output": "**Confirmed keywords**\n`parks`, `district`, `count`\n\n- Approval hint: `The previous keywords led to bad tables. Architect feedback: the keywords only find fishing licences. Generate completely different keywords.`\n- Total tokens: `4`\n\n**Generation attempts**\n1. Initial generation - hint: _none_; tokens: `2`; keywords: `parks`, `district`\n2. Fallback regeneration - hint: `The previous keywords led to bad tables. Architect feedback: the keywords only find fishing licences. Generate completely different keywords.`; tokens: `2`; keywords: `parks`, `district`, `count`",
+      "step_update": "Phase 1 - Keyword Generation"
+    },
+    {
+      "step": "Phase 2 - Table Selection",
+      "type": "run"
+    },
+    {
+      "output": "**Candidate tables**\n1. `gold.csv` - gold\n2. `other.csv` - No title\n\n**Selected tables**\n\n- `gold.csv`\n\n**Architect reasoning**\n\nThe selection covers the question.\n\n**Activity log**\n\ntrace\n\n**Metadata**\n\n- Approval hint: _none_\n- Total tokens: `4`",
+      "step_done": "Phase 2 - Table Selection"
+    },
+    {
+      "answer": "approve",
+      "ask_choice": "Review selected tables:\n\n- `gold.csv`\n\n**Reasoning:**\nThe selection covers the question.",
+      "buttons": [
+        "Approve and run code",
+        "Recalculate tables"
+      ]
+    },
+    {
+      "open": false,
+      "output": "**Candidate tables**\n1. `gold.csv` - gold\n2. `other.csv` - No title\n\n**Selected tables**\n\n- `gold.csv`\n\n**Architect reasoning**\n\nThe selection covers the question.\n\n**Activity log**\n\ntrace\n\n**Metadata**\n\n- Approval hint: _none_\n- Total tokens: `4`",
+      "step_update": "Phase 2 - Table Selection"
+    },
+    {
+      "step": "Phase 3 - Code Generation & Execution",
+      "type": "run"
+    },
+    {
+      "stream": "\n\n## Attempt 1\n"
+    },
+    {
+      "output": "### Attempt 1 - success\n\n```text\n42\n```\n\n- tokens: `6`",
+      "step_done": "Phase 3 - Code Generation & Execution"
+    },
+    {
+      "step": "Phase 4 - Synthesis",
+      "type": "llm"
+    },
+    {
+      "output": "There are 42 parks.",
+      "step_done": "Phase 4 - Synthesis"
+    },
+    {
+      "elements": [
+        "generated_code.py",
+        "execution_output.txt"
+      ],
+      "message": "### Final Result\nThere are 42 parks.\n\n**Code generation and execution attempts**\n- Attempt `1`: success; tokens: `6`\n\n- Total tokens: `6`\n\n**Synthesized answer**\n\n- Tokens: `3`"
+    }
+  ]
+}

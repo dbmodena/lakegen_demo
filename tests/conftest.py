@@ -31,6 +31,15 @@ _SCRUBBED_PREFIXES = (
 _state_root: str | None = None
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--update-golden",
+        action="store_true",
+        default=False,
+        help="rewrite the golden snapshots under tests/golden/snapshots from this run",
+    )
+
+
 def _no_dotenv(*args, **kwargs) -> bool:
     """Stands in for ``dotenv.load_dotenv``, which ``lakegen.core.bootstrap`` calls at import."""
     return False

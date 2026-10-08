@@ -1,0 +1,768 @@
+{
+  "calls": [
+    {
+      "call": "phase1_generate_keywords",
+      "kwargs": {
+        "avoid_keywords": [],
+        "hint": "",
+        "llm": "<object>",
+        "pm": "<object>",
+        "portal_name": "Test portal",
+        "query": "How many parks are there per district?",
+        "value_search": false,
+        "verbatim_entities": false
+      }
+    },
+    {
+      "call": "phase1_generate_keywords",
+      "kwargs": {
+        "avoid_keywords": [
+          "parks",
+          "district"
+        ],
+        "hint": "add the year",
+        "llm": "<object>",
+        "pm": "<object>",
+        "portal_name": "Test portal",
+        "query": "How many parks are there per district?",
+        "value_search": false,
+        "verbatim_entities": false
+      }
+    },
+    {
+      "call": "phase2_select_tables",
+      "kwargs": {
+        "all_files": [
+          "gold.csv",
+          "other.csv"
+        ],
+        "csv_dir": "<TMP>",
+        "discovery": {
+          "compact_history": true,
+          "expansion_size": 5,
+          "initial_candidates": 10,
+          "initial_shortlist_size": 3,
+          "jev_max_candidates": 8,
+          "jev_model": "jev-1.13.0",
+          "jev_reject_floor": 0.15,
+          "jev_threshold": 0.5,
+          "keyword_cascade_size": 5,
+          "keyword_search": "cascade",
+          "max_expansions": 1,
+          "max_inspected_candidates": 6,
+          "max_inspections_per_file": 2,
+          "max_search_attempts": 1,
+          "max_zero_result_retries": 2,
+          "search_after_inspection": false,
+          "selector": "llm",
+          "state_board": true
+        },
+        "entities": [],
+        "hint": "add the year",
+        "keywords": [
+          "parks",
+          "district",
+          "2024"
+        ],
+        "llm": "<object>",
+        "pm": "<object>",
+        "portal_name": "Test portal",
+        "query": "How many parks are there per district?",
+        "retrieval_config": {
+          "alpha": 0.5,
+          "candidate_multiplier": 5,
+          "duckdb_max_columns_per_file": 40,
+          "duckdb_max_files": 250,
+          "duckdb_max_scan_rows_per_file": 100000,
+          "duckdb_probe_files": 25,
+          "duckdb_probe_rows_per_file": 1000,
+          "duckdb_sample_rows": 3,
+          "embedding_base_url": "http://localhost:11434",
+          "embedding_model": "cohere.embed-v4.0",
+          "fusion_method": "weighted",
+          "grep_max_columns_per_file": 40,
+          "grep_max_files": null,
+          "grep_max_scan_rows_per_file": 100000,
+          "grep_metadata_weight": 1.0,
+          "grep_probe_files": 25,
+          "grep_probe_rows_per_file": 1000,
+          "grep_sample_rows": 3,
+          "grep_value_weight": 1.0,
+          "keyword_or_fallback": false,
+          "lexical_query_fields": null,
+          "missing_signal_policy": "zero",
+          "mode": "keyword",
+          "pneuma_base_url": "http://localhost:8767",
+          "pneuma_cell_weight": 1.0,
+          "pneuma_column_name_weight": 2.0,
+          "pneuma_content_fusion": "weighted",
+          "pneuma_content_weight": 0.5,
+          "pneuma_entity_model": null,
+          "pneuma_enumerate_tables": true,
+          "pneuma_index_name": "lakegen-cohere-v4-1024",
+          "pneuma_table_name_weight": 3.0,
+          "pneuma_timeout_seconds": 0,
+          "pneuma_value_scan_weight": 0.0,
+          "representation_version": "metadata-v1",
+          "rerank_depth": 20,
+          "rerank_model": "cohere.rerank-v4.0-fast",
+          "rrf_k": 60,
+          "scan_workers": 16,
+          "top_k": 20,
+          "vector_field": "table_embedding"
+        },
+        "solr_client": "<object>"
+      }
+    },
+    {
+      "args": {
+        "candidates": [
+          "gold.csv"
+        ],
+        "csv_dir": "<TMP>",
+        "llm": "<object>",
+        "pm": "<object>",
+        "query": "How many parks are there per district?",
+        "reasoning": "The selection covers the question.",
+        "solr_meta": {
+          "gold.csv": {
+            "title": "gold"
+          }
+        },
+        "tables": [
+          "gold.csv"
+        ]
+      },
+      "call": "phase3_generate_and_execute",
+      "kwargs": {
+        "coder_context_level": "full",
+        "error_msg": "",
+        "force_execution": false,
+        "reasoning_placeholder": null,
+        "retries": 0,
+        "run_dir": "<TMP>/state/coding/<hex32>",
+        "seed": 0,
+        "seed_instruction_recorder": "<record_seed_instruction>",
+        "stream_placeholder": null
+      }
+    },
+    {
+      "args": {
+        "llm": "<object>",
+        "pm": "<object>",
+        "query": "How many parks are there per district?",
+        "raw_result": "42"
+      },
+      "call": "phase4_synthesize"
+    }
+  ],
+  "log_rows": [
+    {
+      "architecture": "divided",
+      "code": "print(42)",
+      "debug_raw": "",
+      "elapsed_seconds": 0,
+      "error": "",
+      "extra_fields": {
+        "MANIFEST_JSON": {
+          "core": "nyc",
+          "dataset": "nyc",
+          "experiment_id": "golden",
+          "git_version": "<git>",
+          "model": "openai.gpt-oss-120b",
+          "question_id": "<hex32>",
+          "representation_version": "metadata-v1",
+          "reproducibility": {
+            "configured_seed": 0,
+            "deterministic_llm_generation": false,
+            "effective_seed": 0,
+            "generated_code_seed_instruction_provided": false,
+            "generated_code_seed_usage_verified": false,
+            "initialized_components": [
+              "python_random_local_generator",
+              "numpy_local_generator"
+            ],
+            "instructions_provided_to": [],
+            "llm_provider_seed_applied": false,
+            "llm_provider_seed_supported": false,
+            "seed_applied_to": [],
+            "uncontrolled_components": [
+              "oci_llm_generation"
+            ]
+          },
+          "resolved_config": {
+            "automatic_test_coder": false,
+            "benchmark": {
+              "path": null
+            },
+            "coder_brief_mode": "advisory",
+            "coder_context_level": "full",
+            "core": "nyc",
+            "discovery": {
+              "compact_history": true,
+              "expansion_size": 5,
+              "initial_candidates": 10,
+              "initial_shortlist_size": 3,
+              "jev_max_candidates": 8,
+              "jev_model": "jev-1.13.0",
+              "jev_reject_floor": 0.15,
+              "jev_threshold": 0.5,
+              "keyword_cascade_size": 5,
+              "keyword_search": "cascade",
+              "max_expansions": 1,
+              "max_inspected_candidates": 6,
+              "max_inspections_per_file": 2,
+              "max_search_attempts": 1,
+              "max_zero_result_retries": 2,
+              "search_after_inspection": false,
+              "selector": "llm",
+              "state_board": true
+            },
+            "discovery_architecture": "divided",
+            "experiment_id": "golden",
+            "gates": {
+              "datasets": true,
+              "keywords": true,
+              "plan": false,
+              "result": false
+            },
+            "interaction_mode": "human_gated",
+            "max_revision_rounds": 3,
+            "model": "openai.gpt-oss-120b",
+            "orchestrated_memory_enabled": false,
+            "require_semantic_plan": true,
+            "retrieval": {
+              "alpha": 0.5,
+              "candidate_multiplier": 5,
+              "duckdb_max_columns_per_file": 40,
+              "duckdb_max_files": 250,
+              "duckdb_max_scan_rows_per_file": 100000,
+              "duckdb_probe_files": 25,
+              "duckdb_probe_rows_per_file": 1000,
+              "duckdb_sample_rows": 3,
+              "embedding_base_url": "http://localhost:11434",
+              "embedding_model": "cohere.embed-v4.0",
+              "fusion_method": "weighted",
+              "grep_max_columns_per_file": 40,
+              "grep_max_files": null,
+              "grep_max_scan_rows_per_file": 100000,
+              "grep_metadata_weight": 1.0,
+              "grep_probe_files": 25,
+              "grep_probe_rows_per_file": 1000,
+              "grep_sample_rows": 3,
+              "grep_value_weight": 1.0,
+              "keyword_or_fallback": false,
+              "lexical_query_fields": null,
+              "missing_signal_policy": "zero",
+              "mode": "keyword",
+              "pneuma_base_url": "http://localhost:8767",
+              "pneuma_cell_weight": 1.0,
+              "pneuma_column_name_weight": 2.0,
+              "pneuma_content_fusion": "weighted",
+              "pneuma_content_weight": 0.5,
+              "pneuma_entity_model": null,
+              "pneuma_enumerate_tables": true,
+              "pneuma_index_name": "lakegen-cohere-v4-1024",
+              "pneuma_table_name_weight": 3.0,
+              "pneuma_timeout_seconds": 0,
+              "pneuma_value_scan_weight": 0.0,
+              "representation_version": "metadata-v1",
+              "rerank_depth": 20,
+              "rerank_model": "cohere.rerank-v4.0-fast",
+              "rrf_k": 60,
+              "scan_workers": 16,
+              "top_k": 20,
+              "vector_field": "table_embedding"
+            },
+            "reviewers": {
+              "code": false,
+              "dataset": false,
+              "plan": false,
+              "result": false
+            },
+            "revision_experiment_mode": "current",
+            "seed": 0,
+            "semantic_code_judge_enabled": true,
+            "semantic_code_judge_model": "openai.gpt-oss-120b",
+            "tool_access": "agentic"
+          },
+          "retrieval_parameters": {
+            "alpha": 0.5,
+            "candidate_multiplier": 5,
+            "duckdb_max_columns_per_file": 40,
+            "duckdb_max_files": 250,
+            "duckdb_max_scan_rows_per_file": 100000,
+            "duckdb_probe_files": 25,
+            "duckdb_probe_rows_per_file": 1000,
+            "duckdb_sample_rows": 3,
+            "embedding_base_url": "http://localhost:11434",
+            "embedding_model": "cohere.embed-v4.0",
+            "fusion_method": "weighted",
+            "grep_max_columns_per_file": 40,
+            "grep_max_files": null,
+            "grep_max_scan_rows_per_file": 100000,
+            "grep_metadata_weight": 1.0,
+            "grep_probe_files": 25,
+            "grep_probe_rows_per_file": 1000,
+            "grep_sample_rows": 3,
+            "grep_value_weight": 1.0,
+            "keyword_or_fallback": false,
+            "lexical_query_fields": null,
+            "missing_signal_policy": "zero",
+            "mode": "keyword",
+            "pneuma_base_url": "http://localhost:8767",
+            "pneuma_cell_weight": 1.0,
+            "pneuma_column_name_weight": 2.0,
+            "pneuma_content_fusion": "weighted",
+            "pneuma_content_weight": 0.5,
+            "pneuma_entity_model": null,
+            "pneuma_enumerate_tables": true,
+            "pneuma_index_name": "lakegen-cohere-v4-1024",
+            "pneuma_table_name_weight": 3.0,
+            "pneuma_timeout_seconds": 0,
+            "pneuma_value_scan_weight": 0.0,
+            "representation_version": "metadata-v1",
+            "rerank_depth": 20,
+            "rerank_model": "cohere.rerank-v4.0-fast",
+            "rrf_k": 60,
+            "scan_workers": 16,
+            "top_k": 20,
+            "vector_field": "table_embedding"
+          },
+          "run_id": "<hex32>",
+          "seed": 0,
+          "timestamp": "<timestamp>"
+        },
+        "RUN_TRACE_JSON": {
+          "code": "print(42)",
+          "configuration": {
+            "automatic_test_coder": false,
+            "benchmark": {
+              "path": null
+            },
+            "coder_brief_mode": "advisory",
+            "coder_context_level": "full",
+            "core": "nyc",
+            "discovery": {
+              "compact_history": true,
+              "expansion_size": 5,
+              "initial_candidates": 10,
+              "initial_shortlist_size": 3,
+              "jev_max_candidates": 8,
+              "jev_model": "jev-1.13.0",
+              "jev_reject_floor": 0.15,
+              "jev_threshold": 0.5,
+              "keyword_cascade_size": 5,
+              "keyword_search": "cascade",
+              "max_expansions": 1,
+              "max_inspected_candidates": 6,
+              "max_inspections_per_file": 2,
+              "max_search_attempts": 1,
+              "max_zero_result_retries": 2,
+              "search_after_inspection": false,
+              "selector": "llm",
+              "state_board": true
+            },
+            "discovery_architecture": "divided",
+            "experiment_id": "golden",
+            "gates": {
+              "datasets": true,
+              "keywords": true,
+              "plan": false,
+              "result": false
+            },
+            "interaction_mode": "human_gated",
+            "max_revision_rounds": 3,
+            "model": "openai.gpt-oss-120b",
+            "orchestrated_memory_enabled": false,
+            "require_semantic_plan": true,
+            "retrieval": {
+              "alpha": 0.5,
+              "candidate_multiplier": 5,
+              "duckdb_max_columns_per_file": 40,
+              "duckdb_max_files": 250,
+              "duckdb_max_scan_rows_per_file": 100000,
+              "duckdb_probe_files": 25,
+              "duckdb_probe_rows_per_file": 1000,
+              "duckdb_sample_rows": 3,
+              "embedding_base_url": "http://localhost:11434",
+              "embedding_model": "cohere.embed-v4.0",
+              "fusion_method": "weighted",
+              "grep_max_columns_per_file": 40,
+              "grep_max_files": null,
+              "grep_max_scan_rows_per_file": 100000,
+              "grep_metadata_weight": 1.0,
+              "grep_probe_files": 25,
+              "grep_probe_rows_per_file": 1000,
+              "grep_sample_rows": 3,
+              "grep_value_weight": 1.0,
+              "keyword_or_fallback": false,
+              "lexical_query_fields": null,
+              "missing_signal_policy": "zero",
+              "mode": "keyword",
+              "pneuma_base_url": "http://localhost:8767",
+              "pneuma_cell_weight": 1.0,
+              "pneuma_column_name_weight": 2.0,
+              "pneuma_content_fusion": "weighted",
+              "pneuma_content_weight": 0.5,
+              "pneuma_entity_model": null,
+              "pneuma_enumerate_tables": true,
+              "pneuma_index_name": "lakegen-cohere-v4-1024",
+              "pneuma_table_name_weight": 3.0,
+              "pneuma_timeout_seconds": 0,
+              "pneuma_value_scan_weight": 0.0,
+              "representation_version": "metadata-v1",
+              "rerank_depth": 20,
+              "rerank_model": "cohere.rerank-v4.0-fast",
+              "rrf_k": 60,
+              "scan_workers": 16,
+              "top_k": 20,
+              "vector_field": "table_embedding"
+            },
+            "reviewers": {
+              "code": false,
+              "dataset": false,
+              "plan": false,
+              "result": false
+            },
+            "revision_experiment_mode": "current",
+            "seed": 0,
+            "semantic_code_judge_enabled": true,
+            "semantic_code_judge_model": "openai.gpt-oss-120b",
+            "tool_access": "agentic"
+          },
+          "discovery": {
+            "keywords": [
+              "parks",
+              "district",
+              "2024"
+            ],
+            "selected_datasets": [
+              "gold.csv"
+            ],
+            "unused_concepts": []
+          },
+          "errors": [],
+          "execution_outcome": {
+            "error": null,
+            "raw_result": "42",
+            "status": "completed"
+          },
+          "human_interventions": [
+            {
+              "approved": false,
+              "elapsed_seconds": 0,
+              "gate": "keyword_approval",
+              "phase": "discovery",
+              "provided": null,
+              "type": "approval"
+            },
+            {
+              "approved": null,
+              "elapsed_seconds": 0,
+              "gate": "keyword_hint",
+              "phase": "discovery",
+              "provided": true,
+              "type": "hint"
+            },
+            {
+              "approved": true,
+              "elapsed_seconds": 0,
+              "gate": "keyword_approval",
+              "phase": "discovery",
+              "provided": null,
+              "type": "approval"
+            },
+            {
+              "approved": true,
+              "elapsed_seconds": 0,
+              "gate": "dataset_approval",
+              "phase": "discovery",
+              "provided": null,
+              "type": "approval"
+            }
+          ],
+          "llm_calls": [
+            {
+              "call_count": 3,
+              "completion_tokens": null,
+              "phase": "discovery",
+              "phase_invocation_count": 3,
+              "prompt_tokens": null,
+              "provider_call_count": null,
+              "total_tokens": 8,
+              "usage_breakdown_available": false
+            },
+            {
+              "call_count": 1,
+              "completion_tokens": null,
+              "phase": "code",
+              "phase_invocation_count": 1,
+              "prompt_tokens": null,
+              "provider_call_count": null,
+              "total_tokens": 6,
+              "usage_breakdown_available": false
+            },
+            {
+              "call_count": 1,
+              "completion_tokens": null,
+              "phase": "result",
+              "phase_invocation_count": 1,
+              "prompt_tokens": null,
+              "provider_call_count": null,
+              "total_tokens": 3,
+              "usage_breakdown_available": false
+            }
+          ],
+          "phase_metrics": {
+            "code": {
+              "latency_seconds": 0
+            },
+            "discovery": {
+              "latency_seconds": 0
+            },
+            "result": {
+              "latency_seconds": 0
+            },
+            "total": {
+              "latency_seconds": 0
+            }
+          },
+          "phase_reached": "result",
+          "reproducibility": {
+            "configured_seed": 0,
+            "deterministic_llm_generation": false,
+            "effective_seed": 0,
+            "generated_code_seed_instruction_provided": false,
+            "generated_code_seed_usage_verified": false,
+            "initialized_components": [
+              "python_random_local_generator",
+              "numpy_local_generator"
+            ],
+            "instructions_provided_to": [],
+            "llm_provider_seed_applied": false,
+            "llm_provider_seed_supported": false,
+            "seed_applied_to": [],
+            "uncontrolled_components": [
+              "oci_llm_generation"
+            ]
+          },
+          "retries": 0,
+          "status": "completed",
+          "tool_access": {
+            "agent_count": 2,
+            "agent_direct_tools": [],
+            "configured_tool_access": "agentic",
+            "discovery_architecture": "divided",
+            "empty_context_retries": 0,
+            "execution_path": "agentic",
+            "llm_invocations": 3,
+            "orchestrator_retrieval_calls": {},
+            "preparation_error": null,
+            "prepared_candidate_count": 0,
+            "prepared_context_utf8_bytes": 0,
+            "request_protocol_error": null,
+            "retrieval_mode": "keyword",
+            "retrieved_hit_count": 0,
+            "selector_error": null
+          },
+          "tool_calls": []
+        }
+      },
+      "final_keywords": [
+        "parks",
+        "district",
+        "2024"
+      ],
+      "final_result": "There are 42 parks.",
+      "full_trace": "trace",
+      "model": "openai.gpt-oss-120b",
+      "question": "How many parks are there per district?",
+      "raw_keywords": "",
+      "reasoning": "The selection covers the question.",
+      "result": "42",
+      "retries": 0,
+      "status": "completed",
+      "tables": [
+        "gold.csv"
+      ],
+      "tokens_phase1": 4,
+      "tokens_phase2": 4,
+      "tokens_phase3": 6,
+      "tokens_phase4": 3,
+      "unused_concepts": []
+    }
+  ],
+  "manifests": [
+    {
+      "core": "nyc",
+      "dataset": "nyc",
+      "experiment_id": "golden",
+      "git_version": "<git>",
+      "model": "openai.gpt-oss-120b",
+      "question_id": "<hex32>",
+      "representation_version": "metadata-v1",
+      "reproducibility": {
+        "configured_seed": 0,
+        "deterministic_llm_generation": false,
+        "effective_seed": 0,
+        "generated_code_seed_instruction_provided": false,
+        "generated_code_seed_usage_verified": false,
+        "initialized_components": [
+          "python_random_local_generator",
+          "numpy_local_generator"
+        ],
+        "instructions_provided_to": [],
+        "llm_provider_seed_applied": false,
+        "llm_provider_seed_supported": false,
+        "seed_applied_to": [],
+        "uncontrolled_components": [
+          "oci_llm_generation"
+        ]
+      },
+      "resolved_config": {
+        "automatic_test_coder": false,
+        "benchmark": {
+          "path": null
+        },
+        "coder_brief_mode": "advisory",
+        "coder_context_level": "full",
+        "core": "nyc",
+        "discovery": {
+          "compact_history": true,
+          "expansion_size": 5,
+          "initial_candidates": 10,
+          "initial_shortlist_size": 3,
+          "jev_max_candidates": 8,
+          "jev_model": "jev-1.13.0",
+          "jev_reject_floor": 0.15,
+          "jev_threshold": 0.5,
+          "keyword_cascade_size": 5,
+          "keyword_search": "cascade",
+          "max_expansions": 1,
+          "max_inspected_candidates": 6,
+          "max_inspections_per_file": 2,
+          "max_search_attempts": 1,
+          "max_zero_result_retries": 2,
+          "search_after_inspection": false,
+          "selector": "llm",
+          "state_board": true
+        },
+        "discovery_architecture": "divided",
+        "experiment_id": "golden",
+        "gates": {
+          "datasets": true,
+          "keywords": true,
+          "plan": false,
+          "result": false
+        },
+        "interaction_mode": "human_gated",
+        "max_revision_rounds": 3,
+        "model": "openai.gpt-oss-120b",
+        "orchestrated_memory_enabled": false,
+        "require_semantic_plan": true,
+        "retrieval": {
+          "alpha": 0.5,
+          "candidate_multiplier": 5,
+          "duckdb_max_columns_per_file": 40,
+          "duckdb_max_files": 250,
+          "duckdb_max_scan_rows_per_file": 100000,
+          "duckdb_probe_files": 25,
+          "duckdb_probe_rows_per_file": 1000,
+          "duckdb_sample_rows": 3,
+          "embedding_base_url": "http://localhost:11434",
+          "embedding_model": "cohere.embed-v4.0",
+          "fusion_method": "weighted",
+          "grep_max_columns_per_file": 40,
+          "grep_max_files": null,
+          "grep_max_scan_rows_per_file": 100000,
+          "grep_metadata_weight": 1.0,
+          "grep_probe_files": 25,
+          "grep_probe_rows_per_file": 1000,
+          "grep_sample_rows": 3,
+          "grep_value_weight": 1.0,
+          "keyword_or_fallback": false,
+          "lexical_query_fields": null,
+          "missing_signal_policy": "zero",
+          "mode": "keyword",
+          "pneuma_base_url": "http://localhost:8767",
+          "pneuma_cell_weight": 1.0,
+          "pneuma_column_name_weight": 2.0,
+          "pneuma_content_fusion": "weighted",
+          "pneuma_content_weight": 0.5,
+          "pneuma_entity_model": null,
+          "pneuma_enumerate_tables": true,
+          "pneuma_index_name": "lakegen-cohere-v4-1024",
+          "pneuma_table_name_weight": 3.0,
+          "pneuma_timeout_seconds": 0,
+          "pneuma_value_scan_weight": 0.0,
+          "representation_version": "metadata-v1",
+          "rerank_depth": 20,
+          "rerank_model": "cohere.rerank-v4.0-fast",
+          "rrf_k": 60,
+          "scan_workers": 16,
+          "top_k": 20,
+          "vector_field": "table_embedding"
+        },
+        "reviewers": {
+          "code": false,
+          "dataset": false,
+          "plan": false,
+          "result": false
+        },
+        "revision_experiment_mode": "current",
+        "seed": 0,
+        "semantic_code_judge_enabled": true,
+        "semantic_code_judge_model": "openai.gpt-oss-120b",
+        "tool_access": "agentic"
+      },
+      "retrieval_parameters": {
+        "alpha": 0.5,
+        "candidate_multiplier": 5,
+        "duckdb_max_columns_per_file": 40,
+        "duckdb_max_files": 250,
+        "duckdb_max_scan_rows_per_file": 100000,
+        "duckdb_probe_files": 25,
+        "duckdb_probe_rows_per_file": 1000,
+        "duckdb_sample_rows": 3,
+        "embedding_base_url": "http://localhost:11434",
+        "embedding_model": "cohere.embed-v4.0",
+        "fusion_method": "weighted",
+        "grep_max_columns_per_file": 40,
+        "grep_max_files": null,
+        "grep_max_scan_rows_per_file": 100000,
+        "grep_metadata_weight": 1.0,
+        "grep_probe_files": 25,
+        "grep_probe_rows_per_file": 1000,
+        "grep_sample_rows": 3,
+        "grep_value_weight": 1.0,
+        "keyword_or_fallback": false,
+        "lexical_query_fields": null,
+        "missing_signal_policy": "zero",
+        "mode": "keyword",
+        "pneuma_base_url": "http://localhost:8767",
+        "pneuma_cell_weight": 1.0,
+        "pneuma_column_name_weight": 2.0,
+        "pneuma_content_fusion": "weighted",
+        "pneuma_content_weight": 0.5,
+        "pneuma_entity_model": null,
+        "pneuma_enumerate_tables": true,
+        "pneuma_index_name": "lakegen-cohere-v4-1024",
+        "pneuma_table_name_weight": 3.0,
+        "pneuma_timeout_seconds": 0,
+        "pneuma_value_scan_weight": 0.0,
+        "representation_version": "metadata-v1",
+        "rerank_depth": 20,
+        "rerank_model": "cohere.rerank-v4.0-fast",
+        "rrf_k": 60,
+        "scan_workers": 16,
+        "top_k": 20,
+        "vector_field": "table_embedding"
+      },
+      "run_id": "<hex32>",
+      "seed": 0,
+      "timestamp": "<timestamp>"
+    }
+  ],
+  "retrieval_decisions": []
+}
