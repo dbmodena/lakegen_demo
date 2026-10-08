@@ -31,6 +31,14 @@ from lakegen.retrieval.pneuma import (
     PneumaRetriever,
     SolrPneumaDocumentResolver,
 )
+from lakegen.retrieval.registry import (
+    Branches,
+    ModeRetriever,
+    RetrievalRequest,
+    RetrievalResult,
+    build,
+    register,
+)
 from lakegen.retrieval.rerank import OCICohereReranker, Reranker, rerank_hits
 
 logger = logging.getLogger(__name__)
@@ -482,8 +490,93 @@ class DuckDBSemanticHybridRetriever:
         return fused[:top_k]
 
 
+# --- the modes: one retriever per RetrievalMode, composed from the branches --
+
+@register(RetrievalMode.KEYWORD)
+class KeywordMode:
+    """BM25 over the keywords; the lexical rank is the rank."""
+
+    def __init__(self, branches: Branches) -> None:
+        self.keyword = branches.keyword
+
+    def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
+        fetch_k = max(request.lexical_fetch_k or request.top_k, request.top_k)
+        hits = self.keyword.retrieve(list(request.keywords), top_k=fetch_k, q_op=request.q_op)[: request.top_k]
+        for rank, hit in enumerate(hits, 1):
+            hit.rank = rank
+            hit.lexical_rank = rank
+        return RetrievalResult(hits)
+
+
+@register(RetrievalMode.SEMANTIC)
+class SemanticMode:
+    """KNN over the question's embedding."""
+
+    def __init__(self, branches: Branches) -> None:
+        self.semantic = branches.require("semantic")
+
+    def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
+        return RetrievalResult(self.semantic.retrieve(request.question, top_k=request.top_k))
+
+
+@register(RetrievalMode.HYBRID)
+class HybridMode:
+    """BM25 and KNN fused; reports what the lexical branch matched."""
+
+    def __init__(self, branches: Branches) -> None:
+        self.hybrid = branches.require("hybrid")
+
+    def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
+        hits, lexical_hit_count = self.hybrid.retrieve_with_lexical_count(
+            request.question, list(request.keywords), top_k=request.top_k
+        )
+        return RetrievalResult(hits, lexical_hit_count)
+
+
+@register(RetrievalMode.PNEUMA, RetrievalMode.PNEUMA_SEEKER)
+class PneumaMode:
+    """Pneuma's index, with the Seeker's content search when the mode asks for it."""
+
+    def __init__(self, branches: Branches) -> None:
+        self.pneuma = branches.require("pneuma")
+
+    def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
+        return RetrievalResult(self.pneuma.retrieve(
+            request.question, top_k=request.top_k,
+            entities=list(request.entities) or None, keywords=list(request.keywords),
+        ))
+
+
+@register(RetrievalMode.DUCKDB_AGENTIC)
+class DuckDBMode:
+    """DuckDB over the local Parquet files."""
+
+    def __init__(self, branches: Branches) -> None:
+        self.duckdb = branches.require("duckdb_agentic")
+
+    def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
+        return RetrievalResult(self.duckdb.retrieve(request.question, list(request.keywords), top_k=request.top_k))
+
+
+@register(RetrievalMode.HYBRID_DUCKDB_SEMANTIC)
+class DuckDBSemanticMode:
+    """DuckDB and KNN fused."""
+
+    def __init__(self, branches: Branches) -> None:
+        self.fused = branches.require("duckdb_semantic")
+
+    def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
+        return RetrievalResult(self.fused.retrieve(request.question, list(request.keywords), top_k=request.top_k))
+
+
 class TableRetrievalService:
-    """Uniform entry point used by LakeGen Phase 2 and benchmark code."""
+    """The composition root of retrieval: the branches, the mode's retriever, the second stage.
+
+    It prepares the branches the configured mode needs (Solr's BM25, the
+    embedding model's KNN, the local tables for DuckDB and the Seeker, the
+    Pneuma client), builds the mode's retriever from the registry, reranks
+    when the mode is reranked, and records every run for the observer.
+    """
 
     def __init__(
         self,
@@ -548,10 +641,7 @@ class TableRetrievalService:
             raise ValueError(
                 f"{config.mode.value} retrieval requires a local table_dir"
             )
-        uses_duckdb = config.mode in (
-            RetrievalMode.DUCKDB_AGENTIC,
-            RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
-        )
+        uses_duckdb = config.mode.uses_duckdb
         self.duckdb_agentic = (
             DuckDBAgenticRetriever(config, table_dir)
             if uses_duckdb and table_dir is not None
@@ -573,6 +663,11 @@ class TableRetrievalService:
             and self.semantic is not None
             else None
         )
+        self.branches = Branches(
+            config=config, keyword=self.keyword, semantic=self.semantic, hybrid=self.hybrid,
+            pneuma=self.pneuma, duckdb_agentic=self.duckdb_agentic, duckdb_semantic=self.duckdb_semantic,
+        )
+        self.mode_retriever: ModeRetriever = build(config.mode, self.branches)
 
     def retrieve(
         self,
@@ -587,47 +682,14 @@ class TableRetrievalService:
         requested_k = top_k or self.config.top_k
         started = time.monotonic()
         self.last_lexical_hit_count = None
+        request = RetrievalRequest(
+            question=question, keywords=tuple(keywords), top_k=requested_k,
+            lexical_fetch_k=lexical_fetch_k, q_op=q_op, entities=tuple(entities or ()),
+        )
         try:
-            if self.config.mode == RetrievalMode.KEYWORD:
-                fetch_k = max(lexical_fetch_k or requested_k, requested_k)
-                hits = self.keyword.retrieve(
-                    keywords,
-                    top_k=fetch_k,
-                    q_op=q_op,
-                )[:requested_k]
-                for rank, hit in enumerate(hits, 1):
-                    hit.rank = rank
-                    hit.lexical_rank = rank
-            elif self.config.mode == RetrievalMode.SEMANTIC:
-                assert self.semantic is not None
-                hits = self.semantic.retrieve(question, top_k=requested_k)
-            elif self.config.mode == RetrievalMode.HYBRID:
-                assert self.hybrid is not None
-                hits, self.last_lexical_hit_count = (
-                    self.hybrid.retrieve_with_lexical_count(
-                        question, keywords, top_k=requested_k
-                    )
-                )
-            elif self.config.mode.is_pneuma:
-                assert self.pneuma is not None
-                hits = self.pneuma.retrieve(
-                    question,
-                    top_k=requested_k,
-                    entities=entities,
-                    keywords=keywords,
-                )
-            elif self.config.mode == RetrievalMode.DUCKDB_AGENTIC:
-                assert self.duckdb_agentic is not None
-                hits = self.duckdb_agentic.retrieve(
-                    question, keywords, top_k=requested_k
-                )
-            elif self.config.mode == RetrievalMode.HYBRID_DUCKDB_SEMANTIC:
-                assert self.duckdb_semantic is not None
-                hits = self.duckdb_semantic.retrieve(
-                    question, keywords, top_k=requested_k
-                )
-            else:
-                raise ValueError(f"unsupported retrieval mode: {self.config.mode}")
+            result = self.mode_retriever.retrieve(request)
+            hits = result.hits
+            self.last_lexical_hit_count = result.lexical_hit_count
         except Exception as exc:
             run = self._run_record(
                 question=question,
@@ -694,10 +756,7 @@ class TableRetrievalService:
         duration_seconds: float,
         rerank: dict[str, Any] | None = None,
     ) -> RetrievalRun:
-        fuses = self.config.mode in (
-            RetrievalMode.HYBRID,
-            RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
-        )
+        fuses = self.config.mode.fuses
         return RetrievalRun(
             mode=self.config.mode,
             question=question,

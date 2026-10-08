@@ -24,6 +24,15 @@ from lakegen.retrieval.indexing import (
     validate_vector_schema,
 )
 from lakegen.retrieval.models import RetrievalHit, RetrievalRun
+from lakegen.retrieval.registry import (
+    Branches,
+    ModeRetriever,
+    RetrievalRequest,
+    RetrievalResult,
+    build,
+    register,
+    registered_modes,
+)
 from lakegen.retrieval.pneuma import PneumaRetriever, SolrPneumaDocumentResolver
 from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
 from lakegen.retrieval.representation import METADATA_V1, represent_table
@@ -37,6 +46,13 @@ from lakegen.retrieval.retrievers import (
 )
 
 __all__ = [
+    "Branches",
+    "ModeRetriever",
+    "RetrievalRequest",
+    "RetrievalResult",
+    "build",
+    "register",
+    "registered_modes",
     "DEFAULT_RERANK_DEPTH",
     "DEFAULT_RERANK_MODEL",
     "DEFAULT_TOP_K",

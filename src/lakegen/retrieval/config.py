@@ -60,6 +60,16 @@ class RetrievalMode(StrEnum):
         )
 
     @property
+    def fuses(self) -> bool:
+        """Two branches fused by ``fusion_method``: BM25 + KNN, or DuckDB + KNN."""
+        return self in (RetrievalMode.HYBRID, RetrievalMode.HYBRID_DUCKDB_SEMANTIC)
+
+    @property
+    def uses_duckdb(self) -> bool:
+        """Searches the local Parquet files with DuckDB, alone or fused with KNN."""
+        return self in (RetrievalMode.DUCKDB_AGENTIC, RetrievalMode.HYBRID_DUCKDB_SEMANTIC)
+
+    @property
     def is_pneuma(self) -> bool:
         """True for the Pneuma family: the index alone, and the Seeker augmentation."""
         return self in (RetrievalMode.PNEUMA, RetrievalMode.PNEUMA_SEEKER)
