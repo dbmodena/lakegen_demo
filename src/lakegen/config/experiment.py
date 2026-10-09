@@ -88,7 +88,7 @@ class RetrievalExperimentConfig(FrozenModel):
     """The retrieval block of an experiment file.
 
     The same fields as ``RetrievalConfig`` (lakegen.config.retrieval), with the
-    production defaults; tests/test_retrieval_config_sync.py keeps the two in
+    production defaults; tests/config/test_retrieval_config_sync.py keeps the two in
     step.
     """
 

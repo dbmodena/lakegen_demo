@@ -144,7 +144,7 @@ class RetrievalConfig:
     """The retrieval settings of one run.
 
     ``RetrievalExperimentConfig`` (lakegen.config.experiment) mirrors this field
-    list for the experiment file; tests/test_retrieval_config_sync.py keeps the
+    list for the experiment file; tests/config/test_retrieval_config_sync.py keeps the
     two in step and pins the production defaults of ``from_env``.
     """
 

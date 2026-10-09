@@ -11,10 +11,40 @@ LakeGen can be used through:
 - an HTTP API for single questions and batches;
 - standalone retrieval benchmarks.
 
-The code is one package, `src/lakegen`, whose layout and rules are described in
-[CONTRIBUTING.md](CONTRIBUTING.md); `docs/CHANGELOG.md` records the behaviour
+The code is one package, `src/lakegen`, laid out as described in
+[Code layout](#code-layout) below; `docs/CHANGELOG.md` records the behaviour
 changes of the 2026 refactor and `docs/configuration.md` every environment
 variable.
+
+## Code layout
+
+Every folder holds at most ten entries. The package is `src/lakegen`; an
+import may only go down this list.
+
+| Package | Holds |
+|---|---|
+| `interfaces/` | the only importers of web and UI frameworks: `api/` (FastAPI), `cli/` (the `lakegen` command), `chainlit/` (the web app), `dashboard/` |
+| `experiments/` | specs, the run store, executors, services, and `analysis/` (the runs as a table, the metrics) |
+| `workflow/` | the phases and what runs them: `discovery/` (tables), `coding/` (analysis code), `evaluation/` (judging results), `answer/`, `pipeline/` (the engine, its run model and wiring), `observability/` (recorder, logs, manifest), `prompts/` |
+| `tools/` | the agents' tools: `unified/` (the unified architect), `coder/` (inspect, run, check, finish or reject), `shared/` (judge tools, join and union evidence, requirement ledger) |
+| `retrieval/` | the registry, the service that composes the modes, the run log, the benchmark, and `modes/` (keyword, semantic, hybrid, DuckDB, Pneuma ranking) |
+| `integrations/` | adapters to outside systems: `llm/` (chat, embeddings, rerank, agent runner), `solr/` (client, indexers, portal catalogues), `pneuma/` (service client, Seeker, cell scan), `table_io` |
+| `config/` | settings, the lake and model registries, `ExperimentConfig`, the v2 config files, paths |
+| `domain/` | pure types: results, outcomes, retrieval hits, errors, table ids |
+
+Outside the package: `config/` (YAML registries, presets and `examples/`),
+`benchmark/` (question sets), `scripts/` (checks, builders, job tools, Pneuma),
+`experiments/` (working directories and `specs/`), `tests/` (one folder per
+package; `golden/` holds the snapshots, fixtures and the baseline list).
+`scripts/check.sh` is the gate every commit passes: tests against the
+baseline, ruff, the import contracts of `pyproject.toml` and an import smoke.
+
+To add a retrieval mode, register a class in `retrieval/modes/` with
+`retrieval.registry.register`. A table selector is registered in
+`workflow/discovery/selectors/`, a discovery architecture in
+`workflow/pipeline/strategies.py`, an LLM provider in
+`integrations/llm/providers/`, and a lake or a model is one entry in
+`config/lakes.yaml` or `config/models.yaml`.
 
 ## 1. Requirements
 
@@ -600,7 +630,7 @@ prints the dashboard URL with its token; the page refreshes every 10 s with
 Hit@k, Recall@10, MRR, nDCG@10, full coverage, selection hit/recall/precision/
 exact, answered, code-execution, reference-match, time and token figures per
 portal and mode, a per-question outcome grid, and the latest finished questions.
-`PNEUMA_PORTAL_ROUTES` in `lakegen/retrieval/config.py` maps the three portals
+`PNEUMA_PORTAL_ROUTES` in `lakegen/config/retrieval.py` maps the three portals
 to their Pneuma ports; `LAKEGEN_PNEUMA_<PORTAL>_BASE_URL` overrides one.
 
 ## 8. Pneuma retrieval (optional)
