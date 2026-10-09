@@ -14,8 +14,8 @@ from golden.harness import (
     phase3_result,
     prepare_run,
 )
-from lakegen import service
 from lakegen.domain.outcomes import SelectorKind
+from lakegen.pipeline import service
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.engine import Pipeline
 from lakegen.pipeline.replay import (

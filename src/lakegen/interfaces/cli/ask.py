@@ -51,11 +51,11 @@ from lakegen.phases import (  # noqa: F401
 from lakegen.pipeline.context import MemoryScope, RunContext, SurfaceOptions
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.pipeline.engine import MAX_CODE_ATTEMPTS, MAX_TABLE_ATTEMPTS, Pipeline
+from lakegen.pipeline.runner import ExperimentRunner
 from lakegen.prompts import get_prompt_manager  # noqa: F401
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
 from lakegen.retrieval.factory import get_solr  # noqa: F401
 from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
-from lakegen.runner import ExperimentRunner
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 # The prompts live in lakegen.interfaces.cli.terminal; these names stay for the

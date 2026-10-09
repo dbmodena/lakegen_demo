@@ -57,9 +57,9 @@ from lakegen.experiments.jobs import (
     update_job,
     valid_job_id,
 )
+from lakegen.pipeline.runner import ExperimentRunner
 from lakegen.retrieval import RetrievalMode, check_embedding_health
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
-from lakegen.runner import ExperimentRunner
 
 # Batch progress goes to Uvicorn's application logger, so it shows in the same
 # terminal as the HTTP access log when the API runs under Uvicorn.

@@ -32,14 +32,14 @@ from lakegen.config.runtime import (
 )
 from lakegen.domain.tables import resource_id, table_id
 from lakegen.experiments import batch, jobs
-from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
-from lakegen.runner import ExperimentRunner
-from lakegen.service import (
+from lakegen.pipeline.runner import ExperimentRunner
+from lakegen.pipeline.service import (
     QuestionSource,
     extract_questions,
     make_runtime_settings,
     run_question,
 )
+from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
 
 DEFAULT_MODEL = MODEL_OPTIONS[0]
 DEFAULT_CORE = SOLR_CORE_OPTIONS[0]

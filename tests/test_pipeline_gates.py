@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-import lakegen.service as service
+import lakegen.pipeline.service as service
 from golden.harness import (
     SERVICE_NAMES,
     Case,

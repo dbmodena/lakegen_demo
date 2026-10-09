@@ -96,6 +96,8 @@ src/lakegen/observability/tracing.py
 src/lakegen/phases/__init__.py
 src/lakegen/pipeline/context.py
 src/lakegen/pipeline/engine.py
+src/lakegen/pipeline/runner.py
+src/lakegen/pipeline/service.py
 src/lakegen/pipeline/stages.py
 src/lakegen/pipeline/strategies.py
 src/lakegen/retrieval/__init__.py
@@ -125,9 +127,7 @@ src/lakegen/retrieval/rerank.py
 src/lakegen/retrieval/run_log.py
 src/lakegen/retrieval/semantic.py
 src/lakegen/retrieval/service.py
-src/lakegen/runner.py
 src/lakegen/runtime.py
-src/lakegen/service.py
 src/lakegen/ui/__init__.py
 src/lakegen/ui/benchmark_sidebar.py
 src/lakegen/ui/i18n.py
@@ -160,6 +160,7 @@ tests/test_discovery_selectors.py
 tests/test_duckdb_agentic_retrieval.py
 tests/test_experiment_config.py
 tests/test_experiment_reliability.py
+tests/test_import_graph.py
 tests/test_inspection_efficiency.py
 tests/test_jev_selector.py
 tests/test_keyword_cascade.py

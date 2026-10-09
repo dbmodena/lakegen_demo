@@ -16,7 +16,7 @@ FIELDS = tuple(field.name for field in fields(PipelineDeps))
 
 def test_each_surface_binds_its_own_names_when_a_run_starts(monkeypatch):
     """A test that replaces a name on a surface replaces what the engine calls."""
-    import lakegen.service as service
+    import lakegen.pipeline.service as service
     from lakegen.interfaces.cli import ask
     from lakegen.ui import workflow
 
@@ -31,7 +31,7 @@ def test_each_surface_binds_its_own_names_when_a_run_starts(monkeypatch):
 
 
 def test_the_default_deps_are_the_real_phases_and_resources():
-    import lakegen.service as service
+    import lakegen.pipeline.service as service
 
     deps = PipelineDeps.default()
     for name in FIELDS:

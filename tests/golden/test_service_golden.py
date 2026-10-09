@@ -1,4 +1,4 @@
-"""Pipeline goldens of the autonomous service, ``lakegen.service.run_question``.
+"""Pipeline goldens of the autonomous service, ``lakegen.pipeline.service.run_question``.
 
 Every scenario runs the service with scripted phases and snapshots the call
 log, the QueryResult, the log rows and the manifest. The scenarios cover each
@@ -308,7 +308,7 @@ def _():
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
 def test_service_golden(name, golden, monkeypatch, tmp_path):
-    import lakegen.service as service
+    import lakegen.pipeline.service as service
 
     case = SCENARIOS[name]()
     replacements, log, capture = prepare_run(monkeypatch, tmp_path, service, case, SERVICE_NAMES)

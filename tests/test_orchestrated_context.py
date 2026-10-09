@@ -21,11 +21,11 @@ from lakegen.discovery.orchestrated import (
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
+from lakegen.pipeline.service import run_question
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.intent import parse_retrieval_intent
 from lakegen.retrieval.models import RetrievalHit
-from lakegen.service import run_question
 
 
 def _intent(concepts, **overrides):
@@ -716,22 +716,22 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
         model_name=config.model, solr_core=config.core, csv_dir=tmp_path,
         portal_name="NYC", retrieval=RetrievalConfig(top_k=1), experiment=config,
     )
-    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.service.get_all_table_files", lambda _path: ["table.csv"])
-    monkeypatch.setattr("lakegen.service.persist_manifest", lambda *_args: None)
-    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr("lakegen.pipeline.service.persist_manifest", lambda *_args: None)
+    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
     monkeypatch.setattr(
-        "lakegen.service.phase12_agent",
+        "lakegen.pipeline.service.phase12_agent",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("agentic fallback")),
     )
     monkeypatch.setattr(
-        "lakegen.service.phase2_select_tables",
+        "lakegen.pipeline.service.phase2_select_tables",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("agentic fallback")),
     )
     monkeypatch.setattr(
-        "lakegen.service.phase1_generate_keywords",
+        "lakegen.pipeline.service.phase1_generate_keywords",
         lambda **_kwargs: (["value"], "raw", 1, "keywords"),
     )
     prepared = PreparedDiscoveryContext(
@@ -742,14 +742,14 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
         )], prepared_candidate_count=1, retrieved_hit_count=1,
     )
     monkeypatch.setattr(
-        "lakegen.service.prepare_discovery_context", lambda **_kwargs: (prepared, {})
+        "lakegen.pipeline.service.prepare_discovery_context", lambda **_kwargs: (prepared, {})
     )
     monkeypatch.setattr(
-        "lakegen.service.select_from_prepared_context",
+        "lakegen.pipeline.service.select_from_prepared_context",
         lambda **_kwargs: (["table.csv"], "selected", "trace", 2),
     )
     monkeypatch.setattr(
-        "lakegen.service.run_unified_orchestrated_discovery",
+        "lakegen.pipeline.service.run_unified_orchestrated_discovery",
         lambda **_kwargs: DiscoveryResult(
             selected_datasets=["table.csv"], candidates=["table.csv"],
             keywords=["value"], metadata={}, reasoning="selected", trace="trace",
@@ -762,14 +762,14 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
         rejected_reason="", error=None, raw_result="42",
     )
     monkeypatch.setattr(
-        "lakegen.service.phase3_generate_and_execute", lambda *_a, **_kw: generated
+        "lakegen.pipeline.service.phase3_generate_and_execute", lambda *_a, **_kw: generated
     )
     monkeypatch.setattr(
-        "lakegen.service.phase4_synthesize", lambda *_args: ("42", 1)
+        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("42", 1)
     )
     logged = {}
     monkeypatch.setattr(
-        "lakegen.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
     )
 
     result = run_question("question", runtime)
@@ -809,24 +809,24 @@ def test_empty_unified_context_retries_and_never_reaches_phase3(
             retry_keywords=True, retry_reason="empty", prepared_context=empty,
         )
 
-    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.service.get_all_table_files", lambda _path: ["table.csv"])
-    monkeypatch.setattr("lakegen.service.persist_manifest", lambda *_args: None)
-    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.service.run_unified_orchestrated_discovery", empty_discovery)
+    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr("lakegen.pipeline.service.persist_manifest", lambda *_args: None)
+    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.pipeline.service.run_unified_orchestrated_discovery", empty_discovery)
     monkeypatch.setattr(
-        "lakegen.service.phase1_generate_keywords",
+        "lakegen.pipeline.service.phase1_generate_keywords",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unified used phase1")),
     )
     monkeypatch.setattr(
-        "lakegen.service.phase3_generate_and_execute",
+        "lakegen.pipeline.service.phase3_generate_and_execute",
         lambda *_a, **_kw: (_ for _ in ()).throw(AssertionError("empty reached phase3")),
     )
     logged = {}
     monkeypatch.setattr(
-        "lakegen.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
     )
 
     result = run_question("question", runtime)

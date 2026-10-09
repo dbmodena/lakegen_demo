@@ -8,9 +8,9 @@ from pydantic import ValidationError
 from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.experiments.batch import resolve_config
 from lakegen.observability.manifest import create_manifest, persist_manifest, redact_secrets
+from lakegen.pipeline.runner import ExperimentRunner
+from lakegen.pipeline.service import run_question
 from lakegen.retrieval import RetrievalConfig
-from lakegen.runner import ExperimentRunner
-from lakegen.service import run_question
 from lakegen.ui.state import RuntimeSettings
 from src.cli import resolve_cli_experiment
 
@@ -269,20 +269,20 @@ def test_divided_autonomous_runner_executes_real_separate_phases(monkeypatch, tm
         experiment=config,
     )
     (tmp_path / "table.csv").write_text("value\n42\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.service.get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
     monkeypatch.setattr(
-        "lakegen.service.phase12_agent",
+        "lakegen.pipeline.service.phase12_agent",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unified must not run")),
     )
     monkeypatch.setattr(
-        "lakegen.service.phase1_generate_keywords",
+        "lakegen.pipeline.service.phase1_generate_keywords",
         lambda **_kwargs: (["value"], "raw", 2, "keyword reasoning"),
     )
     monkeypatch.setattr(
-        "lakegen.service.phase2_select_tables",
+        "lakegen.pipeline.service.phase2_select_tables",
         lambda **_kwargs: (
             ["table.csv"], ["table.csv"], {}, "selected", "tool trace", 3
         ),
@@ -296,17 +296,17 @@ def test_divided_autonomous_runner_executes_real_separate_phases(monkeypatch, tm
         raw_result="42",
     )
     monkeypatch.setattr(
-        "lakegen.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
+        "lakegen.pipeline.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
     )
     monkeypatch.setattr(
-        "lakegen.service.phase4_synthesize", lambda *_args: ("The answer is 42.", 5)
+        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("The answer is 42.", 5)
     )
-    monkeypatch.setattr("lakegen.service.persist_manifest", lambda *_args: tmp_path)
+    monkeypatch.setattr("lakegen.pipeline.service.persist_manifest", lambda *_args: tmp_path)
     logged = {}
     monkeypatch.setattr(
-        "lakegen.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
     )
-    monkeypatch.setattr("lakegen.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question("Question?", runtime)
 

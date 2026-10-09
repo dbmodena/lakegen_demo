@@ -44,6 +44,6 @@ def test_the_semantic_plan_audit_lands_on_the_result():
     recorder.semantic_plan({"status": "invalid", "coder_started_after_verified_plan": False})
     assert result.coder_blocked_before_start_count == 1 and result.semantic_plan_final_status == "invalid"
     # The function the tests import from the service is the recorder's.
-    from lakegen.service import _record_semantic_plan_telemetry
+    from lakegen.pipeline.service import _record_semantic_plan_telemetry
 
     assert _record_semantic_plan_telemetry is record_semantic_plan_telemetry

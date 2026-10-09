@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_the_batch_service_the_api_and_the_cli_never_load_chainlit(tmp_path):
     script = (
-        "import sys; import lakegen.service, lakegen.interfaces.api.app, lakegen.interfaces.cli.ask; "
+        "import sys; import lakegen.pipeline.service, lakegen.interfaces.api.app, lakegen.interfaces.cli.ask; "
         "assert 'chainlit' not in sys.modules, 'chainlit was imported'; print('ok')"
     )
     run = subprocess.run(

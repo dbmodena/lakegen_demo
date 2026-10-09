@@ -29,7 +29,7 @@ def _modules_loaded_by(*imports: str) -> set[str]:
 
 
 def test_the_service_api_and_cli_do_not_load_chainlit():
-    loaded = _modules_loaded_by("lakegen.service", "api", "cli")
-    assert "lakegen.service" in loaded and "api" in loaded and "cli" in loaded
+    loaded = _modules_loaded_by("lakegen.pipeline.service", "api", "cli")
+    assert "lakegen.pipeline.service" in loaded and "api" in loaded and "cli" in loaded
     assert not {name for name in loaded if name == "chainlit" or name.startswith("chainlit.")}
     assert not {name for name in loaded if name.startswith("lakegen.ui")}
