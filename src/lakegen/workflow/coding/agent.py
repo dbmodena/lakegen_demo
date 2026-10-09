@@ -14,6 +14,7 @@ from llama_index.core.llms import LLM, ChatMessage
 from lakegen.config import paths
 from lakegen.config.experiment import CoderContextLevel
 from lakegen.config.settings import get_settings
+from lakegen.domain.merge_limits import MERGE_BLOWUP_FACTOR, MERGE_BLOWUP_MIN_ROWS
 from lakegen.domain.types import SolrMetadata
 from lakegen.integrations.llm.token_usage import (
     extract_total_tokens,
@@ -92,7 +93,7 @@ import pandas as _lakegen_pd_guard
 
 def _lakegen_check_merge_blowup(left_len, right_len, result_len, keys, label):
     baseline = max(left_len, right_len, 1)
-    if result_len > 50000 and result_len > baseline * 25:
+    if result_len > __MIN_ROWS__ and result_len > baseline * __FACTOR__:
         raise RuntimeError(
             "CARTESIAN_PRODUCT_DETECTED: "
             f"{label} on {keys!r} produced {result_len} rows from left={left_len} "
@@ -131,7 +132,7 @@ def _lakegen_guarded_pd_merge(left, right, *args, **kwargs):
 
 
 _lakegen_pd_guard.merge = _lakegen_guarded_pd_merge
-'''
+'''.replace("__MIN_ROWS__", str(MERGE_BLOWUP_MIN_ROWS)).replace("__FACTOR__", str(MERGE_BLOWUP_FACTOR))
 
 
 _TABPFN_INTENT_KEYWORDS = {

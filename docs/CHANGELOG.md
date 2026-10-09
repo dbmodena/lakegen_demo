@@ -66,3 +66,26 @@ branch moves code without changing what a run does.
   `config/experiment.example.yaml` named a file in another user's home
   directory as its retrieval-benchmark input; it now names
   `benchmark/100q_nyc.json`, as the UK examples name theirs.
+- **The join/union check counts the join over every row and says when it is empty or
+  explodes.** `check_join_union` counted shared keys and the join size on
+  at most 20,000 sampled rows per table, so a many-to-many key of two big tables
+  was reported 4 to 100 times too small (808 million rows read as 197 million),
+  and a rare shared value could be missed. The best keys are now counted over all
+  the rows of their key columns (a large sample, marked `~`, for tables beyond
+  16 million cells), and each key states its inner, left and outer join rows,
+  whether the merge is EMPTY, SAFE, a FANOUT (more rows than the larger table) or
+  EXPLODES (the rule of the sandbox's `CARTESIAN_PRODUCT_DETECTED` guard, now one
+  constant in `lakegen.domain.merge_limits`), and how many rows the join has once
+  both tables are aggregated to the key. It also reports what a plain `pd.merge`
+  does on the columns as stored (nothing, an error between text and numbers, or
+  millions of rows from missing keys matching each other). The shared repeated
+  columns (a year, a district) are listed and measured together as the grain.
+  Measured on 127 reference merges of the OrQa lakes: the size class agrees with
+  the real pandas merge on 82 of 82, the plain-merge size on 79 of 79, and the
+  key columns of 91% of the references appear in the report (61% before).
+- **Valentine also matches renamed columns on their values.** Columns that find no
+  name partner are scored on their values with COMA's instance matcher, so a key
+  renamed `zona_2001` or `col_3` is a candidate; it is kept only when the
+  measured overlap confirms it. On 220 real pairs with perturbed names the share of
+  true keys that reach the threshold rises from 78% to 94% for a mix of renamings.
+  Equal scores in the union alignment now go to the identical name.

@@ -174,7 +174,8 @@ class InspectionMixin:
     def check_join_union(self, file_name_1: str, file_name_2: str) -> str:
         """
         Check whether two tables join or union with each other. Reports the join
-        key columns when they join, the aligned columns when they union, or that
-        they neither join nor union.
+        key columns with the number of rows the merge returns (and whether it is empty
+        or would explode), the aligned columns when they union, or that they neither
+        join nor union.
         """
         return _check_join_union(self.csv_dir, file_name_1, file_name_2)

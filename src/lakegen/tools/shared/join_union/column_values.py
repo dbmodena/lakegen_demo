@@ -18,10 +18,16 @@ if TYPE_CHECKING:
     from lakegen.integrations.table_io import TableProfile
 
 _NUMBER_TEXT = re.compile(r"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$")
+# a number written in any locale: '1.234,56', "1'234.5", '12 345', '7%'
+_LOOSE_NUMBER_TEXT = re.compile(r"^[+-]?\d[\d.,'\s]*%?$")
+# an amount: thousands groups of three digits and one or two decimals ('1.234,56'), or plain decimals ('12.5')
+_DECIMAL_TEXT = re.compile(r"^[+-]?(?:\d{1,3}(?:[.,'\s]\d{3})*|\d+)[.,]\d{1,2}$")
 
 # A text column counts as numeric when this share of a bounded sample parses as a number.
 NUMERIC_TEXT_SHARE = 0.9
 NUMERIC_TEXT_SAMPLE = 2000
+# a text column is a column of amounts when this share of its values is written with decimals
+DECIMAL_TEXT_SHARE = 0.3
 
 
 def map_uniques(series: pd.Series, fn: Callable[[object], str | None]) -> pd.Series:
@@ -79,6 +85,20 @@ def column_kind(series: pd.Series) -> str:
     return "str"
 
 
+def _share_matching(series: pd.Series, pattern: re.Pattern[str]) -> float:
+    sample = series.head(NUMERIC_TEXT_SAMPLE * 10).dropna().head(NUMERIC_TEXT_SAMPLE)
+    if sample.empty:
+        return 0.0
+    return float(sample.astype(str).str.strip().str.match(pattern).mean())
+
+
+def looks_numeric(series: pd.Series) -> bool:
+    """A number column, or a text column that writes numbers (in any locale: '1.234,56', '12 345')."""
+    if column_kind(series) == "num":
+        return True
+    return column_kind(series) == "str" and _share_matching(series, _LOOSE_NUMBER_TEXT) >= NUMERIC_TEXT_SHARE
+
+
 def mostly_numeric(series: pd.Series) -> bool:
     """True when a text column holds numbers ('2,012,938', '007') in a bounded sample."""
     sample = series.head(NUMERIC_TEXT_SAMPLE * 10).dropna().head(NUMERIC_TEXT_SAMPLE)
@@ -115,11 +135,14 @@ def looks_like_row_numbers(series: pd.Series, profile: TableProfile | None = Non
 
 
 def has_fractions(series: pd.Series) -> bool:
-    """A float column with non-integral values is a measurement, not an identifier."""
-    if not pd.api.types.is_float_dtype(series):
-        return False
-    values = series.head(100_000).dropna().head(10_000)
-    return bool(len(values)) and bool((values % 1 != 0).any())
+    """A column of fractions is a measurement, not an identifier: a float with non-integral values, or
+    text that writes amounts ('1.234,56', '12.5')."""
+    if pd.api.types.is_float_dtype(series):
+        values = series.head(100_000).dropna().head(10_000)
+        return bool(len(values)) and bool((values % 1 != 0).any())
+    if column_kind(series) == "str":
+        return _share_matching(series, _DECIMAL_TEXT) >= DECIMAL_TEXT_SHARE
+    return False
 
 
 # whole numbers are only evidence of a shared domain when the domain is wide: ids, codes, years
@@ -138,11 +161,8 @@ def can_match_on_values(series: pd.Series) -> bool:
         distinct = int(series.nunique(dropna=True))
     except TypeError:  # unhashable cells: lists, dicts
         return False
-    kind = column_kind(series)
-    if kind == "str" and mostly_numeric(series):
-        kind = "num"
-    if kind in ("str", "dt"):
-        return distinct >= MIN_DISTINCT_TEXT
-    if has_fractions(series) or looks_like_row_numbers(series):
-        return False
-    return distinct >= MIN_DISTINCT_NUMBERS
+    if looks_numeric(series):
+        if has_fractions(series) or looks_like_row_numbers(series):
+            return False
+        return distinct >= MIN_DISTINCT_NUMBERS
+    return distinct >= MIN_DISTINCT_TEXT

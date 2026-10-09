@@ -228,3 +228,85 @@ def test_check_join_union_reports_unreadable_tables(tmp_path):
     result = tools_p2._check_join_union(tmp_path, "missing.parquet", "other.parquet")
 
     assert result.startswith("Error checking join/union between 'missing.parquet'")
+
+
+# ---- the report over the whole tables ----------------------------------------------------------------
+
+def _pair_files(tmp_path, n=6_000, row_group_size=1_000):
+    frame = pd.DataFrame({
+        "id": [f"i{i}" for i in range(n)],
+        "district": [f"d{i % 3}" for i in range(n)],
+        "amount": [i % 97 for i in range(n)],
+    })
+    frame.to_parquet(tmp_path / "left.parquet", row_group_size=row_group_size)
+    frame.to_parquet(tmp_path / "right.parquet", row_group_size=row_group_size)
+
+
+def test_the_join_sizes_are_counted_over_every_row_when_the_tables_are_sampled(monkeypatch, tmp_path):
+    from lakegen.tools.shared.join_union import pair_check
+
+    monkeypatch.setattr(pair_check, "PAIR_SAMPLE_ROWS", 1_000)
+    _pair_files(tmp_path)
+
+    result = tools_p2._check_join_union(tmp_path, "left.parquet", "right.parquet")
+
+    assert "was sampled (1,000 of 6,000 rows)" in result
+    assert "the join sizes are counted over every row of the key columns" in result
+    assert "id (left.parquet) = id (right.parquet) -- 1:1, 6,000 shared key values" in result
+    assert "inner join = 6,000 rows" in result
+    assert "~" not in result
+
+
+def test_the_report_names_the_district_key_the_sandbox_would_stop(monkeypatch, tmp_path):
+    from lakegen.tools.shared.join_union import pair_check
+
+    monkeypatch.setattr(pair_check, "PAIR_SAMPLE_ROWS", 1_000)
+    n = 30_000
+    frame = pd.DataFrame({"id": range(n), "district": [f"d{i % 3}" for i in range(n)]})
+    frame.to_parquet(tmp_path / "left.parquet", row_group_size=1_000)
+    frame.to_parquet(tmp_path / "right.parquet", row_group_size=1_000)
+
+    result = tools_p2._check_join_union(tmp_path, "left.parquet", "right.parquet")
+
+    assert "inner join = 300,000,000 rows" in result            # 3 districts x 10,000 x 10,000
+    assert "EXPLODES: 10,000x the larger table" in result
+    assert "that join has 3 rows" in result
+
+
+def test_the_union_verdict_survives_very_long_names(tmp_path):
+    name = "Number of residents who received financial counseling or banking services "
+    columns = {name * 2 + str(i): [f"v{j}-{i}" for j in range(40)] for i in range(12)}
+    pd.DataFrame(columns).to_parquet(tmp_path / ("a" * 80 + ".parquet"))
+    pd.DataFrame(columns).to_parquet(tmp_path / ("b" * 80 + ".parquet"))
+
+    result = tools_p2._check_join_union(tmp_path, "a" * 80 + ".parquet", "b" * 80 + ".parquet")
+
+    assert len(result) <= tools_p2.MAX_TOOL_OUTPUT_CHARS
+    assert "UNION: " in result
+    assert result.index("JOIN") < result.index("UNION: ")
+
+
+def test_the_report_of_a_pair_is_kept_until_one_of_its_files_changes(monkeypatch, tmp_path):
+    from lakegen.tools.shared.join_union import pair_check
+
+    pair_check._REPORTS.clear()
+    _pair_files(tmp_path, n=100)
+    analysed = []
+    real = pair_check.analyse_pair
+    monkeypatch.setattr(pair_check, "analyse_pair", lambda *a, **k: analysed.append(1) or real(*a, **k))
+
+    first = tools_p2._check_join_union(tmp_path, "left.parquet", "right.parquet")
+    again = tools_p2._check_join_union(tmp_path, "left.parquet", "right.parquet")
+    assert first == again and len(analysed) == 1
+
+    pd.DataFrame({"id": ["x", "y"], "district": ["a", "b"], "amount": [1, 2]}).to_parquet(tmp_path / "right.parquet")
+    changed = tools_p2._check_join_union(tmp_path, "left.parquet", "right.parquet")
+    assert changed != first and len(analysed) == 2
+
+
+def test_an_error_is_not_cached(tmp_path):
+    from lakegen.tools.shared.join_union import pair_check
+
+    pair_check._REPORTS.clear()
+    assert tools_p2._check_join_union(tmp_path, "missing.parquet", "other.parquet").startswith("Error")
+    assert not pair_check._REPORTS

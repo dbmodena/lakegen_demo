@@ -31,6 +31,7 @@ values of each candidate pair and `union_mapping` measures how much of each tabl
 from __future__ import annotations
 
 import logging
+import warnings
 from collections import defaultdict
 from collections.abc import Mapping
 
@@ -41,6 +42,10 @@ from valentine.algorithms import Coma
 from lakegen.tools.shared.join_union.column_values import can_match_on_values
 
 logger = logging.getLogger(__name__)
+
+# Valentine reads dates such as "Thu Jan 01 00:00:00 EST 2009" through dateutil, which warns about every
+# time zone name it does not know; the warning says nothing the tool could act on.
+warnings.filterwarnings("ignore", message=r"tzname .* identified but not understood")
 
 # A column pair is a candidate for a join key / union mapping at or above this combined score.
 SCHEMA_MATCH_THRESHOLD = 0.5

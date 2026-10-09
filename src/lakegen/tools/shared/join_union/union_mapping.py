@@ -35,6 +35,14 @@ from lakegen.tools.shared.join_union.column_values import (
     map_uniques,
     mostly_numeric,
 )
+from lakegen.tools.shared.join_union.layout import (
+    ESSENTIAL,
+    EXTRA,
+    HEADLINE,
+    UNION_SECTION_CHARS,
+    USEFUL,
+    fit_lines,
+)
 from lakegen.tools.shared.join_union.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 UNION = "UNION"
@@ -221,13 +229,16 @@ def union_by_names(
 
 MAX_REPORTED_PAIRS = 8
 MAX_REPORTED_WARNINGS = 4
+FIRST_PAIRS = 5     # the pairs kept longest when the section must be shortened
 
 
 def _percent(share: float) -> str:
     return f"{share * 100:.0f}%"
 
 
-def format_union_section(left: str, right: str, mapping: UnionMapping) -> str:
+def format_union_section(
+    left: str, right: str, mapping: UnionMapping, limit: int = UNION_SECTION_CHARS
+) -> str:
     """The union half of the `check_join_union` report."""
     count = len(mapping.aligned)
     if mapping.verdict == UNION:
@@ -257,17 +268,17 @@ def format_union_section(left: str, right: str, mapping: UnionMapping) -> str:
             f"'{right}' map by name (a union needs >= 80% of one table's columns, or >= 50% of both "
             "with >= 3 columns)."
         )
-    lines = [head]
-    lines.extend(f"  {m.left} -> {m.right}" for m in mapping.aligned[:MAX_REPORTED_PAIRS])
+    lines: list[tuple[int, str]] = [(HEADLINE, head)]
+    for index, m in enumerate(mapping.aligned[:MAX_REPORTED_PAIRS]):
+        lines.append((ESSENTIAL if index < FIRST_PAIRS else USEFUL, f"  {m.left} -> {m.right}"))
     if count > MAX_REPORTED_PAIRS:
-        lines.append(f"  ... and {count - MAX_REPORTED_PAIRS} more")
-    lines.extend(
-        f"  warning: {m.left} -> {m.right}: {m.warning}"
-        for m in mapping.warnings[:MAX_REPORTED_WARNINGS]
-    )
+        lines.append((USEFUL, f"  ... and {count - MAX_REPORTED_PAIRS} more"))
+    for index, m in enumerate(mapping.warnings[:MAX_REPORTED_WARNINGS]):
+        lines.append((USEFUL if index == 0 else EXTRA, f"  warning: {m.left} -> {m.right}: {m.warning}"))
     if mapping.placeholders:
-        lines.append(
+        lines.append((
+            USEFUL,
             f"  ignored {mapping.placeholders} placeholder header column(s) "
-            "(empty, 'Unnamed: N' or '_duplicated_N' names): not real attributes."
-        )
-    return "\n".join(lines)
+            "(empty, 'Unnamed: N' or '_duplicated_N' names): not real attributes.",
+        ))
+    return fit_lines(lines, limit)

@@ -4,17 +4,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lakegen.tools.shared.join_union import join_keys as jp
+from lakegen.tools.shared.join_union import key_search as jp
 from lakegen.tools.shared.join_union.join_keys import (
     CONSTANT_KEY,
     JOIN,
     NO_OVERLAP,
     SURROGATE_ID,
     WEAK_OVERLAP,
-    find_join_keys,
-    format_join_section,
     measure_key,
 )
+from lakegen.tools.shared.join_union.join_report import format_join_section
+from lakegen.tools.shared.join_union.key_search import find_join_keys
 
 
 def _m(q, r, lc, rc, score=1.0):
@@ -306,7 +306,8 @@ def test_a_more_unique_but_still_non_unique_composite_is_not_proposed():
     q = pd.DataFrame({"Supplier Name": sup, "Service Area": area})
     ranked = find_join_keys(q, q.copy(), [("Service Area", "Service Area", 1.0),
                                            ("Supplier Name", "Supplier Name", 1.0)])
-    assert all(len(e.left_cols) == 1 for e in ranked)
+    assert all(len(e.left_cols) == 1 for e in ranked if not e.grain)
+    assert [e.grain for e in ranked] == [False, False, True]    # the crossing is only the grain, last
 
 
 def test_candidates_beyond_the_old_top_ten_are_still_measured_on_small_tables():
@@ -599,8 +600,9 @@ def test_a_renamed_identifier_is_kept_when_its_values_really_overlap_and_says_so
     q = pd.DataFrame({"zona": _ids(60)})
     r = pd.DataFrame({"col_0": _ids(60)})
     ranked = find_join_keys(q, r, [_by_values("zona", "col_0")])
-    assert ranked and ranked[0].verdict == JOIN
-    assert any("named differently" in note for note in ranked[0].notes)
+    assert ranked and ranked[0].verdict == JOIN and ranked[0].by_values
+    text = format_join_section("A", "B", ranked, q, r)
+    assert "named differently; Valentine matched the two columns on their values" in text
 
 
 def test_a_pair_matched_on_values_with_too_few_shared_values_is_dropped():

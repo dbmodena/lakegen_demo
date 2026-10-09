@@ -567,10 +567,11 @@ class Phase2JudgeToolsManager:
     def check_join_union(self, file_name_1: str, file_name_2: str) -> str:
         """
         Check whether two tables join or union by measuring their values. Reports
-        ranked join-key candidates with shared-value counts, cardinality and join size
-        (or that no name-similar key shares values), and a union verdict (UNION,
-        SUBSET UNION, PARTIAL UNION or NO UNION) with the column mapping and any type
-        clashes.
+        ranked join-key candidates with shared-value counts, cardinality and the exact
+        number of rows the merge would return (or that it would be empty), flags a
+        key whose merge explodes (rows multiply: aggregate first) and what a plain
+        pd.merge does on the stored columns, and a union verdict (UNION, SUBSET UNION,
+        PARTIAL UNION or NO UNION) with the column mapping and any type clashes.
         """
         return _check_join_union(self.csv_dir, file_name_1, file_name_2)
 
