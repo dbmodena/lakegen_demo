@@ -23,7 +23,7 @@ from functools import lru_cache
 from threading import Lock
 from typing import Any
 
-from lakegen.config.locations import LOG_DIR
+from lakegen.config.paths import LOG_DIR
 from lakegen.domain.retrieval import RetrievalRun
 from lakegen.retrieval.evaluation import RetrievalRunLogger
 

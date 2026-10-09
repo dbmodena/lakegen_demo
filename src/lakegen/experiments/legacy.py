@@ -25,9 +25,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lakegen.analysis.jobs import StoredJob, iter_jobs
-from lakegen.analysis.switches import MODEL_FIELDS
 from lakegen.config.recorded import load_recorded_config
+from lakegen.experiments.analysis.jobs import StoredJob, iter_jobs
+from lakegen.experiments.analysis.switches import MODEL_FIELDS
 from lakegen.experiments.spec import Cell, ExperimentSpec, expand
 from lakegen.experiments.store import RunStore
 from lakegen.retrieval import DEFAULT_TOP_K

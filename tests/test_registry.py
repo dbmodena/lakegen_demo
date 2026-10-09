@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from lakegen.config import locations as core_config
+from lakegen.config import paths as core_config
 from lakegen.config import registry
-from lakegen.config.locations import BASE_DIR
+from lakegen.config.paths import BASE_DIR
 from lakegen.config.registry import (
     get_lake,
     get_model,

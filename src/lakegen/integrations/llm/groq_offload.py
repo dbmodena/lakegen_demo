@@ -30,7 +30,7 @@ from typing import Any, Sequence
 import requests
 from llama_index.core.llms import ChatMessage, ChatResponse, MessageRole
 
-from lakegen.config.locations import LOG_DIR
+from lakegen.config.paths import LOG_DIR
 from lakegen.config.registry import groq_models
 from lakegen.config.settings import get_settings, groq_api_keys
 from lakegen.integrations.llm.token_usage import estimate_tokens

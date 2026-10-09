@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from lakegen.config import locations as core_config
+from lakegen.config import paths as core_config
 from lakegen.config.registry import lakes
 from lakegen.interfaces.chainlit import benchmark_sidebar, starters
 

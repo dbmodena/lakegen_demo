@@ -1,8 +1,8 @@
 """Inspect experiment configuration files, until the ``lakegen`` command exists.
 
-    python -m lakegen.config.cli show FILE [--format flat|v2] [--set KEY=VALUE ...]
-    python -m lakegen.config.cli validate FILE [FILE ...]
-    python -m lakegen.config.cli diff FILE_A FILE_B
+    python -m lakegen.interfaces.cli.config show FILE [--format flat|v2] [--set KEY=VALUE ...]
+    python -m lakegen.interfaces.cli.config validate FILE [FILE ...]
+    python -m lakegen.interfaces.cli.config diff FILE_A FILE_B
 
 ``show`` prints the resolved configuration (every default applied), in the
 flat schema or the nested layout; ``validate`` loads each file and reports the
@@ -72,7 +72,7 @@ def diff(left: Path, right: Path) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m lakegen.config.cli", description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(prog="python -m lakegen.interfaces.cli.config", description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
     show_command = commands.add_parser("show", help="print the resolved configuration")
     show_command.add_argument("file", type=Path)

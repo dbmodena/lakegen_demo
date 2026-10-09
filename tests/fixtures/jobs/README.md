@@ -1,6 +1,6 @@
 # Stored API jobs, trimmed
 
-`sample/` is an API job directory as `lakegen.analysis` reads one: for each
+`sample/` is an API job directory as `lakegen.experiments.analysis` reads one: for each
 job its `<id>.json` (status, timestamps, `settings.resolved_config`,
 `provider_switches`, `requeues`), its `<id>.questions.json` and its
 `<id>.results.jsonl`. The two jobs come from the benchmark-lake grid of

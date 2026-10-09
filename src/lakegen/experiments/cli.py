@@ -23,17 +23,16 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from lakegen.config.locations import BASE_DIR
+from lakegen.config.paths import BASE_DIR
 from lakegen.experiments.executors import ExecutionError, Executor, make_executor
 from lakegen.experiments.legacy import index_legacy
-from lakegen.experiments.questions import select_cases
 from lakegen.experiments.services import (
     ServiceManager,
     load_services,
     missing_requirements,
     service_for,
 )
-from lakegen.experiments.spec import ExperimentSpec, expand
+from lakegen.experiments.spec import ExperimentSpec, expand, select_cases
 from lakegen.experiments.store import RunStore
 
 

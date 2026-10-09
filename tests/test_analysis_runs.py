@@ -6,9 +6,9 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lakegen.analysis.jobs import iter_jobs, read_job
-from lakegen.analysis.runs import load_runs, runs_of_job
-from lakegen.analysis.switches import ProviderSwitch, model_id, parse_switches, values_at
+from lakegen.experiments.analysis.jobs import iter_jobs, read_job
+from lakegen.experiments.analysis.runs import load_runs, runs_of_job
+from lakegen.experiments.analysis.switches import ProviderSwitch, model_id, parse_switches, values_at
 from lakegen.experiments.store import RunStore
 
 ROOT = Path(__file__).resolve().parents[1]

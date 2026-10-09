@@ -21,10 +21,10 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from lakegen.analysis.jobs import read_progress
-from lakegen.analysis.runs import load_runs
-from lakegen.analysis.summary import cell_questions, cell_summaries
 from lakegen.config.settings import get_settings
+from lakegen.experiments.analysis.jobs import read_progress
+from lakegen.experiments.analysis.runs import load_runs
+from lakegen.experiments.analysis.summary import cell_questions, cell_summaries
 from lakegen.experiments.services import ServiceManager, load_services
 from lakegen.experiments.store import CellRecord, RunStore
 

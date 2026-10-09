@@ -1,7 +1,7 @@
 """Goldens of the analysis over stored jobs: the batch report the API logs.
 
 The report of a job must keep coming out the same from its stored questions
-and results, whatever moves between the API and ``lakegen.analysis``; the
+and results, whatever moves between the API and ``lakegen.experiments.analysis``; the
 API's own wrapper must return the report's summary.
 """
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from lakegen.analysis.metrics import batch_cases, batch_report, report_summary
+from lakegen.experiments.analysis.metrics import batch_cases, batch_report, report_summary
 
 ROOT = Path(__file__).resolve().parents[2]
 JOBS = ROOT / "tests" / "fixtures" / "jobs" / "sample"

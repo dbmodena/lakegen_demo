@@ -14,7 +14,7 @@ were switched by hand, job by job, between OCI and Together as credit came
 and went, so no single spec reproduces those three fields. The bench spec
 records the intended provider, Together, and names the three fields as
 `varied`; they are left out of its comparison and the switches are counted.
-`lakegen.analysis.load_runs` reports what each result ran on.
+`lakegen.experiments.analysis.load_runs` reports what each result ran on.
 """
 
 from __future__ import annotations

@@ -31,7 +31,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from lakegen.config import locations as core_config
+from lakegen.config import paths as core_config
 from lakegen.config.experiment import ExperimentConfig
 from lakegen.workflow.discovery.context import PreparedCandidate, PreparedDiscoveryContext
 from lakegen.workflow.discovery.orchestrated import DiscoveryResult

@@ -28,7 +28,7 @@ from typing import Any
 import yaml
 
 from lakegen.config import paths
-from lakegen.config.locations import BASE_DIR
+from lakegen.config.paths import BASE_DIR
 from lakegen.config.registry import CONFIG_DIR, get_lake, lake_names
 from lakegen.config.retrieval import RetrievalMode
 from lakegen.experiments.spec import Cell

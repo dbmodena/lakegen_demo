@@ -21,7 +21,7 @@ from typing import Any
 
 from lakegen.config import paths
 from lakegen.config.experiment import DiscoveryArchitecture
-from lakegen.config.locations import BASE_DIR
+from lakegen.config.paths import BASE_DIR
 from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
 from lakegen.domain.evaluation import EvaluationContext
 from lakegen.domain.results import QueryResult

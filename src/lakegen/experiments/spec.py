@@ -43,7 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.config.files import deep_merge, load_document, nest, translate_override
-from lakegen.config.locations import BASE_DIR
+from lakegen.config.paths import BASE_DIR
 from lakegen.config.registry import get_lake
 from lakegen.config.retrieval import RetrievalMode
 
@@ -108,7 +108,7 @@ class ExperimentSpec(StrictModel):
     # Fields the run did not hold fixed (dotted keys): switched by hand while
     # it ran, so the spec's value is the intended one, not what every job
     # used. They are not compared when stored jobs are matched to cells;
-    # `lakegen.analysis.load_runs` reports what each result ran with.
+    # `lakegen.experiments.analysis.load_runs` reports what each result ran with.
     varied: list[str] = Field(default_factory=list)
 
     @classmethod
@@ -266,3 +266,26 @@ def _questions_file(selection: QuestionSelection, values: Mapping[str, Any]) -> 
     if selection.set:
         return BASE_DIR / "benchmark" / f"{_format(selection.set, values)}.json"
     raise ValueError("questions needs a 'set' or a 'file'")
+
+
+# ---- the benchmark question files and their slices
+
+def load_cases(path: Path) -> list[dict[str, Any]]:
+    """The cases of a benchmark file (``{"cases": [...]}``) or a bare list of them."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    cases = payload["cases"] if isinstance(payload, dict) else payload
+    if not isinstance(cases, list):
+        raise ValueError(f"{path}: expected a list of cases")
+    return cases
+
+
+def parse_slice(text: str | None) -> slice:
+    """``"20:"``, ``":20"`` or ``"5:10"`` in Python's notation; None is everything."""
+    if not text:
+        return slice(None)
+    start, _, stop = text.partition(":")
+    return slice(int(start) if start.strip() else None, int(stop) if stop.strip() else None)
+
+
+def select_cases(path: Path, text: str | None) -> list[dict[str, Any]]:
+    return load_cases(path)[parse_slice(text)]

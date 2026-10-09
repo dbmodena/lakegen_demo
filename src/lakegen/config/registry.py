@@ -21,7 +21,7 @@ from typing import Any
 
 import yaml
 
-from lakegen.config import locations as core_config
+from lakegen.config import paths as core_config
 from lakegen.config.settings import pneuma_override, solr_core_override
 
 CONFIG_DIR = core_config.BASE_DIR / "config"

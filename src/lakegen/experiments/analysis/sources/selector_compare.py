@@ -21,7 +21,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from lakegen.config.locations import BASE_DIR
+from lakegen.config.paths import BASE_DIR
 
 RESULTS_DIR = BASE_DIR / "experiments" / "selector_compare" / "results"
 

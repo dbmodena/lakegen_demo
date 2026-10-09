@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from lakegen.analysis.jobs import iter_jobs
-from lakegen.analysis.runs import load_runs
+from lakegen.experiments.analysis.jobs import iter_jobs
+from lakegen.experiments.analysis.runs import load_runs
 from lakegen.config.recorded import load_recorded_config
 from lakegen.experiments import cli
 from lakegen.experiments.legacy import config_differences, index_legacy, matching_cell

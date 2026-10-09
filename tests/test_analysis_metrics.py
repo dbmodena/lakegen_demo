@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lakegen.analysis.metrics import batch_cases
+from lakegen.experiments.analysis.metrics import batch_cases
 
 
 def _question(source_id: str, gold: list[str]) -> dict:

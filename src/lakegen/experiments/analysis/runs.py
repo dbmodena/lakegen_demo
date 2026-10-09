@@ -21,10 +21,10 @@ from typing import Any
 
 import pandas as pd
 
-from lakegen.analysis import results as stored
-from lakegen.analysis.jobs import StoredJob, iter_jobs, read_job
-from lakegen.analysis.switches import MODEL_FIELDS, parse_switches, values_at
 from lakegen.domain.tables import resource_id
+from lakegen.experiments.analysis import results as stored
+from lakegen.experiments.analysis.jobs import StoredJob, iter_jobs, read_job
+from lakegen.experiments.analysis.switches import MODEL_FIELDS, parse_switches, values_at
 from lakegen.experiments.store import RunStore
 
 

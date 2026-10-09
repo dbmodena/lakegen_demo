@@ -25,7 +25,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from lakegen.analysis.metrics import batch_cases, batch_report, report_summary
 from lakegen.config.bootstrap import bootstrap_nltk_data
 from lakegen.config.experiment import (
     CoderContextLevel,
@@ -33,7 +32,7 @@ from lakegen.config.experiment import (
     ExperimentConfig,
     load_experiment_config,
 )
-from lakegen.config.locations import LOG_DIR
+from lakegen.config.paths import LOG_DIR
 from lakegen.config.runtime import SOLR_CORE_PORTAL_NAMES
 from lakegen.config.settings import (
     get_settings,
@@ -42,6 +41,7 @@ from lakegen.config.settings import (
     read_var,
 )
 from lakegen.experiments import jobs
+from lakegen.experiments.analysis.metrics import batch_cases, batch_report, report_summary
 from lakegen.experiments.jobs import (
     JOBS,
     JOBS_LOCK,

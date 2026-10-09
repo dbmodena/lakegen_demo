@@ -6,7 +6,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from lakegen.config import locations as config
+from lakegen.config import paths as config
 from lakegen.integrations.solr import portal as docs
 
 

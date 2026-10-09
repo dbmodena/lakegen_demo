@@ -23,7 +23,7 @@ from pathlib import Path
 from lakegen.config.bootstrap import bootstrap_nltk_data
 from lakegen.config.experiment import InteractionMode, load_experiment_config
 from lakegen.config.files import parse_set_values
-from lakegen.config.locations import resolve_portal_tables_dir
+from lakegen.config.paths import resolve_portal_tables_dir
 from lakegen.config.registry import get_lake
 from lakegen.config.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.integrations.llm import get_llm  # noqa: F401

@@ -38,7 +38,7 @@ load_dotenv(ROOT / ".env")
 
 import duckdb  # noqa: E402
 
-from lakegen.config.locations import resolve_portal_tables_dir  # noqa: E402
+from lakegen.config.paths import resolve_portal_tables_dir  # noqa: E402
 from lakegen.retrieval.factory import get_solr  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "results"

@@ -28,7 +28,7 @@ def _ask(rest: list[str]) -> int:
 
 
 def _config(rest: list[str]) -> int:
-    from lakegen.config import cli
+    from lakegen.interfaces.cli import config as cli
 
     return cli.main(rest)
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from lakegen.experiments.questions import parse_slice, select_cases
+from lakegen.experiments.spec import parse_slice, select_cases
 from lakegen.experiments.spec import ExperimentSpec, compose, expand
 from lakegen.experiments.store import RunStore
 

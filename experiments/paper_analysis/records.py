@@ -18,9 +18,9 @@ Two protocols, as the runs exist:
 Gold semantics: every gold table is needed, except on Chicago, whose gold is a
 set of alternatives (Pneuma's answer tables), any one of which answers.
 
-The stored results are read through lakegen.analysis: API jobs with
+The stored results are read through lakegen.experiments.analysis: API jobs with
 `iter_runs` (which also undoes the provider switches), the selector comparison
-and the benchmark files with `lakegen.analysis.sources`.
+and the benchmark files with `lakegen.experiments.analysis.sources`.
 """
 
 from __future__ import annotations
@@ -30,12 +30,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lakegen.analysis.jobs import is_job_file, read_job
-from lakegen.analysis.results import solved
-from lakegen.analysis.runs import Run, iter_runs, runs_of_job
-from lakegen.analysis.sources import selector_compare
-from lakegen.analysis.sources.benchmarks import benchmark_cases, gold_is_any_of
-from lakegen.config.locations import BASE_DIR
+from lakegen.experiments.analysis.jobs import is_job_file, read_job
+from lakegen.experiments.analysis.results import solved
+from lakegen.experiments.analysis.runs import Run, iter_runs, runs_of_job
+from lakegen.experiments.analysis.sources import selector_compare
+from lakegen.experiments.analysis.sources.benchmarks import benchmark_cases, gold_is_any_of
+from lakegen.config.paths import BASE_DIR
 from lakegen.domain.tables import resource_id
 
 ROOT = BASE_DIR

@@ -8,7 +8,7 @@
 
 Results are never copied: a cell submitted to an API points at that API's job
 (``job_dir`` and ``job_id``); a legacy job indexed with ``index-legacy`` points
-at its job directory the same way. ``lakegen.analysis`` reads jobs through the
+at its job directory the same way. ``lakegen.experiments.analysis`` reads jobs through the
 index.
 """
 

@@ -11,7 +11,7 @@ from lakegen.config.experiment import (
     InteractionMode,
     load_experiment_config,
 )
-from lakegen.config.locations import resolve_portal_tables_dir
+from lakegen.config.paths import resolve_portal_tables_dir
 from lakegen.config.registry import get_lake
 from lakegen.config.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.domain.results import QueryResult, QuestionSource, extract_questions

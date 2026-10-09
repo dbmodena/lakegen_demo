@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lakegen.config import locations as core_config
+from lakegen.config import paths as core_config
 from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.workflow.observability.manifest import create_manifest, effective_settings
 

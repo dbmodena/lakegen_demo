@@ -28,9 +28,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from lakegen.analysis.results import expansion_used, final_ranking, selected_tables
 from lakegen.config.experiment import CoderContextLevel
 from lakegen.domain.tables import resource_id
+from lakegen.experiments.analysis.results import expansion_used, final_ranking, selected_tables
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
 from lakegen.workflow.evaluation.code import summarize_code_evaluations
 

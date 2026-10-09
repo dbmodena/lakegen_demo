@@ -9,7 +9,7 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-from lakegen.config.locations import LOG_DIR
+from lakegen.config.paths import LOG_DIR
 
 CSV_LOG_COLUMNS = [
     "ID", "TIMESTAMP", "MODEL", "ARCHITECTURE", "QUESTION",

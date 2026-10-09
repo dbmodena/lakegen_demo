@@ -276,7 +276,7 @@ how to execute (through a running API or in-process) and the services it needs.
 SPEC` submits the rest (it can be restarted: a cell in the run store is
 skipped), `lakegen exp status SPEC` follows them. The run store under the state
 root (`runs/<experiment>/`) records what each cell submitted;
-`lakegen.analysis.load_runs("bench-grid")` reads every result of an experiment
+`lakegen.experiments.analysis.load_runs("bench-grid")` reads every result of an experiment
 as one table, and `python -m lakegen.interfaces.dashboard` shows the rates
 live. `lakegen services status|up|down` manages the services of
 `config/services.yaml` (Pneuma per lake, Ollama, the API, dashboards).

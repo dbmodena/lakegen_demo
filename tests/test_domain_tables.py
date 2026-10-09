@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lakegen.analysis.results import final_ranking, selected_tables, solved, tokens
+from lakegen.experiments.analysis.results import final_ranking, selected_tables, solved, tokens
 from lakegen.domain.tables import resource_id, table_id
 
 

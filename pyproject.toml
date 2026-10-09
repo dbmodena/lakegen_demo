@@ -113,7 +113,7 @@ name = "Only the interfaces import the web and UI frameworks"
 type = "forbidden"
 source_modules = [
     "lakegen.workflow", "lakegen.tools", "lakegen.retrieval", "lakegen.integrations",
-    "lakegen.config", "lakegen.domain", "lakegen.experiments", "lakegen.analysis",
+    "lakegen.config", "lakegen.domain", "lakegen.experiments", "lakegen.experiments.analysis",
     "lakegen.interfaces.cli",
 ]
 forbidden_modules = ["chainlit", "fastapi"]
@@ -150,7 +150,7 @@ type = "forbidden"
 source_modules = [
     "lakegen.workflow.discovery", "lakegen.workflow.coding", "lakegen.workflow.answer",
     "lakegen.workflow.evaluation", "lakegen.workflow.prompts", "lakegen.tools", "lakegen.retrieval",
-    "lakegen.integrations", "lakegen.config", "lakegen.domain", "lakegen.analysis",
+    "lakegen.integrations", "lakegen.config", "lakegen.domain", "lakegen.experiments.analysis",
 ]
 forbidden_modules = ["lakegen.workflow.observability"]
 
@@ -163,5 +163,5 @@ source_modules = [
     "lakegen.tools", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain",
 ]
 forbidden_modules = [
-    "lakegen.workflow.pipeline", "lakegen.interfaces", "lakegen.experiments", "lakegen.analysis",
+    "lakegen.workflow.pipeline", "lakegen.interfaces", "lakegen.experiments", "lakegen.experiments.analysis",
 ]

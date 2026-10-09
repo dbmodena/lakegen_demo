@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lakegen.config.locations import BASE_DIR
-from lakegen.experiments.questions import load_cases
+from lakegen.config.paths import BASE_DIR
+from lakegen.experiments.spec import load_cases
 
 
 def benchmark_path(lake: str, question_set: str = "100q") -> Path:

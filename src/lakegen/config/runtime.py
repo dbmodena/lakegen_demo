@@ -19,7 +19,7 @@ from lakegen.config.experiment import (
     InteractionMode,
     load_experiment_config,
 )
-from lakegen.config.locations import resolve_portal_tables_dir
+from lakegen.config.paths import resolve_portal_tables_dir
 from lakegen.config.registry import get_lake, lake_names, lakes, model_names
 from lakegen.config.retrieval import RetrievalConfig, RetrievalMode
 
