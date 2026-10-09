@@ -23,15 +23,15 @@ from lakegen.coding.attempts import CodeAttemptEvaluator
 from lakegen.config import paths
 from lakegen.config.experiment import DiscoveryArchitecture
 from lakegen.config.locations import BASE_DIR
-from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
-from lakegen.domain.evaluation import EvaluationContext
-from lakegen.domain.results import QueryResult
-from lakegen.keyword_memory import (
+from lakegen.discovery.memory import (
     format_question_retrieval_memory,
     load_keyword_memory,
     load_question_retrieval_memory,
     question_memory_key,
 )
+from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
+from lakegen.domain.evaluation import EvaluationContext
+from lakegen.domain.results import QueryResult
 from lakegen.observability.manifest import ExperimentManifest, create_manifest
 from lakegen.observability.recorder import Recorder, record_semantic_plan_telemetry
 from lakegen.observability.reproducibility import initialize_reproducibility

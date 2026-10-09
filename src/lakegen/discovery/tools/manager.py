@@ -8,9 +8,9 @@ from typing import Callable
 from llama_index.core.llms import LLM
 from llama_index.core.tools import FunctionTool
 
-from lakegen.agent_tools.discovery_context import REPEATED_BLOCK, DiscoveryContext
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.discovery.tools.brief import BriefMixin
+from lakegen.discovery.tools.context_editor import REPEATED_BLOCK, DiscoveryContext
 from lakegen.discovery.tools.inspection import InspectionMixin
 from lakegen.discovery.tools.plan_models import (
     ConfirmUnifiedSelectionSchema,

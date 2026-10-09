@@ -19,18 +19,18 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from lakegen.config.experiment import DiscoveryArchitecture, ToolAccess
+from lakegen.discovery.memory import (
+    format_question_retrieval_memory,
+    load_question_retrieval_memory,
+    persist_keyword_memory,
+    persist_question_retrieval_memory,
+)
 from lakegen.discovery.orchestrated import (
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
     RetrievalRequestProtocolError,
 )
 from lakegen.domain.outcomes import DiscoveryOutcome, SelectorKind
-from lakegen.keyword_memory import (
-    format_question_retrieval_memory,
-    load_question_retrieval_memory,
-    persist_keyword_memory,
-    persist_question_retrieval_memory,
-)
 from lakegen.pipeline.adapters import (
     divided_agentic_outcome,
     divided_orchestrated_outcome,

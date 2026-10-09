@@ -19,6 +19,7 @@ from typing import Any
 
 import chainlit as cl
 
+from lakegen.discovery.context import prepare_discovery_context  # noqa: F401
 from lakegen.discovery.orchestrated import (  # noqa: F401
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
@@ -33,7 +34,6 @@ from lakegen.llm import get_llm  # noqa: F401
 from lakegen.observability.csv_log import save_experiment_log  # noqa: F401
 from lakegen.observability.manifest import persist_manifest  # noqa: F401
 from lakegen.observability.tracing import HumanGate, PhaseName, normalize_hint
-from lakegen.orchestrated_context import prepare_discovery_context  # noqa: F401
 from lakegen.phases import (  # noqa: F401
     phase1_generate_keywords,
     phase2_select_tables,

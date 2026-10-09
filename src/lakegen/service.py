@@ -14,6 +14,7 @@ from lakegen.config.experiment import (
 from lakegen.config.locations import resolve_portal_tables_dir
 from lakegen.config.registry import get_lake
 from lakegen.config.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
+from lakegen.discovery.context import prepare_discovery_context  # noqa: F401
 from lakegen.discovery.orchestrated import (  # noqa: F401
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
@@ -31,7 +32,6 @@ from lakegen.observability.manifest import (
     ExperimentManifest,
     persist_manifest,  # noqa: F401
 )
-from lakegen.orchestrated_context import prepare_discovery_context  # noqa: F401
 from lakegen.phases import (  # noqa: F401
     phase1_generate_keywords,
     phase2_select_tables,

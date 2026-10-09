@@ -37,6 +37,7 @@ class PipelineDeps:
     @classmethod
     def default(cls) -> PipelineDeps:
         """The real phases, resources and sinks."""
+        from lakegen.discovery.context import prepare_discovery_context
         from lakegen.discovery.orchestrated import (
             run_unified_orchestrated_discovery,
             select_from_prepared_context,
@@ -46,7 +47,6 @@ class PipelineDeps:
         from lakegen.llm import get_llm
         from lakegen.observability import csv_log as core_logger
         from lakegen.observability.manifest import persist_manifest
-        from lakegen.orchestrated_context import prepare_discovery_context
         from lakegen.phases import (
             phase1_generate_keywords,
             phase2_select_tables,

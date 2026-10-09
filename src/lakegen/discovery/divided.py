@@ -7,8 +7,6 @@ from llama_index.core import Settings
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 
-from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
-from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.discovery.candidates import (
     format_candidate_context,
@@ -16,8 +14,10 @@ from lakegen.discovery.candidates import (
     parse_table_selector_response,
     solr_metadata_from_doc,
 )
+from lakegen.discovery.ledger import build_minimal_selection_fallback
 from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector
+from lakegen.discovery.tools.judge import Phase2JudgeToolsManager
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.domain.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from lakegen.llm.agents.activity import (

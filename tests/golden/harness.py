@@ -33,8 +33,8 @@ from typing import Any
 
 from lakegen.config import locations as core_config
 from lakegen.config.experiment import ExperimentConfig
+from lakegen.discovery.context import PreparedCandidate, PreparedDiscoveryContext
 from lakegen.discovery.orchestrated import DiscoveryResult
-from lakegen.orchestrated_context import PreparedCandidate, PreparedDiscoveryContext
 
 _HEX32 = re.compile(r"\b[0-9a-f]{32}\b")
 _TIMESTAMP = re.compile(

@@ -10,7 +10,7 @@ repeating the year digits (e.g. "financial year filter" instead of
 "financial year filter (2016)") was wrongly reported as unresolved."""
 import pytest
 
-from lakegen.agent_tools.requirement_ledger import build_requirement_ledger, requirement_ledger_blockers
+from lakegen.discovery.ledger import build_requirement_ledger, requirement_ledger_blockers
 
 
 def _temporal_scope_item(ledger):

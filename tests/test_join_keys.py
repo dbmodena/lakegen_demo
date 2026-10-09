@@ -4,10 +4,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lakegen.agent_tools import join_keys as jp
-from lakegen.agent_tools.join_keys import (
-    CONSTANT_KEY, JOIN, NO_OVERLAP, SURROGATE_ID, WEAK_OVERLAP,
-    find_join_keys, format_join_section, measure_key,
+from lakegen.discovery.tools import join_keys as jp
+from lakegen.discovery.tools.join_keys import (
+    CONSTANT_KEY,
+    JOIN,
+    NO_OVERLAP,
+    SURROGATE_ID,
+    WEAK_OVERLAP,
+    find_join_keys,
+    format_join_section,
+    measure_key,
 )
 
 

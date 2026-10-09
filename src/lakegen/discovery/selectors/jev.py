@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
 from lakegen.config.experiment import DiscoveryConfig, TableSelector
+from lakegen.discovery.ledger import build_minimal_selection_fallback
 from lakegen.discovery.selectors import (
     Selection,
     SelectionRequest,

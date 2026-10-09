@@ -5,16 +5,15 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from lakegen.retrieval import grep as grep_module
-
-from lakegen.retrieval.duckdb_agentic import _query_terms
-from lakegen.retrieval.grep import _term_pattern
 from lakegen.retrieval import (
     GrepRetriever,
     RetrievalConfig,
     RetrievalMode,
     TableRetrievalService,
 )
+from lakegen.retrieval import grep as grep_module
+from lakegen.retrieval.duckdb_agentic import _query_terms
+from lakegen.retrieval.grep import _term_pattern
 
 
 def test_grep_retrieval_reports_per_column_evidence_and_samples(tmp_path):
@@ -229,7 +228,7 @@ def test_scans_do_not_use_the_streaming_engine():
     win back by restoring it. A segfault cannot be caught, so this is asserted
     at the source level.
     """
-    from lakegen import cell_scan
+    from lakegen.retrieval import cell_scan
 
     for module in (grep_module, cell_scan):  # the queries themselves live in cell_scan
         source = Path(module.__file__).read_text(encoding="utf-8")

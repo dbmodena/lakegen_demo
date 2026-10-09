@@ -2,13 +2,13 @@
 
 
 
-from lakegen.agent_tools.tools_p2 import (
+from lakegen.discovery.candidates import format_candidate_context
+from lakegen.discovery.tools.judge import (
     _check_join_union,
     _inspect_columns,
     _rank_for_missing_requirements,
     _requirement_terms,
 )
-from lakegen.discovery.candidates import format_candidate_context
 
 
 class InspectionMixin:

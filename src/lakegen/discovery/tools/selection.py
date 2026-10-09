@@ -1,13 +1,13 @@
 """The selection tools of the unified agent: confirm the tables with a plan, reject them with a reason, draft the plan."""
 
 
-from lakegen.agent_tools.requirement_ledger import (
+from lakegen.discovery.ledger import (
     build_requirement_ledger,
 )
-from lakegen.agent_tools.tools_p2 import (
+from lakegen.discovery.tools import confirmation
+from lakegen.discovery.tools.judge import (
     MIN_BAN_JUSTIFICATION_CHARS,
 )
-from lakegen.discovery.tools import confirmation
 from lakegen.discovery.tools.plan_models import (
     SemanticAnalysisPlan,
     compile_semantic_plan_draft,

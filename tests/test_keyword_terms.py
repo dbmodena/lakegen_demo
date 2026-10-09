@@ -7,9 +7,9 @@ import pytest
 
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.discovery import tools as tools_p12_v1
+from lakegen.discovery.memory import load_keyword_memory
+from lakegen.discovery.terms import keyword_terms
 from lakegen.discovery.tools import search as search_tools
-from lakegen.keyword_memory import load_keyword_memory
-from lakegen.keyword_terms import keyword_terms
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 
 # agent_tools_2 was the experimental v2 module; its improvements were promoted

@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lakegen.agent_tools.requirement_ledger import requirement_ledger_block_message
-from lakegen.agent_tools.tools_p2 import _temporal_coverage_issue
+from lakegen.discovery.ledger import requirement_ledger_block_message
+from lakegen.discovery.tools.judge import _temporal_coverage_issue
 from lakegen.discovery.tools.plan_models import (
     SemanticAnalysisPlan,
     _derive_output_columns,

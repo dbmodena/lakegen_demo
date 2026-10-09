@@ -4,8 +4,8 @@ nothing, and what one round learned is still known in the next."""
 import pytest
 
 from lakegen.discovery import tools as tools_p12_v1
+from lakegen.discovery.terms import keyword_terms, minimal_failing_subsets
 from lakegen.discovery.tools import search as search_tools
-from lakegen.keyword_terms import keyword_terms, minimal_failing_subsets
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 from lakegen.ui.state import LakeGenSession
 

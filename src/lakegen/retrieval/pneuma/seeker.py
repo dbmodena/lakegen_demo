@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from lakegen import cell_scan
+from lakegen.retrieval import cell_scan
 
 # Text columns are scanned in isolated worker processes, one file and one
 # bounded chunk at a time. This keeps Pneuma-Seeker's content scan independent

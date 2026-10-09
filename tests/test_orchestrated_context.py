@@ -5,6 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.config.experiment import DiscoveryArchitecture, DiscoveryConfig, ExperimentConfig
+from lakegen.discovery.context import (
+    PreparedCandidate,
+    PreparedDiscoveryContext,
+    prepare_discovery_context,
+)
 from lakegen.discovery.orchestrated import (
     DiscoveryResult,
     OrchestratedContextPreparationError,
@@ -15,11 +20,6 @@ from lakegen.discovery.orchestrated import (
     parse_retrieval_request,
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
-)
-from lakegen.orchestrated_context import (
-    PreparedCandidate,
-    PreparedDiscoveryContext,
-    prepare_discovery_context,
 )
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
@@ -150,7 +150,7 @@ def test_preparer_forwards_existing_retrieval_config_and_preserves_order(
 
     config = RetrievalConfig(mode=mode, top_k=2, alpha=0.37)
     monkeypatch.setattr(
-        "lakegen.orchestrated_context.get_table_retrieval_service",
+        "lakegen.discovery.context.get_table_retrieval_service",
         lambda client, actual_config: (
             calls.append({"client": client, "config": actual_config})
             or FakeRetriever()
@@ -349,7 +349,7 @@ def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
         rank=1,
     )
     monkeypatch.setattr(
-        "lakegen.orchestrated_context.get_table_retrieval_service",
+        "lakegen.discovery.context.get_table_retrieval_service",
         lambda *_args: SimpleNamespace(retrieve=lambda **_kwargs: [hit]),
     )
     context, _ = prepare_discovery_context(
@@ -390,7 +390,7 @@ def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
 
 def test_preparation_error_is_explicit_without_agentic_fallback(monkeypatch):
     monkeypatch.setattr(
-        "lakegen.orchestrated_context.get_table_retrieval_service",
+        "lakegen.discovery.context.get_table_retrieval_service",
         lambda *_args: SimpleNamespace(
             retrieve=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("offline boom"))
         ),

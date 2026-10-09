@@ -1,6 +1,6 @@
 import pandas as pd
 
-from lakegen.agent_tools import tools_p2
+from lakegen.discovery.tools import judge as tools_p2
 
 
 def test_temporal_profile_is_bounded_and_keeps_exact_parquet_row_count(monkeypatch):

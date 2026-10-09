@@ -66,14 +66,15 @@ def test_partition_any_alias_stays_invalid_when_column_is_not_common():
     )
 
     assert resolved["filters"][0]["table"] == "any"
-from lakegen.agent_tools import tools_p2
-from lakegen.agent_tools.requirement_ledger import (
+from lakegen.discovery.ledger import (
     _period_years,
     build_minimal_selection_fallback,
     build_requirement_ledger,
     requirement_ledger_blockers,
 )
-from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
+from lakegen.discovery.memory import format_question_retrieval_memory
+from lakegen.discovery.tools import judge as tools_p2
+from lakegen.discovery.tools.judge import Phase2JudgeToolsManager
 from lakegen.discovery.unified import (
     _conservative_draft_from_requirements,
     _extract_plausible_json,
@@ -83,7 +84,6 @@ from lakegen.discovery.unified import (
     _recover_minimal_selection_plan,
     _semantic_planner_prompt,
 )
-from lakegen.keyword_memory import format_question_retrieval_memory
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalConfig,
@@ -1796,7 +1796,7 @@ def test_guided_expansion_stops_when_hidden_metadata_has_no_coverage(
 
 def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "lakegen.agent_tools.tools_p2._inspect_columns",
+        "lakegen.discovery.tools.judge._inspect_columns",
         lambda _directory, name: f"Schema for {name}",
     )
     candidates = [f"table-{index}.parquet" for index in range(1, 21)]
@@ -2162,7 +2162,7 @@ def test_state_board_reports_the_last_blocked_confirmation(tmp_path):
     with pytest.raises(ValueError) as again:
         confirm(**arguments)
 
-    from lakegen.agent_tools.discovery_context import REPEATED_BLOCK
+    from lakegen.discovery.tools.context_editor import REPEATED_BLOCK
 
     assert str(again.value).startswith(REPEATED_BLOCK)
     assert state.confirm_blocks == 2
@@ -2171,7 +2171,7 @@ def test_state_board_reports_the_last_blocked_confirmation(tmp_path):
 
 
 def test_compaction_shortens_superseded_results_and_keeps_one_current_board(tmp_path):
-    from lakegen.agent_tools.discovery_context import COMPACTED
+    from lakegen.discovery.tools.context_editor import COMPACTED
 
     state, manager = _ni_manager(tmp_path)
     del state.inspection_cache["other.parquet"]

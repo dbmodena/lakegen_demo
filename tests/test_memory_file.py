@@ -6,13 +6,13 @@ import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from lakegen.keyword_memory import (
+from lakegen.discovery.memory import (
     load_keyword_memory,
     load_question_retrieval_memory,
     persist_keyword_memory,
     persist_question_retrieval_memory,
 )
-from lakegen.keyword_terms import keyword_terms
+from lakegen.discovery.terms import keyword_terms
 
 EVENT = {"outcome": "zero_results", "terms": ["parks"]}
 

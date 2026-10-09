@@ -26,16 +26,16 @@ from lakegen.config.experiment import (
     ExperimentConfig,
 )
 from lakegen.discovery.candidates import rejection_feedback_hint
-from lakegen.discovery.tools import P12State
-from lakegen.domain.evaluation import EvaluationContext
-from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome
-from lakegen.evaluation.output_validation import AnswerDisposition, validate_answer
-from lakegen.keyword_memory import (
+from lakegen.discovery.memory import (
     format_question_retrieval_memory,
     load_question_retrieval_memory,
     persist_keyword_memory,
     persist_question_retrieval_memory,
 )
+from lakegen.discovery.tools import P12State
+from lakegen.domain.evaluation import EvaluationContext
+from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome
+from lakegen.evaluation.output_validation import AnswerDisposition, validate_answer
 from lakegen.observability.recorder import Recorder
 from lakegen.pipeline.adapters import (
     code_outcome,

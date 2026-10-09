@@ -10,7 +10,7 @@ import textwrap
 import pandas as pd
 import pytest
 
-from lakegen import cell_scan
+from lakegen.retrieval import cell_scan
 
 _HELPERS = textwrap.dedent("""
     import os

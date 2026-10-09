@@ -8,12 +8,12 @@ from llama_index.core import Settings
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 
-from lakegen.agent_tools.requirement_ledger import (
+from lakegen.config.experiment import DiscoveryConfig
+from lakegen.config.settings import get_settings
+from lakegen.discovery.ledger import (
     build_minimal_selection_fallback,
     requirement_ledger_blockers,
 )
-from lakegen.config.experiment import DiscoveryConfig
-from lakegen.config.settings import get_settings
 from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.domain.types import SolrMetadata, StreamCallback
