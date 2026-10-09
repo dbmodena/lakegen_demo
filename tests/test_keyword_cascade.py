@@ -8,9 +8,9 @@ import json
 from types import SimpleNamespace
 
 from lakegen.config.experiment import DiscoveryConfig, KeywordSearchStrategy
-from lakegen.discovery import tools as tools_p12
-from lakegen.discovery.tools import search as search_tools
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
+from lakegen.tools import unified as tools_p12
+from lakegen.tools.unified import search as search_tools
 
 TABLE_WORDS = {
     "orr_2021_11.parquet": {"organogram", "office", "rail", "road", "november", "2021"},

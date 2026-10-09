@@ -2,8 +2,8 @@
 
 
 
-from lakegen.discovery.candidates import format_candidate_context
-from lakegen.discovery.tools.judge import (
+from lakegen.tools.shared.candidates import format_candidate_context
+from lakegen.tools.shared.judge import (
     _check_join_union,
     _inspect_columns,
     _rank_for_missing_requirements,

@@ -8,10 +8,10 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.discovery import divided
-from lakegen.discovery.tools import P12State
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.integrations.llm.agents.activity import Phase2AgentStall
 from lakegen.retrieval import RetrievalConfig
+from lakegen.tools.unified import P12State
 
 FILES = ["a.parquet", "b.parquet", "c.parquet"]
 META = {name: {"title": name, "columns": []} for name in FILES}

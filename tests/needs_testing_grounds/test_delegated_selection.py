@@ -7,8 +7,8 @@ import re
 import pandas as pd
 import pytest
 
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.config.experiment import DiscoveryConfig
+from lakegen.tools.unified import P12State, Phase12ToolsManager
 
 
 class FakeMessage:

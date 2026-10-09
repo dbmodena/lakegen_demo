@@ -8,14 +8,6 @@ import pandas as pd
 from llama_index.core.tools import FunctionTool
 from pydantic import BaseModel, Field
 
-from lakegen.discovery.candidates import format_candidate_context
-from lakegen.discovery.ledger import (
-    build_requirement_ledger,
-    requirement_ledger_block_message,
-)
-from lakegen.discovery.tools.join_keys import find_join_keys, format_join_section
-from lakegen.discovery.tools.schema_matching import verify_pair_schema
-from lakegen.discovery.tools.union_mapping import format_union_section, union_by_names
 from lakegen.domain.types import SolrMetadata
 from lakegen.integrations.table_io import (
     TableProfile,
@@ -25,6 +17,14 @@ from lakegen.integrations.table_io import (
     read_table_sample,
     table_row_count,
 )
+from lakegen.tools.shared.candidates import format_candidate_context
+from lakegen.tools.shared.join_keys import find_join_keys, format_join_section
+from lakegen.tools.shared.ledger import (
+    build_requirement_ledger,
+    requirement_ledger_block_message,
+)
+from lakegen.tools.shared.schema_matching import verify_pair_schema
+from lakegen.tools.shared.union_mapping import format_union_section, union_by_names
 
 # ==========================================
 # TOOLS

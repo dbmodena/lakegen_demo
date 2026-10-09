@@ -11,9 +11,7 @@ from typing import Any
 import pandas as pd
 from llama_index.core.llms import LLM, ChatMessage
 
-from lakegen.coding.column_resolution import resolve_generated_code_columns
 from lakegen.coding.context import CoderContext
-from lakegen.coding.data_quality import profile_table_quality
 from lakegen.config import paths
 from lakegen.config.experiment import CoderContextLevel
 from lakegen.config.settings import get_settings
@@ -30,6 +28,8 @@ from lakegen.integrations.llm.token_usage import (
 )
 from lakegen.integrations.table_io import read_table, table_load_command
 from lakegen.prompts.prompt_manager import PromptManager
+from lakegen.tools.coder.quality.column_resolution import resolve_generated_code_columns
+from lakegen.tools.coder.quality.data_quality import profile_table_quality
 
 
 @dataclass
@@ -1222,7 +1222,7 @@ def phase3_generate_and_execute(
     """The coder on one selection: a bounded tool-using agent over the sandbox, its result settled deterministically."""
     # Keep retrieval/discovery and the existing sandbox unchanged: only the
     # coder's generate/execute retry loop becomes a bounded tool-using agent.
-    from lakegen.coding.tools import P3State, Phase3ToolsManager
+    from lakegen.tools.coder import P3State, Phase3ToolsManager
 
     coder_context = CoderContext.build(
         question=query,

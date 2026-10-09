@@ -7,8 +7,8 @@ concern (``plan_grounding``, ``contract``, ``sandbox``, ``error_repair``,
 prompts name, so they do not change here.
 """
 
-from lakegen.coding.tools.error_repair import classify_execution_error
-from lakegen.coding.tools.manager import Phase3ToolsManager, RejectTablesSchema
-from lakegen.coding.tools.state import CoderLifecycle, P3State, ReviewStatus
+from lakegen.tools.coder.execution.error_repair import classify_execution_error
+from lakegen.tools.coder.manager import Phase3ToolsManager, RejectTablesSchema
+from lakegen.tools.coder.state import CoderLifecycle, P3State, ReviewStatus
 
 __all__ = ["CoderLifecycle", "P3State", "Phase3ToolsManager", "RejectTablesSchema", "ReviewStatus", "classify_execution_error"]

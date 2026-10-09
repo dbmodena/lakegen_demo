@@ -11,9 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.discovery import tools as tools_p12
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
+from lakegen.tools import unified as tools_p12
 
 DOCS = {
     "housing_2021.parquet": {

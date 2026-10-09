@@ -29,13 +29,13 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from lakegen.discovery.tools.column_values import (
+from lakegen.tools.shared.column_values import (
     as_number,
     column_kind,
     map_uniques,
     mostly_numeric,
 )
-from lakegen.discovery.tools.schema_matching import SCHEMA_MATCH_THRESHOLD
+from lakegen.tools.shared.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 UNION = "UNION"
 SUBSET_UNION = "SUBSET_UNION"

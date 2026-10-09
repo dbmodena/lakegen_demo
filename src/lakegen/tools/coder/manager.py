@@ -8,16 +8,16 @@ from typing import Any, Callable
 from llama_index.core.tools import FunctionTool
 from pydantic import BaseModel, Field
 
-from lakegen.coding.tools.contract import ContractMixin
-from lakegen.coding.tools.error_repair import ErrorRepairMixin
-from lakegen.coding.tools.finish import FinishMixin
-from lakegen.coding.tools.inspection import InspectionMixin
-from lakegen.coding.tools.plan_grounding import PlanGroundingMixin
-from lakegen.coding.tools.rejection import RejectionMixin
-from lakegen.coding.tools.result_checks import ResultChecksMixin
-from lakegen.coding.tools.sandbox import SandboxMixin
-from lakegen.coding.tools.state import P3State
 from lakegen.integrations.table_io import read_table
+from lakegen.tools.coder.execution.error_repair import ErrorRepairMixin
+from lakegen.tools.coder.execution.sandbox import SandboxMixin
+from lakegen.tools.coder.plan_grounding import PlanGroundingMixin
+from lakegen.tools.coder.result_checks import ResultChecksMixin
+from lakegen.tools.coder.state import P3State
+from lakegen.tools.coder.steps.contract import ContractMixin
+from lakegen.tools.coder.steps.finish import FinishMixin
+from lakegen.tools.coder.steps.inspection import InspectionMixin
+from lakegen.tools.coder.steps.rejection import RejectionMixin
 
 
 class RejectTablesSchema(BaseModel):

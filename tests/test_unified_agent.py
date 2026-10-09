@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.discovery.tools import P12State
 from lakegen.discovery.unified import phase12_agent
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.integrations.llm.agents.activity import Phase2AgentStall
+from lakegen.tools.unified import P12State
 
 FILES = ("a.csv", "b.csv")
 

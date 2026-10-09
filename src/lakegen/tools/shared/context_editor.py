@@ -35,13 +35,13 @@ from typing import TYPE_CHECKING
 
 from llama_index.core.base.llms.types import ChatMessage, MessageRole, TextBlock
 
-from lakegen.discovery.ledger import (
+from lakegen.tools.shared.ledger import (
     inspected_period_evidence,
     question_periods,
 )
 
 if TYPE_CHECKING:
-    from lakegen.discovery.tools import Phase12ToolsManager
+    from lakegen.tools.unified import Phase12ToolsManager
 
 
 BOARD_MARKER = "\n\n[DISCOVERY STATE"

@@ -1,4 +1,4 @@
-from lakegen.coding.revision_policy import classify_revision, technical_repair_eligible
+from lakegen.tools.coder.quality.revision_policy import classify_revision, technical_repair_eligible
 
 
 def test_revision_policy_routes_generic_failure_classes():

@@ -4,11 +4,11 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from lakegen.discovery import tools as tools_p12
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
-from lakegen.discovery.tools import inspection as inspection_tools
-from lakegen.discovery.tools import search as search_tools
-from lakegen.discovery.tools.plan_models import (
+from lakegen.tools import unified as tools_p12
+from lakegen.tools.unified import P12State, Phase12ToolsManager
+from lakegen.tools.unified import inspection as inspection_tools
+from lakegen.tools.unified import search as search_tools
+from lakegen.tools.unified.plan_models import (
     _normalize_semantic_plan,
     _resolve_partition_table_aliases,
     compile_semantic_plan_draft,
@@ -66,15 +66,7 @@ def test_partition_any_alias_stays_invalid_when_column_is_not_common():
     )
 
     assert resolved["filters"][0]["table"] == "any"
-from lakegen.discovery.ledger import (
-    _period_years,
-    build_minimal_selection_fallback,
-    build_requirement_ledger,
-    requirement_ledger_blockers,
-)
 from lakegen.discovery.memory import format_question_retrieval_memory
-from lakegen.discovery.tools import judge as tools_p2
-from lakegen.discovery.tools.judge import Phase2JudgeToolsManager
 from lakegen.discovery.unified import (
     _conservative_draft_from_requirements,
     _extract_plausible_json,
@@ -89,6 +81,14 @@ from lakegen.retrieval import (
     RetrievalConfig,
     RetrievalHit,
     RetrievalMode,
+)
+from lakegen.tools.shared import judge as tools_p2
+from lakegen.tools.shared.judge import Phase2JudgeToolsManager
+from lakegen.tools.shared.ledger import (
+    _period_years,
+    build_minimal_selection_fallback,
+    build_requirement_ledger,
+    requirement_ledger_blockers,
 )
 
 
@@ -1796,7 +1796,7 @@ def test_guided_expansion_stops_when_hidden_metadata_has_no_coverage(
 
 def test_phase2_adaptive_candidates_use_the_same_thresholds(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "lakegen.discovery.tools.judge._inspect_columns",
+        "lakegen.tools.shared.judge._inspect_columns",
         lambda _directory, name: f"Schema for {name}",
     )
     candidates = [f"table-{index}.parquet" for index in range(1, 21)]
@@ -2050,7 +2050,7 @@ def test_catalogue_text_is_plain_words_with_real_less_than_signs_kept():
 
 
 def test_candidate_context_serves_the_description_without_portal_html():
-    from lakegen.discovery.candidates import format_candidate_context, solr_metadata_from_doc
+    from lakegen.tools.shared.candidates import format_candidate_context, solr_metadata_from_doc
 
     metadata = solr_metadata_from_doc({
         "title": "CSV",
@@ -2162,7 +2162,7 @@ def test_state_board_reports_the_last_blocked_confirmation(tmp_path):
     with pytest.raises(ValueError) as again:
         confirm(**arguments)
 
-    from lakegen.discovery.tools.context_editor import REPEATED_BLOCK
+    from lakegen.tools.shared.context_editor import REPEATED_BLOCK
 
     assert str(again.value).startswith(REPEATED_BLOCK)
     assert state.confirm_blocks == 2
@@ -2171,7 +2171,7 @@ def test_state_board_reports_the_last_blocked_confirmation(tmp_path):
 
 
 def test_compaction_shortens_superseded_results_and_keeps_one_current_board(tmp_path):
-    from lakegen.discovery.tools.context_editor import COMPACTED
+    from lakegen.tools.shared.context_editor import COMPACTED
 
     state, manager = _ni_manager(tmp_path)
     del state.inspection_cache["other.parquet"]

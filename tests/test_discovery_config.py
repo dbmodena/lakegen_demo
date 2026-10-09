@@ -8,9 +8,9 @@ from lakegen.config.experiment import (
     ExperimentConfig,
     dotted_overrides,
 )
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
-from lakegen.discovery.tools import search as search_tools
 from lakegen.retrieval import RetrievalConfig, RetrievalHit
+from lakegen.tools.unified import P12State, Phase12ToolsManager
+from lakegen.tools.unified import search as search_tools
 
 
 def _hit(resource_id, rank):

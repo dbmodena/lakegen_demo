@@ -14,18 +14,18 @@ from lakegen.coding.agent import (
     _tabpfn_enabled,
     phase3_generate_and_execute,
 )
-from lakegen.coding.column_resolution import (
-    generated_column_names,
-    resolve_column_name,
-    resolve_generated_code_columns,
-)
-from lakegen.coding.tools import (
+from lakegen.config.experiment import CoderContextLevel
+from lakegen.tools.coder import (
     CoderLifecycle,
     P3State,
     Phase3ToolsManager,
     classify_execution_error,
 )
-from lakegen.config.experiment import CoderContextLevel
+from lakegen.tools.coder.quality.column_resolution import (
+    generated_column_names,
+    resolve_column_name,
+    resolve_generated_code_columns,
+)
 
 
 def test_execute_code_treats_reported_missing_columns_as_error(tmp_path):
@@ -2427,7 +2427,7 @@ def test_full_file_profile_marks_snapshot_stamps_and_presence_flags(tmp_path):
 
 
 def test_numeric_codes_reported_only_when_outside_column_range():
-    from lakegen.coding.data_quality import profile_column_quality
+    from lakegen.tools.coder.quality.data_quality import profile_column_quality
 
     assert profile_column_quality(pd.Series([10, 50, 999, 2000, 1500000, 70, 30])) is None
     flagged = profile_column_quality(pd.Series([3, 5, 8, 2, 4, -1, -1, 6, 7]))
@@ -2435,7 +2435,7 @@ def test_numeric_codes_reported_only_when_outside_column_range():
 
 
 def test_snapshot_stamp_years_detects_constant_date_columns(tmp_path):
-    from lakegen.coding.data_quality import snapshot_stamp_years
+    from lakegen.tools.coder.quality.data_quality import snapshot_stamp_years
 
     path = tmp_path / "t.parquet"
     pd.DataFrame({

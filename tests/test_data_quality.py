@@ -1,6 +1,6 @@
 import pandas as pd
 
-from lakegen.coding.data_quality import profile_column_quality, profile_table_quality
+from lakegen.tools.coder.quality.data_quality import profile_column_quality, profile_table_quality
 
 
 def test_clean_column_returns_none():

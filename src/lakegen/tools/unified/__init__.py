@@ -7,7 +7,7 @@ selection and of the semantic plan. The tool names and descriptions are
 what the prompts name, so they do not change here.
 """
 
-from lakegen.discovery.tools.manager import Phase12ToolsManager
-from lakegen.discovery.tools.state import P12State
+from lakegen.tools.unified.manager import Phase12ToolsManager
+from lakegen.tools.unified.state import P12State
 
 __all__ = ["P12State", "Phase12ToolsManager"]

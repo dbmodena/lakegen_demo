@@ -5,10 +5,10 @@ same pattern as test_discovery_config.py's `_manager` helper."""
 import pandas as pd
 import pytest
 
-from lakegen.discovery import tools as tools_p12
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
+from lakegen.tools import unified as tools_p12
+from lakegen.tools.unified import P12State, Phase12ToolsManager
 
 
 def _hit(resource_id, rank):

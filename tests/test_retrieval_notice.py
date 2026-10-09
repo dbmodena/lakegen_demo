@@ -8,10 +8,10 @@ an A/B comparison between modalities measure the wrong thing.
 import pandas as pd
 import pytest
 
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
-from lakegen.discovery.tools import search as search_tools
 from lakegen.observability.tracing import summarize_tool_calls
 from lakegen.retrieval import RetrievalConfig, RetrievalHit
+from lakegen.tools.unified import P12State, Phase12ToolsManager
+from lakegen.tools.unified import search as search_tools
 
 
 def _hit(resource_id, rank):

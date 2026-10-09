@@ -12,7 +12,7 @@ from lakegen.discovery.memory import (
     persist_keyword_memory,
     persist_question_retrieval_memory,
 )
-from lakegen.discovery.terms import keyword_terms
+from lakegen.tools.shared.terms import keyword_terms
 
 EVENT = {"outcome": "zero_results", "terms": ["parks"]}
 

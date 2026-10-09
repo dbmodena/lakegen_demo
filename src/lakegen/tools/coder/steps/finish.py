@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 
-from lakegen.coding.tools.state import CoderLifecycle, ReviewStatus
+from lakegen.tools.coder.state import CoderLifecycle, ReviewStatus
 
 
 class FinishMixin:

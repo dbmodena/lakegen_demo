@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from lakegen.coding.tools.state import CoderLifecycle
+from lakegen.tools.coder.state import CoderLifecycle
 
 
 class ResultChecksMixin:

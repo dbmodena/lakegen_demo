@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from lakegen.discovery.tools.column_values import (
+from lakegen.tools.shared.column_values import (
     column_kind,
     format_datetime,
     format_number,
@@ -35,7 +35,7 @@ from lakegen.discovery.tools.column_values import (
     map_uniques,
     mostly_numeric,
 )
-from lakegen.discovery.tools.schema_matching import SCHEMA_MATCH_THRESHOLD
+from lakegen.tools.shared.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 if TYPE_CHECKING:
     from lakegen.integrations.table_io import TableProfile

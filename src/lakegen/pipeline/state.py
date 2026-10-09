@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lakegen.discovery.tools import P12State
+from lakegen.tools.unified import P12State
 
 
 @dataclass

@@ -8,9 +8,9 @@ import json
 from types import SimpleNamespace
 
 from lakegen.config.experiment import DiscoveryConfig
-from lakegen.discovery import tools as tools_p12
-from lakegen.discovery.tools import search as search_tools
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
+from lakegen.tools import unified as tools_p12
+from lakegen.tools.unified import search as search_tools
 
 
 def _hit(resource_id, rank=1):

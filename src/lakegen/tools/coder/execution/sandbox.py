@@ -9,11 +9,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-from lakegen.coding.data_quality import snapshot_stamp_years
-from lakegen.coding.revision_policy import classify_revision, technical_repair_eligible
-from lakegen.coding.tools.error_repair import classify_execution_error
-from lakegen.coding.tools.state import CoderLifecycle
 from lakegen.integrations.table_io import table_load_command
+from lakegen.tools.coder.execution.error_repair import classify_execution_error
+from lakegen.tools.coder.quality.data_quality import snapshot_stamp_years
+from lakegen.tools.coder.quality.revision_policy import classify_revision, technical_repair_eligible
+from lakegen.tools.coder.state import CoderLifecycle
 
 
 class SandboxMixin:

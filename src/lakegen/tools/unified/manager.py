@@ -9,23 +9,23 @@ from llama_index.core.llms import LLM
 from llama_index.core.tools import FunctionTool
 
 from lakegen.config.experiment import DiscoveryConfig
-from lakegen.discovery.tools.brief import BriefMixin
-from lakegen.discovery.tools.context_editor import REPEATED_BLOCK, DiscoveryContext
-from lakegen.discovery.tools.inspection import InspectionMixin
-from lakegen.discovery.tools.plan_models import (
-    ConfirmUnifiedSelectionSchema,
-    RejectUnifiedSelectionSchema,
-    SubmitSemanticPlanDraftSchema,
-)
-from lakegen.discovery.tools.search import SearchMixin
-from lakegen.discovery.tools.selection import SelectionMixin
-from lakegen.discovery.tools.state import P12State
 from lakegen.domain.types import StreamCallback
 from lakegen.integrations.solr.client import LocalSolrClient
 from lakegen.retrieval import (
     RetrievalConfig,
     RetrievalRun,
 )
+from lakegen.tools.shared.context_editor import REPEATED_BLOCK, DiscoveryContext
+from lakegen.tools.unified.brief import BriefMixin
+from lakegen.tools.unified.inspection import InspectionMixin
+from lakegen.tools.unified.plan_models import (
+    ConfirmUnifiedSelectionSchema,
+    RejectUnifiedSelectionSchema,
+    SubmitSemanticPlanDraftSchema,
+)
+from lakegen.tools.unified.search import SearchMixin
+from lakegen.tools.unified.selection import SelectionMixin
+from lakegen.tools.unified.state import P12State
 
 
 class Phase12ToolsManager(SearchMixin, InspectionMixin, SelectionMixin, BriefMixin):

@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from lakegen.discovery.terms import keyword_terms
+from lakegen.tools.shared.terms import keyword_terms
 
 _LOCK = threading.Lock()
 _VERSION = 1

@@ -10,16 +10,16 @@ from llama_index.core.tools import FunctionTool
 from pydantic import Field
 
 from lakegen.config.experiment import DiscoveryConfig
-from lakegen.discovery import tools as tools_p12_v1
-from lakegen.discovery.candidates import (
+from lakegen.integrations.llm.agents.runner import run_agent_workflow
+from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
+from lakegen.tools import unified as tools_p12_v1
+from lakegen.tools.shared.candidates import (
     _candidate_columns,
     format_candidate_context,
     solr_metadata_from_doc,
 )
-from lakegen.discovery.tools import inspection as inspection_tools
-from lakegen.discovery.tools import search as search_tools
-from lakegen.integrations.llm.agents.runner import run_agent_workflow
-from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
+from lakegen.tools.unified import inspection as inspection_tools
+from lakegen.tools.unified import search as search_tools
 
 # agent_tools_2 was the experimental v2 module; its improvements were promoted
 # into agent_tools/tools_p12.py and the duplicate package was removed, so only

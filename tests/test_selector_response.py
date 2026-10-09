@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from lakegen.discovery.candidates import parse_table_selector_response
+from lakegen.tools.shared.candidates import parse_table_selector_response
 
 FILES = ["a.parquet", "b.parquet", "c.parquet"]
 

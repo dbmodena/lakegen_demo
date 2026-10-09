@@ -11,15 +11,15 @@ from typing import Callable, Sequence
 from llama_index.core.llms import ChatMessage
 
 from lakegen.config.experiment import KeywordSearchStrategy
-from lakegen.discovery.candidates import format_candidate_context
-from lakegen.discovery.terms import keyword_terms, minimal_failing_subsets, split_keywords
-from lakegen.discovery.tools import pool
 from lakegen.integrations.solr.catalogue_text import clean_catalogue_text
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalMode,
 )
 from lakegen.retrieval.factory import get_table_retrieval_service
+from lakegen.tools.shared.candidates import format_candidate_context
+from lakegen.tools.shared.terms import keyword_terms, minimal_failing_subsets, split_keywords
+from lakegen.tools.unified import pool
 
 _SEARCH_STOPWORDS = set(
     "a an the of for in on at to and or by with from as is are was were be "

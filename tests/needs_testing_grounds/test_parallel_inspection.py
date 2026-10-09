@@ -10,10 +10,10 @@ no inspection tool.
 import pandas as pd
 import pytest
 
-from lakegen.discovery import tools as tools_p12
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit
+from lakegen.tools import unified as tools_p12
+from lakegen.tools.unified import P12State, Phase12ToolsManager
 
 
 class FakeMessage:

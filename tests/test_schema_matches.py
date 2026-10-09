@@ -1,7 +1,7 @@
 import pandas as pd
 
-from lakegen.discovery.tools import judge as tools_p2
-from lakegen.discovery.tools import schema_matching
+from lakegen.tools.shared import judge as tools_p2
+from lakegen.tools.shared import schema_matching
 
 
 def _evidence(matches):

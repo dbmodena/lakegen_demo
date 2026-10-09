@@ -25,14 +25,12 @@ from lakegen.config.experiment import (
     CoderContextLevel,
     ExperimentConfig,
 )
-from lakegen.discovery.candidates import rejection_feedback_hint
 from lakegen.discovery.memory import (
     format_question_retrieval_memory,
     load_question_retrieval_memory,
     persist_keyword_memory,
     persist_question_retrieval_memory,
 )
-from lakegen.discovery.tools import P12State
 from lakegen.domain.evaluation import EvaluationContext
 from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome
 from lakegen.evaluation.output_validation import AnswerDisposition, validate_answer
@@ -59,6 +57,8 @@ from lakegen.pipeline.events import (
 from lakegen.pipeline.hooks import StageHooks
 from lakegen.pipeline.state import RunState
 from lakegen.pipeline.strategies import build as build_strategy
+from lakegen.tools.shared.candidates import rejection_feedback_hint
+from lakegen.tools.unified import P12State
 
 MAX_CODE_ATTEMPTS = 3
 MAX_TABLE_ATTEMPTS = 3

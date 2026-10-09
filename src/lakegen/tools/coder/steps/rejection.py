@@ -7,9 +7,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from lakegen.coding.revision_policy import classify_revision
-from lakegen.coding.tools.state import CoderLifecycle
-from lakegen.discovery.tools.judge import MIN_BAN_JUSTIFICATION_CHARS
+from lakegen.tools.coder.quality.revision_policy import classify_revision
+from lakegen.tools.coder.state import CoderLifecycle
+from lakegen.tools.shared.judge import MIN_BAN_JUSTIFICATION_CHARS
 
 
 class RejectionMixin:

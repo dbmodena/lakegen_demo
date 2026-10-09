@@ -19,7 +19,6 @@ from lakegen.discovery.context import (
 )
 from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector
-from lakegen.discovery.terms import keyword_terms
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.domain.types import SolrMetadata, StreamCallback
 from lakegen.integrations.llm.agents.runner import run_agent_workflow
@@ -27,6 +26,7 @@ from lakegen.integrations.llm.token_usage import get_llm_token_usage, reset_llm_
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig
 from lakegen.retrieval.intent import RetrievalIntent, parse_retrieval_intent
+from lakegen.tools.shared.terms import keyword_terms
 
 
 class RetrievalRequestProtocolError(ValueError):

@@ -10,11 +10,6 @@ from llama_index.core.llms import LLM
 
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.config.settings import get_settings
-from lakegen.discovery.ledger import (
-    build_minimal_selection_fallback,
-    requirement_ledger_blockers,
-)
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.domain.retrieval import RetrievalRun
 from lakegen.domain.types import SolrMetadata, StreamCallback
@@ -27,6 +22,11 @@ from lakegen.integrations.solr.client import LocalSolrClient
 from lakegen.integrations.table_io import read_table
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig
+from lakegen.tools.shared.ledger import (
+    build_minimal_selection_fallback,
+    requirement_ledger_blockers,
+)
+from lakegen.tools.unified import P12State, Phase12ToolsManager
 
 
 def _reasoning_with_selection_plan(

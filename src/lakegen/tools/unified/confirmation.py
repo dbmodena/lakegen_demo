@@ -16,20 +16,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lakegen.discovery.ledger import requirement_ledger_block_message
-from lakegen.discovery.tools.judge import _temporal_coverage_issue
-from lakegen.discovery.tools.plan_models import (
+from lakegen.integrations.table_io import read_table
+from lakegen.tools.shared.judge import _temporal_coverage_issue
+from lakegen.tools.shared.ledger import requirement_ledger_block_message
+from lakegen.tools.unified.plan_models import (
     SemanticAnalysisPlan,
     _derive_output_columns,
     _normalize_requirement_coverage,
     _normalize_semantic_plan,
     _resolve_partition_table_aliases,
 )
-from lakegen.discovery.tools.state import P12State
-from lakegen.integrations.table_io import read_table
+from lakegen.tools.unified.state import P12State
 
 if TYPE_CHECKING:
-    from lakegen.discovery.tools.manager import Phase12ToolsManager
+    from lakegen.tools.unified.manager import Phase12ToolsManager
 
 VAGUE_MISSING = frozenset({
     "", "less relevant", "not relevant", "not needed", "weaker match",

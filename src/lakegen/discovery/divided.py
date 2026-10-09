@@ -8,16 +8,8 @@ from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms import LLM
 
 from lakegen.config.experiment import DiscoveryConfig
-from lakegen.discovery.candidates import (
-    format_candidate_context,
-    match_local_csv,
-    parse_table_selector_response,
-    solr_metadata_from_doc,
-)
-from lakegen.discovery.ledger import build_minimal_selection_fallback
 from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector
-from lakegen.discovery.tools.judge import Phase2JudgeToolsManager
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.domain.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from lakegen.integrations.llm.agents.activity import (
@@ -29,6 +21,14 @@ from lakegen.integrations.solr.client import LocalSolrClient
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.factory import get_table_retrieval_service
+from lakegen.tools.shared.candidates import (
+    format_candidate_context,
+    match_local_csv,
+    parse_table_selector_response,
+    solr_metadata_from_doc,
+)
+from lakegen.tools.shared.judge import Phase2JudgeToolsManager
+from lakegen.tools.shared.ledger import build_minimal_selection_fallback
 
 
 def _solr_and_search(
