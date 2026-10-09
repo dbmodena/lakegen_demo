@@ -4,11 +4,6 @@ from __future__ import annotations
 
 from typing import Literal
 
-RevisionAction = Literal[
-    "CONTINUE", "REPAIR_CODE", "REVISE_RESULT", "RETRY_DISCOVERY"
-]
-
-
 _TECHNICAL_ERRORS = {
     "column_resolution_error",
     "diagnostic_output",

@@ -113,17 +113,6 @@ class PromptManager:
             ) from exc
         return rendered.strip()
 
-    def reload(self):
-        """
-        Reloads all per-agent YAML files from disk without restarting the
-        application. Useful for hot-reloading prompt changes during development.
-        """
-        self._load_all()
-        print(
-            f"[PromptManager] All prompts successfully reloaded from "
-            f"'{self._prompts_dir}'"
-        )
-
     @property
     def agents(self) -> list[str]:
         """Returns the list of currently loaded agent names."""

@@ -4,53 +4,6 @@ from lakegen.tools.shared import judge as tools_p2
 from lakegen.tools.shared import schema_matching
 
 
-def _evidence(matches):
-    scores = [score for _, _, score in matches]
-    return {
-        "matches": matches,
-        "sm_macro_avg": round(sum(scores) / len(scores), 3) if scores else 0.0,
-        "sm_micro_avg": max(scores, default=0.0),
-        "sm_n_matches": len(matches),
-        "sm_time": 0.0,
-    }
-
-
-def test_schema_gate_passes_on_average_or_best_score():
-    assert schema_matching.passes_schema_gate({"sm_macro_avg": 0.5, "sm_micro_avg": 0.1})
-    assert schema_matching.passes_schema_gate({"sm_macro_avg": 0.2, "sm_micro_avg": 0.5})
-    assert not schema_matching.passes_schema_gate({"sm_macro_avg": 0.49, "sm_micro_avg": 0.49})
-
-
-def test_union_evidence_aligns_pairs_at_or_above_threshold():
-    evidence = _evidence([("a", "x", 0.9), ("b", "y", 0.5), ("c", "z", 0.2)])
-
-    union = schema_matching.union_evidence(evidence, ["a", "b", "c", "d"])
-
-    assert union["supported"]
-    assert union["q_columns"] == ["a", "b"]
-    assert union["r_columns"] == ["x", "y"]
-    assert union["column_scores"] == [0.9, 0.5]
-    assert union["union_column_ratio"] == 0.5
-
-
-def test_low_average_blocks_union_but_best_pair_supports_join():
-    evidence = _evidence([("id", "key", 0.9), ("b", "y", 0.1), ("c", "z", 0.1)])
-
-    union = schema_matching.union_evidence(evidence, ["id", "b", "c"])
-    join = schema_matching.join_evidence(evidence)
-
-    assert not union["supported"]
-    assert join["supported"]
-    assert join["key"] == ("id", "key")
-    assert join["alternatives"] == []
-
-
-def test_join_evidence_without_matches_is_unsupported():
-    join = schema_matching.join_evidence(_evidence([]))
-
-    assert join == {"key": None, "score": 0.0, "supported": False, "alternatives": []}
-
-
 def test_check_join_union_states_that_same_kind_tables_union(tmp_path):
     rows = range(50)
     pd.DataFrame(

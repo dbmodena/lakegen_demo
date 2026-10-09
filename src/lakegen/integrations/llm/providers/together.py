@@ -13,7 +13,7 @@ import llama_index.llms.openai.base as _openai_base
 import openai
 from llama_index.core.callbacks import CallbackManager
 
-from lakegen.config.registry import ModelSpec, models_by_provider
+from lakegen.config.registry import ModelSpec
 from lakegen.config.settings import Settings, get_settings
 from lakegen.integrations.llm.providers import register
 from lakegen.integrations.llm.providers.ollama import OllamaLLM
@@ -25,7 +25,6 @@ from lakegen.integrations.llm.tool_calls import (
 
 logger = logging.getLogger(__name__)
 
-TOGETHER_MODELS = models_by_provider("together")
 # Together sets no fixed limits: it answers 429 (over the account's dynamic
 # request or token rate) or 503 (platform at capacity), suggests a wait in
 # x-ratelimit-reset and asks for exponential backoff. A call keeps retrying for

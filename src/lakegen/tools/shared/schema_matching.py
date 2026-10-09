@@ -13,7 +13,6 @@ pair and `union_mapping` measures how much of each table maps; this module only 
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
 
 import pandas as pd
 from valentine import valentine_match
@@ -21,8 +20,6 @@ from valentine.algorithms import Coma
 
 # A column pair is a candidate for a join key / union mapping at or above this name score.
 SCHEMA_MATCH_THRESHOLD = 0.5
-SM_MACRO_AVG_THRESHOLD = SCHEMA_MATCH_THRESHOLD
-SM_MICRO_AVG_THRESHOLD = SCHEMA_MATCH_THRESHOLD
 # Rows given to COMA. Schema-only matching ignores values, so more rows only cost time.
 COMA_SAMPLE_ROWS = 1000
 
@@ -59,46 +56,4 @@ def verify_pair_schema(q: pd.DataFrame, r: pd.DataFrame) -> dict[str, object]:
         "sm_micro_avg": match_list[0][2] if match_list else 0.0,
         "sm_n_matches": len(match_list),
         "sm_time": round(elapsed, 3),
-    }
-
-
-# Retained for callers that consume raw COMA evidence. Phase-2 itself uses the
-# measured value-based evidence in ``join_keys`` and ``union_mapping``.
-def passes_schema_gate(
-    evidence: dict[str, object],
-    macro_threshold: float = SM_MACRO_AVG_THRESHOLD,
-    micro_threshold: float = SM_MICRO_AVG_THRESHOLD,
-) -> bool:
-    return (
-        evidence["sm_macro_avg"] >= macro_threshold
-        or evidence["sm_micro_avg"] >= micro_threshold
-    )
-
-
-def union_evidence(evidence: dict[str, object], q_columns: Sequence[str]) -> dict[str, object]:
-    confident = [
-        (q_col, r_col, score)
-        for q_col, r_col, score in evidence["matches"]
-        if score >= SCHEMA_MATCH_THRESHOLD
-    ]
-    matched_q_columns = {q_col for q_col, _, _ in confident}
-    return {
-        "q_columns": [q_col for q_col, _, _ in confident],
-        "r_columns": [r_col for _, r_col, _ in confident],
-        "column_scores": [score for _, _, score in confident],
-        "union_column_ratio": round(len(matched_q_columns) / len(q_columns), 4) if q_columns else 0.0,
-        "supported": evidence["sm_macro_avg"] >= SM_MACRO_AVG_THRESHOLD,
-    }
-
-
-def join_evidence(evidence: dict[str, object]) -> dict[str, object]:
-    matches = evidence["matches"]
-    if not matches:
-        return {"key": None, "score": 0.0, "supported": False, "alternatives": []}
-    q_key, r_key, score = matches[0]
-    return {
-        "key": (q_key, r_key),
-        "score": score,
-        "supported": evidence["sm_micro_avg"] >= SM_MICRO_AVG_THRESHOLD,
-        "alternatives": [match for match in matches[1:] if match[2] >= SCHEMA_MATCH_THRESHOLD],
     }

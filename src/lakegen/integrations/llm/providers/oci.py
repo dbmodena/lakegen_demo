@@ -30,9 +30,7 @@ from lakegen.integrations.llm.tool_calls import (
     parse_tool_call_input,
 )
 
-OCI_DEFAULT_PROFILE = "DEFAULT"
 OPENAI_GPT_OSS_MODEL = "openai.gpt-oss-120b"
-META_LLAMA_MODEL = "meta.llama-3.3-70b-instruct"
 # The models, their providers and their limits come from config/models.yaml
 # (lakegen.config.registry); these names serve the generic chat format below.
 GENERIC_CHAT_MODELS = set(models_by_provider("oci"))

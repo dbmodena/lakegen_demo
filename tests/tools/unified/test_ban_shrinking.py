@@ -3,7 +3,6 @@ nothing, and what one round learned is still known in the next."""
 
 import pytest
 
-from lakegen.interfaces.chainlit.state import LakeGenSession
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 from lakegen.tools import unified as tools_p12_v1
 from lakegen.tools.shared.terms import keyword_terms, minimal_failing_subsets
@@ -256,33 +255,15 @@ def test_a_query_that_matched_tables_is_not_probed_or_banned(module, monkeypatch
 # --- what one round learned is known in the next ----------------------------
 
 
-def test_a_new_session_knows_no_bans_and_seeding_copies_rather_than_shares():
-    session = LakeGenSession()
-    assert session.failed_keyword_combinations == []
-
-    first = tools_p12_v1.P12State()
-    first.failed_keyword_combinations = [frozenset({"belfast", "lough"})]
-    session.remember_keyword_bans(first)
-    second = tools_p12_v1.P12State()
-    session.seed_keyword_bans(second)
-    second.failed_keyword_combinations.append(frozenset({"other"}))
-
-    assert second.failed_keyword_combinations[0] == frozenset({"belfast", "lough"})
-    assert session.failed_keyword_combinations == [frozenset({"belfast", "lough"})]
-
-
 @BOTH
 def test_a_later_round_rejects_a_set_an_earlier_round_proved_dead(module, monkeypatch, tmp_path):
-    session = LakeGenSession()
-
     round_one = _OracleService(TABLES)
     state_one, manager_one = _manager(module, monkeypatch, tmp_path, round_one)
     manager_one.search_keyword_concepts(["belfast", "lough"])
-    session.remember_keyword_bans(state_one)
 
     round_two = _OracleService(TABLES)
     state_two = module.P12State()
-    session.seed_keyword_bans(state_two)
+    state_two.failed_keyword_combinations = list(state_one.failed_keyword_combinations)
     _, manager_two = _manager(module, monkeypatch, tmp_path, round_two, state=state_two)
     response = manager_two.search_keyword_concepts(["Belfast", "Lough", "catchment"])
 

@@ -49,7 +49,7 @@ from lakegen.workflow.evaluation.semantic_judge import judge_semantic_code_resul
 # them when a run starts, so a test patching a name here patches the engine.
 from lakegen.workflow.observability.csv_log import save_experiment_log  # noqa: F401
 from lakegen.workflow.observability.manifest import persist_manifest  # noqa: F401
-from lakegen.workflow.pipeline.engine import MAX_CODE_ATTEMPTS, MAX_TABLE_ATTEMPTS, Pipeline
+from lakegen.workflow.pipeline.engine import Pipeline
 from lakegen.workflow.pipeline.model.context import MemoryScope, RunContext, SurfaceOptions
 from lakegen.workflow.pipeline.runner import ExperimentRunner
 from lakegen.workflow.pipeline.wiring.deps import PipelineDeps
@@ -68,8 +68,6 @@ _keyword_list = terminal.keyword_list
 
 # ── Workflow ─────────────────────────────────────────────────────────────────
 
-MAX_RETRIES = MAX_CODE_ATTEMPTS
-MAX_KEYWORD_RETRIES = MAX_TABLE_ATTEMPTS
 
 def pipeline_deps() -> PipelineDeps:
     """The phases, resources and sinks this surface runs the engine with.

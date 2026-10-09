@@ -17,7 +17,6 @@ pointed elsewhere, which is how the test suite isolates each test.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from lakegen.config.settings import read
@@ -30,26 +29,6 @@ if _src_dir.name == "src":
     BASE_DIR = _src_dir.parent
 else:
     BASE_DIR = Path.cwd()
-
-CONFIG_FILE = BASE_DIR / "config_paths.json"
-if CONFIG_FILE.exists():
-    with open(CONFIG_FILE) as f:
-        config_data = json.load(f)
-else:
-    config_data = {"paths": {}}
-
-_configured = config_data.get("paths", {})
-
-DATA_DIR = BASE_DIR / _configured.get("data_dir", "Data")
-TABLES_DIR = BASE_DIR / _configured.get(
-    "tables_dir",
-    _configured.get("csv_dir", "data/nyc/datasets/parquets"),
-)
-# Backward-compatible alias for older imports.
-CSV_DIR = TABLES_DIR
-JSON_DIR = BASE_DIR / _configured.get("json_metadata_dir", "Data/bologna_update/metadata")
-DB_PATH = BASE_DIR / _configured.get("blend_db_path", "Data/blend_index.db")
-INDEXES_DIR = BASE_DIR / _configured.get("indexes_dir", "Data/indexes")
 
 
 def resolve_state_dir() -> Path:
@@ -65,7 +44,7 @@ def resolve_state_dir() -> Path:
 
 
 STATE_DIR = resolve_state_dir()
-LOGS_DIR_NAME = _configured.get("logs_dir", "logs")
+LOGS_DIR_NAME = "logs"
 LOG_DIR = STATE_DIR / LOGS_DIR_NAME
 
 
@@ -83,19 +62,9 @@ def resolve_portal_metadata_path(portal: str) -> Path:
     return get_lake(portal).metadata_path
 
 
-def resolve_portal_dataset_statistics_path(portal: str) -> Path:
-    """The lake's per-table statistics CSV."""
-    from lakegen.config.registry import get_lake
-
-    return get_lake(portal).statistics_path
-
 
 DEFAULT_JOBS_DIR_NAME = ".lakegen_jobs"
 KEYWORD_MEMORY_FILE = ".lakegen_keyword_memory.json"
-
-
-def state_dir() -> Path:
-    return resolve_state_dir()
 
 
 def log_dir() -> Path:

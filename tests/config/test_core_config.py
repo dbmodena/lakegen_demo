@@ -29,9 +29,6 @@ def test_uk_resolvers_prefer_cleaned_assets(monkeypatch, tmp_path):
     assert config.resolve_portal_metadata_path("uk") == (
         metadata / "metadata_retrieved_cleaned.json"
     )
-    assert config.resolve_portal_dataset_statistics_path("uk") == (
-        metadata / "datasets_metadata.csv"
-    )
 
 
 def test_nyc_resolver_keeps_existing_dataset_layout(monkeypatch, tmp_path):
