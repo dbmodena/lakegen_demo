@@ -1,1 +1,1 @@
-"""The agent runtime: the workflow runner, the instrumentation and the activity formatting the agents share."""
+"""Aliases of ``lakegen.llm.agents`` (the agent runner, its activity events and instrumentation)."""

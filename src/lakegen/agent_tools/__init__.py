@@ -1,4 +1,1 @@
-"""The tools of the divided judge and what the agents share: the requirement ledger, the context editor, the join and union checks.
-
-The unified agent's tools are ``lakegen.discovery.tools`` and the coder's ``lakegen.coding.tools``.
-"""
+"""Aliases of the agent tools: the divided judge's and the shared evidence modules are in ``lakegen.discovery`` (``tools/``, ``ledger``); the unified agent's tools in ``lakegen.discovery.tools``, the coder's in ``lakegen.coding.tools``."""

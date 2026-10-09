@@ -7,24 +7,29 @@ Everything is under `src/lakegen`, one package per concern, each with an
 
 | Package | Holds |
 |---|---|
-| `domain/` | pure types: the table-id normalisers, the discovery and code outcomes, the evaluation context |
-| `config/` | the environment registry (`settings`), the lake and model registries (`lakes.yaml`, `models.yaml`), the v2 configuration files and presets, stored configurations |
-| `lakes/` | a lake's tables on disk and its catalogue entries |
-| `llm/` | the chat models: one provider module each (`providers/`), the tool-call fixes, token accounting, the Groq offload, `get_llm` |
-| `retrieval/` | one module per retrieval strategy, the registered modes, the service that composes them, the Pneuma adapter (`pneuma/`), the run log, the benchmark |
-| `discovery/` | which tables answer the question: the keyword writer, the divided judge, the unified agent and its tools (`tools/`), the orchestrated paths, the table selectors (`selectors/`) |
-| `coding/` | the coder agent and its tools (`tools/`): the plan grounding, the contract, the sandbox, the result checks |
-| `answer/` | the answer written from the result |
-| `pipeline/` | the engine that runs one question (a generator of stages and gates), its strategies, stages, budgets, state, replays |
-| `observability/` | the recorder that turns a run into its `QueryResult` and logs |
+| `domain/` | pure types: the table-id normalisers, the discovery and code outcomes, the result models (`results`), the shared errors and types |
+| `config/` | the environment registry (`settings`), the lake and model registries, the v2 configuration files and presets, `ExperimentConfig` (`experiment`), the retrieval options (`retrieval`), the runtime settings, the state paths (`paths`, `locations`), the bootstrap |
+| `lakes/` | a lake's tables on disk (`table_io`) and its catalogue entries |
+| `llm/` | the chat models: one provider module each (`providers/`), the tool-call fixes, token accounting, the Groq offload, `get_llm`, the agent runner (`agents/`) |
+| `retrieval/` | one module per retrieval strategy, the registered modes, the service that composes them, the Pneuma adapter (`pneuma/`), the cell scan, the run log, the benchmark |
+| `discovery/` | phases 1 and 2, which tables answer the question: the keyword writer and its memory, the divided judge, the unified agent and its tools (`tools/`), the orchestrated paths and context, the requirement ledger, the table selectors (`selectors/`) |
+| `coding/` | phase 3, the coder agent and its tools (`tools/`): the plan grounding, the contract, the sandbox, the result checks, the coder's context, sweep and attempts |
+| `evaluation/` | judging a code result: the comparison with the reference, the semantic judge, the output checks, the reference execution |
+| `answer/` | phase 4, the answer written from the result |
+| `pipeline/` | the engine that runs one question (a generator of stages and gates), its strategies, stages, budgets, state, replays, the service and the runner that call it |
+| `observability/` | the recorder that turns a run into its `QueryResult`, the CSV log, the manifest, reproducibility, tracing |
 | `experiments/` | specs, the run store, executors, services |
 | `analysis/` | the runs of the store as a table, the metrics, the readers of older records |
 | `interfaces/` | the only importers of web and UI frameworks: the API, the `lakegen` command, the Chainlit driver, the dashboard |
 | `prompts/` | the prompt templates and their manager |
 
+The packages run from the shared layers up in the order of a question:
+`discovery`, `coding`, `evaluation`, `answer`, composed by `pipeline`.
+
 The old entry files (`src/api.py`, `src/cli.py`, `src/app.py`) and the old
-module paths (`lakegen.phases.*`, `lakegen.core.resources`, `agent_tools.tools_p12`,
-`agent_tools.tools_p3`, `retrieval.retrievers`) still work: each aliases or
+module paths (`lakegen.phases.*`, `lakegen.core.*`, `lakegen.agent_tools.*`,
+`lakegen.ui.*`, `lakegen.agents.*` and the top-level modules such as
+`lakegen.service`, `lakegen.manifest` or `lakegen.experiment_config`) still work: each aliases or
 re-exports its new home, for the experiment scripts that import them.
 
 ### The rules the gate enforces
@@ -82,7 +87,7 @@ listed.
 
 ### A table selector
 
-1. Add the value to `TableSelector` in `lakegen/experiment_config.py`.
+1. Add the value to `TableSelector` in `lakegen/config/experiment.py`.
 2. Register a class with `kind`, `title` and `select(request) -> Selection` in
    `lakegen/discovery/selectors/`; raise `SelectorUnavailable` when it cannot
    run, and the architecture falls back to its own LLM judge:
@@ -150,7 +155,7 @@ in `lakegen.analysis.sources`.
 
 ### A judge
 
-The semantic code judge is `lakegen.semantic_code_judge` (wrapped by
+The semantic code judge is `lakegen.evaluation.semantic_judge` (wrapped by
 `SemanticJudge` in the pipeline); it is configured by model, not yet by kind.
 A registry like the others is the way to add a second one.
 
