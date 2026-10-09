@@ -1,10 +1,11 @@
-from llama_index.core.llms import ChatMessage, LLM
-from lakegen.prompts.prompt_manager import PromptManager
-from lakegen.llm.token_usage import (
+from llama_index.core.llms import LLM, ChatMessage
+
+from lakegen.integrations.llm.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
     reset_llm_token_usage,
 )
+from lakegen.prompts.prompt_manager import PromptManager
 
 
 def phase4_synthesize(query: str, raw_result: str, llm: LLM, pm: PromptManager) -> tuple[str, int]:

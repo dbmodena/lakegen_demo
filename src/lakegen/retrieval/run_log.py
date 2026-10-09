@@ -24,8 +24,8 @@ from threading import Lock
 from typing import Any
 
 from lakegen.config.locations import LOG_DIR
+from lakegen.domain.retrieval import RetrievalRun
 from lakegen.retrieval.evaluation import RetrievalRunLogger
-from lakegen.retrieval.models import RetrievalRun
 
 
 @lru_cache(maxsize=1)

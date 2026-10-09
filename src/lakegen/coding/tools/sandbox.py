@@ -13,7 +13,7 @@ from lakegen.coding.data_quality import snapshot_stamp_years
 from lakegen.coding.revision_policy import classify_revision, technical_repair_eligible
 from lakegen.coding.tools.error_repair import classify_execution_error
 from lakegen.coding.tools.state import CoderLifecycle
-from lakegen.lakes.table_io import table_load_command
+from lakegen.integrations.table_io import table_load_command
 
 
 class SandboxMixin:

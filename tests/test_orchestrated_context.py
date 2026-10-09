@@ -21,11 +21,11 @@ from lakegen.discovery.orchestrated import (
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
+from lakegen.domain.retrieval import RetrievalHit
 from lakegen.pipeline.service import run_question
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.intent import parse_retrieval_intent
-from lakegen.retrieval.models import RetrievalHit
 
 
 def _intent(concepts, **overrides):

@@ -97,7 +97,7 @@ known-first-party = ["lakegen", "golden", "src", "prompts"]
 # library's environment from the process's own.
 "src/lakegen/config/settings.py" = ["TID251"]
 "src/lakegen/config/bootstrap.py" = ["TID251"]
-"src/lakegen/retrieval/cell_scan.py" = ["TID251"]
+"src/lakegen/integrations/pneuma/cell_scan.py" = ["TID251"]
 "src/lakegen/experiments/services.py" = ["TID251"]
 
 # The dependency rules between the packages (docs/REFACTOR_PLAN.md), checked by
@@ -113,7 +113,7 @@ name = "Only the interfaces import the web and UI frameworks"
 type = "forbidden"
 source_modules = [
     "lakegen.pipeline", "lakegen.discovery", "lakegen.coding", "lakegen.answer",
-    "lakegen.evaluation", "lakegen.retrieval", "lakegen.llm", "lakegen.lakes", "lakegen.config", "lakegen.domain",
+    "lakegen.evaluation", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain",
     "lakegen.observability", "lakegen.experiments", "lakegen.analysis", "lakegen.prompts",
     "lakegen.interfaces.cli",
 ]
@@ -131,8 +131,7 @@ layers = [
     "lakegen.answer",
     "lakegen.evaluation",
     "lakegen.retrieval",
-    "lakegen.llm",
-    "lakegen.lakes",
+    "lakegen.integrations",
     "lakegen.config",
     "lakegen.domain",
 ]
@@ -141,8 +140,7 @@ layers = [
 name = "observability is imported by the pipeline and what runs it only"
 type = "forbidden"
 source_modules = [
-    "lakegen.discovery", "lakegen.coding", "lakegen.answer", "lakegen.evaluation", "lakegen.retrieval", "lakegen.llm",
-    "lakegen.lakes", "lakegen.config", "lakegen.domain", "lakegen.analysis",
+    "lakegen.discovery", "lakegen.coding", "lakegen.answer", "lakegen.evaluation", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain", "lakegen.analysis",
 ]
 forbidden_modules = ["lakegen.observability"]
 
@@ -150,8 +148,7 @@ forbidden_modules = ["lakegen.observability"]
 name = "The lower layers never import the pipeline, the experiments or the interfaces"
 type = "forbidden"
 source_modules = [
-    "lakegen.discovery", "lakegen.coding", "lakegen.answer", "lakegen.evaluation", "lakegen.retrieval", "lakegen.llm",
-    "lakegen.lakes", "lakegen.config", "lakegen.domain", "lakegen.observability",
+    "lakegen.discovery", "lakegen.coding", "lakegen.answer", "lakegen.evaluation", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain", "lakegen.observability",
 ]
 forbidden_modules = [
     "lakegen.pipeline", "lakegen.interfaces", "lakegen.experiments", "lakegen.analysis",

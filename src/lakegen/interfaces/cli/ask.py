@@ -20,6 +20,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from lakegen.answer.synthesize import phase4_synthesize
+from lakegen.coding.agent import phase3_generate_and_execute
 from lakegen.config.bootstrap import bootstrap_nltk_data
 from lakegen.config.experiment import InteractionMode, load_experiment_config
 from lakegen.config.files import parse_set_values
@@ -27,25 +29,23 @@ from lakegen.config.locations import resolve_portal_tables_dir
 from lakegen.config.registry import get_lake
 from lakegen.config.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.discovery.context import prepare_discovery_context  # noqa: F401
+from lakegen.discovery.divided import phase2_select_tables
+from lakegen.discovery.keywords import phase1_generate_keywords
 from lakegen.discovery.orchestrated import (  # noqa: F401
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
+from lakegen.discovery.unified import phase12_agent
 from lakegen.evaluation.semantic_judge import judge_semantic_code_result  # noqa: F401
+from lakegen.integrations.llm import get_llm  # noqa: F401
+from lakegen.integrations.table_io import get_all_table_files  # noqa: F401
 from lakegen.interfaces.cli import terminal
 from lakegen.interfaces.cli.driver import TerminalDriver
-from lakegen.lakes import get_all_table_files  # noqa: F401
-from lakegen.llm import get_llm  # noqa: F401
 
 # The phases, resources and sinks the engine calls; pipeline_deps() binds
 # them when a run starts, so a test patching a name here patches the engine.
 from lakegen.observability.csv_log import save_experiment_log  # noqa: F401
 from lakegen.observability.manifest import persist_manifest  # noqa: F401
-from lakegen.discovery.keywords import phase1_generate_keywords
-from lakegen.discovery.divided import phase2_select_tables
-from lakegen.coding.agent import phase3_generate_and_execute
-from lakegen.answer.synthesize import phase4_synthesize
-from lakegen.discovery.unified import phase12_agent
 from lakegen.pipeline.context import MemoryScope, RunContext, SurfaceOptions
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.pipeline.engine import MAX_CODE_ATTEMPTS, MAX_TABLE_ATTEMPTS, Pipeline

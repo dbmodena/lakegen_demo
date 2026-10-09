@@ -21,11 +21,11 @@ from lakegen.discovery.tools.search import SearchMixin
 from lakegen.discovery.tools.selection import SelectionMixin
 from lakegen.discovery.tools.state import P12State
 from lakegen.domain.types import StreamCallback
+from lakegen.integrations.solr.client import LocalSolrClient
 from lakegen.retrieval import (
     RetrievalConfig,
     RetrievalRun,
 )
-from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 class Phase12ToolsManager(SearchMixin, InspectionMixin, SelectionMixin, BriefMixin):

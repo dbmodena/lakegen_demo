@@ -126,7 +126,7 @@ def snapshot_stamp_years(path, *, sample_rows: int = 500) -> set[str]:
     "as of" that date is satisfied without any row filter.
     """
 
-    from lakegen.lakes.table_io import read_table
+    from lakegen.integrations.table_io import read_table
 
     try:
         sample = read_table(path, nrows=sample_rows)

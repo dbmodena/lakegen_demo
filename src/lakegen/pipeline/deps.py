@@ -37,21 +37,21 @@ class PipelineDeps:
     @classmethod
     def default(cls) -> PipelineDeps:
         """The real phases, resources and sinks."""
+        from lakegen.answer.synthesize import phase4_synthesize
+        from lakegen.coding.agent import phase3_generate_and_execute
         from lakegen.discovery.context import prepare_discovery_context
+        from lakegen.discovery.divided import phase2_select_tables
+        from lakegen.discovery.keywords import phase1_generate_keywords
         from lakegen.discovery.orchestrated import (
             run_unified_orchestrated_discovery,
             select_from_prepared_context,
         )
+        from lakegen.discovery.unified import phase12_agent
         from lakegen.evaluation.semantic_judge import judge_semantic_code_result
-        from lakegen.lakes import get_all_table_files
-        from lakegen.llm import get_llm
+        from lakegen.integrations.llm import get_llm
+        from lakegen.integrations.table_io import get_all_table_files
         from lakegen.observability import csv_log as core_logger
         from lakegen.observability.manifest import persist_manifest
-        from lakegen.discovery.keywords import phase1_generate_keywords
-        from lakegen.discovery.divided import phase2_select_tables
-        from lakegen.coding.agent import phase3_generate_and_execute
-        from lakegen.answer.synthesize import phase4_synthesize
-        from lakegen.discovery.unified import phase12_agent
         from lakegen.prompts import get_prompt_manager
         from lakegen.retrieval.factory import get_solr
         from lakegen.retrieval.run_log import log_retrieval_decision

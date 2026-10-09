@@ -23,12 +23,12 @@ from lakegen.evaluation.code import (
     evaluation_output_instruction,
     extract_evaluation_payload,
 )
-from lakegen.lakes.table_io import read_table, table_load_command
-from lakegen.llm.token_usage import (
+from lakegen.integrations.llm.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
     reset_llm_token_usage,
 )
+from lakegen.integrations.table_io import read_table, table_load_command
 from lakegen.prompts.prompt_manager import PromptManager
 
 
@@ -1039,8 +1039,8 @@ def _run_coder_agent(
     stream_placeholder: Any, cancel_check: Callable[[], None] | None,
 ) -> tuple[str, bool]:
     """The coder agent's turn: its response, and whether it ran out of iterations."""
-    from lakegen.llm.agents.activity import Phase2AgentStall
-    from lakegen.llm.agents.runner import run_agent_workflow
+    from lakegen.integrations.llm.agents.activity import Phase2AgentStall
+    from lakegen.integrations.llm.agents.runner import run_agent_workflow
 
     def emit_stream(delta: str) -> None:
         if not delta:

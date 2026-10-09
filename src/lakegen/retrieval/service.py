@@ -12,32 +12,32 @@ from lakegen.config.retrieval import (
     RetrievalConfig,
     RetrievalMode,
 )
-from lakegen.retrieval import modes  # noqa: F401  (registers the modes)
-from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
-from lakegen.retrieval.duckdb_semantic import DuckDBSemanticHybridRetriever
-from lakegen.retrieval.embeddings import EmbeddingModel, get_embedding_model
-from lakegen.retrieval.hybrid import HybridRetriever, MissingScoreResolver
-from lakegen.retrieval.keyword import KeywordRetriever
-from lakegen.retrieval.models import (
+from lakegen.domain.retrieval import (
     RetrievalHit,
     RetrievalRun,
 )
-from lakegen.retrieval.pneuma import (
+from lakegen.integrations.llm.embeddings import EmbeddingModel, get_embedding_model
+from lakegen.integrations.llm.rerank import OCICohereReranker, Reranker, rerank_hits
+from lakegen.integrations.pneuma import (
     DocumentResolver,
     EntityExtractor,
     PneumaClient,
-    PneumaRetriever,
     SolrPneumaDocumentResolver,
 )
+from lakegen.integrations.solr.client import LocalSolrClient
+from lakegen.retrieval.modes import builtin as modes  # noqa: F401  (registers the modes)
+from lakegen.retrieval.modes.duckdb_agentic import DuckDBAgenticRetriever
+from lakegen.retrieval.modes.duckdb_semantic import DuckDBSemanticHybridRetriever
+from lakegen.retrieval.modes.hybrid import HybridRetriever, MissingScoreResolver
+from lakegen.retrieval.modes.keyword import KeywordRetriever
+from lakegen.retrieval.modes.pneuma import PneumaRetriever
+from lakegen.retrieval.modes.semantic import SemanticRetriever
 from lakegen.retrieval.registry import (
     Branches,
     ModeRetriever,
     RetrievalRequest,
     build,
 )
-from lakegen.retrieval.rerank import OCICohereReranker, Reranker, rerank_hits
-from lakegen.retrieval.semantic import SemanticRetriever
-from lakegen.retrieval.solr_client import LocalSolrClient
 
 logger = logging.getLogger(__name__)
 

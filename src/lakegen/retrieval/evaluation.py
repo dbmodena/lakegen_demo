@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime, timezone
 import json
 import math
-from pathlib import Path
 import threading
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from lakegen.retrieval.models import RetrievalRun
+from lakegen.domain.retrieval import RetrievalRun
 
 
 def _unique(items: Iterable[str]) -> list[str]:

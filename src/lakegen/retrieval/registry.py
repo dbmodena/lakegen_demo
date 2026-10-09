@@ -20,15 +20,15 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from lakegen.config.retrieval import RetrievalConfig, RetrievalMode
-from lakegen.retrieval.models import RetrievalHit
+from lakegen.domain.retrieval import RetrievalHit
 
 if TYPE_CHECKING:
-    from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
-    from lakegen.retrieval.duckdb_semantic import DuckDBSemanticHybridRetriever
-    from lakegen.retrieval.hybrid import HybridRetriever
-    from lakegen.retrieval.keyword import KeywordRetriever
-    from lakegen.retrieval.pneuma import PneumaRetriever
-    from lakegen.retrieval.semantic import SemanticRetriever
+    from lakegen.retrieval.modes.duckdb_agentic import DuckDBAgenticRetriever
+    from lakegen.retrieval.modes.duckdb_semantic import DuckDBSemanticHybridRetriever
+    from lakegen.retrieval.modes.hybrid import HybridRetriever
+    from lakegen.retrieval.modes.keyword import KeywordRetriever
+    from lakegen.retrieval.modes.pneuma import PneumaRetriever
+    from lakegen.retrieval.modes.semantic import SemanticRetriever
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.retrieval.embeddings import OCIEmbedding, EmbeddingGenerationError, get_embedding_model
+from lakegen.integrations.llm.embeddings import (
+    EmbeddingGenerationError,
+    OCIEmbedding,
+    get_embedding_model,
+)
 
 
 def make_embedder(response=None):
@@ -49,7 +53,7 @@ def test_typed_response():
 
 
 def test_factory_routes_without_ollama(monkeypatch):
-    import lakegen.retrieval.embeddings as module
+    import lakegen.integrations.llm.embeddings as module
     get_embedding_model.cache_clear()
     monkeypatch.setattr(module, 'OCIEmbedding', lambda **kw: ('oci', kw))
     monkeypatch.setattr(module, 'OllamaMultilingualEmbedding', lambda **kw: ('ollama', kw))

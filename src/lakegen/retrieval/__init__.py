@@ -8,27 +8,30 @@ from lakegen.config.retrieval import (
     RetrievalConfig,
     RetrievalMode,
 )
-from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
-from lakegen.retrieval.duckdb_semantic import DuckDBSemanticHybridRetriever
-from lakegen.retrieval.embeddings import (
+from lakegen.domain.retrieval import RetrievalHit, RetrievalRun, min_max_normalize
+from lakegen.integrations.llm.embeddings import (
     EmbeddingGenerationError,
     check_embedding_health,
 )
-from lakegen.retrieval.evaluation import (
-    RetrievalRunLogger,
-    evaluate_ranking,
-    mean_metrics,
-)
-from lakegen.retrieval.hybrid import HybridRetriever
-from lakegen.retrieval.indexing import (
+from lakegen.integrations.pneuma import SolrPneumaDocumentResolver
+from lakegen.integrations.solr.indexing import (
     SolrEmbeddingIndexer,
     ensure_vector_schema,
     validate_stored_replacement_schema,
     validate_vector_schema,
 )
-from lakegen.retrieval.keyword import KeywordRetriever
-from lakegen.retrieval.models import RetrievalHit, RetrievalRun, min_max_normalize
-from lakegen.retrieval.pneuma import PneumaRetriever, SolrPneumaDocumentResolver
+from lakegen.integrations.solr.representation import METADATA_V1, represent_table
+from lakegen.retrieval.evaluation import (
+    RetrievalRunLogger,
+    evaluate_ranking,
+    mean_metrics,
+)
+from lakegen.retrieval.modes.duckdb_agentic import DuckDBAgenticRetriever
+from lakegen.retrieval.modes.duckdb_semantic import DuckDBSemanticHybridRetriever
+from lakegen.retrieval.modes.hybrid import HybridRetriever
+from lakegen.retrieval.modes.keyword import KeywordRetriever
+from lakegen.retrieval.modes.pneuma import PneumaRetriever
+from lakegen.retrieval.modes.semantic import SemanticRetriever
 from lakegen.retrieval.registry import (
     Branches,
     ModeRetriever,
@@ -38,8 +41,6 @@ from lakegen.retrieval.registry import (
     register,
     registered_modes,
 )
-from lakegen.retrieval.representation import METADATA_V1, represent_table
-from lakegen.retrieval.semantic import SemanticRetriever
 from lakegen.retrieval.service import TableRetrievalService
 
 __all__ = [

@@ -3,14 +3,13 @@ from pathlib import Path
 
 import pytest
 
+from lakegen.integrations.llm import factory, tool_calls
+from lakegen.integrations.llm.providers import oci as oci_llm
+from lakegen.integrations.llm.providers import ollama as ollama_llm
+from lakegen.integrations.llm.providers import together as together_llm
+from lakegen.integrations.llm.token_usage import extract_total_tokens
+from lakegen.retrieval import RetrievalConfig, RetrievalMode, run_log
 from lakegen.retrieval import factory as retrieval_factory
-from lakegen.retrieval import run_log
-from lakegen.llm.token_usage import extract_total_tokens
-from lakegen.llm import factory, tool_calls
-from lakegen.llm.providers import oci as oci_llm
-from lakegen.llm.providers import ollama as ollama_llm
-from lakegen.llm.providers import together as together_llm
-from lakegen.retrieval import RetrievalConfig, RetrievalMode
 
 
 def test_oci_runtime_config_uses_profile_and_region(monkeypatch, tmp_path):
@@ -305,7 +304,7 @@ def test_retrieval_runs_are_logged_and_captured_for_the_api_csv(monkeypatch):
 
 from llama_index.core.llms import ChatMessage  # noqa: E402
 
-from lakegen.llm import groq_offload  # noqa: E402
+from lakegen.integrations.llm import groq_offload  # noqa: E402
 
 
 class _FakeGroqResponse:
@@ -603,6 +602,7 @@ def test_together_reasoning_is_kept_and_sent_back(monkeypatch):
 
 def test_together_stream_accumulates_reasoning(monkeypatch):
     from types import SimpleNamespace
+
     from llama_index.core.base.llms.types import ChatResponse
 
     def chunk(reasoning):

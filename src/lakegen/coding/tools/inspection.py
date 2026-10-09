@@ -10,7 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from lakegen.lakes.table_io import read_table, table_load_command
+from lakegen.integrations.table_io import read_table, table_load_command
 
 
 class InspectionMixin:

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from lakegen.interfaces.chainlit.i18n import t
-from lakegen.interfaces.chainlit.state import LakeGenSession
-from lakegen.llm.agents.activity import (
+from lakegen.integrations.llm.agents.activity import (
     extract_phase2_activity_log,
     format_phase2_solr_results,
 )
+from lakegen.interfaces.chainlit.i18n import t
+from lakegen.interfaces.chainlit.state import LakeGenSession
 
 
 def _status_label(status: str) -> str:

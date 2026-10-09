@@ -13,6 +13,13 @@ from scripts_pneuma.pneuma_judge import (
     structured_relevance_prompt,
 )
 
+from lakegen.integrations.llm.embeddings import (
+    EmbeddingGenerationError,
+    OllamaMultilingualEmbedding,
+    _normalize_query,
+    _validate,
+)
+from lakegen.integrations.solr.client import LocalSolrClient
 from lakegen.interfaces.cli.index import validate_source_coverage
 from lakegen.retrieval import (
     DuckDBSemanticHybridRetriever,
@@ -40,13 +47,6 @@ from lakegen.retrieval.benchmark import (
     load_benchmark_cases,
     run_retriever_benchmark,
 )
-from lakegen.retrieval.embeddings import (
-    EmbeddingGenerationError,
-    OllamaMultilingualEmbedding,
-    _normalize_query,
-    _validate,
-)
-from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 def test_solr_select_keeps_strict_and_for_words_in_multiword_concepts(monkeypatch):
@@ -63,7 +63,7 @@ def test_solr_select_keeps_strict_and_for_words_in_multiword_concepts(monkeypatc
         captured.update(params)
         return Response()
 
-    monkeypatch.setattr("lakegen.retrieval.solr_client.requests.get", fake_get)
+    monkeypatch.setattr("lakegen.integrations.solr.client.requests.get", fake_get)
     LocalSolrClient("uk").select(
         ["Transport for Greater Manchester", "invoices"], q_op="AND"
     )
@@ -964,7 +964,7 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
         captured.update(url=url, params=data, timeout=timeout)
         return Response()
 
-    monkeypatch.setattr("lakegen.retrieval.solr_client.requests.post", fake_post)
+    monkeypatch.setattr("lakegen.integrations.solr.client.requests.post", fake_post)
     client = LocalSolrClient("bologna", timeout=4)
 
     response = client.knn_select(
@@ -1829,7 +1829,7 @@ def test_production_configurations_rerank_with_cohere_unless_turned_off(monkeypa
 
 
 def test_rerank_candidate_text_leaves_out_duckdb_search_bookkeeping():
-    from lakegen.retrieval.rerank import candidate_text
+    from lakegen.integrations.llm.rerank import candidate_text
 
     text = candidate_text({
         "title": "Cash Management",
@@ -1908,8 +1908,8 @@ def test_pneuma_value_scan_off_or_without_terms_is_plain_pneuma(tmp_path):
 
 
 def test_count_matching_rows_reads_parquet_and_csv_and_reports_unreadable(tmp_path):
-    from lakegen.retrieval.duckdb_agentic import count_matching_rows
-    from lakegen.retrieval.pneuma.seeker import _entity_pattern
+    from lakegen.integrations.pneuma.seeker import _entity_pattern
+    from lakegen.retrieval.modes.duckdb_agentic import count_matching_rows
 
     (tmp_path / "t.csv").write_text("city;year\nNew York;2007\nNEW-YORK;2008\nYork;2007\n")
     patterns = [_entity_pattern("New York"), _entity_pattern("2007")]
@@ -1930,7 +1930,7 @@ def test_pneuma_routes_cover_the_rebuilt_portals(monkeypatch):
 
 
 def test_seeker_entity_extraction_can_run_on_together(monkeypatch):
-    from lakegen.retrieval.pneuma import entities as pneuma
+    from lakegen.integrations.pneuma import entities as pneuma
 
     sent = {}
 

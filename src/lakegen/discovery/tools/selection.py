@@ -12,7 +12,7 @@ from lakegen.discovery.tools.plan_models import (
     SemanticAnalysisPlan,
     compile_semantic_plan_draft,
 )
-from lakegen.lakes.table_io import read_table
+from lakegen.integrations.table_io import read_table
 
 
 class SelectionMixin:

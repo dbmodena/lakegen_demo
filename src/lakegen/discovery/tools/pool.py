@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from lakegen.discovery.tools.state import P12State
-from lakegen.lakes.catalogue import match_local_csv, solr_metadata_from_doc
+from lakegen.integrations.solr.catalogue import match_local_csv, solr_metadata_from_doc
 
 RRF_K = 60.0
 """The reciprocal-rank constant: a hit at rank r contributes 1 / (60 + r)."""

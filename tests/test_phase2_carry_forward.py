@@ -1,6 +1,6 @@
 from lakegen.config.retrieval import RetrievalConfig
 from lakegen.discovery.divided import _solr_and_search
-from lakegen.retrieval.models import RetrievalHit
+from lakegen.domain.retrieval import RetrievalHit
 
 
 class _FakeRetriever:

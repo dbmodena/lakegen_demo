@@ -1421,7 +1421,7 @@ def test_free_text_rejection_fallback_bans_nothing(tmp_path, monkeypatch):
         return "REJECT_TABLES: neither table has the required organisation column."
 
     monkeypatch.setattr(
-        "lakegen.llm.agents.runner.run_agent_workflow", fake_workflow
+        "lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow
     )
     monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
     monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
@@ -1468,7 +1468,7 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
         raise AssertionError(f"unexpected toolset: {sorted(by_name)}")
 
     monkeypatch.setattr(
-        "lakegen.llm.agents.runner.run_agent_workflow", fake_workflow
+        "lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow
     )
     monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
     monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
@@ -1517,7 +1517,7 @@ def test_correction_turn_restates_original_question_near_the_end(tmp_path, monke
         return ""
 
     monkeypatch.setattr(
-        "lakegen.llm.agents.runner.run_agent_workflow", fake_workflow
+        "lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow
     )
     monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
     monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
@@ -1575,7 +1575,7 @@ def test_iteration_limit_preserves_latest_structured_result_with_warnings(
         raise RuntimeError("Max iterations of 6 reached!")
 
     monkeypatch.setattr(
-        "lakegen.llm.agents.runner.run_agent_workflow", fake_workflow
+        "lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow
     )
     monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
     monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
@@ -1679,7 +1679,7 @@ def test_benchmark_secret_never_enters_agent_prompts(tmp_path, monkeypatch):
         prompts.extend([kwargs["system_prompt"], kwargs["user_prompt"]])
         return ""
 
-    monkeypatch.setattr("lakegen.llm.agents.runner.run_agent_workflow", fake_workflow)
+    monkeypatch.setattr("lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow)
     monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
     monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
 

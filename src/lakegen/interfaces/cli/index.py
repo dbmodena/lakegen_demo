@@ -20,9 +20,9 @@ from pathlib import Path
 from typing import Any
 
 from lakegen.config.settings import get_settings
+from lakegen.integrations.llm.embeddings import get_embedding_model
+from lakegen.integrations.solr.client import LocalSolrClient
 from lakegen.retrieval import RetrievalConfig, SolrEmbeddingIndexer
-from lakegen.retrieval.embeddings import get_embedding_model
-from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 def load_source_documents(path: Path) -> list[dict[str, Any]]:

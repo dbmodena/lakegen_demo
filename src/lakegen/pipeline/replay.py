@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 from lakegen.discovery.tools import P12State
 from lakegen.domain.outcomes import DiscoveryOutcome, DiscoveryStatus, SelectorKind
 from lakegen.domain.tables import resource_id
-from lakegen.lakes.catalogue import match_local_csv, solr_metadata_from_doc
+from lakegen.integrations.solr.catalogue import match_local_csv, solr_metadata_from_doc
 from lakegen.pipeline.budgets import Attempt
 from lakegen.pipeline.events import Answer, Request
 

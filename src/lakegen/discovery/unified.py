@@ -16,17 +16,17 @@ from lakegen.discovery.ledger import (
 )
 from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.domain.errors import WorkflowCancelled
+from lakegen.domain.retrieval import RetrievalRun
 from lakegen.domain.types import SolrMetadata, StreamCallback
-from lakegen.lakes.table_io import read_table
-from lakegen.llm.agents.activity import (
+from lakegen.integrations.llm.agents.activity import (
     Phase2AgentStall,
 )
-from lakegen.llm.agents.instrumentation import ThinkingCapture
-from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
+from lakegen.integrations.llm.agents.instrumentation import ThinkingCapture
+from lakegen.integrations.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
+from lakegen.integrations.solr.client import LocalSolrClient
+from lakegen.integrations.table_io import read_table
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig
-from lakegen.retrieval.models import RetrievalRun
-from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 def _reasoning_with_selection_plan(
@@ -358,7 +358,7 @@ class _UnifiedRun:
     def _agent(self, user_prompt: str, *, agent_name: str, max_iterations: int, max_repeats: int,
                max_tool_calls: int, timeout_seconds: int) -> str:
         """One agent over the discovery tools; a stall or an error reaches the caller."""
-        from lakegen.llm.agents.runner import run_agent_workflow
+        from lakegen.integrations.llm.agents.runner import run_agent_workflow
 
         return run_agent_workflow(
             llm=self.llm, system_prompt=self.system_prompt, user_prompt=user_prompt,
@@ -440,7 +440,7 @@ class _UnifiedRun:
 
     def _dedicated_planner(self) -> None:
         """A planner with only the drafting tool, over the confirmed selection and its evidence."""
-        from lakegen.llm.agents.runner import run_agent_workflow
+        from lakegen.integrations.llm.agents.runner import run_agent_workflow
 
         state, manager = self.state, self.tools_manager
         try:

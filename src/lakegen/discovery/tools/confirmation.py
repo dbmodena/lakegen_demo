@@ -26,7 +26,7 @@ from lakegen.discovery.tools.plan_models import (
     _resolve_partition_table_aliases,
 )
 from lakegen.discovery.tools.state import P12State
-from lakegen.lakes.table_io import read_table
+from lakegen.integrations.table_io import read_table
 
 if TYPE_CHECKING:
     from lakegen.discovery.tools.manager import Phase12ToolsManager

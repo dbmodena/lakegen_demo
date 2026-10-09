@@ -18,7 +18,7 @@ from lakegen.discovery.candidates import (
 )
 from lakegen.discovery.tools import inspection as inspection_tools
 from lakegen.discovery.tools import search as search_tools
-from lakegen.llm.agents.runner import run_agent_workflow
+from lakegen.integrations.llm.agents.runner import run_agent_workflow
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 
 # agent_tools_2 was the experimental v2 module; its improvements were promoted

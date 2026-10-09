@@ -7,9 +7,9 @@ from functools import lru_cache
 from pathlib import Path
 
 from lakegen.config.settings import get_settings
+from lakegen.domain.retrieval import RetrievalRun
+from lakegen.integrations.solr.client import LocalSolrClient, resolve_solr_core
 from lakegen.retrieval import RetrievalConfig, TableRetrievalService, run_log
-from lakegen.retrieval.models import RetrievalRun
-from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 
 
 @lru_cache(maxsize=8)

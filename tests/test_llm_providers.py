@@ -7,8 +7,13 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.config.registry import ModelSpec, models
-from lakegen.llm import providers
-from lakegen.llm.providers import LLMProvider, build_llm, provider_for, registered_providers
+from lakegen.integrations.llm import providers
+from lakegen.integrations.llm.providers import (
+    LLMProvider,
+    build_llm,
+    provider_for,
+    registered_providers,
+)
 
 
 def _spec(provider: str) -> ModelSpec:

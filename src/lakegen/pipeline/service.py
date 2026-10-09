@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping
 
+from lakegen.answer.synthesize import phase4_synthesize
+from lakegen.coding.agent import phase3_generate_and_execute
 from lakegen.config.experiment import (
     DiscoveryArchitecture,
     ExperimentConfig,
@@ -15,14 +17,17 @@ from lakegen.config.locations import resolve_portal_tables_dir
 from lakegen.config.registry import get_lake
 from lakegen.config.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 from lakegen.discovery.context import prepare_discovery_context  # noqa: F401
+from lakegen.discovery.divided import phase2_select_tables
+from lakegen.discovery.keywords import phase1_generate_keywords
 from lakegen.discovery.orchestrated import (  # noqa: F401
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
+from lakegen.discovery.unified import phase12_agent
 from lakegen.domain.results import QueryResult, QuestionSource, extract_questions
 from lakegen.evaluation.semantic_judge import judge_semantic_code_result  # noqa: F401
-from lakegen.lakes import get_all_table_files  # noqa: F401
-from lakegen.llm import get_llm  # noqa: F401
+from lakegen.integrations.llm import get_llm  # noqa: F401
+from lakegen.integrations.table_io import get_all_table_files  # noqa: F401
 
 # The phases, resources and sinks the engine calls, imported here by name:
 # pipeline_deps() binds them when a run starts, so a test patching
@@ -32,11 +37,6 @@ from lakegen.observability.manifest import (
     ExperimentManifest,
     persist_manifest,  # noqa: F401
 )
-from lakegen.discovery.keywords import phase1_generate_keywords
-from lakegen.discovery.divided import phase2_select_tables
-from lakegen.coding.agent import phase3_generate_and_execute
-from lakegen.answer.synthesize import phase4_synthesize
-from lakegen.discovery.unified import phase12_agent
 
 # The constants and helpers live in the engine; they are re-exported for the
 # tests and callers that import them from here.

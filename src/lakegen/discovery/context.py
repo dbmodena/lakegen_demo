@@ -15,10 +15,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from lakegen.domain.types import SolrMetadata
-from lakegen.lakes.catalogue import match_local_csv, solr_metadata_from_doc
+from lakegen.integrations.solr.catalogue import match_local_csv, solr_metadata_from_doc
+from lakegen.integrations.solr.client import LocalSolrClient
 from lakegen.retrieval import RetrievalConfig
 from lakegen.retrieval.factory import get_table_retrieval_service
-from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 class PreparedCandidate(BaseModel):

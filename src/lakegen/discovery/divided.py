@@ -20,15 +20,15 @@ from lakegen.discovery.selectors import choose as choose_selector
 from lakegen.discovery.tools.judge import Phase2JudgeToolsManager
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.domain.types import Phase2SelectionResult, SolrMetadata, StreamCallback
-from lakegen.llm.agents.activity import (
+from lakegen.integrations.llm.agents.activity import (
     Phase2AgentStall,
 )
-from lakegen.llm.agents.instrumentation import ThinkingCapture
-from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
+from lakegen.integrations.llm.agents.instrumentation import ThinkingCapture
+from lakegen.integrations.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
+from lakegen.integrations.solr.client import LocalSolrClient
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.factory import get_table_retrieval_service
-from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 def _solr_and_search(
@@ -211,7 +211,7 @@ class _JudgeRun:
             self.stream_callback(delta)
 
     def judge(self) -> None:
-        from lakegen.llm.agents.runner import run_agent_workflow
+        from lakegen.integrations.llm.agents.runner import run_agent_workflow
 
         visible = self.manager.visible_candidates()
         self.emit(

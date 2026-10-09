@@ -17,7 +17,7 @@ from lakegen.coding.tools.rejection import RejectionMixin
 from lakegen.coding.tools.result_checks import ResultChecksMixin
 from lakegen.coding.tools.sandbox import SandboxMixin
 from lakegen.coding.tools.state import P3State
-from lakegen.lakes.table_io import read_table
+from lakegen.integrations.table_io import read_table
 
 
 class RejectTablesSchema(BaseModel):

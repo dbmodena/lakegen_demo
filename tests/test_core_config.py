@@ -7,7 +7,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from lakegen.config import locations as config
-from lakegen.lakes import catalogue_documents as docs
+from lakegen.integrations.solr import portal as docs
 
 
 def test_uk_resolvers_prefer_cleaned_assets(monkeypatch, tmp_path):

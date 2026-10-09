@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from lakegen.domain.retrieval import RetrievalHit
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
-from lakegen.retrieval.models import RetrievalHit
-from lakegen.retrieval.modes import HybridMode, KeywordMode
+from lakegen.retrieval.modes.builtin import HybridMode, KeywordMode
 from lakegen.retrieval.registry import (
     Branches,
     ModeRetriever,

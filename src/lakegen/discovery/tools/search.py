@@ -14,7 +14,7 @@ from lakegen.config.experiment import KeywordSearchStrategy
 from lakegen.discovery.candidates import format_candidate_context
 from lakegen.discovery.terms import keyword_terms, minimal_failing_subsets, split_keywords
 from lakegen.discovery.tools import pool
-from lakegen.lakes.catalogue_text import clean_catalogue_text
+from lakegen.integrations.solr.catalogue_text import clean_catalogue_text
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalMode,

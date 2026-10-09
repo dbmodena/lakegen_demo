@@ -17,7 +17,7 @@ from lakegen.discovery.tools.join_keys import find_join_keys, format_join_sectio
 from lakegen.discovery.tools.schema_matching import verify_pair_schema
 from lakegen.discovery.tools.union_mapping import format_union_section, union_by_names
 from lakegen.domain.types import SolrMetadata
-from lakegen.lakes.table_io import (
+from lakegen.integrations.table_io import (
     TableProfile,
     iter_table_chunks,
     read_profile,

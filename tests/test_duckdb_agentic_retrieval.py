@@ -9,7 +9,7 @@ from lakegen.retrieval import (
     RetrievalMode,
     TableRetrievalService,
 )
-from lakegen.retrieval.duckdb_agentic import _query_terms
+from lakegen.retrieval.modes.duckdb_agentic import _query_terms
 
 
 def test_query_terms_remove_short_function_words_before_recall_terms():

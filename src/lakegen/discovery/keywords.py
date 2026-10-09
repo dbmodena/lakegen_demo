@@ -4,7 +4,7 @@ from collections.abc import Callable
 from llama_index.core import Settings
 from llama_index.core.llms import LLM, ChatMessage
 
-from lakegen.llm.token_usage import (
+from lakegen.integrations.llm.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
     reset_llm_token_usage,
