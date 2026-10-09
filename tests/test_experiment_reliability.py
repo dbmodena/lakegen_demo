@@ -5,10 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.config.experiment import ExperimentConfig
-from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalRun
-from lakegen.runner import ExperimentRunner
-from lakegen.service import run_question
-from lakegen.tracing import (
+from lakegen.observability.tracing import (
     HumanGate,
     HumanInterventionRecorder,
     build_llm_phase_records,
@@ -16,6 +13,9 @@ from lakegen.tracing import (
     summarize_final_ranking,
     summarize_tool_calls,
 )
+from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalRun
+from lakegen.runner import ExperimentRunner
+from lakegen.service import run_question
 from lakegen.ui.state import LakeGenSession
 from src.cli import _ask_input, _ask_yes_no
 

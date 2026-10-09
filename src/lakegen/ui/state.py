@@ -23,7 +23,7 @@ from lakegen.config.runtime import (
 # Re-exported: the UI and older importers read these from here.
 from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
 from lakegen.domain.types import SolrMetadata
-from lakegen.tracing import HumanInterventionRecorder
+from lakegen.observability.tracing import HumanInterventionRecorder
 from lakegen.ui.i18n import t
 
 

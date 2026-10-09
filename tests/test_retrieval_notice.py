@@ -10,8 +10,8 @@ import pytest
 
 from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.discovery.tools import search as search_tools
+from lakegen.observability.tracing import summarize_tool_calls
 from lakegen.retrieval import RetrievalConfig, RetrievalHit
-from lakegen.tracing import summarize_tool_calls
 
 
 def _hit(resource_id, rank):

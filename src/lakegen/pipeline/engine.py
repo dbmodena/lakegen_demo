@@ -32,8 +32,9 @@ from lakegen.keyword_memory import (
     load_question_retrieval_memory,
     question_memory_key,
 )
-from lakegen.manifest import ExperimentManifest, create_manifest
+from lakegen.observability.manifest import ExperimentManifest, create_manifest
 from lakegen.observability.recorder import Recorder, record_semantic_plan_telemetry
+from lakegen.observability.reproducibility import initialize_reproducibility
 from lakegen.pipeline.budgets import (
     Attempt,
     DedupeGuard,
@@ -70,7 +71,6 @@ from lakegen.pipeline.stages import (
     selection_retry_feedback,
 )
 from lakegen.pipeline.state import RunState
-from lakegen.reproducibility import initialize_reproducibility
 from lakegen.retrieval.run_log import capture_retrieval_runs, make_retrieval_run_observer
 
 logger = logging.getLogger(__name__)

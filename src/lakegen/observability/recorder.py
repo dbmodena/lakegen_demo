@@ -19,8 +19,12 @@ from typing import Any
 
 from lakegen.config.experiment import ToolAccess
 from lakegen.domain.results import QueryResult
+from lakegen.observability.tracing import (
+    build_llm_phase_records,
+    summarize_final_ranking,
+    summarize_tool_calls,
+)
 from lakegen.retrieval import evaluate_ranking
-from lakegen.tracing import build_llm_phase_records, summarize_final_ranking, summarize_tool_calls
 
 logger = logging.getLogger(__name__)
 

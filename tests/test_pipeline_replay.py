@@ -114,7 +114,7 @@ def test_catalogue_metadata_reads_each_tables_document_from_solr():
 
 def test_the_generated_code_lives_under_the_manifests_run_id(monkeypatch, tmp_path):
     """The manifest file and the coding directory of a run carry the same id, so one leads to the other."""
-    from lakegen.manifest import create_manifest
+    from lakegen.observability.manifest import create_manifest
 
     case = Case(experiment(), Script(phase12=[SELECTED], phase3=[phase3_result()], phase4=[ANSWER]), files=FILES)
     _replacements, log, capture = prepare_run(monkeypatch, tmp_path, service, case, SERVICE_NAMES)

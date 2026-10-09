@@ -23,6 +23,7 @@ import chainlit as cl
 
 from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
 from lakegen.domain.results import QueryResult
+from lakegen.observability.tracing import HumanGate
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.engine import Pipeline
 from lakegen.pipeline.events import (
@@ -40,7 +41,6 @@ from lakegen.pipeline.events import (
     StageStarted,
 )
 from lakegen.pipeline.hooks import StageHooks
-from lakegen.tracing import HumanGate
 from lakegen.ui.i18n import t
 from lakegen.ui.sections import (
     build_phase1_summary,

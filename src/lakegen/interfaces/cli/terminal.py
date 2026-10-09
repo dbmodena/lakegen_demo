@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import time
 
-from lakegen.tracing import HumanGate, HumanInterventionRecorder, PhaseName, normalize_hint
+from lakegen.observability.tracing import (
+    HumanGate,
+    HumanInterventionRecorder,
+    PhaseName,
+    normalize_hint,
+)
 
 COLORS = {
     "bold":    "\033[1m",

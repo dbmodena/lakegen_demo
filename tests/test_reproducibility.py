@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 from lakegen.coding.agent import phase3_generate_code
 from lakegen.config.experiment import load_experiment_config
-from lakegen.manifest import create_manifest
-from lakegen.reproducibility import initialize_reproducibility
+from lakegen.observability.manifest import create_manifest
+from lakegen.observability.reproducibility import initialize_reproducibility
 
 
 def test_local_generators_repeat_for_same_seed_and_differ_for_other_seed():

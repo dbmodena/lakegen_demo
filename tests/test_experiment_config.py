@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.experiments.batch import resolve_config
-from lakegen.manifest import create_manifest, persist_manifest, redact_secrets
+from lakegen.observability.manifest import create_manifest, persist_manifest, redact_secrets
 from lakegen.retrieval import RetrievalConfig
 from lakegen.runner import ExperimentRunner
 from lakegen.service import run_question

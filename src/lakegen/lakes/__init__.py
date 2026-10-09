@@ -2,8 +2,7 @@
 
 ``get_all_table_files(table_dir)`` lists a lake's tables as the pipeline
 sees them; ``catalogue`` maps a catalogue document to its local file and to
-the metadata the agents read. The readers stay in ``lakegen.lakes.table_io``
-until they move here.
+the metadata the agents read. The readers are in ``table_io``.
 """
 
 from __future__ import annotations

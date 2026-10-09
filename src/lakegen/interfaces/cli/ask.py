@@ -26,10 +26,6 @@ from lakegen.config.files import parse_set_values
 from lakegen.config.locations import resolve_portal_tables_dir
 from lakegen.config.registry import get_lake
 from lakegen.config.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
-
-# The phases, resources and sinks the engine calls; pipeline_deps() binds
-# them when a run starts, so a test patching a name here patches the engine.
-from lakegen.core.logger import save_experiment_log  # noqa: F401
 from lakegen.discovery.orchestrated import (  # noqa: F401
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
@@ -38,7 +34,11 @@ from lakegen.interfaces.cli import terminal
 from lakegen.interfaces.cli.driver import TerminalDriver
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
-from lakegen.manifest import persist_manifest  # noqa: F401
+
+# The phases, resources and sinks the engine calls; pipeline_deps() binds
+# them when a run starts, so a test patching a name here patches the engine.
+from lakegen.observability.csv_log import save_experiment_log  # noqa: F401
+from lakegen.observability.manifest import persist_manifest  # noqa: F401
 from lakegen.orchestrated_context import prepare_discovery_context  # noqa: F401
 from lakegen.phases import (  # noqa: F401
     phase1_generate_keywords,

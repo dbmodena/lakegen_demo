@@ -19,16 +19,19 @@ from typing import Any
 
 import chainlit as cl
 
-# The phases, resources and sinks the engine calls; pipeline_deps() binds
-# them when a run starts, so a test patching a name here patches the engine.
-from lakegen.core.logger import save_experiment_log  # noqa: F401
+from lakegen.discovery.orchestrated import (  # noqa: F401
+    run_unified_orchestrated_discovery,
+    select_from_prepared_context,
+)
+from lakegen.interfaces.chainlit.driver import ChainlitDriver
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
-from lakegen.prompts import get_prompt_manager  # noqa: F401
-from lakegen.retrieval.factory import get_solr  # noqa: F401
-from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
-from lakegen.interfaces.chainlit.driver import ChainlitDriver
-from lakegen.manifest import persist_manifest  # noqa: F401
+
+# The phases, resources and sinks the engine calls; pipeline_deps() binds
+# them when a run starts, so a test patching a name here patches the engine.
+from lakegen.observability.csv_log import save_experiment_log  # noqa: F401
+from lakegen.observability.manifest import persist_manifest  # noqa: F401
+from lakegen.observability.tracing import HumanGate, PhaseName, normalize_hint
 from lakegen.orchestrated_context import prepare_discovery_context  # noqa: F401
 from lakegen.phases import (  # noqa: F401
     phase1_generate_keywords,
@@ -37,15 +40,13 @@ from lakegen.phases import (  # noqa: F401
     phase4_synthesize,
     phase12_agent,
 )
-from lakegen.discovery.orchestrated import (  # noqa: F401
-    run_unified_orchestrated_discovery,
-    select_from_prepared_context,
-)
 from lakegen.pipeline.context import MemoryScope, RunContext, SurfaceOptions
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.pipeline.engine import Pipeline
+from lakegen.prompts import get_prompt_manager  # noqa: F401
+from lakegen.retrieval.factory import get_solr  # noqa: F401
+from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
 from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: F401
-from lakegen.tracing import HumanGate, PhaseName, normalize_hint
 from lakegen.ui.i18n import t
 from lakegen.ui.state import (
     WorkflowCancelled,

@@ -13,7 +13,7 @@ import chainlit as cl
 import pytest
 from chainlit.config import config as chainlit_config
 
-from lakegen.tracing import HumanGate
+from lakegen.observability.tracing import HumanGate
 from lakegen.ui import workflow as wf
 
 
