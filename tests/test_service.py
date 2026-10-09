@@ -7,7 +7,7 @@ from lakegen.config.experiment import (
     ToolAccess,
 )
 from lakegen.domain.results import QueryResult
-from lakegen.output_validation import AnswerDisposition, validate_answer
+from lakegen.evaluation.output_validation import AnswerDisposition, validate_answer
 from lakegen.retrieval import RetrievalConfig
 from lakegen.service import (
     _record_semantic_plan_telemetry,

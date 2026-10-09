@@ -1,4 +1,4 @@
-from lakegen.code_evaluation import (
+from lakegen.evaluation.code import (
     EVALUATION_MARKER,
     evaluate_code_result,
     extract_evaluation_payload,

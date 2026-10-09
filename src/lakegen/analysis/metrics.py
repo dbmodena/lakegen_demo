@@ -29,9 +29,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from lakegen.analysis.results import expansion_used, final_ranking, selected_tables
-from lakegen.code_evaluation import summarize_code_evaluations
 from lakegen.config.experiment import CoderContextLevel
 from lakegen.domain.tables import resource_id
+from lakegen.evaluation.code import summarize_code_evaluations
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
 
 K_VALUES = (1, 5, 10, 15, 20)

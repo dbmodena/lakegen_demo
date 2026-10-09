@@ -24,7 +24,6 @@ src/lakegen/analysis/sources/selector_compare.py
 src/lakegen/answer/synthesize.py
 src/lakegen/cell_scan.py
 src/lakegen/code_attempts.py
-src/lakegen/code_evaluation.py
 src/lakegen/coder_context.py
 src/lakegen/coder_experiment.py
 src/lakegen/coding/agent.py
@@ -65,6 +64,10 @@ src/lakegen/discovery/tools/state.py
 src/lakegen/discovery/unified.py
 src/lakegen/domain/results.py
 src/lakegen/domain/types.py
+src/lakegen/evaluation/code.py
+src/lakegen/evaluation/output_validation.py
+src/lakegen/evaluation/reference_execution.py
+src/lakegen/evaluation/semantic_judge.py
 src/lakegen/experiment_config.py
 src/lakegen/experiments/batch.py
 src/lakegen/experiments/cli.py
@@ -90,13 +93,11 @@ src/lakegen/observability/recorder.py
 src/lakegen/observability/reproducibility.py
 src/lakegen/observability/tracing.py
 src/lakegen/orchestrated_context.py
-src/lakegen/output_validation.py
 src/lakegen/phases/__init__.py
 src/lakegen/pipeline/context.py
 src/lakegen/pipeline/engine.py
 src/lakegen/pipeline/stages.py
 src/lakegen/pipeline/strategies.py
-src/lakegen/reference_execution.py
 src/lakegen/retrieval/__init__.py
 src/lakegen/retrieval/benchmark.py
 src/lakegen/retrieval/config.py
@@ -126,7 +127,6 @@ src/lakegen/retrieval/service.py
 src/lakegen/revision_policy.py
 src/lakegen/runner.py
 src/lakegen/runtime.py
-src/lakegen/semantic_code_judge.py
 src/lakegen/service.py
 src/lakegen/ui/__init__.py
 src/lakegen/ui/benchmark_sidebar.py

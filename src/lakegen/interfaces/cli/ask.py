@@ -30,6 +30,7 @@ from lakegen.discovery.orchestrated import (  # noqa: F401
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
+from lakegen.evaluation.semantic_judge import judge_semantic_code_result  # noqa: F401
 from lakegen.interfaces.cli import terminal
 from lakegen.interfaces.cli.driver import TerminalDriver
 from lakegen.lakes import get_all_table_files  # noqa: F401
@@ -55,7 +56,6 @@ from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
 from lakegen.retrieval.factory import get_solr  # noqa: F401
 from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
 from lakegen.runner import ExperimentRunner
-from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: F401
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 # The prompts live in lakegen.interfaces.cli.terminal; these names stay for the

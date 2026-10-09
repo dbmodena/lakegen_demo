@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lakegen.code_attempts import CodeAttemptEvaluator
-from lakegen.code_evaluation import unavailable_code_evaluation
 from lakegen.config.experiment import CoderContextLevel
-from lakegen.output_validation import AnswerDisposition, validate_answer
+from lakegen.evaluation.code import unavailable_code_evaluation
+from lakegen.evaluation.output_validation import AnswerDisposition, validate_answer
 
 
 def serialize_retry_error(generated: Any) -> str:

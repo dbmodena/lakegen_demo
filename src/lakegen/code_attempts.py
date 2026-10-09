@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from lakegen.code_evaluation import evaluate_code_result, unavailable_code_evaluation
+from lakegen.evaluation.code import evaluate_code_result, unavailable_code_evaluation
 
 
 @dataclass(frozen=True)

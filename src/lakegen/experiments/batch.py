@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 
 from lakegen.analysis.metrics import batch_cases, batch_report, report_summary
-from lakegen.code_evaluation import summarize_code_evaluations
 from lakegen.config.bootstrap import bootstrap_nltk_data
 from lakegen.config.experiment import (
     CoderContextLevel,
@@ -42,6 +41,7 @@ from lakegen.config.settings import (
     positive_int_or_default,
     read_var,
 )
+from lakegen.evaluation.code import summarize_code_evaluations
 from lakegen.experiments import jobs
 from lakegen.experiments.jobs import (
     JOBS,

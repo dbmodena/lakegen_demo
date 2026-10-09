@@ -19,6 +19,7 @@ from lakegen.discovery.orchestrated import (  # noqa: F401
     select_from_prepared_context,
 )
 from lakegen.domain.results import QueryResult, QuestionSource, extract_questions
+from lakegen.evaluation.semantic_judge import judge_semantic_code_result  # noqa: F401
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
 
@@ -57,7 +58,6 @@ from lakegen.prompts import get_prompt_manager  # noqa: F401
 from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
 from lakegen.retrieval.factory import get_solr  # noqa: F401
 from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
-from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

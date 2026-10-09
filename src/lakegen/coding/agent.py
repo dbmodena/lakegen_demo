@@ -11,10 +11,6 @@ from typing import Any
 import pandas as pd
 from llama_index.core.llms import LLM, ChatMessage
 
-from lakegen.code_evaluation import (
-    evaluation_output_instruction,
-    extract_evaluation_payload,
-)
 from lakegen.coder_context import CoderContext
 from lakegen.column_resolution import resolve_generated_code_columns
 from lakegen.config import paths
@@ -23,6 +19,10 @@ from lakegen.config.settings import get_settings
 from lakegen.data_quality import profile_table_quality
 from lakegen.discovery.keywords import split_thinking_blocks
 from lakegen.domain.types import SolrMetadata
+from lakegen.evaluation.code import (
+    evaluation_output_instruction,
+    extract_evaluation_payload,
+)
 from lakegen.lakes.table_io import read_table, table_load_command
 from lakegen.llm.token_usage import (
     extract_total_tokens,

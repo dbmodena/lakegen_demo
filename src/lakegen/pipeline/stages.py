@@ -29,6 +29,7 @@ from lakegen.discovery.candidates import rejection_feedback_hint
 from lakegen.discovery.tools import P12State
 from lakegen.domain.evaluation import EvaluationContext
 from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome
+from lakegen.evaluation.output_validation import AnswerDisposition, validate_answer
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
     load_question_retrieval_memory,
@@ -36,7 +37,6 @@ from lakegen.keyword_memory import (
     persist_question_retrieval_memory,
 )
 from lakegen.observability.recorder import Recorder
-from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.pipeline.adapters import (
     code_outcome,
     sweep_outcome,

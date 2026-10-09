@@ -23,6 +23,7 @@ from lakegen.discovery.orchestrated import (  # noqa: F401
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
+from lakegen.evaluation.semantic_judge import judge_semantic_code_result  # noqa: F401
 from lakegen.interfaces.chainlit.driver import ChainlitDriver
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
@@ -46,7 +47,6 @@ from lakegen.pipeline.engine import Pipeline
 from lakegen.prompts import get_prompt_manager  # noqa: F401
 from lakegen.retrieval.factory import get_solr  # noqa: F401
 from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
-from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: F401
 from lakegen.ui.i18n import t
 from lakegen.ui.state import (
     WorkflowCancelled,

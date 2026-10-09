@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from lakegen.semantic_code_judge import judge_semantic_code_result
+from lakegen.evaluation.semantic_judge import judge_semantic_code_result
 
 
 class FakePromptManager:
@@ -240,7 +240,7 @@ def test_code_analysis_is_gold_blind_and_comparison_omits_result_types():
 
 
 def test_serialization_shape_requirement_is_never_essential():
-    from lakegen.semantic_code_judge import _requirements
+    from lakegen.evaluation.semantic_judge import _requirements
 
     requirements = _requirements({"requirements": [{
         "id": "R1",

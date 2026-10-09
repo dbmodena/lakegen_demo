@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from lakegen.reference_execution import execute_pandas_reference
+from lakegen.evaluation.reference_execution import execute_pandas_reference
 
 
 def test_pandas_reference_executes_and_uses_snapshot_cache(tmp_path):

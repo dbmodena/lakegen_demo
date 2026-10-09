@@ -41,6 +41,7 @@ class PipelineDeps:
             run_unified_orchestrated_discovery,
             select_from_prepared_context,
         )
+        from lakegen.evaluation.semantic_judge import judge_semantic_code_result
         from lakegen.lakes import get_all_table_files
         from lakegen.llm import get_llm
         from lakegen.observability import csv_log as core_logger
@@ -56,7 +57,6 @@ class PipelineDeps:
         from lakegen.prompts import get_prompt_manager
         from lakegen.retrieval.factory import get_solr
         from lakegen.retrieval.run_log import log_retrieval_decision
-        from lakegen.semantic_code_judge import judge_semantic_code_result
 
         return cls(
             get_llm=get_llm,
