@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.agents.activity import Phase2AgentStall
 from lakegen.discovery import divided
 from lakegen.discovery.tools import P12State
 from lakegen.domain.errors import WorkflowCancelled
+from lakegen.llm.agents.activity import Phase2AgentStall
 from lakegen.retrieval import RetrievalConfig
 
 FILES = ["a.parquet", "b.parquet", "c.parquet"]
@@ -34,7 +34,7 @@ def _run(monkeypatch, tmp_path, responses, *, candidates=FILES, state=None):
             raise item
         return item
 
-    monkeypatch.setattr("lakegen.agents.agent_runner.run_agent_workflow", fake_run)
+    monkeypatch.setattr("lakegen.llm.agents.runner.run_agent_workflow", fake_run)
     result = divided.phase2_select_tables(
         "How many?", SimpleNamespace(token_usage_total=5), SimpleNamespace(render=lambda *a, **k: "prompt"),
         FILES, ["parks"], object(), tmp_path, stream_callback=streamed.append,

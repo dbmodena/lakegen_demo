@@ -3,7 +3,7 @@ up to 19 million rows) without reading them whole."""
 import pandas as pd
 import pytest
 
-from lakegen.core.table_io import read_table_sample
+from lakegen.lakes.table_io import read_table_sample
 
 
 def _write(tmp_path, rows, row_group_size=None, name="t.parquet"):

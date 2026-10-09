@@ -12,16 +12,16 @@ from lakegen.agent_tools.requirement_ledger import (
     build_minimal_selection_fallback,
     requirement_ledger_blockers,
 )
-from lakegen.agents.activity import (
-    Phase2AgentStall,
-)
-from lakegen.agents.instrumentation import ThinkingCapture
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.config.settings import get_settings
-from lakegen.core.table_io import read_table
 from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.domain.types import SolrMetadata, StreamCallback
+from lakegen.lakes.table_io import read_table
+from lakegen.llm.agents.activity import (
+    Phase2AgentStall,
+)
+from lakegen.llm.agents.instrumentation import ThinkingCapture
 from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig
@@ -358,7 +358,7 @@ class _UnifiedRun:
     def _agent(self, user_prompt: str, *, agent_name: str, max_iterations: int, max_repeats: int,
                max_tool_calls: int, timeout_seconds: int) -> str:
         """One agent over the discovery tools; a stall or an error reaches the caller."""
-        from lakegen.agents.agent_runner import run_agent_workflow
+        from lakegen.llm.agents.runner import run_agent_workflow
 
         return run_agent_workflow(
             llm=self.llm, system_prompt=self.system_prompt, user_prompt=user_prompt,
@@ -440,7 +440,7 @@ class _UnifiedRun:
 
     def _dedicated_planner(self) -> None:
         """A planner with only the drafting tool, over the confirmed selection and its evidence."""
-        from lakegen.agents.agent_runner import run_agent_workflow
+        from lakegen.llm.agents.runner import run_agent_workflow
 
         state, manager = self.state, self.tools_manager
         try:

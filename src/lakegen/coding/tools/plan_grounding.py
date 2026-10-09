@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from lakegen.core.table_io import read_table
+from lakegen.lakes.table_io import read_table
 
 
 class PlanGroundingMixin:

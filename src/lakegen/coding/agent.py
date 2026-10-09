@@ -20,10 +20,10 @@ from lakegen.column_resolution import resolve_generated_code_columns
 from lakegen.config import paths
 from lakegen.config.experiment import CoderContextLevel
 from lakegen.config.settings import get_settings
-from lakegen.core.table_io import read_table, table_load_command
 from lakegen.data_quality import profile_table_quality
 from lakegen.discovery.keywords import split_thinking_blocks
 from lakegen.domain.types import SolrMetadata
+from lakegen.lakes.table_io import read_table, table_load_command
 from lakegen.llm.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,
@@ -1039,8 +1039,8 @@ def _run_coder_agent(
     stream_placeholder: Any, cancel_check: Callable[[], None] | None,
 ) -> tuple[str, bool]:
     """The coder agent's turn: its response, and whether it ran out of iterations."""
-    from lakegen.agents.activity import Phase2AgentStall
-    from lakegen.agents.agent_runner import run_agent_workflow
+    from lakegen.llm.agents.activity import Phase2AgentStall
+    from lakegen.llm.agents.runner import run_agent_workflow
 
     def emit_stream(delta: str) -> None:
         if not delta:

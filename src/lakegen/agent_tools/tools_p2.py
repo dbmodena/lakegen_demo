@@ -15,7 +15,9 @@ from lakegen.agent_tools.requirement_ledger import (
 )
 from lakegen.agent_tools.schema_matching import verify_pair_schema
 from lakegen.agent_tools.union_mapping import format_union_section, union_by_names
-from lakegen.core.table_io import (
+from lakegen.discovery.candidates import format_candidate_context
+from lakegen.domain.types import SolrMetadata
+from lakegen.lakes.table_io import (
     TableProfile,
     iter_table_chunks,
     read_profile,
@@ -23,8 +25,6 @@ from lakegen.core.table_io import (
     read_table_sample,
     table_row_count,
 )
-from lakegen.discovery.candidates import format_candidate_context
-from lakegen.domain.types import SolrMetadata
 
 # ==========================================
 # TOOLS

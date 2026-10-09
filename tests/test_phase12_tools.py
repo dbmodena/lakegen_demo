@@ -2035,7 +2035,7 @@ def test_blocked_confirmation_is_recovered_instead_of_top_candidates(tmp_path):
 
 
 def test_catalogue_text_is_plain_words_with_real_less_than_signs_kept():
-    from lakegen.core.catalogue import clean_catalogue_text
+    from lakegen.lakes.catalogue_text import clean_catalogue_text
 
     styled = (
         "<span style='font-family:Lato, &quot;Avenir Next&quot;; "
@@ -2215,7 +2215,7 @@ def test_context_editor_rewrites_what_the_model_sees_on_the_real_agent_loop():
     from llama_index.core.llms.mock import MockFunctionCallingLLM
     from llama_index.core.tools import FunctionTool
 
-    from lakegen.agents.agent_runner import run_agent_workflow
+    from lakegen.llm.agents.runner import run_agent_workflow
 
     seen = []
     script = iter([("lookup", {}), None])

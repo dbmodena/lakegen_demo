@@ -16,12 +16,12 @@ table gets the same score whatever else is in the request.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from functools import lru_cache
-import re
 from typing import Any, Protocol
 
-from lakegen.core.catalogue import clean_catalogue_text
+from lakegen.lakes.catalogue_text import clean_catalogue_text
 from lakegen.retrieval.models import RetrievalHit
 
 # duckdb_agentic appends retrieval bookkeeping to a table's description; it

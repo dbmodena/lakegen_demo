@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.agents.activity import Phase2AgentStall
 from lakegen.discovery.tools import P12State
 from lakegen.discovery.unified import phase12_agent
 from lakegen.domain.errors import WorkflowCancelled
+from lakegen.llm.agents.activity import Phase2AgentStall
 
 FILES = ("a.csv", "b.csv")
 
@@ -39,7 +39,7 @@ def _run(monkeypatch, tmp_path, responses, *, state=None, require_semantic_plan=
             raise item
         return item
 
-    monkeypatch.setattr("lakegen.agents.agent_runner.run_agent_workflow", fake_run)
+    monkeypatch.setattr("lakegen.llm.agents.runner.run_agent_workflow", fake_run)
     for name in FILES:
         (tmp_path / name).write_text("value\n1\n", encoding="utf-8")
     result = phase12_agent(

@@ -11,8 +11,8 @@ from typing import Any
 
 from lakegen.coding.tools.error_repair import classify_execution_error
 from lakegen.coding.tools.state import CoderLifecycle
-from lakegen.core.table_io import table_load_command
 from lakegen.data_quality import snapshot_stamp_years
+from lakegen.lakes.table_io import table_load_command
 from lakegen.revision_policy import classify_revision, technical_repair_eligible
 
 

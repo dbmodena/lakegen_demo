@@ -7,12 +7,12 @@ from lakegen.agent_tools.requirement_ledger import (
 from lakegen.agent_tools.tools_p2 import (
     MIN_BAN_JUSTIFICATION_CHARS,
 )
-from lakegen.core.table_io import read_table
 from lakegen.discovery.tools import confirmation
 from lakegen.discovery.tools.plan_models import (
     SemanticAnalysisPlan,
     compile_semantic_plan_draft,
 )
+from lakegen.lakes.table_io import read_table
 
 
 class SelectionMixin:

@@ -20,8 +20,8 @@ from dotenv import load_dotenv
 from lakegen.config.experiment import load_experiment_config
 from lakegen.config.retrieval import FusionMethod, RetrievalConfig, RetrievalMode
 from lakegen.config.settings import get_settings
-from lakegen.core.table_io import list_table_files
 from lakegen.lakes.catalogue import match_local_csv
+from lakegen.lakes.table_io import list_table_files
 from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
 from lakegen.retrieval.service import TableRetrievalService

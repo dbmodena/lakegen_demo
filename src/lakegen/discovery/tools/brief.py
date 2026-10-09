@@ -15,8 +15,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from lakegen.core.table_io import read_table
 from lakegen.discovery.tools.plan_models import _normalize_semantic_plan
+from lakegen.lakes.table_io import read_table
 
 ANNOTATED_COLUMN = re.compile(r"(.+?)\s*\(([^()]+\.(?:parquet|csv))\)\s*")
 """A column the agent wrote with its table in brackets: ``year (sales.parquet)``."""

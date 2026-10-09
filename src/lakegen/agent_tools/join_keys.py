@@ -38,7 +38,7 @@ from lakegen.agent_tools.column_values import (
 from lakegen.agent_tools.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 if TYPE_CHECKING:
-    from lakegen.core.table_io import TableProfile
+    from lakegen.lakes.table_io import TableProfile
 
 # distinct/non-null rows at or above this count a side as "unique" for the cardinality label
 UNIQUE_RATIO = 0.99

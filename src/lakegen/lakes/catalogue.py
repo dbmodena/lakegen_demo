@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lakegen.core.catalogue import clean_catalogue_text
+from lakegen.lakes.catalogue_text import clean_catalogue_text
 
 
 def match_local_csv(doc: dict, all_files: list[str]) -> str | None:

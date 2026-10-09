@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 from lakegen.agent_tools.requirement_ledger import requirement_ledger_block_message
 from lakegen.agent_tools.tools_p2 import _temporal_coverage_issue
-from lakegen.core.table_io import read_table
 from lakegen.discovery.tools.plan_models import (
     SemanticAnalysisPlan,
     _derive_output_columns,
@@ -27,6 +26,7 @@ from lakegen.discovery.tools.plan_models import (
     _resolve_partition_table_aliases,
 )
 from lakegen.discovery.tools.state import P12State
+from lakegen.lakes.table_io import read_table
 
 if TYPE_CHECKING:
     from lakegen.discovery.tools.manager import Phase12ToolsManager

@@ -2,7 +2,7 @@
 
 ``get_all_table_files(table_dir)`` lists a lake's tables as the pipeline
 sees them; ``catalogue`` maps a catalogue document to its local file and to
-the metadata the agents read. The readers stay in ``lakegen.core.table_io``
+the metadata the agents read. The readers stay in ``lakegen.lakes.table_io``
 until they move here.
 """
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lakegen.core.table_io import list_table_files
 from lakegen.lakes.catalogue import match_local_csv, solr_metadata_from_doc
+from lakegen.lakes.table_io import list_table_files
 
 
 def get_all_table_files(table_dir: str | Path) -> list[str]:

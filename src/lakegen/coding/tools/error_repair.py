@@ -9,8 +9,8 @@ from typing import Any
 
 from lakegen.coding.tools.state import CoderLifecycle
 from lakegen.column_resolution import generated_column_names
-from lakegen.core.table_io import read_table
 from lakegen.data_quality import profile_table_quality
+from lakegen.lakes.table_io import read_table
 
 
 def classify_execution_error(message: str, *, stage: str = "execution") -> dict[str, Any]:

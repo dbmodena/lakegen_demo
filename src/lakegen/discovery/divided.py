@@ -9,10 +9,6 @@ from llama_index.core.llms import LLM
 
 from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
 from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
-from lakegen.agents.activity import (
-    Phase2AgentStall,
-)
-from lakegen.agents.instrumentation import ThinkingCapture
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.discovery.candidates import (
     format_candidate_context,
@@ -24,6 +20,10 @@ from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector
 from lakegen.domain.errors import WorkflowCancelled
 from lakegen.domain.types import Phase2SelectionResult, SolrMetadata, StreamCallback
+from lakegen.llm.agents.activity import (
+    Phase2AgentStall,
+)
+from lakegen.llm.agents.instrumentation import ThinkingCapture
 from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
@@ -211,7 +211,7 @@ class _JudgeRun:
             self.stream_callback(delta)
 
     def judge(self) -> None:
-        from lakegen.agents.agent_runner import run_agent_workflow
+        from lakegen.llm.agents.runner import run_agent_workflow
 
         visible = self.manager.visible_candidates()
         self.emit(

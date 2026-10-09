@@ -18,9 +18,6 @@ src/lakegen/agent_tools/requirement_ledger.py
 src/lakegen/agent_tools/schema_matching.py
 src/lakegen/agent_tools/tools_p2.py
 src/lakegen/agent_tools/union_mapping.py
-src/lakegen/agents/activity.py
-src/lakegen/agents/agent_runner.py
-src/lakegen/agents/instrumentation.py
 src/lakegen/analysis/metrics.py
 src/lakegen/analysis/sources/benchmarks.py
 src/lakegen/analysis/sources/selector_compare.py
@@ -49,13 +46,10 @@ src/lakegen/config/recorded.py
 src/lakegen/config/registry.py
 src/lakegen/config/retrieval.py
 src/lakegen/core/bootstrap.py
-src/lakegen/core/catalogue.py
-src/lakegen/core/catalogue_documents.py
 src/lakegen/core/config.py
 src/lakegen/core/logger.py
 src/lakegen/core/paths.py
 src/lakegen/core/resources.py
-src/lakegen/core/table_io.py
 src/lakegen/data_quality.py
 src/lakegen/discovery/candidates.py
 src/lakegen/discovery/divided.py
@@ -83,6 +77,12 @@ src/lakegen/interfaces/api/app.py
 src/lakegen/interfaces/cli/ask.py
 src/lakegen/keyword_memory.py
 src/lakegen/keyword_terms.py
+src/lakegen/lakes/catalogue_documents.py
+src/lakegen/lakes/catalogue_text.py
+src/lakegen/lakes/table_io.py
+src/lakegen/llm/agents/activity.py
+src/lakegen/llm/agents/instrumentation.py
+src/lakegen/llm/agents/runner.py
 src/lakegen/llm/groq_offload.py
 src/lakegen/llm/token_usage.py
 src/lakegen/manifest.py
@@ -188,5 +188,6 @@ tests/test_revision_policy.py
 tests/test_schema_matches.py
 tests/test_semantic_code_judge.py
 tests/test_service.py
+tests/test_table_sample.py
 tests/test_token_usage.py
 tests/test_ui_reference_files.py
