@@ -20,8 +20,13 @@ from lakegen.tools.shared.join_union.full_scan import (
 )
 from lakegen.tools.shared.join_union.join_keys import KeyEvidence
 from lakegen.tools.shared.join_union.join_report import format_join_section
-from lakegen.tools.shared.join_union.key_search import MAX_REPORTED_KEYS, find_join_keys
-from lakegen.tools.shared.join_union.schema_matching import ColumnMatch, match_pair
+from lakegen.tools.shared.join_union.key_search import (
+    MAX_REPORTED_KEYS,
+    find_join_keys,
+    settle_foreign_keys,
+)
+from lakegen.tools.shared.join_union.matching.name_cue import foreign_key_pairs
+from lakegen.tools.shared.join_union.matching.schema_matching import ColumnMatch, match_pair
 from lakegen.tools.shared.join_union.union_mapping import (
     UnionMapping,
     format_union_section,
@@ -67,8 +72,11 @@ def analyse_pair(left: TableSide, right: TableSide, *, scan_seconds: float = FUL
     keys = find_join_keys(
         left.sample, right.sample, matches, left.profile, right.profile,
         left.total_rows, right.total_rows,
+        cue_pairs=foreign_key_pairs(
+            list(left.sample.columns), list(right.sample.columns), left.name, right.name
+        ),
     )
-    keys = refine_on_whole_tables(keys, left, right, seconds=scan_seconds)
+    keys = settle_foreign_keys(refine_on_whole_tables(keys, left, right, seconds=scan_seconds))
     return PairAnalysis(left, right, matches, keys, union_by_names(left.sample, right.sample, matches))
 
 

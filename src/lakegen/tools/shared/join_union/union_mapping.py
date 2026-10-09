@@ -29,12 +29,6 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from lakegen.tools.shared.join_union.column_values import (
-    as_number,
-    column_kind,
-    map_uniques,
-    mostly_numeric,
-)
 from lakegen.tools.shared.join_union.layout import (
     ESSENTIAL,
     EXTRA,
@@ -43,7 +37,13 @@ from lakegen.tools.shared.join_union.layout import (
     USEFUL,
     fit_lines,
 )
-from lakegen.tools.shared.join_union.schema_matching import SCHEMA_MATCH_THRESHOLD
+from lakegen.tools.shared.join_union.matching.column_values import (
+    as_number,
+    column_kind,
+    map_uniques,
+    mostly_numeric,
+)
+from lakegen.tools.shared.join_union.matching.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 UNION = "UNION"
 SUBSET_UNION = "SUBSET_UNION"

@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from lakegen.domain.merge_limits import EXPLODES
-from lakegen.tools.shared.join_union.column_values import looks_like_row_numbers, looks_numeric
 from lakegen.tools.shared.join_union.join_keys import (
     JOIN,
     VERDICT_ORDER,
@@ -24,7 +23,11 @@ from lakegen.tools.shared.join_union.join_keys import (
     add_raw_merge_facts,
     measure_key,
 )
-from lakegen.tools.shared.join_union.schema_matching import SCHEMA_MATCH_THRESHOLD
+from lakegen.tools.shared.join_union.matching.column_values import (
+    looks_like_row_numbers,
+    looks_numeric,
+)
+from lakegen.tools.shared.join_union.matching.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 if TYPE_CHECKING:
     from lakegen.integrations.table_io import TableProfile
@@ -143,6 +146,26 @@ def _composite_search(
     return [ev for ev in found if _has_key_evidence(ev)]
 
 
+# a foreign key proposed by the names is kept when most rows of one side find a partner in the other
+FOREIGN_KEY_MIN_MATCH = 0.9
+FOREIGN_KEY_MIN_SHARED = 2
+
+
+def foreign_key_holds(ev: KeyEvidence) -> bool:
+    """Whether the values confirm a foreign key the names suggested."""
+    return (
+        ev.verdict == JOIN
+        and max(ev.left_match_rate, ev.right_match_rate) >= FOREIGN_KEY_MIN_MATCH
+        and ev.shared_distinct >= FOREIGN_KEY_MIN_SHARED
+        and not ev.measure_like
+    )
+
+
+def settle_foreign_keys(ranked: Sequence[KeyEvidence]) -> list[KeyEvidence]:
+    """Drop the keys the names proposed that the values do not confirm (call after the whole-table count)."""
+    return [ev for ev in ranked if not ev.by_cue or foreign_key_holds(ev)]
+
+
 def find_join_keys(
     q: pd.DataFrame,
     r: pd.DataFrame,
@@ -151,16 +174,28 @@ def find_join_keys(
     right_profile: TableProfile | None = None,
     left_total: int | None = None,
     right_total: int | None = None,
+    cue_pairs: Sequence[tuple[str, str]] = (),
 ) -> list[KeyEvidence]:
     """Measure COMA's name-similar pairs (and composites when needed) and rank them, best first.
 
     ``left_total`` / ``right_total`` are the rows of the whole tables when ``q`` / ``r`` are samples.
+    ``cue_pairs`` are column pairs whose names suggest a foreign key; they are measured too and flagged
+    ``by_cue``, and ``settle_foreign_keys`` keeps them only once the values confirm them.
     """
     rows = len(q) + len(r)
     cap = max(MIN_SINGLE_CANDIDATES, min(MAX_SINGLE_CANDIDATES, CELL_BUDGET // max(rows, 1)))
     candidates = [m for m in coma_matches if m[2] >= SCHEMA_MATCH_THRESHOLD][:cap]
+    named = {(m[0], m[1]) for m in candidates}
+    cue_only = [
+        (a, b) for a, b in cue_pairs
+        if (a, b) not in named and a in q.columns and b in r.columns
+    ]
     pairs: list[tuple[str, str, float]] = []
     singles: list[KeyEvidence] = []
+    for left, right in cue_only:
+        ev = measure_key(q, r, [left], [right], SCHEMA_MATCH_THRESHOLD, left_profile, right_profile, left_total, right_total)
+        ev.by_cue = True
+        singles.append(ev)       # not a composite or grain candidate: the sample may have missed its values
     for match in candidates:
         left, right, score = match[0], match[1], match[2]
         ev = measure_key(
@@ -175,6 +210,7 @@ def find_join_keys(
     if not singles:
         return []
     results = list(singles)
+    singles = [ev for ev in singles if not ev.by_cue]
     # composites are only worth their cost when no single column is already a real key
     if (
         not any(_has_key_evidence(ev) for ev in singles)
@@ -182,7 +218,7 @@ def find_join_keys(
         and rows <= COMPOSITE_MAX_ROWS
     ):
         results += _composite_search(q, r, pairs, left_total, right_total)
-    grain = _grain_key(q, r, results, left_profile, right_profile, left_total, right_total)
+    grain = _grain_key(q, r, [ev for ev in results if not ev.by_cue], left_profile, right_profile, left_total, right_total)
     if grain is not None:
         results.append(grain)
     ranked = rank_keys(results)

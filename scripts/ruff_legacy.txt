@@ -90,9 +90,9 @@ src/lakegen/tools/coder/steps/inspection.py
 src/lakegen/tools/coder/steps/rejection.py
 src/lakegen/tools/shared/candidates.py
 src/lakegen/tools/shared/context_editor.py
-src/lakegen/tools/shared/join_union/column_values.py
 src/lakegen/tools/shared/join_union/join_keys.py
-src/lakegen/tools/shared/join_union/schema_matching.py
+src/lakegen/tools/shared/join_union/matching/column_values.py
+src/lakegen/tools/shared/join_union/matching/schema_matching.py
 src/lakegen/tools/shared/join_union/union_mapping.py
 src/lakegen/tools/shared/judge.py
 src/lakegen/tools/shared/ledger.py

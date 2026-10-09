@@ -587,7 +587,7 @@ def test_a_single_valued_side_key_still_leads_when_it_is_the_only_candidate():
 # ---- columns matched on their values --------------------------------------------------------------
 
 def _by_values(left, right, score=0.9):
-    from lakegen.tools.shared.join_union.schema_matching import ColumnMatch
+    from lakegen.tools.shared.join_union.matching.schema_matching import ColumnMatch
 
     return ColumnMatch(left, right, score, 0.0, score / 0.9)
 

@@ -32,6 +32,17 @@ branch moves code without changing what a run does.
 
 ## 2026-10-09
 
+- **The join check finds foreign keys that the column names give away.**
+  Valentine scores `alignment_id` against `id` low and keeps only the best
+  partner of each column, so such a pair was never measured. The check now
+  also proposes pairs whose names share a word (`link_to_member` /
+  `member_id`) or where one column is a generic key and the other names its
+  table (`alignment_id` / `id` of `superhero_alignment`)
+  (`matching/name_cue.py`). Each proposal is counted on the whole key
+  columns at call time and kept only when at least 90% of one side's rows
+  find a partner (no index, no offline step). On the benchmark join
+  conditions the BIRD ones found went from 70% to 98% (the true key in the
+  first three from 70% to 93%); the portals' found rate stayed at 77%.
 - **The divided judge's payload is read whole.** The judge's answer parser
   matched `FINAL_PAYLOAD:` up to the first closing brace, so a payload that
   nested a selection plan (every fallback after a stall or an agent error)

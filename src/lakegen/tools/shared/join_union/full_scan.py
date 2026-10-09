@@ -62,7 +62,7 @@ class TableSide:
 
 def _targets(ranked: Sequence[KeyEvidence]) -> list[KeyEvidence]:
     chosen = list(ranked[:FULL_SCAN_KEYS])
-    chosen += [ev for ev in ranked[FULL_SCAN_KEYS:] if ev.grain]
+    chosen += [ev for ev in ranked[FULL_SCAN_KEYS:] if ev.grain or ev.by_cue]
     rare = [
         ev for ev in ranked[FULL_SCAN_KEYS:]
         if ev.verdict == NO_OVERLAP
@@ -120,7 +120,7 @@ def refine_on_whole_tables(
             )
         except Exception:  # noqa: BLE001 - an unreadable column leaves the sampled evidence in place
             continue
-        fresh.by_values, fresh.grain = ev.by_values, ev.grain
+        fresh.by_values, fresh.grain, fresh.by_cue = ev.by_values, ev.grain, ev.by_cue
         if fresh.supported:  # what a plain merge does on the rows just read, before they are released
             add_raw_merge_facts(fresh, q, r)
         refined[position[id(ev)]] = fresh

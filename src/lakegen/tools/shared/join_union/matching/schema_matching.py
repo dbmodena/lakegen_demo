@@ -39,7 +39,7 @@ import pandas as pd
 from valentine import valentine_match
 from valentine.algorithms import Coma
 
-from lakegen.tools.shared.join_union.column_values import can_match_on_values
+from lakegen.tools.shared.join_union.matching.column_values import can_match_on_values
 
 logger = logging.getLogger(__name__)
 

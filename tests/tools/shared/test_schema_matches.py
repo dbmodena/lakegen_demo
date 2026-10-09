@@ -3,7 +3,7 @@ import itertools
 import pandas as pd
 
 from lakegen.tools.shared import judge as tools_p2
-from lakegen.tools.shared.join_union import schema_matching
+from lakegen.tools.shared.join_union.matching import schema_matching
 
 
 def test_check_join_union_states_that_same_kind_tables_union(tmp_path):

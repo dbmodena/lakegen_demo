@@ -34,7 +34,7 @@ from lakegen.domain.merge_limits import (
     MERGE_BLOWUP_FACTOR,
     classify_merge,
 )
-from lakegen.tools.shared.join_union.column_values import (
+from lakegen.tools.shared.join_union.matching.column_values import (
     column_kind,
     format_datetime,
     format_number,
@@ -98,6 +98,7 @@ class KeyEvidence:
     exact: bool = True
     by_values: bool = False       # the two columns are named differently; Valentine matched their values
     grain: bool = False           # all the shared dimension columns together (not a ranked candidate)
+    by_cue: bool = False          # proposed by the column names (a foreign key), then confirmed on the values
     # What ``left.merge(right, left_on=..., right_on=...)`` does on the columns as they are stored,
     # without the normalising this module applies (strip, casefold, numbers read from text).
     raw_checked: bool = False

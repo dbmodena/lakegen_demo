@@ -22,7 +22,7 @@ from lakegen.tools.shared.join_union.layout import (
     USEFUL,
     fit_lines,
 )
-from lakegen.tools.shared.join_union.schema_matching import SCHEMA_MATCH_THRESHOLD
+from lakegen.tools.shared.join_union.matching.schema_matching import SCHEMA_MATCH_THRESHOLD
 
 # a plain merge that keeps less than this share of the normalised join rows is reported
 RAW_MATCH_SHARE = 0.5
