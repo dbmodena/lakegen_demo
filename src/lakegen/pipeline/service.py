@@ -32,13 +32,11 @@ from lakegen.observability.manifest import (
     ExperimentManifest,
     persist_manifest,  # noqa: F401
 )
-from lakegen.phases import (  # noqa: F401
-    phase1_generate_keywords,
-    phase2_select_tables,
-    phase3_generate_and_execute,
-    phase4_synthesize,
-    phase12_agent,
-)
+from lakegen.discovery.keywords import phase1_generate_keywords
+from lakegen.discovery.divided import phase2_select_tables
+from lakegen.coding.agent import phase3_generate_and_execute
+from lakegen.answer.synthesize import phase4_synthesize
+from lakegen.discovery.unified import phase12_agent
 
 # The constants and helpers live in the engine; they are re-exported for the
 # tests and callers that import them from here.

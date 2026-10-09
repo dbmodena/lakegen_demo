@@ -4,8 +4,7 @@
 builds its provider's client (``providers.oci``, ``providers.ollama``,
 ``providers.together``), each with LakeGen's token accounting.
 ``tool_calls`` holds what the providers' tool calls need before an agent can
-run them. ``lakegen.core.resources`` re-exports ``get_llm`` for the modules
-that still read it there.
+run them.
 """
 
 from lakegen.llm.factory import get_llm, spec_for

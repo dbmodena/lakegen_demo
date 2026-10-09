@@ -115,7 +115,6 @@ source_modules = [
     "lakegen.pipeline", "lakegen.discovery", "lakegen.coding", "lakegen.answer",
     "lakegen.evaluation", "lakegen.retrieval", "lakegen.llm", "lakegen.lakes", "lakegen.config", "lakegen.domain",
     "lakegen.observability", "lakegen.experiments", "lakegen.analysis", "lakegen.prompts",
-    "lakegen.core", "lakegen.agents", "lakegen.agent_tools", "lakegen.service", "lakegen.runner",
     "lakegen.interfaces.cli",
 ]
 forbidden_modules = ["chainlit", "fastapi"]
@@ -156,5 +155,4 @@ source_modules = [
 ]
 forbidden_modules = [
     "lakegen.pipeline", "lakegen.interfaces", "lakegen.experiments", "lakegen.analysis",
-    "lakegen.service", "lakegen.ui",
 ]

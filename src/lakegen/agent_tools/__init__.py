@@ -1,1 +1,0 @@
-"""Aliases of the agent tools: the divided judge's and the shared evidence modules are in ``lakegen.discovery`` (``tools/``, ``ledger``); the unified agent's tools in ``lakegen.discovery.tools``, the coder's in ``lakegen.coding.tools``."""

@@ -9,7 +9,7 @@ import threading
 
 import pytest
 
-from lakegen.ui import live_steps
+from lakegen.interfaces.chainlit import live_steps
 
 # Simulates chainlit.context.context_var: a ContextVar set once on the main
 # event-loop thread (e.g. by Chainlit's own request handling) that must

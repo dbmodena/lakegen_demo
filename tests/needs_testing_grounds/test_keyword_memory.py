@@ -5,8 +5,8 @@ same pattern as test_discovery_config.py's `_manager` helper."""
 import pandas as pd
 import pytest
 
-from lakegen.agent_tools import tools_p12
-from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
+from lakegen.discovery import tools as tools_p12
+from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 

@@ -2,6 +2,6 @@
 
 ``driver`` runs the pipeline's steps on a worker thread, shows each stage
 as a Chainlit step, answers each gate with the app's buttons and prompts.
-The app's entry (``src/app.py``) and its widgets stay in ``lakegen.ui``
-until phase 4 moves them here.
+The app's entry is ``src/app.py``; its widgets, state and workflow are the
+modules of this package.
 """

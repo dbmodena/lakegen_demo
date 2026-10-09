@@ -14,7 +14,8 @@ from lakegen.discovery.selectors.jev_service import (
     profile_table,
     select_with_jev,
 )
-from lakegen.phases import jev_selector, orchestrated_discovery, phase2
+from lakegen.discovery.selectors import jev_service as jev_selector
+from lakegen.discovery import orchestrated as orchestrated_discovery, divided as phase2
 
 JEV = DiscoveryConfig(selector="jev")
 

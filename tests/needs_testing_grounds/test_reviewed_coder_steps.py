@@ -9,8 +9,8 @@ import asyncio
 import pytest
 
 from lakegen.column_lineage import Violation
-from lakegen.ui import live_steps
-from lakegen.ui.reviewed_coder_steps import (
+from lakegen.interfaces.chainlit import live_steps
+from lakegen.interfaces.chainlit.reviewed_coder_steps import (
     emit_review_step, format_code_judge_step, format_pipeline_summary,
     format_plan_step, format_validator_step, step_name_for_event,
 )

@@ -47,13 +47,11 @@ class PipelineDeps:
         from lakegen.llm import get_llm
         from lakegen.observability import csv_log as core_logger
         from lakegen.observability.manifest import persist_manifest
-        from lakegen.phases import (
-            phase1_generate_keywords,
-            phase2_select_tables,
-            phase3_generate_and_execute,
-            phase4_synthesize,
-            phase12_agent,
-        )
+        from lakegen.discovery.keywords import phase1_generate_keywords
+        from lakegen.discovery.divided import phase2_select_tables
+        from lakegen.coding.agent import phase3_generate_and_execute
+        from lakegen.answer.synthesize import phase4_synthesize
+        from lakegen.discovery.unified import phase12_agent
         from lakegen.prompts import get_prompt_manager
         from lakegen.retrieval.factory import get_solr
         from lakegen.retrieval.run_log import log_retrieval_decision

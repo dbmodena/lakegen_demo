@@ -46,7 +46,7 @@ from lakegen.retrieval.embeddings import (
     _normalize_query,
     _validate,
 )
-from src.client_solr import LocalSolrClient
+from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 def test_solr_select_keeps_strict_and_for_words_in_multiword_concepts(monkeypatch):
@@ -63,7 +63,7 @@ def test_solr_select_keeps_strict_and_for_words_in_multiword_concepts(monkeypatc
         captured.update(params)
         return Response()
 
-    monkeypatch.setattr("src.client_solr.requests.get", fake_get)
+    monkeypatch.setattr("lakegen.retrieval.solr_client.requests.get", fake_get)
     LocalSolrClient("uk").select(
         ["Transport for Greater Manchester", "invoices"], q_op="AND"
     )
@@ -964,7 +964,7 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
         captured.update(url=url, params=data, timeout=timeout)
         return Response()
 
-    monkeypatch.setattr("src.client_solr.requests.post", fake_post)
+    monkeypatch.setattr("lakegen.retrieval.solr_client.requests.post", fake_post)
     client = LocalSolrClient("bologna", timeout=4)
 
     response = client.knn_select(

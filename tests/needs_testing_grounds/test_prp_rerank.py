@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.agent_tools import tools_p12
+from lakegen.discovery import tools as tools_p12
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 

@@ -10,8 +10,8 @@ no inspection tool.
 import pandas as pd
 import pytest
 
-from lakegen.agent_tools import tools_p12
-from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
+from lakegen.discovery import tools as tools_p12
+from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit
 

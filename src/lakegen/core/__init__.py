@@ -1,1 +1,0 @@
-"""Aliases of the modules that moved out of the old core: ``lakegen.config`` (paths, locations, bootstrap), ``lakegen.domain`` (types), ``lakegen.lakes`` (table readers, catalogue), ``lakegen.observability`` (the CSV log), ``lakegen.llm`` (resources, token usage, Groq offload)."""

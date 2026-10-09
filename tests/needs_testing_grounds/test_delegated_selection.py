@@ -7,7 +7,7 @@ import re
 import pandas as pd
 import pytest
 
-from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
+from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.config.experiment import DiscoveryConfig
 
 

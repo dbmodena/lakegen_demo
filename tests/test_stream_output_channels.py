@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from lakegen.phases import orchestrated_discovery
+from lakegen.discovery import orchestrated as orchestrated_discovery
 
 
 def test_a_delta_is_printed_once_and_forwarded_once(monkeypatch, capsys):

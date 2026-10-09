@@ -41,13 +41,11 @@ from lakegen.llm import get_llm  # noqa: F401
 # them when a run starts, so a test patching a name here patches the engine.
 from lakegen.observability.csv_log import save_experiment_log  # noqa: F401
 from lakegen.observability.manifest import persist_manifest  # noqa: F401
-from lakegen.phases import (  # noqa: F401
-    phase1_generate_keywords,
-    phase2_select_tables,
-    phase3_generate_and_execute,
-    phase4_synthesize,
-    phase12_agent,
-)
+from lakegen.discovery.keywords import phase1_generate_keywords
+from lakegen.discovery.divided import phase2_select_tables
+from lakegen.coding.agent import phase3_generate_and_execute
+from lakegen.answer.synthesize import phase4_synthesize
+from lakegen.discovery.unified import phase12_agent
 from lakegen.pipeline.context import MemoryScope, RunContext, SurfaceOptions
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.pipeline.engine import MAX_CODE_ATTEMPTS, MAX_TABLE_ATTEMPTS, Pipeline
