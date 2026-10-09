@@ -19,8 +19,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from lakegen.config.experiment import ExperimentConfig
 from lakegen.config.files import nest
-from lakegen.experiment_config import ExperimentConfig
 
 
 @dataclass(frozen=True)

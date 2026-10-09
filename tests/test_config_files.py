@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.config.files import (
     V2_PATHS,
     ConfigFileError,
@@ -16,7 +17,6 @@ from lakegen.config.files import (
     to_v2,
     translate_override,
 )
-from lakegen.experiment_config import ExperimentConfig, load_experiment_config
 
 ROOT = Path(__file__).resolve().parents[1]
 

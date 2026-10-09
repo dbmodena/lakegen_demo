@@ -4,29 +4,28 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.experiment_config import DiscoveryArchitecture, DiscoveryConfig
-from lakegen.orchestrated_context import (
-    PreparedCandidate,
-    PreparedDiscoveryContext,
-    prepare_discovery_context,
-)
+from lakegen.config.experiment import DiscoveryArchitecture, DiscoveryConfig, ExperimentConfig
 from lakegen.discovery.orchestrated import (
     DiscoveryResult,
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
     RetrievalRequestProtocolError,
     _run_tool_free_turn,
-    parse_retrieval_request,
     parse_orchestrated_selection,
+    parse_retrieval_request,
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
-from lakegen.retrieval import RetrievalConfig, RetrievalMode
-from lakegen.retrieval.models import RetrievalHit
-from lakegen.retrieval.intent import parse_retrieval_intent
-from lakegen.experiment_config import ExperimentConfig
-from lakegen.service import run_question
+from lakegen.orchestrated_context import (
+    PreparedCandidate,
+    PreparedDiscoveryContext,
+    prepare_discovery_context,
+)
 from lakegen.prompts.prompt_manager import PromptManager
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.retrieval.intent import parse_retrieval_intent
+from lakegen.retrieval.models import RetrievalHit
+from lakegen.service import run_question
 
 
 def _intent(concepts, **overrides):

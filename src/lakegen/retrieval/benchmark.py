@@ -4,29 +4,28 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import threading
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
+from lakegen.config.experiment import load_experiment_config
+from lakegen.config.retrieval import FusionMethod, RetrievalConfig, RetrievalMode
 from lakegen.config.settings import get_settings
-from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 from lakegen.core.table_io import list_table_files
-from lakegen.experiment_config import load_experiment_config
 from lakegen.lakes.catalogue import match_local_csv
-from lakegen.retrieval.config import FusionMethod, RetrievalConfig, RetrievalMode
 from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.evaluation import evaluate_ranking, mean_metrics
 from lakegen.retrieval.service import TableRetrievalService
-
+from lakegen.retrieval.solr_client import LocalSolrClient, resolve_solr_core
 
 BENCHMARK_LOG_COLUMNS = [
     "ID",

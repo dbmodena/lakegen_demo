@@ -18,13 +18,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from lakegen.config.experiment import DiscoveryArchitecture, ToolAccess
 from lakegen.discovery.orchestrated import (
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
     RetrievalRequestProtocolError,
 )
 from lakegen.domain.outcomes import DiscoveryOutcome, SelectorKind
-from lakegen.experiment_config import DiscoveryArchitecture, ToolAccess
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
     load_question_retrieval_memory,

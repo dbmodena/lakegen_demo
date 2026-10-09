@@ -27,19 +27,20 @@ from typing import Any
 
 from lakegen.analysis.metrics import batch_cases, batch_report, report_summary
 from lakegen.code_evaluation import summarize_code_evaluations
+from lakegen.config.bootstrap import bootstrap_nltk_data
+from lakegen.config.experiment import (
+    CoderContextLevel,
+    DiscoveryArchitecture,
+    ExperimentConfig,
+    load_experiment_config,
+)
+from lakegen.config.locations import LOG_DIR
+from lakegen.config.runtime import SOLR_CORE_PORTAL_NAMES
 from lakegen.config.settings import (
     get_settings,
     non_negative_float_or_default,
     positive_int_or_default,
     read_var,
-)
-from lakegen.core.bootstrap import bootstrap_nltk_data
-from lakegen.core.config import LOG_DIR
-from lakegen.experiment_config import (
-    CoderContextLevel,
-    DiscoveryArchitecture,
-    ExperimentConfig,
-    load_experiment_config,
 )
 from lakegen.experiments import jobs
 from lakegen.experiments.jobs import (
@@ -59,7 +60,6 @@ from lakegen.experiments.jobs import (
 from lakegen.retrieval import RetrievalMode, check_embedding_health
 from lakegen.retrieval.benchmark import append_benchmark_metrics_log
 from lakegen.runner import ExperimentRunner
-from lakegen.runtime import SOLR_CORE_PORTAL_NAMES
 
 # Batch progress goes to Uvicorn's application logger, so it shows in the same
 # terminal as the HTTP access log when the API runs under Uvicorn.

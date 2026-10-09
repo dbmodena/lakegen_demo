@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lakegen.retrieval.config import (
+from lakegen.config.retrieval import (
     RetrievalMode,
 )
 from lakegen.retrieval.registry import (

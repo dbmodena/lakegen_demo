@@ -1,7 +1,7 @@
-import os
 import csv
 import datetime
 import json
+import os
 import sys
 import threading
 from pathlib import Path
@@ -9,7 +9,7 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-from lakegen.core.config import LOG_DIR
+from lakegen.config.locations import LOG_DIR
 
 CSV_LOG_COLUMNS = [
     "ID", "TIMESTAMP", "MODEL", "ARCHITECTURE", "QUESTION",

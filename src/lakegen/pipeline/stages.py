@@ -21,14 +21,14 @@ from typing import Any
 
 from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.coder_experiment import run_coder_context_sweep
+from lakegen.config.experiment import (
+    CoderContextLevel,
+    ExperimentConfig,
+)
 from lakegen.discovery.candidates import rejection_feedback_hint
 from lakegen.discovery.tools import P12State
 from lakegen.domain.evaluation import EvaluationContext
 from lakegen.domain.outcomes import CodeOutcome, CodeStatus, DiscoveryOutcome
-from lakegen.experiment_config import (
-    CoderContextLevel,
-    ExperimentConfig,
-)
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
     load_question_retrieval_memory,

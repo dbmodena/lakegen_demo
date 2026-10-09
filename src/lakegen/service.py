@@ -5,29 +5,30 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping
 
-from lakegen.config.registry import get_lake
-from lakegen.core.config import resolve_portal_tables_dir
-from lakegen.experiment_config import (
+from lakegen.config.experiment import (
     DiscoveryArchitecture,
     ExperimentConfig,
     InteractionMode,
     load_experiment_config,
 )
-from lakegen.manifest import ExperimentManifest
-from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
-from lakegen.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
-from lakegen.service_models import QueryResult, QuestionSource, extract_questions
+from lakegen.config.locations import resolve_portal_tables_dir
+from lakegen.config.registry import get_lake
+from lakegen.config.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 
 # The phases, resources and sinks the engine calls, imported here by name:
 # pipeline_deps() binds them when a run starts, so a test patching
 # `lakegen.service.<name>` patches what the engine calls.
 from lakegen.core.logger import save_experiment_log  # noqa: F401
+from lakegen.discovery.orchestrated import (  # noqa: F401
+    run_unified_orchestrated_discovery,
+    select_from_prepared_context,
+)
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
-from lakegen.prompts import get_prompt_manager  # noqa: F401
-from lakegen.retrieval.factory import get_solr  # noqa: F401
-from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
-from lakegen.manifest import persist_manifest  # noqa: F401
+from lakegen.manifest import (
+    ExperimentManifest,
+    persist_manifest,  # noqa: F401
+)
 from lakegen.orchestrated_context import prepare_discovery_context  # noqa: F401
 from lakegen.phases import (  # noqa: F401
     phase1_generate_keywords,
@@ -36,11 +37,6 @@ from lakegen.phases import (  # noqa: F401
     phase4_synthesize,
     phase12_agent,
 )
-from lakegen.discovery.orchestrated import (  # noqa: F401
-    run_unified_orchestrated_discovery,
-    select_from_prepared_context,
-)
-from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: F401
 
 # The constants and helpers live in the engine; they are re-exported for the
 # tests and callers that import them from here.
@@ -56,6 +52,12 @@ from lakegen.pipeline.engine import (  # noqa: F401
     run_pipeline,
 )
 from lakegen.pipeline.replay import Replay
+from lakegen.prompts import get_prompt_manager  # noqa: F401
+from lakegen.retrieval import DEFAULT_TOP_K, RetrievalConfig, RetrievalMode
+from lakegen.retrieval.factory import get_solr  # noqa: F401
+from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
+from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: F401
+from lakegen.service_models import QueryResult, QuestionSource, extract_questions
 
 logger = logging.getLogger(__name__)
 

@@ -13,6 +13,7 @@ from lakegen.agents.activity import (
     Phase2AgentStall,
 )
 from lakegen.agents.instrumentation import ThinkingCapture
+from lakegen.config.experiment import DiscoveryConfig
 from lakegen.core.types import Phase2SelectionResult, SolrMetadata, StreamCallback
 from lakegen.discovery.candidates import (
     format_candidate_context,
@@ -23,7 +24,6 @@ from lakegen.discovery.candidates import (
 from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector
 from lakegen.errors import WorkflowCancelled
-from lakegen.experiment_config import DiscoveryConfig
 from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig, RetrievalMode

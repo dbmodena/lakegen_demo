@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from lakegen.core import paths
+from lakegen.config import paths
 from lakegen.experiments.spec import Cell, ExperimentSpec
 
 

@@ -58,7 +58,7 @@ def test_two_processes_writing_the_same_memory_lose_nothing(tmp_path):
 
 
 def test_each_experiment_remembers_on_its_own(monkeypatch, tmp_path):
-    from lakegen.core import paths
+    from lakegen.config import paths
 
     monkeypatch.setenv("LAKEGEN_STATE_DIR", str(tmp_path))
     assert paths.keyword_memory_path("qwen-grid") == tmp_path / "runs" / "qwen-grid" / "memory.json"

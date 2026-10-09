@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
+from lakegen.config import locations as core_config
 from lakegen.config.registry import lakes
-from lakegen.core import config as core_config
 from lakegen.ui import benchmark_sidebar, starters
 
 

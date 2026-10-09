@@ -7,12 +7,12 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from lakegen.retrieval import modes  # noqa: F401  (registers the modes)
-from lakegen.retrieval.config import (
+from lakegen.config.retrieval import (
     FusionMethod,
     RetrievalConfig,
     RetrievalMode,
 )
+from lakegen.retrieval import modes  # noqa: F401  (registers the modes)
 from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
 from lakegen.retrieval.duckdb_semantic import DuckDBSemanticHybridRetriever
 from lakegen.retrieval.embeddings import EmbeddingModel, get_embedding_model

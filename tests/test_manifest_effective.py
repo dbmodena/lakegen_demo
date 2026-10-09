@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from lakegen.core import config as core_config
-from lakegen.experiment_config import ExperimentConfig, load_experiment_config
+from lakegen.config import locations as core_config
+from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.manifest import create_manifest, effective_settings
 
 

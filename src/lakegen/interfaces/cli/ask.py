@@ -20,28 +20,24 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from lakegen.config.bootstrap import bootstrap_nltk_data
+from lakegen.config.experiment import InteractionMode, load_experiment_config
 from lakegen.config.files import parse_set_values
+from lakegen.config.locations import resolve_portal_tables_dir
 from lakegen.config.registry import get_lake
-from lakegen.core.bootstrap import bootstrap_nltk_data
-from lakegen.core.config import resolve_portal_tables_dir
-from lakegen.experiment_config import InteractionMode, load_experiment_config
-from lakegen.interfaces.cli import terminal
-from lakegen.interfaces.cli.driver import TerminalDriver
-from lakegen.pipeline.context import MemoryScope, RunContext, SurfaceOptions
-from lakegen.pipeline.deps import PipelineDeps
-from lakegen.pipeline.engine import MAX_CODE_ATTEMPTS, MAX_TABLE_ATTEMPTS, Pipeline
-from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
-from lakegen.runner import ExperimentRunner
-from lakegen.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
+from lakegen.config.runtime import MODEL_OPTIONS, SOLR_CORE_OPTIONS, RuntimeSettings
 
 # The phases, resources and sinks the engine calls; pipeline_deps() binds
 # them when a run starts, so a test patching a name here patches the engine.
 from lakegen.core.logger import save_experiment_log  # noqa: F401
+from lakegen.discovery.orchestrated import (  # noqa: F401
+    run_unified_orchestrated_discovery,
+    select_from_prepared_context,
+)
+from lakegen.interfaces.cli import terminal
+from lakegen.interfaces.cli.driver import TerminalDriver
 from lakegen.lakes import get_all_table_files  # noqa: F401
 from lakegen.llm import get_llm  # noqa: F401
-from lakegen.prompts import get_prompt_manager  # noqa: F401
-from lakegen.retrieval.factory import get_solr  # noqa: F401
-from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
 from lakegen.manifest import persist_manifest  # noqa: F401
 from lakegen.orchestrated_context import prepare_discovery_context  # noqa: F401
 from lakegen.phases import (  # noqa: F401
@@ -51,12 +47,15 @@ from lakegen.phases import (  # noqa: F401
     phase4_synthesize,
     phase12_agent,
 )
-from lakegen.discovery.orchestrated import (  # noqa: F401
-    run_unified_orchestrated_discovery,
-    select_from_prepared_context,
-)
+from lakegen.pipeline.context import MemoryScope, RunContext, SurfaceOptions
+from lakegen.pipeline.deps import PipelineDeps
+from lakegen.pipeline.engine import MAX_CODE_ATTEMPTS, MAX_TABLE_ATTEMPTS, Pipeline
+from lakegen.prompts import get_prompt_manager  # noqa: F401
+from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
+from lakegen.retrieval.factory import get_solr  # noqa: F401
+from lakegen.retrieval.run_log import log_retrieval_decision  # noqa: F401
+from lakegen.runner import ExperimentRunner
 from lakegen.semantic_code_judge import judge_semantic_code_result  # noqa: F401
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 # The prompts live in lakegen.interfaces.cli.terminal; these names stay for the

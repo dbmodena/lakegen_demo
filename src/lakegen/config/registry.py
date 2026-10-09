@@ -21,8 +21,8 @@ from typing import Any
 
 import yaml
 
+from lakegen.config import locations as core_config
 from lakegen.config.settings import pneuma_override, solr_core_override
-from lakegen.core import config as core_config
 
 CONFIG_DIR = core_config.BASE_DIR / "config"
 TABLE_SUFFIXES = {".parquet", ".pq", ".csv"}

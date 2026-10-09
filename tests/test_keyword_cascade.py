@@ -7,9 +7,9 @@ Hybrid mode skips the split entirely and runs one fused search."""
 import json
 from types import SimpleNamespace
 
+from lakegen.config.experiment import DiscoveryConfig, KeywordSearchStrategy
 from lakegen.discovery import tools as tools_p12
 from lakegen.discovery.tools import search as search_tools
-from lakegen.experiment_config import DiscoveryConfig, KeywordSearchStrategy
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 
 TABLE_WORDS = {

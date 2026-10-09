@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from lakegen.experiment_config import DiscoveryConfig, TableSelector
+from lakegen.config.experiment import DiscoveryConfig, TableSelector
 
 
 class SelectorUnavailable(RuntimeError):

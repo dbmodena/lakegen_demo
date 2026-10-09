@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from lakegen.config.experiment import ExperimentConfig
 from lakegen.domain.outcomes import CodeOutcome, CodeStatus
-from lakegen.experiment_config import ExperimentConfig
 from lakegen.observability.recorder import Recorder
 from lakegen.pipeline.budgets import Attempt, DedupeGuard
 from lakegen.pipeline.context import RunContext

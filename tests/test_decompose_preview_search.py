@@ -7,9 +7,9 @@ before anything actually runs."""
 import json
 from types import SimpleNamespace
 
+from lakegen.config.experiment import DiscoveryConfig
 from lakegen.discovery import tools as tools_p12
 from lakegen.discovery.tools import search as search_tools
-from lakegen.experiment_config import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 
 

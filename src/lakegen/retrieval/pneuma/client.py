@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 import requests
 
-from lakegen.retrieval.config import (
+from lakegen.config.retrieval import (
     RetrievalConfig,
 )
 

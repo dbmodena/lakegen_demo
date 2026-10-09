@@ -96,7 +96,7 @@ known-first-party = ["lakegen", "golden", "src", "prompts"]
 # The registry itself, and the three places that build a subprocess's or a
 # library's environment from the process's own.
 "src/lakegen/config/settings.py" = ["TID251"]
-"src/lakegen/core/bootstrap.py" = ["TID251"]
+"src/lakegen/config/bootstrap.py" = ["TID251"]
 "src/lakegen/cell_scan.py" = ["TID251"]
 "src/lakegen/experiments/services.py" = ["TID251"]
 
@@ -136,7 +136,6 @@ layers = [
     "lakegen.config",
     "lakegen.domain",
 ]
-ignore_imports = ["lakegen.experiment_config -> lakegen.retrieval"]
 
 [[tool.importlinter.contracts]]
 name = "observability is imported by the pipeline and what runs it only"

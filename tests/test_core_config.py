@@ -6,8 +6,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from lakegen.config import locations as config
 from lakegen.core import catalogue_documents as docs
-from lakegen.core import config
 
 
 def test_uk_resolvers_prefer_cleaned_assets(monkeypatch, tmp_path):

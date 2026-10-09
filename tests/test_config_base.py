@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from lakegen.config.experiment import load_experiment_config
 from lakegen.config.files import to_v2
-from lakegen.experiment_config import load_experiment_config
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config"

@@ -32,7 +32,7 @@ def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
 
 
 def _resolved(path: Path, set_values: list[str] | None = None) -> dict[str, Any]:
-    from lakegen.experiment_config import load_experiment_config  # the schema; imported late
+    from lakegen.config.experiment import load_experiment_config  # the schema; imported late
 
     return load_experiment_config(path, overrides=parse_set_values(set_values)).model_dump(mode="json")
 

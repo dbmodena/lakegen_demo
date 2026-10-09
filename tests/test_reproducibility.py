@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
-from lakegen.experiment_config import load_experiment_config
-from lakegen.manifest import create_manifest
 from lakegen.coding.agent import phase3_generate_code
+from lakegen.config.experiment import load_experiment_config
+from lakegen.manifest import create_manifest
 from lakegen.reproducibility import initialize_reproducibility
 
 

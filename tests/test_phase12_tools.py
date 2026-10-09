@@ -1,13 +1,13 @@
 import json
 from types import SimpleNamespace
 
-import pytest
 import pandas as pd
+import pytest
 
 from lakegen.discovery import tools as tools_p12
+from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.discovery.tools import inspection as inspection_tools
 from lakegen.discovery.tools import search as search_tools
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
 from lakegen.discovery.tools.plan_models import (
     _normalize_semantic_plan,
     _resolve_partition_table_aliases,
@@ -67,12 +67,13 @@ def test_partition_any_alias_stays_invalid_when_column_is_not_common():
 
     assert resolved["filters"][0]["table"] == "any"
 from lakegen.agent_tools import tools_p2
-from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
-from lakegen.keyword_memory import format_question_retrieval_memory
 from lakegen.agent_tools.requirement_ledger import (
-    _period_years, build_minimal_selection_fallback, build_requirement_ledger,
+    _period_years,
+    build_minimal_selection_fallback,
+    build_requirement_ledger,
     requirement_ledger_blockers,
 )
+from lakegen.agent_tools.tools_p2 import Phase2JudgeToolsManager
 from lakegen.discovery.unified import (
     _conservative_draft_from_requirements,
     _extract_plausible_json,
@@ -82,6 +83,7 @@ from lakegen.discovery.unified import (
     _recover_minimal_selection_plan,
     _semantic_planner_prompt,
 )
+from lakegen.keyword_memory import format_question_retrieval_memory
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalConfig,
@@ -2278,7 +2280,7 @@ def test_repeated_search_points_back_and_a_withdrawn_tool_says_so(monkeypatch, t
 
 
 def test_context_management_off_reproduces_the_previous_behaviour(monkeypatch, tmp_path):
-    from lakegen.experiment_config import DiscoveryConfig
+    from lakegen.config.experiment import DiscoveryConfig
 
     state, manager = _ni_manager(tmp_path)
     manager.discovery = DiscoveryConfig(state_board=False, compact_history=False)

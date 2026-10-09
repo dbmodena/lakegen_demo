@@ -17,7 +17,7 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-from lakegen.experiment_config import ToolAccess
+from lakegen.config.experiment import ToolAccess
 from lakegen.retrieval import evaluate_ranking
 from lakegen.service_models import QueryResult
 from lakegen.tracing import build_llm_phase_records, summarize_final_ranking, summarize_tool_calls

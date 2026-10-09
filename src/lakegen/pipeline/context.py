@@ -14,7 +14,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from lakegen.experiment_config import ExperimentConfig, InteractionMode
+from lakegen.config.experiment import ExperimentConfig, InteractionMode
 from lakegen.retrieval import RetrievalConfig
 
 

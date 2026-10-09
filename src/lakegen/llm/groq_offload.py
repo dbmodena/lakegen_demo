@@ -18,21 +18,21 @@ The ledger also restores each key's daily usage after a restart.
 
 from __future__ import annotations
 
+import json
+import threading
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import threading
-import time
 from typing import Any, Sequence
 
 import requests
 from llama_index.core.llms import ChatMessage, ChatResponse, MessageRole
 
+from lakegen.config.locations import LOG_DIR
 from lakegen.config.registry import groq_models
 from lakegen.config.settings import get_settings, groq_api_keys
-from lakegen.core.config import LOG_DIR
 from lakegen.llm.token_usage import estimate_tokens
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from lakegen.experiment_config import ExperimentConfig
+from lakegen.config.experiment import ExperimentConfig
 from lakegen.observability.recorder import Recorder, record_semantic_plan_telemetry
 from lakegen.pipeline.context import RunContext
 

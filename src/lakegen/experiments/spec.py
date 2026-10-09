@@ -41,11 +41,11 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.config.files import deep_merge, load_document, nest, translate_override
+from lakegen.config.locations import BASE_DIR
 from lakegen.config.registry import get_lake
-from lakegen.core.config import BASE_DIR
-from lakegen.experiment_config import ExperimentConfig, load_experiment_config
-from lakegen.retrieval.config import RetrievalMode
+from lakegen.config.retrieval import RetrievalMode
 
 
 class StrictModel(BaseModel):

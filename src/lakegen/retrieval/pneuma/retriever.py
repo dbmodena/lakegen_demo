@@ -13,7 +13,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from lakegen.retrieval.config import (
+from lakegen.config.retrieval import (
     PneumaContentFusion,
     RetrievalConfig,
     RetrievalMode,

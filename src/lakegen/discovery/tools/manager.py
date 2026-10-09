@@ -9,6 +9,7 @@ from llama_index.core.llms import LLM
 from llama_index.core.tools import FunctionTool
 
 from lakegen.agent_tools.discovery_context import REPEATED_BLOCK, DiscoveryContext
+from lakegen.config.experiment import DiscoveryConfig
 from lakegen.core.types import StreamCallback
 from lakegen.discovery.tools.brief import BriefMixin
 from lakegen.discovery.tools.inspection import InspectionMixin
@@ -20,7 +21,6 @@ from lakegen.discovery.tools.plan_models import (
 from lakegen.discovery.tools.search import SearchMixin
 from lakegen.discovery.tools.selection import SelectionMixin
 from lakegen.discovery.tools.state import P12State
-from lakegen.experiment_config import DiscoveryConfig
 from lakegen.retrieval import (
     RetrievalConfig,
     RetrievalRun,

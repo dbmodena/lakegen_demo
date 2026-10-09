@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from lakegen.config.experiment import DiscoveryArchitecture, ToolAccess
 from lakegen.domain.outcomes import DiscoveryOutcome, DiscoveryStatus
-from lakegen.experiment_config import DiscoveryArchitecture, ToolAccess
 from lakegen.pipeline.budgets import Attempt
 from lakegen.pipeline.strategies import (
     DiscoveryStrategy,

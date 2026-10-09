@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lakegen.core import paths
+from lakegen.config import paths
 
 # LAKEGEN_JOB_DIR gives an API instance its own job folder, so a second run
 # neither shows nor resumes the jobs another instance left unfinished.

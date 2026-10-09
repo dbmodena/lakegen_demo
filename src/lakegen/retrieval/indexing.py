@@ -6,11 +6,10 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from lakegen.retrieval.solr_client import LocalSolrClient
-
-from lakegen.retrieval.config import RetrievalConfig
+from lakegen.config.retrieval import RetrievalConfig
 from lakegen.retrieval.embeddings import EmbeddingModel
 from lakegen.retrieval.representation import represent_table
+from lakegen.retrieval.solr_client import LocalSolrClient
 
 
 def _batches(items: Iterator[dict[str, Any]], size: int):

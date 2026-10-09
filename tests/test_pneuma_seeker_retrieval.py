@@ -8,7 +8,7 @@ unchanged by their presence.
 import pandas as pd
 import pytest
 
-from lakegen.experiment_config import RetrievalExperimentConfig
+from lakegen.config.experiment import RetrievalExperimentConfig
 from lakegen.retrieval import (
     PneumaRetriever,
     RetrievalConfig,

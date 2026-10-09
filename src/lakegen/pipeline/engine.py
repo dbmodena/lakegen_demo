@@ -20,11 +20,11 @@ from collections.abc import Generator, Mapping
 from typing import Any
 
 from lakegen.code_attempts import CodeAttemptEvaluator
-from lakegen.core import paths
-from lakegen.core.config import BASE_DIR
+from lakegen.config import paths
+from lakegen.config.experiment import DiscoveryArchitecture
+from lakegen.config.locations import BASE_DIR
 from lakegen.domain.evaluation import EvaluationContext
 from lakegen.errors import WorkflowCancelled, WorkflowTimedOut
-from lakegen.experiment_config import DiscoveryArchitecture
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
     load_keyword_memory,

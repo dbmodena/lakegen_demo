@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import re
 import json
+import re
 import subprocess
 import uuid
 from datetime import datetime, timezone
@@ -13,11 +13,10 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from lakegen.config.experiment import ExperimentConfig
 from lakegen.config.registry import get_lake
 from lakegen.config.settings import get_settings, retrieval_env_overrides
-from lakegen.experiment_config import ExperimentConfig
 from lakegen.reproducibility import initialize_reproducibility
-
 
 _SECRET_KEY = re.compile(
     r"(?:secret|password|passwd|token|api[_-]?key|credential|authorization|cookie)",

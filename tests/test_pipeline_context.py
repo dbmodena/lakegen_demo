@@ -6,7 +6,7 @@ from dataclasses import fields
 from pathlib import Path
 from types import SimpleNamespace
 
-from lakegen.experiment_config import ExperimentConfig, InteractionMode
+from lakegen.config.experiment import ExperimentConfig, InteractionMode
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.deps import PipelineDeps
 from lakegen.retrieval import RetrievalConfig

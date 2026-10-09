@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.experiment_config import ExperimentConfig
+from lakegen.config.experiment import ExperimentConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.tracing import HumanGate
 from lakegen.ui import workflow

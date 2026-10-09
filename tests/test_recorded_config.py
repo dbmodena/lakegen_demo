@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from lakegen.config.experiment import ExperimentConfig
 from lakegen.config.recorded import load_recorded_config, schema_keys
-from lakegen.experiment_config import ExperimentConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 STORED = json.loads((ROOT / "tests" / "fixtures" / "configs" / "stored_job_configs.json").read_text(encoding="utf-8"))

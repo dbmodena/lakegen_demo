@@ -1,5 +1,5 @@
+from lakegen.config.retrieval import RetrievalConfig
 from lakegen.discovery.divided import _solr_and_search
-from lakegen.retrieval.config import RetrievalConfig
 from lakegen.retrieval.models import RetrievalHit
 
 

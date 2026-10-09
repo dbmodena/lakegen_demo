@@ -1,14 +1,20 @@
 from types import SimpleNamespace
 
-from lakegen.output_validation import AnswerDisposition, validate_answer
-from lakegen.experiment_config import (
-    DiscoveryArchitecture, ExperimentConfig, InteractionMode, ToolAccess,
+from lakegen.config.experiment import (
+    DiscoveryArchitecture,
+    ExperimentConfig,
+    InteractionMode,
+    ToolAccess,
 )
+from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.retrieval import RetrievalConfig
 from lakegen.service import (
-    _record_semantic_plan_telemetry, _rejected_selection_signature,
-    _selection_plan_signature, _selection_retry_feedback,
-    extract_questions, run_question,
+    _record_semantic_plan_telemetry,
+    _rejected_selection_signature,
+    _selection_plan_signature,
+    _selection_retry_feedback,
+    extract_questions,
+    run_question,
 )
 from lakegen.service_models import QueryResult
 

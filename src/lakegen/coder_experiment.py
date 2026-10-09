@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.code_evaluation import unavailable_code_evaluation
-from lakegen.experiment_config import CoderContextLevel
+from lakegen.config.experiment import CoderContextLevel
 from lakegen.output_validation import AnswerDisposition, validate_answer
 
 

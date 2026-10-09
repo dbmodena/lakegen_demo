@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from lakegen.config import locations as core_config
 from lakegen.config import registry
+from lakegen.config.locations import BASE_DIR
 from lakegen.config.registry import (
     get_lake,
     get_model,
@@ -14,8 +16,6 @@ from lakegen.config.registry import (
     models_by_provider,
     pneuma_routes,
 )
-from lakegen.core import config as core_config
-from lakegen.core.config import BASE_DIR
 
 LAKES = ("nyc", "valencia", "bologna", "paris", "uk", "kramabench", "target_bird", "chicago")
 MODELS = (

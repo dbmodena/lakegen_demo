@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-import threading
-import uuid
 import asyncio
+import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import chainlit as cl
 
-from lakegen.ui.i18n import t
-from lakegen.core.types import SolrMetadata
-from lakegen.core import paths
-from lakegen.tracing import HumanInterventionRecorder
-# Re-exported: the UI and older importers read these from here.
-from lakegen.errors import WorkflowCancelled, WorkflowTimedOut
-from lakegen.runtime import (
+from lakegen.config import paths
+from lakegen.config.runtime import (
     MODEL_OPTIONS,
     RETRIEVAL_MODE_ITEMS,
     RETRIEVAL_MODE_OPTIONS,
@@ -24,6 +19,12 @@ from lakegen.runtime import (
     SOLR_CORE_PORTAL_NAMES,
     RuntimeSettings,
 )
+from lakegen.core.types import SolrMetadata
+
+# Re-exported: the UI and older importers read these from here.
+from lakegen.errors import WorkflowCancelled, WorkflowTimedOut
+from lakegen.tracing import HumanInterventionRecorder
+from lakegen.ui.i18n import t
 
 
 @dataclass

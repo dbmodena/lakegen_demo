@@ -13,8 +13,8 @@ from __future__ import annotations
 from dataclasses import MISSING, fields
 from typing import get_type_hints
 
-from lakegen.experiment_config import RetrievalExperimentConfig
-from lakegen.retrieval.config import RetrievalConfig
+from lakegen.config.experiment import RetrievalExperimentConfig
+from lakegen.config.retrieval import RetrievalConfig
 
 # field -> (dataclass default, experiment-config default)
 EXPERIMENT_OVERRIDES = {

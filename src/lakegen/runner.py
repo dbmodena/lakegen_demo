@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
-from lakegen.experiment_config import ExperimentConfig, InteractionMode
+from lakegen.config.experiment import ExperimentConfig, InteractionMode
 from lakegen.pipeline.replay import Replay
 from lakegen.service import QueryResult, make_runtime_settings, run_question
 

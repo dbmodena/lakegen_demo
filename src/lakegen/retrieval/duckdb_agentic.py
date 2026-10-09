@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from functools import lru_cache
 import json
 import math
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Sequence
 
 import duckdb
 import pyarrow.parquet as pq
 
-from lakegen.retrieval.config import RetrievalConfig
+from lakegen.config.retrieval import RetrievalConfig
 from lakegen.retrieval.models import RetrievalHit
-
 
 _WORD = re.compile(r"[^\W_]{2,}", re.UNICODE)
 _STOPWORDS = {

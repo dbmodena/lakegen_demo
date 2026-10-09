@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from lakegen.config.experiment import DiscoveryConfig
 from lakegen.config.settings import jev_api_key
 from lakegen.core.types import SolrMetadata
-from lakegen.experiment_config import DiscoveryConfig
 
 API_URL = "https://api.typesafe.ai/v1/systemone"
 KEY_NAMES = ("TYPESAFE_API_KEY", "JEV_API_KEY")

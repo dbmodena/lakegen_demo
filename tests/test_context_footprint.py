@@ -10,6 +10,7 @@ from llama_index.core.tools import FunctionTool
 from pydantic import Field
 
 from lakegen.agents.agent_runner import run_agent_workflow
+from lakegen.config.experiment import DiscoveryConfig
 from lakegen.discovery import tools as tools_p12_v1
 from lakegen.discovery.candidates import (
     _candidate_columns,
@@ -18,7 +19,6 @@ from lakegen.discovery.candidates import (
 )
 from lakegen.discovery.tools import inspection as inspection_tools
 from lakegen.discovery.tools import search as search_tools
-from lakegen.experiment_config import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
 
 # agent_tools_2 was the experimental v2 module; its improvements were promoted

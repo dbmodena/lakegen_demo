@@ -3,13 +3,13 @@
 import pandas as pd
 import pytest
 
-from lakegen.discovery.tools import P12State, Phase12ToolsManager
-from lakegen.discovery.tools import search as search_tools
-from lakegen.experiment_config import (
+from lakegen.config.experiment import (
     DiscoveryConfig,
     ExperimentConfig,
     dotted_overrides,
 )
+from lakegen.discovery.tools import P12State, Phase12ToolsManager
+from lakegen.discovery.tools import search as search_tools
 from lakegen.retrieval import RetrievalConfig, RetrievalHit
 
 

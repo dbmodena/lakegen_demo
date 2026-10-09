@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from lakegen.config.experiment import DiscoveryConfig, TableSelector
 from lakegen.discovery.selectors import (
     Selection,
     SelectionRequest,
@@ -17,7 +18,6 @@ from lakegen.discovery.selectors import (
     jev as jev_selectors,
 )
 from lakegen.discovery.selectors.jev_service import JevSelection, JevSelectorError
-from lakegen.experiment_config import DiscoveryConfig, TableSelector
 
 
 def test_every_selector_but_the_architectures_own_llm_is_registered():

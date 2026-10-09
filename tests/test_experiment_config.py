@@ -1,18 +1,18 @@
 import builtins
 import json
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
-from types import SimpleNamespace
 
-from lakegen.experiment_config import ExperimentConfig, load_experiment_config
-from lakegen.manifest import create_manifest, persist_manifest, redact_secrets
-from lakegen.runner import ExperimentRunner
-from lakegen.ui.state import RuntimeSettings
+from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.experiments.batch import resolve_config
-from src.cli import resolve_cli_experiment
+from lakegen.manifest import create_manifest, persist_manifest, redact_secrets
 from lakegen.retrieval import RetrievalConfig
+from lakegen.runner import ExperimentRunner
 from lakegen.service import run_question
+from lakegen.ui.state import RuntimeSettings
+from src.cli import resolve_cli_experiment
 
 
 def test_default_config_matches_existing_interactive_workflow(monkeypatch):

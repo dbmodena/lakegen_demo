@@ -6,7 +6,7 @@ import math
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from lakegen.retrieval.config import (
+from lakegen.config.retrieval import (
     FusionMethod,
     MissingSignalPolicy,
     RetrievalConfig,

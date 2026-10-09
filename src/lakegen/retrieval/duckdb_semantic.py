@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from lakegen.retrieval.config import (
+from lakegen.config.retrieval import (
     RetrievalConfig,
 )
 from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever, evidence_note

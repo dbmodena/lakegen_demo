@@ -1,0 +1,364 @@
+"""Configuration shared by keyword, semantic, and hybrid retrieval."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
+from enum import StrEnum
+
+from lakegen.config.registry import get_lake
+from lakegen.config.settings import retrieval_env_values
+
+DEFAULT_TOP_K = 20
+# Second-stage reranker of production retrieval (retrieval.rerank); see
+# RetrievalConfig.rerank_model.
+DEFAULT_RERANK_MODEL = "cohere.rerank-v4.0-fast"
+DEFAULT_RERANK_DEPTH = 20
+
+
+class RetrievalMode(StrEnum):
+    KEYWORD = "keyword"
+    SEMANTIC = "semantic"
+    HYBRID = "hybrid"
+    PNEUMA = "pneuma"
+    PNEUMA_SEEKER = "pneuma_seeker"
+    DUCKDB_AGENTIC = "duckdb_agentic"
+    # RRF of the duckdb_agentic ranking and the semantic one. The Solr ``hybrid``
+    # (BM25 + KNN) is a separate mode and is left as it is.
+    HYBRID_DUCKDB_SEMANTIC = "hybrid_duckdb_semantic"
+
+    @property
+    def label(self) -> str:
+        """The name shown to people; ``value`` stays the config/CLI spelling."""
+        if self is RetrievalMode.HYBRID_DUCKDB_SEMANTIC:
+            return "hybrid (duckdb + semantic)"
+        return self.value
+
+    @property
+    def uses_embeddings(self) -> bool:
+        """True when retrieval embeds the question, so it needs the embedding model."""
+        return self in (
+            RetrievalMode.SEMANTIC,
+            RetrievalMode.HYBRID,
+            RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+        )
+
+    @property
+    def reranked(self) -> bool:
+        """True for the modes a configured second-stage reranker reorders.
+
+        Cohere reranking was measured on keyword, semantic, hybrid and
+        hybrid (duckdb + semantic) (experiments/rerank_lab). ``duckdb_agentic``
+        alone is not reranked, and the Pneuma modes rank with their own LLM
+        judge.
+        """
+        return self in (
+            RetrievalMode.KEYWORD,
+            RetrievalMode.SEMANTIC,
+            RetrievalMode.HYBRID,
+            RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
+        )
+
+    @property
+    def fuses(self) -> bool:
+        """Two branches fused by ``fusion_method``: BM25 + KNN, or DuckDB + KNN."""
+        return self in (RetrievalMode.HYBRID, RetrievalMode.HYBRID_DUCKDB_SEMANTIC)
+
+    @property
+    def uses_duckdb(self) -> bool:
+        """Searches the local Parquet files with DuckDB, alone or fused with KNN."""
+        return self in (RetrievalMode.DUCKDB_AGENTIC, RetrievalMode.HYBRID_DUCKDB_SEMANTIC)
+
+    @property
+    def is_pneuma(self) -> bool:
+        """True for the Pneuma family: the index alone, and the Seeker augmentation."""
+        return self in (RetrievalMode.PNEUMA, RetrievalMode.PNEUMA_SEEKER)
+
+    @property
+    def value_keywords(self) -> bool:
+        """True when search terms should be cell values rather than dataset topics.
+
+        No currently supported retrieval mode requests value-only keywords.
+        """
+        return False
+
+    @property
+    def verbatim_entities(self) -> bool:
+        """True when discovery must list entities exactly as the question names them.
+
+        ``pneuma_seeker`` scans table content for those entities, as Pneuma-Seeker
+        does: identifiers, codes, and names likely stored verbatim, never general
+        concepts. The prompts and the agent's search tool read this flag.
+        """
+        return self is RetrievalMode.PNEUMA_SEEKER
+
+    @property
+    def ranks_question_only(self) -> bool:
+        """True when retrieval ranks the question alone and ignores search terms.
+
+        ``semantic`` embeds the question and ``pneuma`` sends it to the Pneuma
+        service, so the concepts discovery produces reach neither. The agent is
+        still asked for them, which keeps it from telling retrievers apart, but
+        records must not present them as what was searched.
+        """
+        return self in (RetrievalMode.SEMANTIC, RetrievalMode.PNEUMA)
+
+    def split_keywords(self, keywords: Sequence[str] | None) -> tuple[list[str], list[str]]:
+        """Discovery's keywords as (searched, not searched) under this mode."""
+        listed = list(keywords or ())
+        return ([], listed) if self.ranks_question_only else (listed, [])
+
+    @property
+    def requires_table_dir(self) -> bool:
+        """True for modalities that read local Parquet instead of a Solr index."""
+        return (
+            self in (RetrievalMode.DUCKDB_AGENTIC, RetrievalMode.HYBRID_DUCKDB_SEMANTIC)
+            # Plain pneuma stays service-only; only the Seeker scans cells.
+            or self is RetrievalMode.PNEUMA_SEEKER
+        )
+
+
+class MissingSignalPolicy(StrEnum):
+    ZERO = "zero"
+    RESCORE = "rescore"
+
+
+class FusionMethod(StrEnum):
+    WEIGHTED = "weighted"
+    RRF = "rrf"
+
+
+class PneumaContentFusion(StrEnum):
+    """How ``pneuma_seeker`` merges content search into Pneuma's ranking."""
+
+    # pneuma_content_weight x content + the rest x Pneuma's 1/rank, over a
+    # candidate_multiplier-wide Pneuma pool: the paper's "combine".
+    WEIGHTED = "weighted"
+    # The reference code: Pneuma's top-k keeps its order, and content-ranked
+    # tables only fill the slots its deduplication left.
+    FILL = "fill"
+
+
+@dataclass(frozen=True)
+class RetrievalConfig:
+    """The retrieval settings of one run.
+
+    ``RetrievalExperimentConfig`` (lakegen.config.experiment) mirrors this field
+    list for the experiment file; tests/test_retrieval_config_sync.py keeps the
+    two in step and pins the production defaults of ``from_env``.
+    """
+
+    """Reproducible retrieval settings for a LakeGen experiment."""
+
+    mode: RetrievalMode = RetrievalMode.KEYWORD
+    top_k: int = DEFAULT_TOP_K
+    alpha: float = 0.5
+    candidate_multiplier: int = 5
+    representation_version: str = "metadata-v1"
+    embedding_model: str = "cohere.embed-v4.0"
+    embedding_base_url: str = "http://localhost:11434"
+    vector_field: str = "table_embedding"
+    lexical_query_fields: str | None = None
+    # Keyword mode only. q.op=AND requires every tokenized word across every
+    # keyword to appear in one document; a zero-hit AND query normally just
+    # returns nothing. When true, retry it once as q.op=OR instead of
+    # collapsing to zero candidates. Off by default to preserve the
+    # pre-existing strict-AND baseline.
+    keyword_or_fallback: bool = False
+    missing_signal_policy: MissingSignalPolicy = MissingSignalPolicy.ZERO
+    fusion_method: FusionMethod = FusionMethod.WEIGHTED
+    rrf_k: int = 60
+    pneuma_index_name: str = "lakegen"
+    pneuma_base_url: str = "http://localhost:8767"
+    pneuma_timeout_seconds: float = 120.0
+    # Pneuma-Seeker: weight of the content-search branch against Pneuma's own
+    # ranking. ``alpha`` cannot serve here -- it is forwarded to Pneuma's
+    # internal hybrid search. The scan shares ``scan_workers`` and the
+    # ``grep_max_files`` cut with grep, but reads every row and every column of
+    # a file: the per-file ``grep_*`` row and column caps do not apply to it.
+    pneuma_content_weight: float = 0.5
+    # ``fill`` ignores pneuma_content_weight: nothing is weighted.
+    pneuma_content_fusion: PneumaContentFusion = PneumaContentFusion.WEIGHTED
+    # Pneuma-Seeker: the chat model that extracts entities from the question, with
+    # the reference code's prompt, when the caller passes none at all (the
+    # benchmark). An agent's entities, even an empty list, are used as given.
+    # None extracts nothing.
+    pneuma_entity_model: str | None = None
+    pneuma_enumerate_tables: bool = True
+    # Pneuma-Seeker content search, per entity and table: a raw score of
+    # table_name_weight x a match in the table's catalog title
+    # + column_name_weight x matching column names + cell_weight x matching
+    # cells, damped by log(1 + raw). 3, 2 and 1 are upstream Pneuma-Seeker's
+    # weights. A family weighted 0 is skipped: a cell weight of 0 reads no cell.
+    pneuma_table_name_weight: float = 3.0
+    pneuma_column_name_weight: float = 2.0
+    pneuma_cell_weight: float = 1.0
+    # Plain ``pneuma`` only: weight of a DuckDB value scan of the tables Pneuma
+    # returned, against Pneuma's own ranking (Pneuma-Seeker's content search, but
+    # within Pneuma's pool rather than the whole lake). The agent's entities, else
+    # its keywords, are matched word-bounded in every column cast to text, within
+    # the duckdb_max_columns_per_file / duckdb_max_scan_rows_per_file bounds. 0
+    # (the default) scans nothing and leaves ``pneuma`` exactly as it was.
+    pneuma_value_scan_weight: float = 0.0
+    duckdb_max_files: int = 250
+    duckdb_max_columns_per_file: int = 40
+    duckdb_sample_rows: int = 3
+    duckdb_max_scan_rows_per_file: int = 100_000
+    duckdb_probe_files: int = 25
+    duckdb_probe_rows_per_file: int = 1_000
+    # None means no cap: every file in the lake is scanned. A cap is an explicit,
+    # flagged approximation -- it changes which files are read AND the IDF the
+    # survivors are scored with, so a capped run is not comparable to a full one.
+    grep_max_files: int | None = None
+    grep_max_columns_per_file: int = 40
+    grep_max_scan_rows_per_file: int = 100_000
+    grep_sample_rows: int = 3
+    grep_probe_files: int = 25
+    grep_probe_rows_per_file: int = 1_000
+    # Worker processes for the per-file scan map, shared by grep and the Pneuma
+    # content search. Every polars query runs in these workers, never in the
+    # calling process, so a native polars crash costs a retried batch rather than
+    # the application. Each file is an independent bounded read; 16 is the
+    # measured optimum on a 32-core host, where the speedup saturates because the
+    # work is I/O-bound. 1 still scans outside the calling process, one file at a
+    # time.
+    scan_workers: int = 8
+    # Weight of each grep evidence family in the score. A family weighted 0
+    # cannot change any ranking, so the work behind it is skipped rather than
+    # computed and multiplied away: 0 for values means no cell is ever read,
+    # 0 for metadata means no filename, column name, or catalog field is ever
+    # matched. Both at 0 would score every table 0, so that is rejected.
+    grep_value_weight: float = 1.0
+    grep_metadata_weight: float = 1.0
+    # Second-stage reranker for the modes RetrievalMode.reranked names: it
+    # reorders the top rerank_depth hits and leaves the rest in retrieval order.
+    # None (the default here) turns it off; the production configurations,
+    # from_env and the experiment configuration, default to DEFAULT_RERANK_MODEL.
+    rerank_model: str | None = None
+    rerank_depth: int = DEFAULT_RERANK_DEPTH
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mode", RetrievalMode(self.mode))
+        object.__setattr__(
+            self,
+            "missing_signal_policy",
+            MissingSignalPolicy(self.missing_signal_policy),
+        )
+        object.__setattr__(self, "fusion_method", FusionMethod(self.fusion_method))
+        object.__setattr__(
+            self,
+            "pneuma_content_fusion",
+            PneumaContentFusion(self.pneuma_content_fusion),
+        )
+        if self.top_k <= 0:
+            raise ValueError("top_k must be greater than zero")
+        if not 0.0 <= self.alpha <= 1.0:
+            raise ValueError("alpha must be between 0 and 1")
+        if self.candidate_multiplier <= 0:
+            raise ValueError("candidate_multiplier must be greater than zero")
+        if self.rrf_k <= 0:
+            raise ValueError("rrf_k must be greater than zero")
+        if self.pneuma_timeout_seconds <= 0:
+            raise ValueError("pneuma_timeout_seconds must be greater than zero")
+        if not 0.0 <= self.pneuma_content_weight <= 1.0:
+            raise ValueError("pneuma_content_weight must be between 0 and 1")
+        if not 0.0 <= self.pneuma_value_scan_weight <= 1.0:
+            raise ValueError("pneuma_value_scan_weight must be between 0 and 1")
+        pneuma_weights = (
+            "pneuma_table_name_weight",
+            "pneuma_column_name_weight",
+            "pneuma_cell_weight",
+        )
+        for name in pneuma_weights:
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must not be negative")
+        if not any(getattr(self, name) for name in pneuma_weights):
+            raise ValueError(
+                "pneuma_table_name_weight, pneuma_column_name_weight and "
+                "pneuma_cell_weight must not all be zero: no content evidence "
+                "would remain to rank on"
+            )
+        for name in (
+            "duckdb_max_files",
+            "duckdb_max_columns_per_file",
+            "duckdb_sample_rows",
+            "duckdb_max_scan_rows_per_file",
+            "duckdb_probe_files",
+            "duckdb_probe_rows_per_file",
+            "grep_max_columns_per_file",
+            "grep_max_scan_rows_per_file",
+            "grep_sample_rows",
+            "grep_probe_files",
+            "grep_probe_rows_per_file",
+            "scan_workers",
+        ):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be greater than zero")
+        if self.grep_max_files is not None and self.grep_max_files <= 0:
+            raise ValueError("grep_max_files must be greater than zero or None")
+        for name in ("grep_value_weight", "grep_metadata_weight"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must not be negative")
+        if self.grep_value_weight == 0 and self.grep_metadata_weight == 0:
+            raise ValueError(
+                "grep_value_weight and grep_metadata_weight must not both be zero: "
+                "no evidence would remain to rank on"
+            )
+        for name in ("representation_version", "embedding_model", "vector_field"):
+            if not getattr(self, name).strip():
+                raise ValueError(f"{name} must not be blank")
+        for name in (
+            "pneuma_index_name",
+            "pneuma_base_url",
+        ):
+            if not getattr(self, name).strip():
+                raise ValueError(f"{name} must not be blank")
+        if self.lexical_query_fields is not None:
+            query_fields = self.lexical_query_fields.strip()
+            object.__setattr__(self, "lexical_query_fields", query_fields or None)
+        if self.rerank_model is not None:
+            object.__setattr__(self, "rerank_model", self.rerank_model.strip() or None)
+        if self.pneuma_entity_model is not None:
+            object.__setattr__(
+                self, "pneuma_entity_model", self.pneuma_entity_model.strip() or None
+            )
+        if self.rerank_depth <= 0:
+            raise ValueError("rerank_depth must be greater than zero")
+
+    @property
+    def branch_candidate_count(self) -> int:
+        return self.top_k * self.candidate_multiplier
+
+    def for_portal(self, portal: str) -> "RetrievalConfig":
+        """Select the independent Pneuma service belonging to a portal."""
+        try:
+            lake = get_lake(portal.strip().casefold())
+        except KeyError:
+            return self
+        url, index = lake.pneuma_route()
+        return replace(self, pneuma_index_name=index, pneuma_base_url=url)
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        mode: RetrievalMode | str | None = None,
+        top_k: int | None = None,
+        alpha: float | None = None,
+        candidate_multiplier: int | None = None,
+    ) -> "RetrievalConfig":
+        """The production defaults, each overridable by its LAKEGEN_* variable.
+
+        The variables and their defaults are listed in lakegen.config.settings
+        (group ``retrieval``); the keyword arguments win over the environment.
+        """
+        values = retrieval_env_values()
+        for name, value in (
+            ("mode", mode),
+            ("top_k", top_k),
+            ("alpha", alpha),
+            ("candidate_multiplier", candidate_multiplier),
+        ):
+            if value is not None:
+                values[name] = value
+        return cls(**values)

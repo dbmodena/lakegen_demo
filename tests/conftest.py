@@ -8,7 +8,7 @@ be ported later, but they are not collected here.
 Hermetic state: every run writes under a temporary root. ``LAKEGEN_STATE_DIR``
 is set in ``pytest_configure``, before any ``lakegen`` import, because
 ``core.config.LOG_DIR`` and ``api.JOB_DIR`` are computed at import time; the
-autouse fixture then points the call-time paths (``lakegen.core.paths``) at
+autouse fixture then points the call-time paths (``lakegen.config.paths``) at
 each test's own directory and resets the module-level caches that hold a
 path. The environment is also cleared of every LakeGen and provider variable,
 and ``.env`` is not loaded, so no test can reach a real service with real keys.
@@ -38,7 +38,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def _no_dotenv(*args, **kwargs) -> bool:
-    """Stands in for ``dotenv.load_dotenv``, which ``lakegen.core.bootstrap`` calls at import."""
+    """Stands in for ``dotenv.load_dotenv``, which ``lakegen.config.bootstrap`` calls at import."""
     return False
 
 

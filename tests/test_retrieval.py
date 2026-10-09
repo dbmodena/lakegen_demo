@@ -1,13 +1,10 @@
+import csv
 import json
 import math
-import csv
 import time
 from types import SimpleNamespace
 
 import pytest
-
-from lakegen.interfaces.cli.index import validate_source_coverage
-from src.client_solr import LocalSolrClient
 from scripts_pneuma.pneuma_judge import (
     JudgeError,
     RelevanceJudgment,
@@ -15,10 +12,12 @@ from scripts_pneuma.pneuma_judge import (
     order_by_relevance,
     structured_relevance_prompt,
 )
+
+from lakegen.interfaces.cli.index import validate_source_coverage
 from lakegen.retrieval import (
     DuckDBSemanticHybridRetriever,
-    HybridRetriever,
     FusionMethod,
+    HybridRetriever,
     KeywordRetriever,
     MissingSignalPolicy,
     PneumaRetriever,
@@ -47,6 +46,7 @@ from lakegen.retrieval.embeddings import (
     _normalize_query,
     _validate,
 )
+from src.client_solr import LocalSolrClient
 
 
 def test_solr_select_keeps_strict_and_for_words_in_multiword_concepts(monkeypatch):
@@ -1292,7 +1292,6 @@ def test_pneuma_narration_through_openai_client_surface_uses_the_endpoint():
 def test_concurrent_narration_answers_every_conversation_in_place_and_in_order():
     """Pneuma reads the answer appended to each conversation; concurrency must not reorder."""
     from openai import APIConnectionError
-
     from scripts_pneuma.pneuma_narration import concurrent_prompt_openai_llm
 
     failures = {"c2": 1}  # one transient failure, retried like Pneuma's own loop
@@ -1319,7 +1318,6 @@ def test_concurrent_narration_answers_every_conversation_in_place_and_in_order()
 
 def test_row_sample_cells_are_capped_without_touching_other_values():
     import pandas as pd
-
     from scripts_pneuma.pneuma_narration import cap_long_cells
 
     frame = pd.DataFrame({
@@ -1584,6 +1582,7 @@ def test_duckdb_semantic_hybrid_fuses_by_rrf_on_the_catalog_document():
 
 def test_service_runs_the_duckdb_semantic_hybrid_over_local_parquet(tmp_path):
     import pandas as pd
+
     from lakegen.retrieval import TableRetrievalService
 
     pd.DataFrame({"connection_type": ["fiber", "dsl"]}).to_parquet(
@@ -1771,6 +1770,7 @@ def test_only_keyword_semantic_and_the_hybrids_are_reranked():
 
 def test_the_duckdb_semantic_hybrid_is_reranked_after_rrf(tmp_path):
     import pandas as pd
+
     from lakegen.retrieval import TableRetrievalService
 
     pd.DataFrame({"connection_type": ["fiber", "fiber", "dsl"]}).to_parquet(
@@ -1813,7 +1813,7 @@ def test_the_duckdb_semantic_hybrid_is_reranked_after_rrf(tmp_path):
 
 
 def test_production_configurations_rerank_with_cohere_unless_turned_off(monkeypatch):
-    from lakegen.experiment_config import RetrievalExperimentConfig
+    from lakegen.config.experiment import RetrievalExperimentConfig
     from lakegen.retrieval import DEFAULT_RERANK_MODEL
 
     assert DEFAULT_RERANK_MODEL == "cohere.rerank-v4.0-fast"

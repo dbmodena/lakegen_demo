@@ -1,4 +1,4 @@
-from lakegen.retrieval.config import (
+from lakegen.config.retrieval import (
     DEFAULT_RERANK_DEPTH,
     DEFAULT_RERANK_MODEL,
     DEFAULT_TOP_K,
@@ -8,22 +8,27 @@ from lakegen.retrieval.config import (
     RetrievalConfig,
     RetrievalMode,
 )
+from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
+from lakegen.retrieval.duckdb_semantic import DuckDBSemanticHybridRetriever
+from lakegen.retrieval.embeddings import (
+    EmbeddingGenerationError,
+    check_embedding_health,
+)
 from lakegen.retrieval.evaluation import (
     RetrievalRunLogger,
     evaluate_ranking,
     mean_metrics,
 )
-from lakegen.retrieval.embeddings import (
-    EmbeddingGenerationError,
-    check_embedding_health,
-)
+from lakegen.retrieval.hybrid import HybridRetriever
 from lakegen.retrieval.indexing import (
     SolrEmbeddingIndexer,
     ensure_vector_schema,
     validate_stored_replacement_schema,
     validate_vector_schema,
 )
-from lakegen.retrieval.models import RetrievalHit, RetrievalRun
+from lakegen.retrieval.keyword import KeywordRetriever
+from lakegen.retrieval.models import RetrievalHit, RetrievalRun, min_max_normalize
+from lakegen.retrieval.pneuma import PneumaRetriever, SolrPneumaDocumentResolver
 from lakegen.retrieval.registry import (
     Branches,
     ModeRetriever,
@@ -33,13 +38,7 @@ from lakegen.retrieval.registry import (
     register,
     registered_modes,
 )
-from lakegen.retrieval.pneuma import PneumaRetriever, SolrPneumaDocumentResolver
-from lakegen.retrieval.duckdb_agentic import DuckDBAgenticRetriever
 from lakegen.retrieval.representation import METADATA_V1, represent_table
-from lakegen.retrieval.duckdb_semantic import DuckDBSemanticHybridRetriever
-from lakegen.retrieval.hybrid import HybridRetriever
-from lakegen.retrieval.keyword import KeywordRetriever
-from lakegen.retrieval.models import min_max_normalize
 from lakegen.retrieval.semantic import SemanticRetriever
 from lakegen.retrieval.service import TableRetrievalService
 

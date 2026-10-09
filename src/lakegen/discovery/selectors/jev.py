@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from lakegen.agent_tools.requirement_ledger import build_minimal_selection_fallback
+from lakegen.config.experiment import DiscoveryConfig, TableSelector
 from lakegen.discovery.selectors import (
     Selection,
     SelectionRequest,
@@ -10,7 +11,6 @@ from lakegen.discovery.selectors import (
     register,
 )
 from lakegen.discovery.selectors.jev_service import JevSelectorError, select_with_jev
-from lakegen.experiment_config import DiscoveryConfig, TableSelector
 
 
 @register(TableSelector.JEV)

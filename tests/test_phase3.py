@@ -1,9 +1,5 @@
-from lakegen.column_resolution import (
-    generated_column_names,
-    resolve_column_name,
-    resolve_generated_code_columns,
-)
 import json
+
 import pandas as pd
 import pytest
 
@@ -18,13 +14,18 @@ from lakegen.coding.agent import (
     _tabpfn_enabled,
     phase3_generate_and_execute,
 )
-from lakegen.experiment_config import CoderContextLevel
 from lakegen.coding.tools import (
     CoderLifecycle,
     P3State,
     Phase3ToolsManager,
     classify_execution_error,
 )
+from lakegen.column_resolution import (
+    generated_column_names,
+    resolve_column_name,
+    resolve_generated_code_columns,
+)
+from lakegen.config.experiment import CoderContextLevel
 
 
 def test_execute_code_treats_reported_missing_columns_as_error(tmp_path):

@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import pytest
 
+from lakegen.config.experiment import DiscoveryConfig, ExperimentConfig
 from lakegen.discovery.selectors import jev as jev_selectors
 from lakegen.discovery.selectors.jev_service import (
     JevSelection,
@@ -12,7 +13,6 @@ from lakegen.discovery.selectors.jev_service import (
     profile_table,
     select_with_jev,
 )
-from lakegen.experiment_config import DiscoveryConfig, ExperimentConfig
 from lakegen.orchestrated_context import PreparedCandidate, PreparedDiscoveryContext
 from lakegen.phases import jev_selector, orchestrated_discovery, phase2
 

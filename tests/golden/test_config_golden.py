@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from lakegen.experiment_config import ExperimentConfig, load_experiment_config
+from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "configs"

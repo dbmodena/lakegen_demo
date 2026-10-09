@@ -19,21 +19,21 @@ from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile, statu
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lakegen.analysis.results import final_ranking
-from lakegen.core.bootstrap import bootstrap_nltk_data
-from lakegen.core.config import BASE_DIR
-from lakegen.domain.tables import resource_id, table_id
-from lakegen.experiment_config import (
+from lakegen.config.bootstrap import bootstrap_nltk_data
+from lakegen.config.experiment import (
     DiscoveryArchitecture,
     ExperimentConfig,
     parse_experiment_config_document,
 )
-from lakegen.experiments import batch, jobs
-from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
-from lakegen.runner import ExperimentRunner
-from lakegen.runtime import (
+from lakegen.config.locations import BASE_DIR
+from lakegen.config.runtime import (
     MODEL_OPTIONS,
     SOLR_CORE_OPTIONS,
 )
+from lakegen.domain.tables import resource_id, table_id
+from lakegen.experiments import batch, jobs
+from lakegen.retrieval import DEFAULT_TOP_K, RetrievalMode
+from lakegen.runner import ExperimentRunner
 from lakegen.service import (
     QuestionSource,
     extract_questions,

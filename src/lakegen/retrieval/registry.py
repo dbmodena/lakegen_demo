@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from lakegen.retrieval.config import RetrievalConfig, RetrievalMode
+from lakegen.config.retrieval import RetrievalConfig, RetrievalMode
 from lakegen.retrieval.models import RetrievalHit
 
 if TYPE_CHECKING:

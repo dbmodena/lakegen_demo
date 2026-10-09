@@ -12,7 +12,7 @@ import pytest
 
 from lakegen.agent_tools import tools_p12
 from lakegen.agent_tools.tools_p12 import P12State, Phase12ToolsManager
-from lakegen.experiment_config import DiscoveryConfig
+from lakegen.config.experiment import DiscoveryConfig
 from lakegen.retrieval import RetrievalConfig, RetrievalHit
 
 
