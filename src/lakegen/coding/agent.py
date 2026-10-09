@@ -11,12 +11,12 @@ from typing import Any
 import pandas as pd
 from llama_index.core.llms import LLM, ChatMessage
 
-from lakegen.coder_context import CoderContext
-from lakegen.column_resolution import resolve_generated_code_columns
+from lakegen.coding.column_resolution import resolve_generated_code_columns
+from lakegen.coding.context import CoderContext
+from lakegen.coding.data_quality import profile_table_quality
 from lakegen.config import paths
 from lakegen.config.experiment import CoderContextLevel
 from lakegen.config.settings import get_settings
-from lakegen.data_quality import profile_table_quality
 from lakegen.discovery.keywords import split_thinking_blocks
 from lakegen.domain.types import SolrMetadata
 from lakegen.evaluation.code import (

@@ -19,8 +19,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from lakegen.code_attempts import CodeAttemptEvaluator
-from lakegen.coder_experiment import run_coder_context_sweep
+from lakegen.coding.attempts import CodeAttemptEvaluator
+from lakegen.coding.sweep import run_coder_context_sweep
 from lakegen.config.experiment import (
     CoderContextLevel,
     ExperimentConfig,

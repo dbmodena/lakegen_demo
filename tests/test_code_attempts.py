@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from lakegen.code_attempts import CodeAttemptEvaluator
+from lakegen.coding.attempts import CodeAttemptEvaluator
 
 
 def test_non_string_generated_code_is_a_generation_failure_not_a_crash():

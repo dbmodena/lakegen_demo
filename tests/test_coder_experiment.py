@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from lakegen.coder_experiment import run_coder_context_sweep
+from lakegen.coding.sweep import run_coder_context_sweep
 from lakegen.config.experiment import CoderContextLevel
 
 

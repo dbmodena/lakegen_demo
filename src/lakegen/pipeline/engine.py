@@ -19,7 +19,7 @@ import logging
 from collections.abc import Generator, Mapping
 from typing import Any
 
-from lakegen.code_attempts import CodeAttemptEvaluator
+from lakegen.coding.attempts import CodeAttemptEvaluator
 from lakegen.config import paths
 from lakegen.config.experiment import DiscoveryArchitecture
 from lakegen.config.locations import BASE_DIR

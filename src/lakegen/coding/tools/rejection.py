@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from lakegen.agent_tools.tools_p2 import MIN_BAN_JUSTIFICATION_CHARS
+from lakegen.coding.revision_policy import classify_revision
 from lakegen.coding.tools.state import CoderLifecycle
-from lakegen.revision_policy import classify_revision
 
 
 class RejectionMixin:

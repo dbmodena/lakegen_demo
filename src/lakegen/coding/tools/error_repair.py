@@ -7,9 +7,9 @@ import difflib
 import re
 from typing import Any
 
+from lakegen.coding.column_resolution import generated_column_names
+from lakegen.coding.data_quality import profile_table_quality
 from lakegen.coding.tools.state import CoderLifecycle
-from lakegen.column_resolution import generated_column_names
-from lakegen.data_quality import profile_table_quality
 from lakegen.lakes.table_io import read_table
 
 

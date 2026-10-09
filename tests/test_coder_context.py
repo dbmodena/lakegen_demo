@@ -1,7 +1,6 @@
 import json
 
-from lakegen.coder_context import CoderContext, infer_output_shape
-
+from lakegen.coding.context import CoderContext, infer_output_shape
 
 SECRET = "BENCHMARK_SECRET_DO_NOT_LEAK"
 

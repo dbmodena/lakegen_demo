@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from lakegen.coder_experiment import serialize_retry_error
+from lakegen.coding.sweep import serialize_retry_error
 from lakegen.discovery.orchestrated import selector_retry_reason
 from lakegen.discovery.selectors.jev_service import TRACE_HEADER as JEV_TRACE_HEADER
 from lakegen.domain.outcomes import (
