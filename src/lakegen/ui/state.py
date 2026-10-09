@@ -19,10 +19,10 @@ from lakegen.config.runtime import (
     SOLR_CORE_PORTAL_NAMES,
     RuntimeSettings,
 )
-from lakegen.core.types import SolrMetadata
 
 # Re-exported: the UI and older importers read these from here.
-from lakegen.errors import WorkflowCancelled, WorkflowTimedOut
+from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
+from lakegen.domain.types import SolrMetadata
 from lakegen.tracing import HumanInterventionRecorder
 from lakegen.ui.i18n import t
 

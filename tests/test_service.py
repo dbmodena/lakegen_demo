@@ -6,6 +6,7 @@ from lakegen.config.experiment import (
     InteractionMode,
     ToolAccess,
 )
+from lakegen.domain.results import QueryResult
 from lakegen.output_validation import AnswerDisposition, validate_answer
 from lakegen.retrieval import RetrievalConfig
 from lakegen.service import (
@@ -16,7 +17,6 @@ from lakegen.service import (
     extract_questions,
     run_question,
 )
-from lakegen.service_models import QueryResult
 
 
 def test_rejected_selection_signature_preserves_runtime_failure_requirements():

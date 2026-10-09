@@ -9,6 +9,7 @@ record. The engine's logic underneath is the batch service's.
 
 from __future__ import annotations
 
+from lakegen.domain.results import QueryResult
 from lakegen.interfaces.cli import terminal
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.engine import MAX_CODE_ATTEMPTS, MAX_TABLE_ATTEMPTS, Pipeline
@@ -27,7 +28,6 @@ from lakegen.pipeline.events import (
     StageFinished,
     StageStarted,
 )
-from lakegen.service_models import QueryResult
 from lakegen.tracing import HumanGate, HumanInterventionRecorder
 
 _c = terminal.colour

@@ -2,7 +2,7 @@
 
 from typing import Mapping
 
-from lakegen.core.types import SolrMetadata
+from lakegen.domain.types import SolrMetadata
 
 
 class P12State:

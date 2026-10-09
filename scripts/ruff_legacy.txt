@@ -56,7 +56,6 @@ src/lakegen/core/logger.py
 src/lakegen/core/paths.py
 src/lakegen/core/resources.py
 src/lakegen/core/table_io.py
-src/lakegen/core/types.py
 src/lakegen/data_quality.py
 src/lakegen/discovery/candidates.py
 src/lakegen/discovery/divided.py
@@ -71,6 +70,8 @@ src/lakegen/discovery/tools/search.py
 src/lakegen/discovery/tools/selection.py
 src/lakegen/discovery/tools/state.py
 src/lakegen/discovery/unified.py
+src/lakegen/domain/results.py
+src/lakegen/domain/types.py
 src/lakegen/experiment_config.py
 src/lakegen/experiments/batch.py
 src/lakegen/experiments/cli.py
@@ -126,7 +127,6 @@ src/lakegen/runner.py
 src/lakegen/runtime.py
 src/lakegen/semantic_code_judge.py
 src/lakegen/service.py
-src/lakegen/service_models.py
 src/lakegen/tracing.py
 src/lakegen/ui/__init__.py
 src/lakegen/ui/benchmark_sidebar.py

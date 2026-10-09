@@ -19,9 +19,9 @@ from lakegen.agents.instrumentation import ThinkingCapture
 from lakegen.config.experiment import DiscoveryConfig
 from lakegen.config.settings import get_settings
 from lakegen.core.table_io import read_table
-from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.discovery.tools import P12State, Phase12ToolsManager
-from lakegen.errors import WorkflowCancelled
+from lakegen.domain.errors import WorkflowCancelled
+from lakegen.domain.types import SolrMetadata, StreamCallback
 from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.prompts.prompt_manager import PromptManager
 from lakegen.retrieval import RetrievalConfig

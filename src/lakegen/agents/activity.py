@@ -2,7 +2,7 @@ import json
 import re
 from typing import Any
 
-from lakegen.core.types import SolrMetadata
+from lakegen.domain.types import SolrMetadata
 
 
 def format_phase2_solr_results(

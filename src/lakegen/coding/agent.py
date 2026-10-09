@@ -21,9 +21,9 @@ from lakegen.config import paths
 from lakegen.config.experiment import CoderContextLevel
 from lakegen.config.settings import get_settings
 from lakegen.core.table_io import read_table, table_load_command
-from lakegen.core.types import SolrMetadata
 from lakegen.data_quality import profile_table_quality
 from lakegen.discovery.keywords import split_thinking_blocks
+from lakegen.domain.types import SolrMetadata
 from lakegen.llm.token_usage import (
     extract_total_tokens,
     get_llm_token_usage,

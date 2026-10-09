@@ -14,10 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lakegen.agents.agent_runner import run_agent_workflow
 from lakegen.config.experiment import DiscoveryArchitecture, DiscoveryConfig
-from lakegen.core.types import SolrMetadata, StreamCallback
 from lakegen.discovery.selectors import SelectionRequest, SelectorUnavailable
 from lakegen.discovery.selectors import choose as choose_selector
-from lakegen.errors import WorkflowCancelled
+from lakegen.domain.errors import WorkflowCancelled
+from lakegen.domain.types import SolrMetadata, StreamCallback
 from lakegen.keyword_terms import keyword_terms
 from lakegen.llm.token_usage import get_llm_token_usage, reset_llm_token_usage
 from lakegen.orchestrated_context import (

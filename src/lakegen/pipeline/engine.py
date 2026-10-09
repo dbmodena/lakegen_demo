@@ -23,8 +23,9 @@ from lakegen.code_attempts import CodeAttemptEvaluator
 from lakegen.config import paths
 from lakegen.config.experiment import DiscoveryArchitecture
 from lakegen.config.locations import BASE_DIR
+from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
 from lakegen.domain.evaluation import EvaluationContext
-from lakegen.errors import WorkflowCancelled, WorkflowTimedOut
+from lakegen.domain.results import QueryResult
 from lakegen.keyword_memory import (
     format_question_retrieval_memory,
     load_keyword_memory,
@@ -71,7 +72,6 @@ from lakegen.pipeline.stages import (
 from lakegen.pipeline.state import RunState
 from lakegen.reproducibility import initialize_reproducibility
 from lakegen.retrieval.run_log import capture_retrieval_runs, make_retrieval_run_observer
-from lakegen.service_models import QueryResult
 
 logger = logging.getLogger(__name__)
 

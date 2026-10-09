@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 from lakegen.core.catalogue import clean_catalogue_text
-from lakegen.core.types import SolrMetadata
+from lakegen.domain.types import SolrMetadata
 from lakegen.lakes.catalogue import match_local_csv, solr_metadata_from_doc, text
 
 # The names the discovery agents and the tests read here.

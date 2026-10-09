@@ -10,7 +10,7 @@ import pytest
 from lakegen.agents.activity import Phase2AgentStall
 from lakegen.discovery import divided
 from lakegen.discovery.tools import P12State
-from lakegen.errors import WorkflowCancelled
+from lakegen.domain.errors import WorkflowCancelled
 from lakegen.retrieval import RetrievalConfig
 
 FILES = ["a.parquet", "b.parquet", "c.parquet"]

@@ -10,7 +10,7 @@ import pytest
 from lakegen.agents.activity import Phase2AgentStall
 from lakegen.discovery.tools import P12State
 from lakegen.discovery.unified import phase12_agent
-from lakegen.errors import WorkflowCancelled
+from lakegen.domain.errors import WorkflowCancelled
 
 FILES = ("a.csv", "b.csv")
 

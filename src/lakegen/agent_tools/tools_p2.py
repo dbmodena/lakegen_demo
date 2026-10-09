@@ -1,12 +1,20 @@
 import json
 import re
 from functools import lru_cache
-import pandas as pd
 from pathlib import Path
 from typing import Literal
-from pydantic import BaseModel, Field
-from llama_index.core.tools import FunctionTool
 
+import pandas as pd
+from llama_index.core.tools import FunctionTool
+from pydantic import BaseModel, Field
+
+from lakegen.agent_tools.join_keys import find_join_keys, format_join_section
+from lakegen.agent_tools.requirement_ledger import (
+    build_requirement_ledger,
+    requirement_ledger_block_message,
+)
+from lakegen.agent_tools.schema_matching import verify_pair_schema
+from lakegen.agent_tools.union_mapping import format_union_section, union_by_names
 from lakegen.core.table_io import (
     TableProfile,
     iter_table_chunks,
@@ -15,15 +23,8 @@ from lakegen.core.table_io import (
     read_table_sample,
     table_row_count,
 )
-from lakegen.core.types import SolrMetadata
 from lakegen.discovery.candidates import format_candidate_context
-from lakegen.agent_tools.requirement_ledger import (
-    build_requirement_ledger,
-    requirement_ledger_block_message,
-)
-from lakegen.agent_tools.join_keys import find_join_keys, format_join_section
-from lakegen.agent_tools.schema_matching import verify_pair_schema
-from lakegen.agent_tools.union_mapping import format_union_section, union_by_names
+from lakegen.domain.types import SolrMetadata
 
 # ==========================================
 # TOOLS
