@@ -79,6 +79,13 @@ src/lakegen/experiments/services.py
 src/lakegen/experiments/spec.py
 src/lakegen/experiments/store.py
 src/lakegen/interfaces/api/app.py
+src/lakegen/interfaces/chainlit/benchmark_sidebar.py
+src/lakegen/interfaces/chainlit/i18n.py
+src/lakegen/interfaces/chainlit/sections.py
+src/lakegen/interfaces/chainlit/starters.py
+src/lakegen/interfaces/chainlit/state.py
+src/lakegen/interfaces/chainlit/streaming.py
+src/lakegen/interfaces/chainlit/workflow.py
 src/lakegen/interfaces/cli/ask.py
 src/lakegen/lakes/catalogue_documents.py
 src/lakegen/lakes/catalogue_text.py
@@ -129,13 +136,6 @@ src/lakegen/retrieval/semantic.py
 src/lakegen/retrieval/service.py
 src/lakegen/runtime.py
 src/lakegen/ui/__init__.py
-src/lakegen/ui/benchmark_sidebar.py
-src/lakegen/ui/i18n.py
-src/lakegen/ui/sections.py
-src/lakegen/ui/starters.py
-src/lakegen/ui/state.py
-src/lakegen/ui/streaming.py
-src/lakegen/ui/workflow.py
 tests/conftest.py
 tests/golden/harness.py
 tests/golden/test_config_golden.py

@@ -13,8 +13,8 @@ import chainlit as cl
 import pytest
 from chainlit.config import config as chainlit_config
 
+from lakegen.interfaces.chainlit import workflow as wf
 from lakegen.observability.tracing import HumanGate
-from lakegen.ui import workflow as wf
 
 
 class _FakeSession:

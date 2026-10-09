@@ -6,7 +6,7 @@ import json
 
 from lakegen.config import locations as core_config
 from lakegen.config.registry import lakes
-from lakegen.ui import benchmark_sidebar, starters
+from lakegen.interfaces.chainlit import benchmark_sidebar, starters
 
 
 def test_every_lake_names_question_files_that_exist():

@@ -1,4 +1,4 @@
-"""Goldens of the Chainlit workflow, ``lakegen.ui.workflow.run_lakegen_workflow``.
+"""Goldens of the Chainlit workflow, ``lakegen.interfaces.chainlit.workflow.run_lakegen_workflow``.
 
 The interaction golden is the sequence of steps, streamed text, gate prompts
 with their buttons and the messages a person sees; it must never change. The
@@ -26,7 +26,7 @@ from golden.harness import (
     phase3_result,
     prepare_run,
 )
-from lakegen.ui.state import LakeGenSession
+from lakegen.interfaces.chainlit.state import LakeGenSession
 
 SCENARIOS: dict[str, Callable[[], tuple[Case, list[str]]]] = {}
 
@@ -216,7 +216,7 @@ def make_async(function):
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
 @pytest.mark.asyncio
 async def test_ui_golden(name, golden, monkeypatch, tmp_path):
-    from lakegen.ui import workflow
+    from lakegen.interfaces.chainlit import workflow
 
     case, answers = SCENARIOS[name]()
     replacements, log, capture = prepare_run(monkeypatch, tmp_path, workflow, case, COMMON_NAMES)

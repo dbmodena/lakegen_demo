@@ -3,11 +3,11 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.config.experiment import ExperimentConfig
+from lakegen.interfaces.chainlit import workflow
+from lakegen.interfaces.chainlit.sections import format_retrieval_keywords
+from lakegen.interfaces.chainlit.state import LakeGenSession, WorkflowTimedOut
 from lakegen.observability.tracing import HumanGate
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
-from lakegen.ui import workflow
-from lakegen.ui.sections import format_retrieval_keywords
-from lakegen.ui.state import LakeGenSession, WorkflowTimedOut
 from src import app as chainlit_app
 
 

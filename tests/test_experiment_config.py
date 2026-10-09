@@ -7,11 +7,11 @@ from pydantic import ValidationError
 
 from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 from lakegen.experiments.batch import resolve_config
+from lakegen.interfaces.chainlit.state import RuntimeSettings
 from lakegen.observability.manifest import create_manifest, persist_manifest, redact_secrets
 from lakegen.pipeline.runner import ExperimentRunner
 from lakegen.pipeline.service import run_question
 from lakegen.retrieval import RetrievalConfig
-from lakegen.ui.state import RuntimeSettings
 from src.cli import resolve_cli_experiment
 
 

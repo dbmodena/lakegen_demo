@@ -6,8 +6,8 @@ import pytest
 from lakegen.discovery import tools as tools_p12_v1
 from lakegen.discovery.terms import keyword_terms, minimal_failing_subsets
 from lakegen.discovery.tools import search as search_tools
+from lakegen.interfaces.chainlit.state import LakeGenSession
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalMode
-from lakegen.ui.state import LakeGenSession
 
 # agent_tools_2 was the experimental v2 module; its improvements were promoted
 # into agent_tools/tools_p12.py and the duplicate package was removed, so only

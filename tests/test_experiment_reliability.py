@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.config.experiment import ExperimentConfig
+from lakegen.interfaces.chainlit.state import LakeGenSession
 from lakegen.observability.tracing import (
     HumanGate,
     HumanInterventionRecorder,
@@ -16,7 +17,6 @@ from lakegen.observability.tracing import (
 from lakegen.pipeline.runner import ExperimentRunner
 from lakegen.pipeline.service import run_question
 from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalRun
-from lakegen.ui.state import LakeGenSession
 from src.cli import _ask_input, _ask_yes_no
 
 

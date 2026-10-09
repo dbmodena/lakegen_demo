@@ -23,6 +23,16 @@ import chainlit as cl
 
 from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
 from lakegen.domain.results import QueryResult
+from lakegen.interfaces.chainlit.i18n import t
+from lakegen.interfaces.chainlit.sections import (
+    build_phase1_summary,
+    build_phase2_summary,
+    build_phase3_summary,
+    build_phase4_summary,
+    format_retrieval_keywords,
+)
+from lakegen.interfaces.chainlit.state import LakeGenSession
+from lakegen.interfaces.chainlit.streaming import CumulativeMarkdownEmitter, StepStreamBridge
 from lakegen.observability.tracing import HumanGate
 from lakegen.pipeline.context import RunContext
 from lakegen.pipeline.engine import Pipeline
@@ -41,16 +51,6 @@ from lakegen.pipeline.events import (
     StageStarted,
 )
 from lakegen.pipeline.hooks import StageHooks
-from lakegen.ui.i18n import t
-from lakegen.ui.sections import (
-    build_phase1_summary,
-    build_phase2_summary,
-    build_phase3_summary,
-    build_phase4_summary,
-    format_retrieval_keywords,
-)
-from lakegen.ui.state import LakeGenSession
-from lakegen.ui.streaming import CumulativeMarkdownEmitter, StepStreamBridge
 
 Asker = Callable[..., Any]
 

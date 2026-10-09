@@ -29,7 +29,7 @@ from lakegen.config.bootstrap import (  # noqa: E402
     ensure_project_paths,
     nltk_download_dir,
 )
-from lakegen.ui.state import (  # noqa: E402
+from lakegen.interfaces.chainlit.state import (  # noqa: E402
     MODEL_OPTIONS,
     RETRIEVAL_MODE_ITEMS,
     SOLR_CORE_OPTIONS,
@@ -41,13 +41,13 @@ from lakegen.ui.state import (  # noqa: E402
     get_session,
     set_runtime_settings,
 )
-from lakegen.ui.i18n import t  # noqa: E402
-from lakegen.ui.benchmark_sidebar import (  # noqa: E402
+from lakegen.interfaces.chainlit.i18n import t  # noqa: E402
+from lakegen.interfaces.chainlit.benchmark_sidebar import (  # noqa: E402
     set_uk_benchmark_executing,
     show_uk_benchmark_sidebar,
 )
-from lakegen.ui.starters import starters_for_core  # noqa: E402
-from lakegen.ui.workflow import WORKFLOW_LOCK, run_lakegen_workflow  # noqa: E402
+from lakegen.interfaces.chainlit.starters import starters_for_core  # noqa: E402
+from lakegen.interfaces.chainlit.workflow import WORKFLOW_LOCK, run_lakegen_workflow  # noqa: E402
 
 ensure_project_paths(_SRC_DIR, _ROOT_DIR)
 
