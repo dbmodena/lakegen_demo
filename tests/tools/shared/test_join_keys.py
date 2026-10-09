@@ -629,3 +629,19 @@ def test_row_numbers_matched_on_values_are_not_a_key():
     q = pd.DataFrame({"OBJECTID": range(1, 101)})
     r = pd.DataFrame({"ref": range(1, 101)})
     assert find_join_keys(q, r, [_by_values("OBJECTID", "ref")]) == []
+
+
+def test_same_named_numbering_that_lines_up_is_a_positional_join():
+    import pandas as pd
+
+    from lakegen.tools.shared.join_union.join_keys import JOIN, SURROGATE_ID, measure_key
+
+    left = pd.DataFrame({"sezione": range(1, 51), "voti": range(50)})
+    right = pd.DataFrame({"sezione": range(1, 49), "elettori": range(48)})
+    ev = measure_key(left, right, ["sezione"], ["sezione"], 1.0)
+    assert ev.verdict == JOIN and ev.positional and "by position" in " ".join(ev.notes)
+    # a bare `id` says nothing, and numbering that does not line up is still only row numbers
+    plain = measure_key(left.rename(columns={"sezione": "id"}), right.rename(columns={"sezione": "id"}), ["id"], ["id"], 1.0)
+    assert plain.verdict == SURROGATE_ID and not plain.positional
+    shifted = measure_key(left, right.assign(sezione=range(1000, 1048)), ["sezione"], ["sezione"], 1.0)
+    assert shifted.verdict != JOIN

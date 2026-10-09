@@ -44,6 +44,7 @@ from lakegen.tools.shared.join_union.matching.column_values import (
     map_uniques,
     mostly_numeric,
 )
+from lakegen.tools.shared.join_union.matching.name_cue import is_generic_key, is_row_counter, squash_name
 
 if TYPE_CHECKING:
     from lakegen.integrations.table_io import TableProfile
@@ -98,6 +99,7 @@ class KeyEvidence:
     exact: bool = True
     by_values: bool = False       # the two columns are named differently; Valentine matched their values
     grain: bool = False           # all the shared dimension columns together (not a ranked candidate)
+    positional: bool = False      # same-named row-number columns that line up: a join by position, to verify
     by_cue: bool = False          # proposed by the column names (a foreign key), then confirmed on the values
     # What ``left.merge(right, left_on=..., right_on=...)`` does on the columns as they are stored,
     # without the normalising this module applies (strip, casefold, numbers read from text).
@@ -253,11 +255,20 @@ def measure_key(
         and looks_like_row_numbers(q[left_cols[0]], left_profile)
         and looks_like_row_numbers(r[right_cols[0]], right_profile)
     ):
-        ev.verdict = SURROGATE_ID
-        ev.notes.append(
-            "both sides are consecutive row numbers -- overlap is guaranteed by construction "
-            "and is not evidence of a relationship"
-        )
+        if _aligned_numbering(ev, left_cols[0], right_cols[0]):
+            ev.verdict = JOIN
+            ev.positional = True
+            ev.notes.append(
+                "same-named numbering on both sides that lines up (a section or zone number?): "
+                "joins by position, so check the number means the same thing in both tables"
+            )
+            _size_notes(ev)
+        else:
+            ev.verdict = SURROGATE_ID
+            ev.notes.append(
+                "both sides are consecutive row numbers -- overlap is guaranteed by construction "
+                "and is not evidence of a relationship"
+            )
     elif ev.thin and ev.shared_distinct <= COINCIDENCE_SHARED:
         ev.verdict = WEAK_OVERLAP
         best = max(ev.left_match_rate, ev.right_match_rate)
@@ -279,6 +290,21 @@ def measure_key(
             )
         _size_notes(ev)
     return ev
+
+
+# a numbering column is read as a shared identifier when both sides carry it under one name (not `id`)
+# and at least this share of the rows of each side finds its number on the other
+ALIGNED_NUMBERING_MIN_MATCH = 0.9
+
+
+def _aligned_numbering(ev: KeyEvidence, left_col: str, right_col: str) -> bool:
+    return (
+        squash_name(left_col) == squash_name(right_col)
+        and not is_generic_key(left_col)
+        and not is_row_counter(left_col)
+        and min(ev.left_match_rate, ev.right_match_rate) >= ALIGNED_NUMBERING_MIN_MATCH
+        and ev.shared_distinct >= 2
+    )
 
 
 def rows_text(ev: KeyEvidence, count: int) -> str:

@@ -67,6 +67,7 @@ def _rank(ev: KeyEvidence) -> tuple:
     return (
         ev.grain,                        # the grain is shown on its own line, after the keys
         VERDICT_ORDER[ev.verdict],
+        ev.positional,                   # a join by position is the last resort among the supported keys
         ev.measure_like,                 # measurements are almost never join keys
         min(ev.left_distinct, ev.right_distinct) == 1,  # a filter on one side, not a link between entities
         ev.size_class == EXPLODES,       # a merge the sandbox stops sinks below the ones it lets through

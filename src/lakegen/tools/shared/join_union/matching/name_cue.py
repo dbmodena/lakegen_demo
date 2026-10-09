@@ -26,11 +26,16 @@ from pathlib import Path
 GENERIC_KEYS = frozenset({"id", "key", "code", "pk", "uuid", "guid"})
 # words that carry no meaning in a key's name
 GENERIC_WORDS = frozenset({"id", "key", "code", "link", "to", "fk", "pk", "no", "num", "number", "ref", "of", "the", "by", "ids"})
+# names of columns that merely count the rows of their table (GIS and export tools add them everywhere)
+ROW_COUNTER_NAMES = frozenset({
+    "objectid", "fid", "gid", "oid", "ogcfid", "rowid", "rownum", "rownumber", "rowno", "index",
+    "recordid", "seq", "sequence", "progressivo", "n", "no", "num", "nr", "pos", "position",
+})
 # most pairs one table pair may propose
 MAX_CUE_PAIRS = 12
 
 
-def _squash(name: object) -> str:
+def squash_name(name: object) -> str:
     return re.sub(r"[^a-z0-9]", "", str(name).casefold())
 
 
@@ -46,7 +51,11 @@ def column_words(name: object) -> set[str]:
 
 
 def is_generic_key(name: object) -> bool:
-    return _squash(name) in GENERIC_KEYS
+    return squash_name(name) in GENERIC_KEYS
+
+
+def is_row_counter(name: object) -> bool:
+    return squash_name(name) in ROW_COUNTER_NAMES
 
 
 def table_stem(file_name: str) -> str:

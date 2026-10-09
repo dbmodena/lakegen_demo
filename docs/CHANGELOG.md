@@ -32,6 +32,15 @@ branch moves code without changing what a run does.
 
 ## 2026-10-09
 
+- **Same-named numbering that lines up is offered as a join by position.**
+  Two columns of consecutive numbers (`sezione` 1..449 and 1..446) were
+  always rejected as row counters. When both sides carry the column under
+  one name (not `id`, `objectid` or another row counter) and at least 90%
+  of each side's rows find their number on the other, the pair is now a JOIN
+  candidate, ranked last, with a note to check the number means the same in
+  both tables. On the 5 portals' join conditions this finds one more
+  (77% to 78%); on 400 unrelated portal pairs it raised one more false
+  alarm.
 - **The join check finds foreign keys that the column names give away.**
   Valentine scores `alignment_id` against `id` low and keeps only the best
   partner of each column, so such a pair was never measured. The check now
