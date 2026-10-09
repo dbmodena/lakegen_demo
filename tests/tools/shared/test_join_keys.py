@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lakegen.tools.shared import join_keys as jp
-from lakegen.tools.shared.join_keys import (
+from lakegen.tools.shared.join_union import join_keys as jp
+from lakegen.tools.shared.join_union.join_keys import (
     CONSTANT_KEY,
     JOIN,
     NO_OVERLAP,

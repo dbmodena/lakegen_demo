@@ -4,7 +4,7 @@ value-domain veto wrongly rejected, and the placeholder-header tables."""
 import numpy as np
 import pandas as pd
 
-from lakegen.tools.shared.union_mapping import (
+from lakegen.tools.shared.join_union.union_mapping import (
     NO_UNION,
     PARTIAL_UNION,
     SUBSET_UNION,
