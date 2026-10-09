@@ -92,6 +92,11 @@ class UnionMapping:
         return self.verdict != NO_UNION
 
 
+def _squash(name: object) -> str:
+    """A column name without case, spaces or punctuation: `Total Cost` and `total_cost` agree."""
+    return re.sub(r"[^a-z0-9]", "", str(name).casefold())
+
+
 def real_columns(df: pd.DataFrame) -> list[str]:
     """Columns that are attributes: not '', 'Unnamed: 3', '_duplicated_0' (header artefacts)."""
     return [c for c in df.columns if not _PLACEHOLDER.match(str(c).strip())]
@@ -161,13 +166,27 @@ def union_by_names(
     coma_matches: Sequence[tuple[str, str, float]],
 ) -> UnionMapping:
     """1-1 mapping by name similarity among REAL columns, then a coverage tier."""
-    real_q, real_r = set(real_columns(q)), set(real_columns(r))
+    order_q, order_r = real_columns(q), real_columns(r)
+    real_q, real_r = set(order_q), set(order_r)
+    place_q = {column: index / max(len(order_q), 1) for index, column in enumerate(order_q)}
+    place_r = {column: index / max(len(order_r), 1) for index, column in enumerate(order_r)}
+
+    def preference(match: Sequence) -> tuple[float, bool, float]:
+        """Best score first; equal scores (Valentine scores many pairs 1.0) go to the identical
+        name, then to the column at the same place in its table."""
+        left, right, score = match[0], match[1], match[2]
+        return (
+            -round(score, 3),
+            _squash(left) != _squash(right),
+            abs(place_q[left] - place_r[right]),
+        )
+
     candidates = sorted(
         (
             m for m in coma_matches
             if m[2] >= SCHEMA_MATCH_THRESHOLD and m[0] in real_q and m[1] in real_r
         ),
-        key=lambda m: -m[2],
+        key=preference,
     )
     used_left: set[str] = set()
     used_right: set[str] = set()

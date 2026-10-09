@@ -32,6 +32,8 @@ from lakegen.tools.shared.join_union.column_values import (
     format_datetime,
     format_number,
     format_text,
+    has_fractions,
+    looks_like_row_numbers,
     map_uniques,
     mostly_numeric,
 )
@@ -46,6 +48,11 @@ UNIQUE_RATIO = 0.99
 MIN_MATCH_RATE = 0.5
 # this many shared values or fewer, with a thin match, is indistinguishable from chance
 COINCIDENCE_SHARED = 2
+
+# a pair matched on values alone (named differently) must share this many values, and this share of
+# the rows of one side must find a partner
+VALUE_MATCH_MIN_SHARED = 10
+VALUE_MATCH_MIN_RATE = 0.8
 
 MAX_KEY_COLUMNS = 4
 MIN_SINGLE_CANDIDATES = 10
@@ -128,40 +135,6 @@ def _composite(series: Sequence[pd.Series]) -> pd.Series:
     return key.dropna()
 
 
-def _looks_like_row_numbers(series: pd.Series, profile: TableProfile | None = None) -> bool:
-    """Consecutive integers (1..N / 0..N-1): overlap between two such columns is guaranteed by
-    construction and says nothing about a relationship.
-
-    A random sample of such a column is NOT consecutive (a 2,000-row sample of 1..458,000 has gaps
-    everywhere), so on a sampled table the check would miss it and report the row numbers as a
-    1:1 join key. When ``profile`` says the frame is a sample of a larger table, the table's own
-    footer statistics decide instead: the column starts at 0 or 1 and spans exactly the table's
-    non-null row count, and the sample must hold no repeated value.
-    """
-    if not pd.api.types.is_numeric_dtype(series):
-        return False
-    values = series.dropna()
-    if len(values) < 3 or not (values % 1 == 0).all():
-        return False
-    distinct = values.nunique()
-    if distinct != len(values):
-        return False
-    whole = profile.ranges.get(str(series.name)) if profile is not None and profile.rows > len(series) else None
-    if whole is not None:
-        low, high, nulls = whole
-        return low in (0, 1) and high % 1 == 0 and (high - low + 1) == profile.rows - nulls
-    low, high = values.min(), values.max()
-    return low in (0, 1) and (high - low + 1) == distinct
-
-
-def _has_fractions(series: pd.Series) -> bool:
-    """A float column with non-integral values is a measurement, not an identifier."""
-    if not pd.api.types.is_float_dtype(series):
-        return False
-    values = series.head(100_000).dropna().head(10_000)
-    return bool(len(values)) and bool((values % 1 != 0).any())
-
-
 def _percent(share: float) -> str:
     return f"{share * 100:.0f}%"
 
@@ -178,7 +151,7 @@ def measure_key(
     """Measure one (possibly composite) candidate key between ``q`` and ``r``.
 
     The profiles are the whole-table facts of each side when ``q`` / ``r`` are samples (see
-    `_looks_like_row_numbers`); without them a frame is taken to be the whole table.
+    `looks_like_row_numbers`); without them a frame is taken to be the whole table.
     """
     ev = KeyEvidence(tuple(left_cols), tuple(right_cols), round(name_score, 3), NO_OVERLAP)
     left_parts, right_parts, compatible = [], [], True
@@ -193,7 +166,7 @@ def measure_key(
         return ev
     left_key, right_key = _composite(left_parts), _composite(right_parts)
     ev.measure_like = any(
-        _has_fractions(q[lc]) and _has_fractions(r[rc]) for lc, rc in zip(left_cols, right_cols)
+        has_fractions(q[lc]) and has_fractions(r[rc]) for lc, rc in zip(left_cols, right_cols)
     )
     if ev.measure_like:
         ev.notes.append(
@@ -236,8 +209,8 @@ def measure_key(
         )
     elif (
         len(left_cols) == 1
-        and _looks_like_row_numbers(q[left_cols[0]], left_profile)
-        and _looks_like_row_numbers(r[right_cols[0]], right_profile)
+        and looks_like_row_numbers(q[left_cols[0]], left_profile)
+        and looks_like_row_numbers(r[right_cols[0]], right_profile)
     ):
         ev.verdict = SURROGATE_ID
         ev.notes.append(
@@ -293,6 +266,35 @@ def _rank(ev: KeyEvidence) -> tuple:
     )
 
 
+def _value_match_holds(
+    ev: KeyEvidence,
+    left: pd.Series,
+    right: pd.Series,
+    left_profile: TableProfile | None,
+    right_profile: TableProfile | None,
+) -> bool:
+    """A pair matched on values alone is kept only when the values really are one domain.
+
+    Valentine's value similarity is a lead, not a proof (two columns of small whole numbers resemble
+    each other). The measured overlap decides: many shared values, most rows of one side finding a
+    partner, neither column a row number or a measurement, and a number column an identifier.
+    """
+    numeric = _is_numeric(left) and _is_numeric(right)
+    return (
+        ev.shared_distinct >= VALUE_MATCH_MIN_SHARED
+        and max(ev.left_match_rate, ev.right_match_rate) >= VALUE_MATCH_MIN_RATE
+        and not ev.measure_like
+        and (ev.unique_side or not numeric)  # counts overlap in value; only an identifier is unique
+        and not looks_like_row_numbers(left, left_profile)
+        and not looks_like_row_numbers(right, right_profile)
+    )
+
+
+def _is_numeric(series: pd.Series) -> bool:
+    kind = column_kind(series)
+    return kind == "num" or (kind == "str" and mostly_numeric(series))
+
+
 def _has_key_evidence(ev: KeyEvidence) -> bool:
     return ev.verdict == JOIN and ev.unique_side and ev.shared_distinct >= 2 and not ev.measure_like
 
@@ -340,10 +342,18 @@ def find_join_keys(
     """Measure COMA's name-similar pairs (and composites when needed) and rank them, best first."""
     rows = len(q) + len(r)
     cap = max(MIN_SINGLE_CANDIDATES, min(MAX_SINGLE_CANDIDATES, CELL_BUDGET // max(rows, 1)))
-    pairs = [m for m in coma_matches if m[2] >= SCHEMA_MATCH_THRESHOLD][:cap]
-    singles = [
-        measure_key(q, r, [a], [b], score, left_profile, right_profile) for a, b, score in pairs
-    ]
+    candidates = [m for m in coma_matches if m[2] >= SCHEMA_MATCH_THRESHOLD][:cap]
+    pairs: list[tuple[str, str, float]] = []
+    singles: list[KeyEvidence] = []
+    for match in candidates:
+        left, right, score = match[0], match[1], match[2]
+        ev = measure_key(q, r, [left], [right], score, left_profile, right_profile)
+        if getattr(match, "by_values", False):
+            if not _value_match_holds(ev, q[left], r[right], left_profile, right_profile):
+                continue
+            ev.notes.append("named differently: Valentine matched the two columns on their values")
+        pairs.append((left, right, score))
+        singles.append(ev)
     if not singles:
         return []
     results = list(singles)

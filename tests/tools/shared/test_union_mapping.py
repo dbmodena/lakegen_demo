@@ -227,3 +227,33 @@ def test_report_truncates_a_long_mapping():
     b = pd.DataFrame({c: [2] for c in cols})
     text = format_union_section("A", "B", union_by_names(a, b, _coma(cols)))
     assert text.count(" -> ") == 8 and "... and 4 more" in text
+
+
+# ---- equal scores ---------------------------------------------------------------------------------
+
+def test_equal_scores_go_to_the_identical_name():
+    """Valentine scores `sliceanddice1` against `sliceanddicevalue1` 1.0, like the identical name."""
+    a = pd.DataFrame({"sliceanddice1": ["x"], "sliceanddicevalue1": ["y"]})
+    b = pd.DataFrame({"sliceanddicevalue1": ["y"], "sliceanddice1": ["x"]})
+    coma = [
+        ("sliceanddice1", "sliceanddicevalue1", 1.0),
+        ("sliceanddice1", "sliceanddice1", 1.0),
+        ("sliceanddicevalue1", "sliceanddicevalue1", 1.0),
+    ]
+
+    mapping = union_by_names(a, b, coma)
+
+    assert {(m.left, m.right) for m in mapping.aligned} == {
+        ("sliceanddice1", "sliceanddice1"),
+        ("sliceanddicevalue1", "sliceanddicevalue1"),
+    }
+
+
+def test_equal_scores_without_identical_names_go_to_the_column_at_the_same_place():
+    a = pd.DataFrame({"first": [1], "second": [2]})
+    b = pd.DataFrame({"one": [1], "two": [2]})
+    coma = [("second", "one", 0.8), ("first", "one", 0.8), ("second", "two", 0.8), ("first", "two", 0.8)]
+
+    mapping = union_by_names(a, b, coma)
+
+    assert {(m.left, m.right) for m in mapping.aligned} == {("first", "one"), ("second", "two")}

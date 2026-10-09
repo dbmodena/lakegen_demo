@@ -581,3 +581,49 @@ def test_a_single_valued_side_key_still_leads_when_it_is_the_only_candidate():
     r = pd.DataFrame({"year": [2022] * 5})
     ranked = find_join_keys(q, r, [("Year", "year", 1.0)])
     assert ranked[0].verdict == JOIN
+
+
+# ---- columns matched on their values --------------------------------------------------------------
+
+def _by_values(left, right, score=0.9):
+    from lakegen.tools.shared.join_union.schema_matching import ColumnMatch
+
+    return ColumnMatch(left, right, score, 0.0, score / 0.9)
+
+
+def _ids(n, prefix="Z"):
+    return [f"{prefix}{i:03d}" for i in range(n)]
+
+
+def test_a_renamed_identifier_is_kept_when_its_values_really_overlap_and_says_so():
+    q = pd.DataFrame({"zona": _ids(60)})
+    r = pd.DataFrame({"col_0": _ids(60)})
+    ranked = find_join_keys(q, r, [_by_values("zona", "col_0")])
+    assert ranked and ranked[0].verdict == JOIN
+    assert any("named differently" in note for note in ranked[0].notes)
+
+
+def test_a_pair_matched_on_values_with_too_few_shared_values_is_dropped():
+    q = pd.DataFrame({"a": _ids(60)})
+    r = pd.DataFrame({"b": _ids(5) + _ids(55, "Y")})
+    assert find_join_keys(q, r, [_by_values("a", "b")]) == []
+
+
+def test_a_pair_matched_on_values_where_most_rows_find_no_partner_is_dropped():
+    q = pd.DataFrame({"a": _ids(200)})
+    r = pd.DataFrame({"b": _ids(30) + _ids(170, "Y")})
+    assert find_join_keys(q, r, [_by_values("a", "b")]) == []
+
+
+def test_counts_that_overlap_in_value_are_not_a_key_when_neither_side_is_unique():
+    q = pd.DataFrame({"immigrati": [i % 50 for i in range(500)]})
+    r = pd.DataFrame({"emigrati": [(i * 3) % 50 for i in range(500)]})
+    assert find_join_keys(q, r, [_by_values("immigrati", "emigrati")]) == []
+    # the same pair matched on its NAMES is still measured and reported
+    assert find_join_keys(q, r, [("immigrati", "emigrati", 0.74)])
+
+
+def test_row_numbers_matched_on_values_are_not_a_key():
+    q = pd.DataFrame({"OBJECTID": range(1, 101)})
+    r = pd.DataFrame({"ref": range(1, 101)})
+    assert find_join_keys(q, r, [_by_values("OBJECTID", "ref")]) == []

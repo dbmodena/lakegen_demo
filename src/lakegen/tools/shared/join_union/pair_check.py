@@ -8,7 +8,7 @@ import pandas as pd
 
 from lakegen.integrations.table_io import TableProfile, read_profile, read_table_sample
 from lakegen.tools.shared.join_union.join_keys import find_join_keys, format_join_section
-from lakegen.tools.shared.join_union.schema_matching import verify_pair_schema
+from lakegen.tools.shared.join_union.schema_matching import match_pair
 from lakegen.tools.shared.join_union.union_mapping import format_union_section, union_by_names
 
 # Rows measured per table by check_join_union. Shared-value counts and column mappings only need a
@@ -92,7 +92,7 @@ def check_join_union(table_dir: Path, file_name_1: str, file_name_2: str) -> str
         (q, q_total, q_profile), (r, r_total, r_profile) = (
             _read_side(table_dir, file_name) for file_name in (file_name_1, file_name_2)
         )
-        matches = verify_pair_schema(q, r)["matches"]
+        matches = match_pair(q, r)
         report = format_report(
             file_name_1, file_name_2, q, r, (q_total, r_total), matches, (q_profile, r_profile)
         )
