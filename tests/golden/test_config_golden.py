@@ -19,7 +19,7 @@ import pytest
 from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = ROOT / "tests" / "fixtures" / "configs"
+FIXTURES = ROOT / "tests" / "golden" / "fixtures" / "configs"
 YAMLS = sorted(ROOT.glob("config/examples/experiment.example*.yaml")) + sorted(FIXTURES.glob("experiments/*/*.yaml"))
 
 

@@ -3,7 +3,7 @@
 
     python scripts/gen_config_docs.py
 
-tests/test_settings.py fails when the file is out of date.
+tests/config/test_settings.py fails when the file is out of date.
 """
 
 from pathlib import Path

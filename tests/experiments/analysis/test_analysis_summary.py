@@ -9,8 +9,8 @@ import pandas as pd
 from lakegen.experiments.analysis.runs import load_runs
 from lakegen.experiments.analysis.summary import cell_questions, cell_summaries
 
-ROOT = Path(__file__).resolve().parents[1]
-JOBS = ROOT / "tests" / "fixtures" / "jobs" / "sample"
+ROOT = Path(__file__).resolve().parents[3]
+JOBS = ROOT / "tests" / "golden" / "fixtures" / "jobs" / "sample"
 
 
 def test_cell_summaries_count_progress_and_rates():

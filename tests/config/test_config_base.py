@@ -9,7 +9,7 @@ import pytest
 from lakegen.config.experiment import load_experiment_config
 from lakegen.config.files import to_v2
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "config"
 PRESETS = sorted((CONFIG / "presets").glob("*/*.yaml"))
 

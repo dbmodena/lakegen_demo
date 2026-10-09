@@ -8,8 +8,8 @@ from pathlib import Path
 from lakegen.config.experiment import ExperimentConfig
 from lakegen.config.recorded import load_recorded_config, schema_keys
 
-ROOT = Path(__file__).resolve().parents[1]
-STORED = json.loads((ROOT / "tests" / "fixtures" / "configs" / "stored_job_configs.json").read_text(encoding="utf-8"))
+ROOT = Path(__file__).resolve().parents[2]
+STORED = json.loads((ROOT / "tests" / "golden" / "fixtures" / "configs" / "stored_job_configs.json").read_text(encoding="utf-8"))
 JEV_KEYS = {
     "discovery.selector", "discovery.jev_model", "discovery.jev_max_candidates",
     "discovery.jev_threshold", "discovery.jev_reject_floor",

@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_the_batch_service_the_api_and_the_cli_never_load_chainlit(tmp_path):

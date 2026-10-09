@@ -9,8 +9,8 @@ from lakegen.experiments.analysis.runs import COLUMNS, load_runs
 from lakegen.experiments.analysis.sources import selector_compare
 from lakegen.experiments.analysis.sources.benchmarks import benchmark_cases, gold_is_any_of
 
-ROOT = Path(__file__).resolve().parents[1]
-JOBS = ROOT / "tests" / "fixtures" / "jobs" / "sample"
+ROOT = Path(__file__).resolve().parents[3]
+JOBS = ROOT / "tests" / "golden" / "fixtures" / "jobs" / "sample"
 
 
 def _results_dir(tmp_path: Path) -> Path:

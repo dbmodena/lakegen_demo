@@ -677,7 +677,7 @@ uv run pytest
 ```
 
 The suite is hermetic (every test writes under a temporary state root).
-`scripts/check.sh` is the commit gate: the suite against `tests/BASELINE.txt`,
+`scripts/check.sh` is the commit gate: the suite against `tests/golden/BASELINE.txt`,
 the golden snapshots in `tests/golden/` (`pytest --update-golden` re-records
 them, for a listed behaviour change only), ruff on the staged files, the
 import contracts of `pyproject.toml` and an import smoke test; the pre-commit

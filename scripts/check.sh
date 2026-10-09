@@ -3,10 +3,10 @@
 # (docs/REFACTOR_PLAN.md, ground rule 6).
 #
 #   scripts/check.sh                    # run the gate
-#   scripts/check.sh --update-baseline  # also rewrite tests/BASELINE.txt from this run
+#   scripts/check.sh --update-baseline  # also rewrite tests/golden/BASELINE.txt from this run
 #
 # 1. The test suite has no failure or error, and every test id recorded in
-#    tests/BASELINE.txt still ran, so a test cannot disappear unnoticed. The
+#    tests/golden/BASELINE.txt still ran, so a test cannot disappear unnoticed. The
 #    golden snapshots under tests/golden run as part of the suite. The suite
 #    is hermetic through tests/conftest.py, which points the state root at a
 #    temporary directory.
@@ -20,7 +20,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 # The launchers' interpreter (Python 3.13). venv/ holds an unrelated 3.11.
 PY="$ROOT/.venv/bin/python"
-BASELINE="$ROOT/tests/BASELINE.txt"
+BASELINE="$ROOT/tests/golden/BASELINE.txt"
 UPDATE=0
 [ "${1:-}" = "--update-baseline" ] && UPDATE=1
 REPORT=$(mktemp)
@@ -52,13 +52,13 @@ elif [ -f "$BASELINE" ]; then
   MISSING=$(comm -23 "$BASELINE" <(cut -d' ' -f1 "$IDS"))
   if [ -n "$MISSING" ]; then
     echo "$MISSING" | head -20
-    echo "gate: tests recorded in tests/BASELINE.txt did not run" \
+    echo "gate: tests recorded in tests/golden/BASELINE.txt did not run" \
          "(removed or renamed? rerun with --update-baseline if that is intended)"
     exit 1
   fi
   echo "baseline: all $(wc -l < "$BASELINE") recorded tests ran"
 else
-  echo "no tests/BASELINE.txt yet: run with --update-baseline once the suite is hermetic"
+  echo "no tests/golden/BASELINE.txt yet: run with --update-baseline once the suite is hermetic"
 fi
 
 echo "== 2. ruff on staged python files"

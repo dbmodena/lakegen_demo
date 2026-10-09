@@ -18,7 +18,7 @@ from lakegen.config.files import (
     translate_override,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _write(path: Path, text: str) -> Path:

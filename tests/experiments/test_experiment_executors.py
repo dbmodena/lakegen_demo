@@ -13,7 +13,7 @@ from lakegen.experiments.executors import ApiExecutor, submission
 from lakegen.experiments.spec import ExperimentSpec, expand
 from lakegen.experiments.store import RunStore
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class FakeResponse(io.BytesIO):

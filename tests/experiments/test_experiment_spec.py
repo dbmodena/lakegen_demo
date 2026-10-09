@@ -12,7 +12,7 @@ from lakegen.experiments.spec import parse_slice, select_cases
 from lakegen.experiments.spec import ExperimentSpec, compose, expand
 from lakegen.experiments.store import RunStore
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 SPEC = """
     name: smoke

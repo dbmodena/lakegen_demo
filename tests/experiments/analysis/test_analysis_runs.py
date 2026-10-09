@@ -11,8 +11,8 @@ from lakegen.experiments.analysis.runs import load_runs, runs_of_job
 from lakegen.experiments.analysis.switches import ProviderSwitch, model_id, parse_switches, values_at
 from lakegen.experiments.store import RunStore
 
-ROOT = Path(__file__).resolve().parents[1]
-JOBS = ROOT / "tests" / "fixtures" / "jobs" / "sample"
+ROOT = Path(__file__).resolve().parents[3]
+JOBS = ROOT / "tests" / "golden" / "fixtures" / "jobs" / "sample"
 TARGET = JOBS / "f438db7bda7046df8de2df5eda8c146c.json"
 CHICAGO = JOBS / "3687ab4f842a4532a0e665fd61c08c5a.json"
 

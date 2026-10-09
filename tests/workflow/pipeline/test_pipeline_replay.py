@@ -80,7 +80,7 @@ def test_stored_keywords_skip_the_keyword_writer(monkeypatch, tmp_path):
 
 
 def test_a_stored_selection_reads_a_recorded_result():
-    results = Path("tests/fixtures/jobs/sample/3687ab4f842a4532a0e665fd61c08c5a.results.jsonl")
+    results = Path("tests/golden/fixtures/jobs/sample/3687ab4f842a4532a0e665fd61c08c5a.results.jsonl")
     entry = json.loads(results.read_text(encoding="utf-8").splitlines()[0])
     selection = StoredSelection.from_result(entry["result"])
     assert selection.tables == tuple(entry["result"]["tables"])

@@ -28,9 +28,9 @@ import pytest
 from lakegen.experiments.legacy import config_differences, resolve_as_submission
 from lakegen.experiments.spec import ExperimentSpec, expand
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SPECS = sorted((ROOT / "experiments" / "specs").glob("*.yaml"))
-STORED = json.loads((ROOT / "tests" / "fixtures" / "configs" / "stored_job_configs.json").read_text(encoding="utf-8"))
+STORED = json.loads((ROOT / "tests" / "golden" / "fixtures" / "configs" / "stored_job_configs.json").read_text(encoding="utf-8"))
 # spec name -> (the job directory its script wrote to, ids that are not grid cells)
 GRIDS = {
     "qwen-grid": ("lakegen_jobs_qwen", ("qwen-llm-smoke", "qwen-jev-smoke")),

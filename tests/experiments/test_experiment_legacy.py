@@ -13,8 +13,8 @@ from lakegen.experiments.legacy import config_differences, index_legacy, matchin
 from lakegen.experiments.spec import ExperimentSpec, expand
 from lakegen.experiments.store import RunStore
 
-ROOT = Path(__file__).resolve().parents[1]
-JOBS = ROOT / "tests" / "fixtures" / "jobs" / "sample"
+ROOT = Path(__file__).resolve().parents[2]
+JOBS = ROOT / "tests" / "golden" / "fixtures" / "jobs" / "sample"
 BENCH_SPEC = ROOT / "experiments" / "specs" / "bench_grid.yaml"
 
 

@@ -25,7 +25,7 @@ from lakegen.config.settings import (
     share,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_every_registered_name_is_scrubbed_by_the_test_suite():

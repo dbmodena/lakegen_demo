@@ -16,13 +16,24 @@ import pytest
 SNAPSHOTS = Path(__file__).parent / "snapshots"
 
 
+def snapshot_path(name: str) -> Path:
+    """``snapshots/<group>/<shard>/<stem>.json``: a group's files are filed by the stem's first word.
+
+    ``cli/divided_accept`` is ``snapshots/cli/divided/divided_accept.json``;
+    the sweep scenarios share a folder of their own, so none holds over ten.
+    """
+    group, _, stem = name.rpartition("/")
+    shard = "sweep" if "sweep" in stem else stem.split("_", 1)[0]
+    return SNAPSHOTS / group / shard / f"{stem}.json"
+
+
 @pytest.fixture
 def golden(request):
-    """``golden(name, payload)`` compares ``payload`` with ``snapshots/<name>.json``."""
+    """``golden(name, payload)`` compares ``payload`` with its snapshot (see ``snapshot_path``)."""
     update = request.config.getoption("--update-golden")
 
     def check(name: str, payload: Any) -> None:
-        path = SNAPSHOTS / f"{name}.json"
+        path = snapshot_path(name)
         text = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         if update:
             path.parent.mkdir(parents=True, exist_ok=True)

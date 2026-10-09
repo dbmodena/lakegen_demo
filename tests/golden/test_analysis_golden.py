@@ -15,7 +15,7 @@ import pytest
 from lakegen.experiments.analysis.metrics import batch_cases, batch_report, report_summary
 
 ROOT = Path(__file__).resolve().parents[2]
-JOBS = ROOT / "tests" / "fixtures" / "jobs" / "sample"
+JOBS = ROOT / "tests" / "golden" / "fixtures" / "jobs" / "sample"
 JOB_IDS = sorted(path.stem for path in JOBS.glob("*.json") if not path.name.endswith(".questions.json"))
 
 
