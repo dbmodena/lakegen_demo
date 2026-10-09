@@ -76,11 +76,11 @@ queried changes; everything derived from the portal name stays as it is:
 export LAKEGEN_SOLR_CORE_UK=uk_fixed   # portal "uk" is queried from core uk_fixed
 ```
 
-`index_retrieval.py` ignores this and writes to the core it is given.
+`lakegen index` ignores this and writes to the core it is given.
 
 #### Rebuilding the corrected UK core
 
-`scripts/build_uk_fixed.py` rebuilds the `uk_fixed` core from
+`scripts/build/build_uk_fixed.py` rebuilds the `uk_fixed` core from
 `metadata_retrieved_cleaned.json` and the parquet files. Compared with the
 first UK build it names each table by package title plus resource name (not the
 resource name alone, which is often the literal "CSV"), stores descriptions as
@@ -89,11 +89,11 @@ aligned with the parquet schema (a column with an empty name is stored as
 DuckDB's `C<index>`).
 
 ```bash
-python scripts/build_uk_fixed.py                # dry run: diff against the core
-python scripts/build_uk_fixed.py --apply        # write (backs up first, then verifies)
-python scripts/build_uk_fixed.py --apply --embed  # also OCI cohere.embed-v4.0 vectors
-python scripts/build_uk_fixed.py --verify       # re-run the checks only
-python scripts/build_uk_fixed.py --restore backups/uk_fixed_build/before.jsonl.gz
+python scripts/build/build_uk_fixed.py                # dry run: diff against the core
+python scripts/build/build_uk_fixed.py --apply        # write (backs up first, then verifies)
+python scripts/build/build_uk_fixed.py --apply --embed  # also OCI cohere.embed-v4.0 vectors
+python scripts/build/build_uk_fixed.py --verify       # re-run the checks only
+python scripts/build/build_uk_fixed.py --restore backups/uk_fixed_build/before.jsonl.gz
 ```
 
 It never creates a core and refuses the production cores. `scripts/` and
@@ -103,7 +103,7 @@ It never creates a core and refuses the production cores. `scripts/` and
 ### Experiment configuration
 
 All settings and their accepted values are documented in
-`config/experiment.example.yaml`. Copy or edit that file to define a repeatable
+`config/examples/experiment.example.yaml`. Copy or edit that file to define a repeatable
 experiment. Its `benchmark.path` setting names the input file of the
 retrieval-only benchmark (see section 7).
 
@@ -151,7 +151,7 @@ Run with an experiment configuration:
 
 ```bash
 lakegen ask \
-  --config config/experiment.example.yaml \
+  --config config/examples/experiment.example.yaml \
   "The question to analyze"
 ```
 
@@ -159,7 +159,7 @@ Individual configuration values can be overridden with `--set`:
 
 ```bash
 lakegen ask \
-  --config config/experiment.example.yaml \
+  --config config/examples/experiment.example.yaml \
   --set retrieval.top_k=20 \
   "The question to analyze"
 ```
@@ -171,9 +171,9 @@ still runs the same command.
 Configuration files are checked and compared with:
 
 ```bash
-lakegen config show config/experiment.example.yaml --format v2
+lakegen config show config/examples/experiment.example.yaml --format v2
 lakegen config validate config/*.yaml
-lakegen config diff config/experiment.example_uk_keyword.yaml config/experiment.example_uk_semantic.yaml
+lakegen config diff config/examples/experiment.example_uk_keyword.yaml config/examples/experiment.example_uk_semantic.yaml
 ```
 
 ### HTTP API
@@ -247,7 +247,7 @@ A configuration and a question file can also be uploaded separately:
 ```bash
 curl --fail-with-body -X POST \
   http://127.0.0.1:8000/v1/batches/files \
-  -F 'config=@config/experiment.example.yaml' \
+  -F 'config=@config/examples/experiment.example.yaml' \
   -F 'questions=@queries/generated_queries_nyc.json'
 ```
 
@@ -259,7 +259,7 @@ For a large JSON collection, this client splits it into independent durable API
 jobs and submits those jobs concurrently:
 
 ```bash
-.venv/bin/python scripts/submit_parallel_batches.py benchmark/50q_nyc.json \
+.venv/bin/python scripts/jobs/submit_parallel_batches.py benchmark/50q_nyc.json \
   --chunk-size 10 --parallelism 2 --wait
 ```
 
@@ -300,7 +300,7 @@ the effective value. Example YAML files are loaded only when supplied.
   there. Each DuckDB hit is resolved to the catalog document of its Parquet
   file before fusion. It needs the vector index and the local Parquet
   directory. `hybrid` is a separate mode and is unchanged.
-  `config/experiment.example_uk_hybrid_duckdb_semantic.yaml` runs it with
+  `config/examples/experiment.example_uk_hybrid_duckdb_semantic.yaml` runs it with
   `rrf` and the Cohere reranker, the configuration measured in
   `experiments/rerank_lab` (100 UK questions: Recall@10 0.869, Hit@1 0.55,
   against 0.822 and 0.49 unreranked).
@@ -362,7 +362,7 @@ skipped rather than performed and multiplied away. In particular,
   once per table, because the lakes name files by opaque id; and enumeration
   runs automatically rather than as an agent action.
   Set `pneuma_enumerate_tables: false` to reproduce the paper's middle ablation
-  arm. `config/experiment.example_uk_pneuma_seeker.yaml` configures the
+  arm. `config/examples/experiment.example_uk_pneuma_seeker.yaml` configures the
   reference retriever itself: k=10, a 5x Pneuma pool, alpha 0.5, `fill`,
   extracted entities, and no automatic enumeration. It still differs in one
   respect the service decides: our Pneuma always runs its LLM relevance judge,
@@ -418,7 +418,7 @@ selected core.
 
 ## 6. Create benchmark files
 
-`build_benchmark.py` does not generate new questions. It selects valid,
+`scripts/build/build_benchmark.py` does not generate new questions. It selects valid,
 successful cases from an existing generated-query JSON file, regardless of the
 source engine, and writes a
 deterministic benchmark sample.
@@ -426,7 +426,7 @@ deterministic benchmark sample.
 Create the default 100-question NYC benchmark:
 
 ```bash
-uv run python build_benchmark.py --dataset nyc
+uv run python scripts/build/build_benchmark.py --dataset nyc
 ```
 
 This reads `queries/generated_queries_nyc.json` and writes
@@ -435,7 +435,7 @@ This reads `queries/generated_queries_nyc.json` and writes
 Create the UK benchmark:
 
 ```bash
-uv run python build_benchmark.py --dataset uk
+uv run python scripts/build/build_benchmark.py --dataset uk
 ```
 
 This reads `queries/generated_queries_uk.json` and writes
@@ -444,7 +444,7 @@ This reads `queries/generated_queries_uk.json` and writes
 Use custom paths, sample size, and seed when needed:
 
 ```bash
-uv run python build_benchmark.py \
+uv run python scripts/build/build_benchmark.py \
   --dataset nyc \
   --input queries/generated_queries_nyc.json \
   --output benchmark/50q_nyc.json \
@@ -497,7 +497,7 @@ Two input formats are accepted and detected automatically:
     not resolve stops the load with an error naming the record, for example
     `PANDAS/multi_table/mt_0/0`;
   - the search keywords are the record's `question_keywords`, the same choice
-    `build_benchmark.py` makes, so a question is searched identically in a
+    `scripts/build/build_benchmark.py` makes, so a question is searched identically in a
     sample built from the same file;
   - the case id is the record's `client_id`;
   - the generator sometimes asks the same question over the same tables once
@@ -530,7 +530,7 @@ Then pass `--config` instead of a file:
 
 ```bash
 PYTHONPATH=src:. uv run python -m lakegen.retrieval.benchmark \
-  --config config/experiment.example.yaml \
+  --config config/examples/experiment.example.yaml \
   --output logs/nyc_generated_retrieval_benchmark.json
 ```
 
@@ -610,13 +610,13 @@ conflict with LakeGen's main environment:
 
 ```bash
 uv venv --python 3.12 .venv-pneuma
-uv pip install --python .venv-pneuma/bin/python -r requirements-pneuma.txt
+uv pip install --python .venv-pneuma/bin/python -r scripts/pneuma/requirements-pneuma.txt
 ```
 
 Prepare an index for a portal:
 
 ```bash
-bash scripts_pneuma/run_pneuma_bootstrap_monitored.sh nyc
+bash scripts/pneuma/run_pneuma_bootstrap_monitored.sh nyc
 ```
 
 By default Pneuma uses the configured OpenAI-compatible Ollama endpoint. To
@@ -624,7 +624,7 @@ offload both summarization and embedding generation to OCI Generative AI, use
 the same OCI profile and compartment configured for LakeGen:
 
 ```bash
-PNEUMA_PROVIDER=oci bash scripts_pneuma/run_pneuma_bootstrap_monitored.sh uk \
+PNEUMA_PROVIDER=oci bash scripts/pneuma/run_pneuma_bootstrap_monitored.sh uk \
   --oci-llm-model openai.gpt-oss-20b \
   --oci-embedding-model cohere.embed-v4.0
 ```
@@ -638,7 +638,7 @@ that processes only the next `N` pending tables.
 Start the service using the generated index path:
 
 ```bash
-.venv-pneuma/bin/python scripts_pneuma/pneuma_server.py \
+.venv-pneuma/bin/python scripts/pneuma/pneuma_server.py \
   --out-path /data/pneuma/nyc \
   --port 8774
 ```
@@ -646,7 +646,7 @@ Start the service using the generated index path:
 For an OCI-built index, use the identical embedding model at query time:
 
 ```bash
-.venv-pneuma/bin/python scripts_pneuma/pneuma_server.py \
+.venv-pneuma/bin/python scripts/pneuma/pneuma_server.py \
   --provider oci \
   --oci-llm-model openai.gpt-oss-20b \
   --oci-embedding-model cohere.embed-v4.0 \
@@ -696,5 +696,5 @@ The main generated outputs are:
 All of them live under the state root (`LAKEGEN_STATE_DIR`, the repository by
 default); see `docs/configuration.md`.
 
-For detailed experiment parameters, use `config/experiment.example.yaml` and
+For detailed experiment parameters, use `config/examples/experiment.example.yaml` and
 the `--help` option of the relevant command.

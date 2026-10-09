@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import argparse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import inspect
 import json
 import os
 import types
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import bm25s
-from bootstrap_pneuma import configure_pneuma_indexing, _validate_embedding
-from pneuma import Pneuma
 import Stemmer
+from bootstrap_pneuma import _validate_embedding, configure_pneuma_indexing
+from pneuma import Pneuma
 from pneuma_judge import (
     ChatTransport,
     StructuredRelevanceJudge,

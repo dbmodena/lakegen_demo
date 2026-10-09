@@ -11,7 +11,7 @@ from lakegen.integrations.llm.factory import get_llm
 from lakegen.workflow.evaluation.semantic_judge import judge_semantic_code_result
 from lakegen.workflow.prompts import get_prompt_manager
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 
 def _load_cases(path: Path) -> dict[str, Mapping[str, Any]]:

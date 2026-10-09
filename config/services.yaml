@@ -21,7 +21,7 @@
 # `pneuma_routes` points elsewhere.
 pneuma:
   command: >-
-    .venv-pneuma/bin/python scripts_pneuma/pneuma_server.py --host 127.0.0.1 --port {port}
+    .venv-pneuma/bin/python scripts/pneuma/pneuma_server.py --host 127.0.0.1 --port {port}
     --out-path {index_path} --provider oci --oci-llm-model openai.gpt-oss-20b
     --oci-embedding-model cohere.embed-v4.0 --oci-embedding-dimensions 1024 --judge-workers 8
   health: http://127.0.0.1:{port}/health

@@ -16,7 +16,7 @@ PRESETS = sorted((CONFIG / "presets").glob("*/*.yaml"))
 
 def test_base_is_the_example_configuration_with_its_identity_left_open():
     base = load_experiment_config(CONFIG / "base.yaml").model_dump(mode="json")
-    example = load_experiment_config(CONFIG / "experiment.example.yaml").model_dump(mode="json")
+    example = load_experiment_config(CONFIG / "examples" / "experiment.example.yaml").model_dump(mode="json")
     assert base.pop("experiment_id") == "default" and example.pop("experiment_id") == "thesis-baseline-004"
     assert base["benchmark"].pop("path") is None and example["benchmark"].pop("path")
     # The example (mode hybrid) also sets Pneuma-Seeker values that only other

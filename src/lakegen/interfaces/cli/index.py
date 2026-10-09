@@ -6,8 +6,6 @@
     # Apply only after reviewing the dry-run, with a local backup first.
     lakegen index --core bologna --ensure-schema --metadata-source solr-ready-metadata.json \
         --backup backup.json --apply
-
-``python index_retrieval.py`` still runs the same command.
 """
 
 from __future__ import annotations

@@ -52,7 +52,7 @@ include = ["lakegen*"]
 lakegen = ["workflow/prompts/*.yaml"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "."]
+pythonpath = ["src", ".", "scripts/build"]
 
 [dependency-groups]
 dev = [
@@ -67,7 +67,7 @@ dev = [
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
-extend-exclude = ["experiments", "analysis", "scripts_pneuma", "backups"]
+extend-exclude = ["experiments", "scripts/analysis", "scripts/pneuma", "backups"]
 
 [tool.ruff.lint]
 select = ["F", "I", "B", "UP", "C901", "PLR0915", "TID251"]
@@ -92,7 +92,7 @@ known-first-party = ["lakegen", "golden", "src"]
 "src/api.py" = ["E402", "I001"]
 "src/app.py" = ["E402", "I001"]
 "src/cli.py" = ["E402", "I001"]
-"index_retrieval.py" = ["E402", "I001"]
+
 # The registry itself, and the three places that build a subprocess's or a
 # library's environment from the process's own.
 "src/lakegen/config/settings.py" = ["TID251"]

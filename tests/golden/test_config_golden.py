@@ -20,7 +20,7 @@ from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "configs"
-YAMLS = sorted(ROOT.glob("config/experiment.example*.yaml")) + sorted(FIXTURES.glob("experiments/*/*.yaml"))
+YAMLS = sorted(ROOT.glob("config/examples/experiment.example*.yaml")) + sorted(FIXTURES.glob("experiments/*/*.yaml"))
 
 
 def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
@@ -41,10 +41,15 @@ def _changes(stored: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@pytest.mark.parametrize("path", YAMLS, ids=[f"{p.parent.name}/{p.name}" for p in YAMLS])
+def _group(path: Path) -> str:
+    """The folder a snapshot is filed under: the examples keep their old name, ``config``."""
+    return "config" if path.parent.name == "examples" else path.parent.name
+
+
+@pytest.mark.parametrize("path", YAMLS, ids=[f"{_group(p)}/{p.name}" for p in YAMLS])
 def test_config_file_resolves_the_same(path: Path, golden):
     config = load_experiment_config(path)
-    golden(f"config/{path.parent.name}__{path.stem}", config.model_dump(mode="json"))
+    golden(f"config/{_group(path)}__{path.stem}", config.model_dump(mode="json"))
 
 
 def test_stored_job_configs_keep_loading(golden):

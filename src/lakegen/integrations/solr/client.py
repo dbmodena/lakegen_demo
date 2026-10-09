@@ -43,7 +43,7 @@ def resolve_solr_core(portal: str) -> str:
     derives the data directory, Pneuma route and database path from it.
     ``LAKEGEN_SOLR_CORE_<PORTAL>`` (for example ``LAKEGEN_SOLR_CORE_UK=uk_fixed``)
     points the portal at a differently named core without changing any of that.
-    Only the query path calls this; ``index_retrieval.py`` writes to the core it
+    Only the query path calls this; ``lakegen index`` writes to the core it
     is told to, so an admin run can never be redirected by the environment.
     """
     return solr_core_override(portal) or portal

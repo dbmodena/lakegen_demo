@@ -16,7 +16,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_PATHS = {
     "uk": (Path("queries/generated_queries_uk.json"), Path("benchmark/100q_uk.json")),
     "nyc": (Path("queries/generated_queries_nyc.json"), Path("benchmark/100q_nyc.json")),

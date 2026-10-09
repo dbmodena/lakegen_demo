@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-from datetime import datetime
 import html
 import json
-from pathlib import Path
 import re
+from datetime import datetime
+from pathlib import Path
 from typing import Any
-
 
 RETRIEVAL_ORDER = (
     "Hit@1", "Hit@5", "Hit@10", "Hit@15", "Hit@20",

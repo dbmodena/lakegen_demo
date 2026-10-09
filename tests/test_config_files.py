@@ -101,7 +101,7 @@ def test_set_values_accept_either_spelling_and_read_yaml():
 
 
 def test_v2_rendering_round_trips_and_names_what_it_drops():
-    config = load_experiment_config(ROOT / "config" / "experiment.example_uk_pneuma_seeker.yaml")
+    config = load_experiment_config(ROOT / "config" / "examples" / "experiment.example_uk_pneuma_seeker.yaml")
     flat = config.model_dump(mode="json")
     document, dropped = to_v2(flat)
     assert document["lake"] == "uk" and document["retrieval"]["mode"] == "pneuma_seeker"

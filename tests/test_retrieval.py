@@ -5,7 +5,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from scripts_pneuma.pneuma_judge import (
+from scripts.pneuma.pneuma_judge import (
     JudgeError,
     RelevanceJudgment,
     StructuredRelevanceJudge,
@@ -1231,7 +1231,7 @@ class _FakeChatEndpoint:
 
 
 def _endpoint_chat_client(endpoint, **settings):
-    from scripts_pneuma.pneuma_oci import OCICompatOpenAI, OCISettings
+    from scripts.pneuma.pneuma_oci import OCICompatOpenAI, OCISettings
 
     # Built without __init__: no OCI config is needed to exercise the chat path.
     client = object.__new__(OCICompatOpenAI)
@@ -1271,7 +1271,7 @@ def test_pneuma_narration_through_openai_client_surface_uses_the_endpoint():
     """Pneuma's summarizer calls chat.completions.create on the client it holds."""
     endpoint = _FakeChatEndpoint("", "The borough of the incident.")
     client = _endpoint_chat_client(endpoint, chat_model="local-model")
-    from scripts_pneuma.pneuma_oci import _Chat
+    from scripts.pneuma.pneuma_oci import _Chat
 
     client.chat = _Chat(client)
     response = client.chat.completions.create(
@@ -1292,7 +1292,7 @@ def test_pneuma_narration_through_openai_client_surface_uses_the_endpoint():
 def test_concurrent_narration_answers_every_conversation_in_place_and_in_order():
     """Pneuma reads the answer appended to each conversation; concurrency must not reorder."""
     from openai import APIConnectionError
-    from scripts_pneuma.pneuma_narration import concurrent_prompt_openai_llm
+    from scripts.pneuma.pneuma_narration import concurrent_prompt_openai_llm
 
     failures = {"c2": 1}  # one transient failure, retried like Pneuma's own loop
 
@@ -1318,7 +1318,7 @@ def test_concurrent_narration_answers_every_conversation_in_place_and_in_order()
 
 def test_row_sample_cells_are_capped_without_touching_other_values():
     import pandas as pd
-    from scripts_pneuma.pneuma_narration import cap_long_cells
+    from scripts.pneuma.pneuma_narration import cap_long_cells
 
     frame = pd.DataFrame({
         "the_geom": ["MULTIPOLYGON (((" + "1 2, " * 500 + ")))", None],

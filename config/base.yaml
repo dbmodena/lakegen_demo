@@ -10,7 +10,7 @@
 #     lake: chicago
 #
 # `python -m lakegen.config.files show <file>` prints the resolved configuration.
-# The flat layout of the older config/experiment.example*.yaml files is still
+# The flat layout of the older config/examples/experiment.example*.yaml files is still
 # read; a file without `schema_version: 2` is flat.
 
 schema_version: 2

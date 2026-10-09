@@ -20,15 +20,15 @@ medium / hard); Chicago has none. Writes results/question_meta.json.
 
 from __future__ import annotations
 
-from collections import Counter
 import json
-from pathlib import Path
 import sys
+from collections import Counter
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from records import PORTALS, ROOT  # noqa: E402
 
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts" / "build"))
 import build_benchmark as bb  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "results"

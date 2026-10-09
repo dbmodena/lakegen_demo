@@ -26,11 +26,11 @@ so the protocol is testable without either.
 
 from __future__ import annotations
 
+import json
+import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-import json
-import time
 from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator

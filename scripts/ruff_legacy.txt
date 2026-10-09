@@ -1,5 +1,3 @@
-analysis/replay_semantic_judge.py
-build_benchmark.py
 experiments/paper_analysis/build_section.py
 experiments/paper_analysis/failures.py
 experiments/paper_analysis/latex.py
@@ -8,7 +6,14 @@ experiments/paper_analysis/question_meta.py
 experiments/paper_analysis/records.py
 experiments/paper_analysis/rerank_compare.py
 experiments/paper_analysis/section_tables.py
-scripts/submit_parallel_batches.py
+scripts/analysis/generate_report.py
+scripts/analysis/replay_semantic_judge.py
+scripts/build/build_benchmark.py
+scripts/jobs/submit_parallel_batches.py
+scripts/pneuma/bootstrap_pneuma.py
+scripts/pneuma/pneuma_judge.py
+scripts/pneuma/pneuma_oci.py
+scripts/pneuma/pneuma_server.py
 src/app.py
 src/lakegen/__init__.py
 src/lakegen/config/bootstrap.py
@@ -61,7 +66,6 @@ src/lakegen/retrieval/__init__.py
 src/lakegen/retrieval/benchmark.py
 src/lakegen/retrieval/evaluation.py
 src/lakegen/retrieval/intent.py
-src/lakegen/retrieval/modes/builtin/builtin.py
 src/lakegen/retrieval/modes/duckdb_agentic.py
 src/lakegen/retrieval/modes/duckdb_semantic.py
 src/lakegen/retrieval/modes/fusion.py

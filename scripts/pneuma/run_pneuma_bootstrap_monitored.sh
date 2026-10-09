@@ -21,7 +21,7 @@ resource_log_path="$out_path/bootstrap.resources.log"
 
 printf '\n[monitor] bootstrap started %s\n' "$(date --iso-8601=seconds)" | tee -a "$log_path"
 
-.venv-pneuma/bin/python scripts_pneuma/bootstrap_pneuma.py \
+.venv-pneuma/bin/python scripts/pneuma/bootstrap_pneuma.py \
   --portal "$portal" \
   --out-path "$out_path" \
   --index-name "$index_name" \

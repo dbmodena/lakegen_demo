@@ -9,14 +9,13 @@ import inspect
 import json
 import math
 import os
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 import duckdb
 from pneuma import Pneuma
-
 from pneuma_narration import cap_long_cells, concurrent_prompt_openai_llm
 from pneuma_oci import (
     DEFAULT_OCI_EMBED_MODEL,
@@ -24,7 +23,6 @@ from pneuma_oci import (
     OCICompatOpenAI,
     OCISettings,
 )
-
 
 SUPPORTED_SUFFIXES = {".csv", ".parquet"}
 DEFAULT_EXTERNAL_VIEW_ROW_LIMIT = 10_000
@@ -604,7 +602,7 @@ def main() -> None:
     if args.row_sample_value_limit < 0:
         parser.error("--row-sample-value-limit must not be negative")
     tune_duckdb_connections()
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     default_dataset_dir = (
         root / "data" / args.portal
         / ("clean_datasets" if args.portal.casefold() == "uk" else "datasets")
