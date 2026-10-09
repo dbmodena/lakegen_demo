@@ -22,25 +22,24 @@ written next to the label in results/failures.jsonl.
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from functools import lru_cache
 import json
-from pathlib import Path
 import re
 import sys
 import unicodedata
+from collections import Counter, defaultdict
+from functools import lru_cache
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from records import LAKES, ROOT, load, resource_id, solved_flag  # noqa: E402
-
 from dotenv import load_dotenv  # noqa: E402
+from records import LAKES, ROOT, load, resource_id, solved_flag  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 
 import duckdb  # noqa: E402
 
-from lakegen.core.config import resolve_portal_tables_dir  # noqa: E402
-from lakegen.core.resources import get_solr  # noqa: E402
+from lakegen.config.locations import resolve_portal_tables_dir  # noqa: E402
+from lakegen.retrieval.factory import get_solr  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "results"
 NON_ENGLISH = {"valencia", "paris", "bologna"}

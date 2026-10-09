@@ -33,10 +33,10 @@ from lakegen.interfaces.chainlit.sections import (
 )
 from lakegen.interfaces.chainlit.state import LakeGenSession
 from lakegen.interfaces.chainlit.streaming import CumulativeMarkdownEmitter, StepStreamBridge
-from lakegen.observability.tracing import HumanGate
-from lakegen.pipeline.context import RunContext
-from lakegen.pipeline.engine import Pipeline
-from lakegen.pipeline.events import (
+from lakegen.workflow.observability.tracing import HumanGate
+from lakegen.workflow.pipeline.engine import Pipeline
+from lakegen.workflow.pipeline.model.context import RunContext
+from lakegen.workflow.pipeline.model.events import (
     Answer,
     Approve,
     CoderRejected,
@@ -50,7 +50,7 @@ from lakegen.pipeline.events import (
     StageFinished,
     StageStarted,
 )
-from lakegen.pipeline.hooks import StageHooks
+from lakegen.workflow.pipeline.wiring.hooks import StageHooks
 
 Asker = Callable[..., Any]
 

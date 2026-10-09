@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from lakegen.discovery import orchestrated as orchestrated_discovery
+from lakegen.workflow.discovery import orchestrated as orchestrated_discovery
 
 
 def test_a_delta_is_printed_once_and_forwarded_once(monkeypatch, capsys):
@@ -79,9 +79,9 @@ def test_the_cli_does_not_add_a_second_printing_channel():
 @pytest.mark.parametrize(
     "module_path",
     [
-        "src/lakegen/discovery/unified.py",
-        "src/lakegen/discovery/divided.py",
-        "src/lakegen/discovery/orchestrated.py",
+        "src/lakegen/workflow/discovery/unified.py",
+        "src/lakegen/workflow/discovery/divided.py",
+        "src/lakegen/workflow/discovery/orchestrated.py",
     ],
 )
 def test_every_phase_owns_the_terminal(module_path):

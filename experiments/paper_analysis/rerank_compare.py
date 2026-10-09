@@ -19,16 +19,16 @@ Writes results/rerank.jsonl (one row per question, strategy and arm).
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import json
-from pathlib import Path
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from records import PORTALS, SELCMP, resource_id  # noqa: E402
 import failures as F  # noqa: E402
+from records import PORTALS, SELCMP, resource_id  # noqa: E402
 
-from lakegen.retrieval.rerank import OCICohereReranker, candidate_text  # noqa: E402
+from lakegen.integrations.llm.rerank import OCICohereReranker, candidate_text  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "results" / "rerank.jsonl"
 PRODUCTION_RERANKED = {"keyword", "semantic", "hybrid"}

@@ -7,16 +7,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from lakegen.config.experiment import ExperimentConfig, InteractionMode
-from lakegen.pipeline.context import RunContext
-from lakegen.pipeline.deps import PipelineDeps
 from lakegen.retrieval import RetrievalConfig
+from lakegen.workflow.pipeline.model.context import RunContext
+from lakegen.workflow.pipeline.wiring.deps import PipelineDeps
 
 FIELDS = tuple(field.name for field in fields(PipelineDeps))
 
 
 def test_each_surface_binds_its_own_names_when_a_run_starts(monkeypatch):
     """A test that replaces a name on a surface replaces what the engine calls."""
-    import lakegen.pipeline.service as service
+    import lakegen.workflow.pipeline.service as service
     from lakegen.interfaces.chainlit import workflow
     from lakegen.interfaces.cli import ask
 
@@ -31,7 +31,7 @@ def test_each_surface_binds_its_own_names_when_a_run_starts(monkeypatch):
 
 
 def test_the_default_deps_are_the_real_phases_and_resources():
-    import lakegen.pipeline.service as service
+    import lakegen.workflow.pipeline.service as service
 
     deps = PipelineDeps.default()
     for name in FIELDS:

@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 from lakegen.config.experiment import ExperimentConfig
 from lakegen.domain.outcomes import CodeOutcome, CodeStatus
-from lakegen.observability.recorder import Recorder
-from lakegen.pipeline.budgets import Attempt, DedupeGuard
-from lakegen.pipeline.context import RunContext
-from lakegen.pipeline.deps import PipelineDeps
-from lakegen.pipeline.stages import AnswerStage, CodingStage, Run, SemanticJudge, Verdict
-from lakegen.pipeline.state import RunState
+from lakegen.workflow.observability.recorder import Recorder
+from lakegen.workflow.pipeline.model.budgets import Attempt, DedupeGuard
+from lakegen.workflow.pipeline.model.context import RunContext
+from lakegen.workflow.pipeline.model.state import RunState
+from lakegen.workflow.pipeline.stages import AnswerStage, CodingStage, Run, SemanticJudge, Verdict
+from lakegen.workflow.pipeline.wiring.deps import PipelineDeps
 
 
 def _run(tmp_path: Path, *, phase4=None) -> Run:

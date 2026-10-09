@@ -4,9 +4,12 @@ import pandas as pd
 import pytest
 
 from lakegen.config.experiment import DiscoveryConfig, ExperimentConfig
-from lakegen.discovery.context import PreparedCandidate, PreparedDiscoveryContext
-from lakegen.discovery.selectors import jev as jev_selectors
-from lakegen.discovery.selectors.jev_service import (
+from lakegen.workflow.discovery import divided as phase2
+from lakegen.workflow.discovery import orchestrated as orchestrated_discovery
+from lakegen.workflow.discovery.context import PreparedCandidate, PreparedDiscoveryContext
+from lakegen.workflow.discovery.selectors import jev as jev_selectors
+from lakegen.workflow.discovery.selectors import jev_service as jev_selector
+from lakegen.workflow.discovery.selectors.jev_service import (
     JevSelection,
     JevSelectorError,
     build_request,
@@ -14,8 +17,6 @@ from lakegen.discovery.selectors.jev_service import (
     profile_table,
     select_with_jev,
 )
-from lakegen.discovery.selectors import jev_service as jev_selector
-from lakegen.discovery import orchestrated as orchestrated_discovery, divided as phase2
 
 JEV = DiscoveryConfig(selector="jev")
 

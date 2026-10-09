@@ -8,8 +8,8 @@ import pytest
 
 from lakegen.config.experiment import DiscoveryArchitecture, ToolAccess
 from lakegen.domain.outcomes import DiscoveryOutcome, DiscoveryStatus
-from lakegen.pipeline.budgets import Attempt
-from lakegen.pipeline.strategies import (
+from lakegen.workflow.pipeline.model.budgets import Attempt
+from lakegen.workflow.pipeline.strategies import (
     DiscoveryStrategy,
     DividedAgentic,
     DividedOrchestrated,

@@ -571,7 +571,7 @@ Run the module with `--help` for the complete list.
 #### Known limitation: keyword search
 
 The keyword search requires every keyword to match (`q.op=AND` in
-`src/client_solr.py`). With the five to seven keywords a question carries, most
+`lakegen/integrations/solr/client.py`). With the five to seven keywords a question carries, most
 searches return no table at all. In September 2026, on the NYC core, 189 of the
 223 generated cases and 90 of the 100 cases of `benchmark/100q_nyc.json` got an
 empty keyword ranking, for a Hit@10 of 0.04 and 0.03. All of their gold tables

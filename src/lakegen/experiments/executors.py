@@ -21,7 +21,7 @@ from typing import Any, Protocol
 
 from lakegen.experiments import batch, jobs
 from lakegen.experiments.spec import Cell
-from lakegen.pipeline.service import extract_questions
+from lakegen.workflow.pipeline.service import extract_questions
 
 
 class ExecutionError(RuntimeError):

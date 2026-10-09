@@ -1,6 +1,6 @@
 import json
 
-from lakegen.coding.context import CoderContext, infer_output_shape
+from lakegen.workflow.coding.context import CoderContext, infer_output_shape
 
 SECRET = "BENCHMARK_SECRET_DO_NOT_LEAK"
 

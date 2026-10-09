@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lakegen.config import locations as core_config
 from lakegen.config.experiment import ExperimentConfig, load_experiment_config
-from lakegen.observability.manifest import create_manifest, effective_settings
+from lakegen.workflow.observability.manifest import create_manifest, effective_settings
 
 
 def test_manifest_records_set_variables_and_the_effective_route(monkeypatch, tmp_path):

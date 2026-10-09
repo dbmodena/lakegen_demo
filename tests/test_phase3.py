@@ -3,17 +3,6 @@ import json
 import pandas as pd
 import pytest
 
-from lakegen.coding.agent import (
-    _build_coder_tables_info,
-    _detect_tabpfn_intent,
-    _exact_column_labels,
-    _execute_code,
-    _recover_fenced_agent_code,
-    _recover_structured_rejection,
-    _resolve_and_validate_columns,
-    _tabpfn_enabled,
-    phase3_generate_and_execute,
-)
 from lakegen.config.experiment import CoderContextLevel
 from lakegen.tools.coder import (
     CoderLifecycle,
@@ -25,6 +14,17 @@ from lakegen.tools.coder.quality.column_resolution import (
     generated_column_names,
     resolve_column_name,
     resolve_generated_code_columns,
+)
+from lakegen.workflow.coding.agent import (
+    _build_coder_tables_info,
+    _detect_tabpfn_intent,
+    _exact_column_labels,
+    _execute_code,
+    _recover_fenced_agent_code,
+    _recover_structured_rejection,
+    _resolve_and_validate_columns,
+    _tabpfn_enabled,
+    phase3_generate_and_execute,
 )
 
 
@@ -1423,8 +1423,8 @@ def test_free_text_rejection_fallback_bans_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow
     )
-    monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
-    monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.reset_llm_token_usage", lambda _llm: None)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.get_llm_token_usage", lambda _llm: 0)
 
     class PM:
         def render(self, _name, key, **kwargs):
@@ -1470,8 +1470,8 @@ def test_orchestrator_auto_inspects_success_when_model_stops_after_run(
     monkeypatch.setattr(
         "lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow
     )
-    monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
-    monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.reset_llm_token_usage", lambda _llm: None)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.get_llm_token_usage", lambda _llm: 0)
 
     class PM:
         def render(self, _name, key, **kwargs):
@@ -1519,8 +1519,8 @@ def test_correction_turn_restates_original_question_near_the_end(tmp_path, monke
     monkeypatch.setattr(
         "lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow
     )
-    monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
-    monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.reset_llm_token_usage", lambda _llm: None)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.get_llm_token_usage", lambda _llm: 0)
 
     class PM:
         def render(self, _name, key, **kwargs):
@@ -1577,8 +1577,8 @@ def test_iteration_limit_preserves_latest_structured_result_with_warnings(
     monkeypatch.setattr(
         "lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow
     )
-    monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
-    monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.reset_llm_token_usage", lambda _llm: None)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.get_llm_token_usage", lambda _llm: 0)
 
     class PM:
         def render(self, _name, key, **kwargs):
@@ -1680,8 +1680,8 @@ def test_benchmark_secret_never_enters_agent_prompts(tmp_path, monkeypatch):
         return ""
 
     monkeypatch.setattr("lakegen.integrations.llm.agents.runner.run_agent_workflow", fake_workflow)
-    monkeypatch.setattr("lakegen.coding.agent.reset_llm_token_usage", lambda _llm: None)
-    monkeypatch.setattr("lakegen.coding.agent.get_llm_token_usage", lambda _llm: 0)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.reset_llm_token_usage", lambda _llm: None)
+    monkeypatch.setattr("lakegen.workflow.coding.agent.get_llm_token_usage", lambda _llm: 0)
 
     class PM:
         def render(self, _name, key, **kwargs):
@@ -2393,7 +2393,7 @@ def test_inspect_table_exposes_requested_column_metadata_and_ambiguity(tmp_path)
 
 
 def test_keyerror_message_points_at_stale_label_after_rename():
-    from lakegen.coding.agent import _execute_code
+    from lakegen.workflow.coding.agent import _execute_code
 
     code = (
         "import pandas as pd\n"
@@ -2410,7 +2410,7 @@ def test_keyerror_message_points_at_stale_label_after_rename():
 
 
 def test_full_file_profile_marks_snapshot_stamps_and_presence_flags(tmp_path):
-    from lakegen.coding.agent import _temporal_value_profile
+    from lakegen.workflow.coding.agent import _temporal_value_profile
 
     path = tmp_path / "t.parquet"
     pd.DataFrame({
@@ -2447,7 +2447,7 @@ def test_snapshot_stamp_years_detects_constant_date_columns(tmp_path):
 
 
 def test_advisory_brief_prompt_is_opt_in():
-    from lakegen.prompts.prompt_manager import PromptManager
+    from lakegen.workflow.prompts.prompt_manager import PromptManager
 
     pm = PromptManager()
     strict = pm.render("code_generator", "agentic_system_prompt")
@@ -2459,7 +2459,7 @@ def test_advisory_brief_prompt_is_opt_in():
 
 
 def test_auto_repair_patches_only_the_failing_post_rename_reference():
-    from lakegen.coding.agent import _execute_code
+    from lakegen.workflow.coding.agent import _execute_code
 
     code = (
         "import pandas as pd\n"

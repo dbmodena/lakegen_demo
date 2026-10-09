@@ -6,8 +6,8 @@ from lakegen.config.experiment import ExperimentConfig
 from lakegen.interfaces.chainlit import workflow
 from lakegen.interfaces.chainlit.sections import format_retrieval_keywords
 from lakegen.interfaces.chainlit.state import LakeGenSession, WorkflowTimedOut
-from lakegen.observability.tracing import HumanGate
 from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.workflow.observability.tracing import HumanGate
 from src import app as chainlit_app
 
 
@@ -284,7 +284,7 @@ async def test_new_request_is_allowed_after_previous_workflow_finishes(monkeypat
 
 
 def test_next_round_hint_merges_architect_and_user_feedback():
-    from lakegen.pipeline.engine import next_round_hint
+    from lakegen.workflow.pipeline.engine import next_round_hint
 
     assert next_round_hint("Architect says X.", "try Y") == (
         "Architect says X. User feedback: try Y"

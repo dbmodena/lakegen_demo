@@ -5,12 +5,15 @@ from types import SimpleNamespace
 import pytest
 
 from lakegen.config.experiment import DiscoveryArchitecture, DiscoveryConfig, ExperimentConfig
-from lakegen.discovery.context import (
+from lakegen.domain.retrieval import RetrievalHit
+from lakegen.retrieval import RetrievalConfig, RetrievalMode
+from lakegen.retrieval.intent import parse_retrieval_intent
+from lakegen.workflow.discovery.context import (
     PreparedCandidate,
     PreparedDiscoveryContext,
     prepare_discovery_context,
 )
-from lakegen.discovery.orchestrated import (
+from lakegen.workflow.discovery.orchestrated import (
     DiscoveryResult,
     OrchestratedContextPreparationError,
     OrchestratedSelectorError,
@@ -21,11 +24,8 @@ from lakegen.discovery.orchestrated import (
     run_unified_orchestrated_discovery,
     select_from_prepared_context,
 )
-from lakegen.domain.retrieval import RetrievalHit
-from lakegen.pipeline.service import run_question
-from lakegen.prompts.prompt_manager import PromptManager
-from lakegen.retrieval import RetrievalConfig, RetrievalMode
-from lakegen.retrieval.intent import parse_retrieval_intent
+from lakegen.workflow.pipeline.service import run_question
+from lakegen.workflow.prompts.prompt_manager import PromptManager
 
 
 def _intent(concepts, **overrides):
@@ -47,7 +47,7 @@ def test_tool_free_turn_allows_function_agent_to_finalize(monkeypatch):
         return "RETRIEVAL_INTENT: {}"
 
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.run_agent_workflow", fake_workflow
+        "lakegen.workflow.discovery.orchestrated.run_agent_workflow", fake_workflow
     )
     response, _trace, _tokens = _run_tool_free_turn(
         llm=object(), system_prompt="system", user_prompt="user", agent_name="agent"
@@ -64,7 +64,7 @@ def test_tool_free_turn_prefers_verbatim_stream_to_agent_wrapper(monkeypatch):
         return "AgentOutput(response=...)"
 
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.run_agent_workflow", fake_workflow
+        "lakegen.workflow.discovery.orchestrated.run_agent_workflow", fake_workflow
     )
     response, trace, _tokens = _run_tool_free_turn(
         llm=object(), system_prompt="system", user_prompt="user", agent_name="agent"
@@ -150,7 +150,7 @@ def test_preparer_forwards_existing_retrieval_config_and_preserves_order(
 
     config = RetrievalConfig(mode=mode, top_k=2, alpha=0.37)
     monkeypatch.setattr(
-        "lakegen.discovery.context.get_table_retrieval_service",
+        "lakegen.workflow.discovery.context.get_table_retrieval_service",
         lambda client, actual_config: (
             calls.append({"client": client, "config": actual_config})
             or FakeRetriever()
@@ -349,7 +349,7 @@ def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
         rank=1,
     )
     monkeypatch.setattr(
-        "lakegen.discovery.context.get_table_retrieval_service",
+        "lakegen.workflow.discovery.context.get_table_retrieval_service",
         lambda *_args: SimpleNamespace(retrieve=lambda **_kwargs: [hit]),
     )
     context, _ = prepare_discovery_context(
@@ -366,10 +366,10 @@ def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
         return 'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}'
 
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.run_agent_workflow", fake_agent
+        "lakegen.workflow.discovery.orchestrated.run_agent_workflow", fake_agent
     )
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.get_llm_token_usage", lambda _llm: 0
+        "lakegen.workflow.discovery.orchestrated.get_llm_token_usage", lambda _llm: 0
     )
     selected, reasoning, _trace, _tokens = select_from_prepared_context(
         query="question",
@@ -390,7 +390,7 @@ def test_tool_free_selector_receives_context_and_no_callable_tools(monkeypatch):
 
 def test_preparation_error_is_explicit_without_agentic_fallback(monkeypatch):
     monkeypatch.setattr(
-        "lakegen.discovery.context.get_table_retrieval_service",
+        "lakegen.workflow.discovery.context.get_table_retrieval_service",
         lambda *_args: SimpleNamespace(
             retrieve=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("offline boom"))
         ),
@@ -434,11 +434,11 @@ def test_unresolved_intent_is_structured_and_skips_retrieval(monkeypatch):
     calls = []
     response = _intent([], status="unresolved", missing_evidence=["dataset subject"])
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated._run_tool_free_turn",
+        "lakegen.workflow.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: (response, "trace", 1),
     )
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.prepare_discovery_context",
+        "lakegen.workflow.discovery.orchestrated.prepare_discovery_context",
         lambda **kwargs: calls.append(kwargs),
     )
     result = run_unified_orchestrated_discovery(
@@ -462,7 +462,7 @@ def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monke
         return next(responses), "trace", 3
 
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated._run_tool_free_turn", fake_turn
+        "lakegen.workflow.discovery.orchestrated._run_tool_free_turn", fake_turn
     )
     prepared = PreparedDiscoveryContext(
         query="question", retrieval_mode="keyword",
@@ -472,7 +472,7 @@ def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monke
         )], retrieved_hit_count=1, prepared_candidate_count=1,
     )
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.prepare_discovery_context",
+        "lakegen.workflow.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: (prepared, {"table.csv": {}}),
     )
     result = run_unified_orchestrated_discovery(
@@ -493,7 +493,7 @@ def test_unified_orchestrated_keeps_history_and_never_uses_phase1_or_tools(monke
 def test_unified_empty_context_skips_second_turn(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated._run_tool_free_turn",
+        "lakegen.workflow.discovery.orchestrated._run_tool_free_turn",
         lambda **kwargs: (calls.append(kwargs) or (_intent(["x"]), "", 1)),
     )
     prepared = PreparedDiscoveryContext(
@@ -501,7 +501,7 @@ def test_unified_empty_context_skips_second_turn(monkeypatch):
         retrieved_hit_count=0, prepared_candidate_count=0,
     )
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.prepare_discovery_context",
+        "lakegen.workflow.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: (prepared, {}),
     )
     result = run_unified_orchestrated_discovery(
@@ -521,7 +521,7 @@ def test_orchestrated_memory_rejects_banned_intent_without_retrieval(monkeypatch
         'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
     ])
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated._run_tool_free_turn",
+        "lakegen.workflow.discovery.orchestrated._run_tool_free_turn",
         lambda **kwargs: (calls.append(kwargs) or (next(responses), "", 1)),
     )
     prepared = PreparedDiscoveryContext(
@@ -533,7 +533,7 @@ def test_orchestrated_memory_rejects_banned_intent_without_retrieval(monkeypatch
     )
     retrievals = []
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.prepare_discovery_context",
+        "lakegen.workflow.discovery.orchestrated.prepare_discovery_context",
         lambda **kwargs: (retrievals.append(kwargs) or (prepared, {})),
     )
 
@@ -559,7 +559,7 @@ def test_orchestrated_memory_retries_zero_results_and_persists_ban(monkeypatch):
         'FINAL_PAYLOAD: {"tables":"table.csv","reasoning":"best"}',
     ])
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated._run_tool_free_turn",
+        "lakegen.workflow.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: (next(responses), "", 1),
     )
     empty = PreparedDiscoveryContext(
@@ -575,7 +575,7 @@ def test_orchestrated_memory_retries_zero_results_and_persists_ban(monkeypatch):
     )
     contexts = iter([(empty, {}), (populated, {})])
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.prepare_discovery_context",
+        "lakegen.workflow.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: next(contexts),
     )
 
@@ -606,7 +606,7 @@ def test_unified_selector_without_valid_datasets_requests_retry(
         _intent(["roads"]), selector_response,
     ])
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated._run_tool_free_turn",
+        "lakegen.workflow.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: (next(responses), "", 1),
     )
     prepared = PreparedDiscoveryContext(
@@ -617,7 +617,7 @@ def test_unified_selector_without_valid_datasets_requests_retry(
         )], retrieved_hit_count=1, prepared_candidate_count=1,
     )
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.prepare_discovery_context",
+        "lakegen.workflow.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: (prepared, {}),
     )
     result = run_unified_orchestrated_discovery(
@@ -631,7 +631,7 @@ def test_unified_selector_without_valid_datasets_requests_retry(
 
 def test_unified_errors_are_typed_by_stage(monkeypatch):
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated._run_tool_free_turn",
+        "lakegen.workflow.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: ("bad request", "", 1),
     )
     with pytest.raises(RetrievalRequestProtocolError):
@@ -642,11 +642,11 @@ def test_unified_errors_are_typed_by_stage(monkeypatch):
 
     responses = iter([_intent(["x"])])
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated._run_tool_free_turn",
+        "lakegen.workflow.discovery.orchestrated._run_tool_free_turn",
         lambda **_kwargs: (next(responses), "", 1),
     )
     monkeypatch.setattr(
-        "lakegen.discovery.orchestrated.prepare_discovery_context",
+        "lakegen.workflow.discovery.orchestrated.prepare_discovery_context",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("solr failed")),
     )
     with pytest.raises(OrchestratedContextPreparationError):
@@ -716,22 +716,22 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
         model_name=config.model, solr_core=config.core, csv_dir=tmp_path,
         portal_name="NYC", retrieval=RetrievalConfig(top_k=1), experiment=config,
     )
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
-    monkeypatch.setattr("lakegen.pipeline.service.persist_manifest", lambda *_args: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.persist_manifest", lambda *_args: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase12_agent",
+        "lakegen.workflow.pipeline.service.phase12_agent",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("agentic fallback")),
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase2_select_tables",
+        "lakegen.workflow.pipeline.service.phase2_select_tables",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("agentic fallback")),
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase1_generate_keywords",
+        "lakegen.workflow.pipeline.service.phase1_generate_keywords",
         lambda **_kwargs: (["value"], "raw", 1, "keywords"),
     )
     prepared = PreparedDiscoveryContext(
@@ -742,14 +742,14 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
         )], prepared_candidate_count=1, retrieved_hit_count=1,
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.prepare_discovery_context", lambda **_kwargs: (prepared, {})
+        "lakegen.workflow.pipeline.service.prepare_discovery_context", lambda **_kwargs: (prepared, {})
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.select_from_prepared_context",
+        "lakegen.workflow.pipeline.service.select_from_prepared_context",
         lambda **_kwargs: (["table.csv"], "selected", "trace", 2),
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.run_unified_orchestrated_discovery",
+        "lakegen.workflow.pipeline.service.run_unified_orchestrated_discovery",
         lambda **_kwargs: DiscoveryResult(
             selected_datasets=["table.csv"], candidates=["table.csv"],
             keywords=["value"], metadata={}, reasoning="selected", trace="trace",
@@ -762,14 +762,14 @@ def test_service_dispatches_to_orchestrated_path_and_traces_actor(
         rejected_reason="", error=None, raw_result="42",
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase3_generate_and_execute", lambda *_a, **_kw: generated
+        "lakegen.workflow.pipeline.service.phase3_generate_and_execute", lambda *_a, **_kw: generated
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("42", 1)
+        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("42", 1)
     )
     logged = {}
     monkeypatch.setattr(
-        "lakegen.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.workflow.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
     )
 
     result = run_question("question", runtime)
@@ -809,24 +809,24 @@ def test_empty_unified_context_retries_and_never_reaches_phase3(
             retry_keywords=True, retry_reason="empty", prepared_context=empty,
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
-    monkeypatch.setattr("lakegen.pipeline.service.persist_manifest", lambda *_args: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.run_unified_orchestrated_discovery", empty_discovery)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.persist_manifest", lambda *_args: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.run_unified_orchestrated_discovery", empty_discovery)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase1_generate_keywords",
+        "lakegen.workflow.pipeline.service.phase1_generate_keywords",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unified used phase1")),
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase3_generate_and_execute",
+        "lakegen.workflow.pipeline.service.phase3_generate_and_execute",
         lambda *_a, **_kw: (_ for _ in ()).throw(AssertionError("empty reached phase3")),
     )
     logged = {}
     monkeypatch.setattr(
-        "lakegen.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.workflow.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
     )
 
     result = run_question("question", runtime)

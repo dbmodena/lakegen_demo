@@ -1144,9 +1144,9 @@ tests/test_settings.py::test_positive_int_keeps_the_default_on_bad_input[abc-1]
 tests/test_settings.py::test_share_is_capped_at_one
 tests/test_settings.py::test_values_are_read_at_call_time
 tests/test_stream_output_channels.py::test_a_delta_is_printed_once_and_forwarded_once
-tests/test_stream_output_channels.py::test_every_phase_owns_the_terminal[src/lakegen/discovery/divided.py]
-tests/test_stream_output_channels.py::test_every_phase_owns_the_terminal[src/lakegen/discovery/orchestrated.py]
-tests/test_stream_output_channels.py::test_every_phase_owns_the_terminal[src/lakegen/discovery/unified.py]
+tests/test_stream_output_channels.py::test_every_phase_owns_the_terminal[src/lakegen/workflow/discovery/divided.py]
+tests/test_stream_output_channels.py::test_every_phase_owns_the_terminal[src/lakegen/workflow/discovery/orchestrated.py]
+tests/test_stream_output_channels.py::test_every_phase_owns_the_terminal[src/lakegen/workflow/discovery/unified.py]
 tests/test_stream_output_channels.py::test_the_cli_does_not_add_a_second_printing_channel
 tests/test_stream_output_channels.py::test_the_terminal_still_gets_output_with_no_callback
 tests/test_table_sample.py::test_a_budget_smaller_than_one_row_group_samples_from_the_middle_of_the_file

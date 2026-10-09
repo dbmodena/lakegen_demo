@@ -6,7 +6,8 @@ import pytest
 
 from lakegen.config.experiment import ExperimentConfig
 from lakegen.interfaces.chainlit.state import LakeGenSession
-from lakegen.observability.tracing import (
+from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalRun
+from lakegen.workflow.observability.tracing import (
     HumanGate,
     HumanInterventionRecorder,
     build_llm_phase_records,
@@ -14,9 +15,8 @@ from lakegen.observability.tracing import (
     summarize_final_ranking,
     summarize_tool_calls,
 )
-from lakegen.pipeline.runner import ExperimentRunner
-from lakegen.pipeline.service import run_question
-from lakegen.retrieval import RetrievalConfig, RetrievalHit, RetrievalRun
+from lakegen.workflow.pipeline.runner import ExperimentRunner
+from lakegen.workflow.pipeline.service import run_question
 from src.cli import _ask_input, _ask_yes_no
 
 
@@ -41,22 +41,22 @@ def _mock_successful_tail(monkeypatch, *, generated=None):
         error=None,
         raw_result="42",
     )
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
     def phase3(*_args, **kwargs):
         recorder = kwargs.get("seed_instruction_recorder")
         if recorder is not None:
             recorder()
         return generated
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase3_generate_and_execute", phase3)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase3_generate_and_execute", phase3)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("The answer is 42.", 5)
+        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("The answer is 42.", 5)
     )
-    monkeypatch.setattr("lakegen.pipeline.service.persist_manifest", lambda *_args: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.persist_manifest", lambda *_args: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
 
 @pytest.mark.parametrize("architecture", ["unified", "divided"])
@@ -71,25 +71,25 @@ def test_csv_architecture_matches_manifest_and_trace(
     _mock_successful_tail(monkeypatch)
     if architecture == "unified":
         monkeypatch.setattr(
-            "lakegen.pipeline.service.phase12_agent",
+            "lakegen.workflow.pipeline.service.phase12_agent",
             lambda **_kwargs: (
                 ["table.csv"], ["value"], {}, "selected", "trace", 3
             ),
         )
     else:
         monkeypatch.setattr(
-            "lakegen.pipeline.service.phase1_generate_keywords",
+            "lakegen.workflow.pipeline.service.phase1_generate_keywords",
             lambda **_kwargs: (["value"], "raw", 1, "keywords"),
         )
         monkeypatch.setattr(
-            "lakegen.pipeline.service.phase2_select_tables",
+            "lakegen.workflow.pipeline.service.phase2_select_tables",
             lambda **_kwargs: (
                 ["table.csv"], ["table.csv"], {}, "selected", "trace", 2
             ),
         )
     logged = {}
     monkeypatch.setattr(
-        "lakegen.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.workflow.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
     )
 
     result = run_question("Question?", runtime)
@@ -152,10 +152,10 @@ def test_agentic_retrieval_telemetry_keeps_hits_scores_and_job_context(
         ))
         return ["table.csv"], ["table"], {}, "selected", "trace", 3
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase12_agent", phase12)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase12_agent", phase12)
     logged = {}
     monkeypatch.setattr(
-        "lakegen.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.workflow.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
     )
 
     result = run_question(
@@ -220,25 +220,25 @@ def test_seed_instruction_is_not_reported_when_prompt_was_not_built(
     _mock_successful_tail(monkeypatch)
     if failure_point == "discovery":
         monkeypatch.setattr(
-            "lakegen.pipeline.service.phase12_agent",
+            "lakegen.workflow.pipeline.service.phase12_agent",
             lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("discovery failed")),
         )
     else:
         monkeypatch.setattr(
-            "lakegen.pipeline.service.phase12_agent",
+            "lakegen.workflow.pipeline.service.phase12_agent",
             lambda **_kwargs: (
                 ["table.csv"], ["value"], {}, "selected", "trace", 3
             ),
         )
         monkeypatch.setattr(
-            "lakegen.pipeline.service.phase3_generate_and_execute",
+            "lakegen.workflow.pipeline.service.phase3_generate_and_execute",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 RuntimeError("failed before prompt")
             ),
         )
     logged = {}
     monkeypatch.setattr(
-        "lakegen.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.workflow.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
     )
 
     result = run_question("Question?", runtime)
@@ -277,7 +277,7 @@ def test_service_telemetry_includes_discovery_and_code_retries(monkeypatch, tmp_
     runtime = _runtime(config, tmp_path)
     _mock_successful_tail(monkeypatch)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase1_generate_keywords",
+        "lakegen.workflow.pipeline.service.phase1_generate_keywords",
         lambda **_kwargs: (["value"], "raw", 2, "keywords"),
     )
     phase2_attempt = {"count": 0}
@@ -288,7 +288,7 @@ def test_service_telemetry_includes_discovery_and_code_retries(monkeypatch, tmp_
             return [], ["table.csv"], {}, "REJECT_KEYWORDS: retry", "trace", 3
         return ["table.csv"], ["table.csv"], {}, "selected", "trace", 5
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase2_select_tables", phase2)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase2_select_tables", phase2)
     code_attempt = {"count": 0}
 
     def phase3(*_args, **_kwargs):
@@ -311,8 +311,8 @@ def test_service_telemetry_includes_discovery_and_code_retries(monkeypatch, tmp_
             raw_result="42",
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase3_generate_and_execute", phase3)
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase3_generate_and_execute", phase3)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
 
     result = run_question("Question?", runtime)
     records = {record["phase"]: record for record in result.llm_calls}
@@ -470,10 +470,10 @@ def test_service_manifest_question_id_precedence(
     runtime = _runtime(config, tmp_path)
     _mock_successful_tail(monkeypatch)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase12_agent",
+        "lakegen.workflow.pipeline.service.phase12_agent",
         lambda **_kwargs: (["table.csv"], ["value"], {}, "selected", "trace", 3),
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
 
     result = run_question(
         "Same?", runtime, question_id=question_id, log_context=context
@@ -489,10 +489,10 @@ def test_question_without_id_is_deterministic_and_distinct_explicit_ids(
     runtime = _runtime(config, tmp_path)
     _mock_successful_tail(monkeypatch)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase12_agent",
+        "lakegen.workflow.pipeline.service.phase12_agent",
         lambda **_kwargs: (["table.csv"], ["value"], {}, "selected", "trace", 3),
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
 
     generated_a = run_question("Same?", runtime).manifest["question_id"]
     generated_b = run_question("Same?", runtime).manifest["question_id"]

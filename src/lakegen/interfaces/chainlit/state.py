@@ -24,7 +24,7 @@ from lakegen.config.runtime import (
 from lakegen.domain.errors import WorkflowCancelled, WorkflowTimedOut
 from lakegen.domain.types import SolrMetadata
 from lakegen.interfaces.chainlit.i18n import t
-from lakegen.observability.tracing import HumanInterventionRecorder
+from lakegen.workflow.observability.tracing import HumanInterventionRecorder
 
 
 @dataclass

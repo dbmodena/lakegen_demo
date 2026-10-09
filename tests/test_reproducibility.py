@@ -1,9 +1,9 @@
 from types import SimpleNamespace
 
-from lakegen.coding.agent import phase3_generate_code
 from lakegen.config.experiment import load_experiment_config
-from lakegen.observability.manifest import create_manifest
-from lakegen.observability.reproducibility import initialize_reproducibility
+from lakegen.workflow.coding.agent import phase3_generate_code
+from lakegen.workflow.observability.manifest import create_manifest
+from lakegen.workflow.observability.reproducibility import initialize_reproducibility
 
 
 def test_local_generators_repeat_for_same_seed_and_differ_for_other_seed():
@@ -72,8 +72,8 @@ def test_coder_receives_effective_seed_without_hardcoded_42(monkeypatch, tmp_pat
                 delta="print(1)", additional_kwargs={}, raw=None
             )])
 
-    monkeypatch.setattr("lakegen.coding.agent._detect_tabpfn_intent", lambda _q: "prediction")
-    monkeypatch.setattr("lakegen.coding.agent._tabpfn_enabled", lambda: True)
+    monkeypatch.setattr("lakegen.workflow.coding.agent._detect_tabpfn_intent", lambda _q: "prediction")
+    monkeypatch.setattr("lakegen.workflow.coding.agent._tabpfn_enabled", lambda: True)
 
     instruction_events = []
     code, _tokens = phase3_generate_code(

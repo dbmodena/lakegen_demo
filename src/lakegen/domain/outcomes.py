@@ -1,7 +1,7 @@
 """What a stage of the pipeline concluded, as a type the engine compares.
 
 The phases still return what they always did (a ``Phase3Result``, the coder
-sweep's variant dict, the discovery tuples); ``lakegen.pipeline.adapters``
+sweep's variant dict, the discovery tuples); ``lakegen.workflow.pipeline.wiring.adapters``
 turns each into one of these once, at the boundary, so the engine compares
 statuses and never sniffs a string.
 """

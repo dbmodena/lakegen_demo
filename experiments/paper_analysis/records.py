@@ -35,7 +35,7 @@ from lakegen.analysis.results import solved
 from lakegen.analysis.runs import Run, iter_runs, runs_of_job
 from lakegen.analysis.sources import selector_compare
 from lakegen.analysis.sources.benchmarks import benchmark_cases, gold_is_any_of
-from lakegen.core.config import BASE_DIR
+from lakegen.config.locations import BASE_DIR
 from lakegen.domain.tables import resource_id
 
 ROOT = BASE_DIR

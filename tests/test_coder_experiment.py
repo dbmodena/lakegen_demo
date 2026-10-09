@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from lakegen.coding.sweep import run_coder_context_sweep
 from lakegen.config.experiment import CoderContextLevel
+from lakegen.workflow.coding.sweep import run_coder_context_sweep
 
 
 def _generated(*, error, coder_runs, retryable=True, raw_result=None):

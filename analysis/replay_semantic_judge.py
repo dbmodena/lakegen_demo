@@ -7,9 +7,9 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from lakegen.core.resources import get_llm, get_prompt_manager
-from lakegen.semantic_code_judge import judge_semantic_code_result
-
+from lakegen.integrations.llm.factory import get_llm
+from lakegen.workflow.evaluation.semantic_judge import judge_semantic_code_result
+from lakegen.workflow.prompts import get_prompt_manager
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 

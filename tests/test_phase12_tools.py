@@ -66,16 +66,6 @@ def test_partition_any_alias_stays_invalid_when_column_is_not_common():
     )
 
     assert resolved["filters"][0]["table"] == "any"
-from lakegen.discovery.memory import format_question_retrieval_memory
-from lakegen.discovery.unified import (
-    _conservative_draft_from_requirements,
-    _extract_plausible_json,
-    _inspected_runtime_evidence,
-    _reasoning_with_selection_plan,
-    _recover_blocked_selection,
-    _recover_minimal_selection_plan,
-    _semantic_planner_prompt,
-)
 from lakegen.retrieval import (
     EmbeddingGenerationError,
     RetrievalConfig,
@@ -89,6 +79,16 @@ from lakegen.tools.shared.ledger import (
     build_minimal_selection_fallback,
     build_requirement_ledger,
     requirement_ledger_blockers,
+)
+from lakegen.workflow.discovery.memory import format_question_retrieval_memory
+from lakegen.workflow.discovery.unified import (
+    _conservative_draft_from_requirements,
+    _extract_plausible_json,
+    _inspected_runtime_evidence,
+    _reasoning_with_selection_plan,
+    _recover_blocked_selection,
+    _recover_minimal_selection_plan,
+    _semantic_planner_prompt,
 )
 
 
@@ -2294,7 +2294,7 @@ def test_context_management_off_reproduces_the_previous_behaviour(monkeypatch, t
 
 
 def test_unified_prompt_mentions_the_state_board_only_when_it_is_on():
-    from lakegen.prompts import get_prompt_manager
+    from lakegen.workflow.prompts import get_prompt_manager
 
     def render(**flags):
         return get_prompt_manager().render(

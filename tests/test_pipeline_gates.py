@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-import lakegen.pipeline.service as service
+import lakegen.workflow.pipeline.service as service
 from golden.harness import (
     SERVICE_NAMES,
     Case,
@@ -21,9 +21,9 @@ from golden.harness import (
     phase3_result,
     prepare_run,
 )
-from lakegen.pipeline.context import RunContext, SurfaceOptions
-from lakegen.pipeline.engine import Pipeline
-from lakegen.pipeline.events import (
+from lakegen.workflow.pipeline.engine import Pipeline
+from lakegen.workflow.pipeline.model.context import RunContext, SurfaceOptions
+from lakegen.workflow.pipeline.model.events import (
     Abort,
     Approve,
     CoderRejected,

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from lakegen.analysis_plan import AnalysisPlan
 from lakegen.analysis_planner import PlannerResult
-from lakegen.coding.agent import Phase3Result
 from lakegen.reviewed_coder import phase3_generate_and_execute_reviewed
+from lakegen.workflow.coding.agent import Phase3Result
 
 
 def _write_table(tmp_path, name="t.csv"):

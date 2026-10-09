@@ -1,7 +1,7 @@
 import csv
 import json
 
-import lakegen.observability.csv_log as experiment_logger
+import lakegen.workflow.observability.csv_log as experiment_logger
 
 
 def test_custom_csv_filename_uses_the_existing_columns(tmp_path, monkeypatch):

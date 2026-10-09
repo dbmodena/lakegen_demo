@@ -5,8 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from lakegen.config.experiment import ExperimentConfig
-from lakegen.observability.recorder import Recorder, record_semantic_plan_telemetry
-from lakegen.pipeline.context import RunContext
+from lakegen.workflow.observability.recorder import Recorder, record_semantic_plan_telemetry
+from lakegen.workflow.pipeline.model.context import RunContext
 
 
 def _ctx(**overrides) -> RunContext:
@@ -44,6 +44,6 @@ def test_the_semantic_plan_audit_lands_on_the_result():
     recorder.semantic_plan({"status": "invalid", "coder_started_after_verified_plan": False})
     assert result.coder_blocked_before_start_count == 1 and result.semantic_plan_final_status == "invalid"
     # The function the tests import from the service is the recorder's.
-    from lakegen.pipeline.service import _record_semantic_plan_telemetry
+    from lakegen.workflow.pipeline.service import _record_semantic_plan_telemetry
 
     assert _record_semantic_plan_telemetry is record_semantic_plan_telemetry

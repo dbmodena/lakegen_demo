@@ -49,7 +49,7 @@ where = ["src"]
 include = ["lakegen*"]
 
 [tool.setuptools.package-data]
-lakegen = ["prompts/*.yaml"]
+lakegen = ["workflow/prompts/*.yaml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
@@ -85,7 +85,7 @@ max-complexity = 12
 max-statements = 60
 
 [tool.ruff.lint.isort]
-known-first-party = ["lakegen", "golden", "src", "prompts"]
+known-first-party = ["lakegen", "golden", "src"]
 
 [tool.ruff.lint.per-file-ignores]
 # The entry scripts put src/ on sys.path before importing the package.
@@ -112,9 +112,8 @@ include_external_packages = true
 name = "Only the interfaces import the web and UI frameworks"
 type = "forbidden"
 source_modules = [
-    "lakegen.pipeline", "lakegen.discovery", "lakegen.coding", "lakegen.answer",
-    "lakegen.evaluation", "lakegen.tools", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain",
-    "lakegen.observability", "lakegen.experiments", "lakegen.analysis", "lakegen.prompts",
+    "lakegen.workflow", "lakegen.tools", "lakegen.retrieval", "lakegen.integrations",
+    "lakegen.config", "lakegen.domain", "lakegen.experiments", "lakegen.analysis",
     "lakegen.interfaces.cli",
 ]
 forbidden_modules = ["chainlit", "fastapi"]
@@ -125,11 +124,11 @@ type = "layers"
 layers = [
     "lakegen.interfaces",
     "lakegen.experiments",
-    "lakegen.pipeline",
-    "lakegen.coding",
-    "lakegen.discovery",
-    "lakegen.answer",
-    "lakegen.evaluation",
+    "lakegen.workflow.pipeline",
+    "lakegen.workflow.coding",
+    "lakegen.workflow.discovery",
+    "lakegen.workflow.answer",
+    "lakegen.workflow.evaluation",
     "lakegen.tools",
     "lakegen.retrieval",
     "lakegen.integrations",
@@ -138,19 +137,31 @@ layers = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "The shared layers never import the workflow"
+type = "forbidden"
+source_modules = [
+    "lakegen.tools", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain",
+]
+forbidden_modules = ["lakegen.workflow"]
+
+[[tool.importlinter.contracts]]
 name = "observability is imported by the pipeline and what runs it only"
 type = "forbidden"
 source_modules = [
-    "lakegen.discovery", "lakegen.coding", "lakegen.answer", "lakegen.evaluation", "lakegen.tools", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain", "lakegen.analysis",
+    "lakegen.workflow.discovery", "lakegen.workflow.coding", "lakegen.workflow.answer",
+    "lakegen.workflow.evaluation", "lakegen.workflow.prompts", "lakegen.tools", "lakegen.retrieval",
+    "lakegen.integrations", "lakegen.config", "lakegen.domain", "lakegen.analysis",
 ]
-forbidden_modules = ["lakegen.observability"]
+forbidden_modules = ["lakegen.workflow.observability"]
 
 [[tool.importlinter.contracts]]
 name = "The lower layers never import the pipeline, the experiments or the interfaces"
 type = "forbidden"
 source_modules = [
-    "lakegen.discovery", "lakegen.coding", "lakegen.answer", "lakegen.evaluation", "lakegen.tools", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain", "lakegen.observability",
+    "lakegen.workflow.discovery", "lakegen.workflow.coding", "lakegen.workflow.answer",
+    "lakegen.workflow.evaluation", "lakegen.workflow.prompts", "lakegen.workflow.observability",
+    "lakegen.tools", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain",
 ]
 forbidden_modules = [
-    "lakegen.pipeline", "lakegen.interfaces", "lakegen.experiments", "lakegen.analysis",
+    "lakegen.workflow.pipeline", "lakegen.interfaces", "lakegen.experiments", "lakegen.analysis",
 ]

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from lakegen.observability.tracing import (
+from lakegen.workflow.observability.tracing import (
     HumanGate,
     HumanInterventionRecorder,
     PhaseName,

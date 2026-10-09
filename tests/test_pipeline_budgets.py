@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from lakegen.pipeline.budgets import Attempts, DedupeGuard, selection_plan_signature
-from lakegen.pipeline.state import RunState
+from lakegen.workflow.pipeline.model.budgets import Attempts, DedupeGuard, selection_plan_signature
+from lakegen.workflow.pipeline.model.state import RunState
 
 
 def test_attempts_count_from_zero_and_mark_the_last():

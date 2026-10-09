@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from lakegen.discovery.keywords import phase1_generate_keywords
 from lakegen.retrieval.intent import parse_retrieval_intent
+from lakegen.workflow.discovery.keywords import phase1_generate_keywords
 
 INTENT = {
     "status": "resolved", "concepts": ["parks", "district"], "entities": ["Manhattan"], "search_values": [],

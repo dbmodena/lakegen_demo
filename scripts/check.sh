@@ -99,5 +99,5 @@ export PYTHONPATH="$ROOT/src:$ROOT"
 "$PY" -m lakegen.retrieval.benchmark --help > /dev/null
 "$PY" -c "import api, lakegen.interfaces.chainlit.workflow"
 # The installed package imports on its own: no PYTHONPATH, from another directory.
-(cd /tmp && "$PY" -I -c "import lakegen.pipeline.service")
+(cd /tmp && "$PY" -I -c "import lakegen.workflow.pipeline.service")
 echo "ok"

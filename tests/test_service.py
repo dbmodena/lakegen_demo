@@ -7,8 +7,9 @@ from lakegen.config.experiment import (
     ToolAccess,
 )
 from lakegen.domain.results import QueryResult
-from lakegen.evaluation.output_validation import AnswerDisposition, validate_answer
-from lakegen.pipeline.service import (
+from lakegen.retrieval import RetrievalConfig
+from lakegen.workflow.evaluation.output_validation import AnswerDisposition, validate_answer
+from lakegen.workflow.pipeline.service import (
     _record_semantic_plan_telemetry,
     _rejected_selection_signature,
     _selection_plan_signature,
@@ -16,7 +17,6 @@ from lakegen.pipeline.service import (
     extract_questions,
     run_question,
 )
-from lakegen.retrieval import RetrievalConfig
 
 
 def test_rejected_selection_signature_preserves_runtime_failure_requirements():
@@ -172,12 +172,12 @@ def test_run_question_does_not_mark_synthesized_refusal_completed(monkeypatch, t
         retrieval=RetrievalConfig(),
     )
     (tmp_path / "gold.csv").write_text("value\n42\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["gold.csv"])
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_all_table_files", lambda _path: ["gold.csv"])
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase12_agent",
+        "lakegen.workflow.pipeline.service.phase12_agent",
         lambda **_kwargs: (["gold.csv"], ["gold"], {}, "correct table", "trace", 0),
     )
     generated = SimpleNamespace(
@@ -189,14 +189,14 @@ def test_run_question_does_not_mark_synthesized_refusal_completed(monkeypatch, t
         raw_result="42 schools",
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
+        "lakegen.workflow.pipeline.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize",
+        "lakegen.workflow.pipeline.service.phase4_synthesize",
         lambda *_args: ("The necessary data is not available.", 0),
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question("How many schools?", runtime)
 
@@ -221,15 +221,15 @@ def test_last_attempt_fallback_excludes_just_rejected_tables(monkeypatch, tmp_pa
     )
     (tmp_path / "bad.parquet").write_text("value\n1\n", encoding="utf-8")
     (tmp_path / "good.parquet").write_text("value\n1\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.get_all_table_files",
+        "lakegen.workflow.pipeline.service.get_all_table_files",
         lambda _path: ["bad.parquet", "good.parquet"],
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase1_generate_keywords",
+        "lakegen.workflow.pipeline.service.phase1_generate_keywords",
         lambda **_kwargs: (["k"], "raw", 0, "p1 reasoning"),
     )
 
@@ -244,19 +244,19 @@ def test_last_attempt_fallback_excludes_just_rejected_tables(monkeypatch, tmp_pa
             "REJECT_KEYWORDS: bad.parquet has no matching rows", "trace", 0,
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase2_select_tables", fake_phase2)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase2_select_tables", fake_phase2)
     generated = SimpleNamespace(
         tokens=0, clean_code="print(1)", code_raw="print(1)",
         rejected_reason="", error=None, raw_result="1",
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
+        "lakegen.workflow.pipeline.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("answer", 0)
+        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("answer", 0)
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question("What is the value?", runtime)
 
@@ -285,11 +285,11 @@ def test_unified_cross_round_exclusion_persists_across_attempts(monkeypatch, tmp
     )
     (tmp_path / "bad.parquet").write_text("value\n1\n", encoding="utf-8")
     (tmp_path / "good.parquet").write_text("value\n1\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.get_all_table_files",
+        "lakegen.workflow.pipeline.service.get_all_table_files",
         lambda _path: ["bad.parquet", "good.parquet"],
     )
 
@@ -316,19 +316,19 @@ def test_unified_cross_round_exclusion_persists_across_attempts(monkeypatch, tmp
             "trace", 0,
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase12_agent", fake_phase12)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase12_agent", fake_phase12)
     generated = SimpleNamespace(
         tokens=0, clean_code="print(1)", code_raw="print(1)",
         rejected_reason="", error=None, raw_result="1",
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
+        "lakegen.workflow.pipeline.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("answer", 0)
+        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("answer", 0)
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question("What is the value?", runtime)
 
@@ -357,15 +357,15 @@ def test_coder_rejection_feeds_discovery_exclusion_and_carry(monkeypatch, tmp_pa
     )
     (tmp_path / "good.parquet").write_text("value\n1\n", encoding="utf-8")
     (tmp_path / "bad.parquet").write_text("value\n1\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.get_all_table_files",
+        "lakegen.workflow.pipeline.service.get_all_table_files",
         lambda _path: ["good.parquet", "bad.parquet"],
     )
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase1_generate_keywords",
+        "lakegen.workflow.pipeline.service.phase1_generate_keywords",
         lambda **_kwargs: (["k"], "raw", 0, "p1 reasoning"),
     )
 
@@ -380,7 +380,7 @@ def test_coder_rejection_feeds_discovery_exclusion_and_carry(monkeypatch, tmp_pa
             selected, selected, {}, "the selection covers the question", "trace", 0,
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase2_select_tables", fake_phase2)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase2_select_tables", fake_phase2)
 
     phase3_calls = []
 
@@ -400,12 +400,12 @@ def test_coder_rejection_feeds_discovery_exclusion_and_carry(monkeypatch, tmp_pa
             raw_result="1", rejection_keep_tables=[], rejection_skip_tables=[],
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase3_generate_and_execute", fake_phase3)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase3_generate_and_execute", fake_phase3)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("answer", 0)
+        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("answer", 0)
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question("What is the value?", runtime)
 
@@ -422,11 +422,11 @@ def test_coder_revision_failure_does_not_restart_discovery(monkeypatch, tmp_path
         portal_name="NYC", retrieval=RetrievalConfig(),
     )
     (tmp_path / "selected.csv").write_text("value\n42\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.get_all_table_files", lambda _path: ["selected.csv"]
+        "lakegen.workflow.pipeline.service.get_all_table_files", lambda _path: ["selected.csv"]
     )
     discovery_calls = []
 
@@ -434,7 +434,7 @@ def test_coder_revision_failure_does_not_restart_discovery(monkeypatch, tmp_path
         discovery_calls.append("called")
         return ["selected.csv"], ["selected"], {}, "verified selection", "trace", 0
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase12_agent", discover)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase12_agent", discover)
     coder_calls = []
 
     def generate(*_args, **_kwargs):
@@ -449,9 +449,9 @@ def test_coder_revision_failure_does_not_restart_discovery(monkeypatch, tmp_path
             }, coder_context_audit=None,
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase3_generate_and_execute", generate)
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase3_generate_and_execute", generate)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question("What is the value?", runtime)
 
@@ -470,12 +470,12 @@ def test_run_question_evaluates_structured_benchmark_code_result(monkeypatch, tm
         retrieval=RetrievalConfig(),
     )
     (tmp_path / "gold.csv").write_text("value\n42\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["gold.csv"])
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_all_table_files", lambda _path: ["gold.csv"])
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase12_agent",
+        "lakegen.workflow.pipeline.service.phase12_agent",
         lambda **_kwargs: (["gold.csv"], ["gold"], {}, "correct table", "trace", 0),
     )
     captured = {}
@@ -493,12 +493,12 @@ def test_run_question_evaluates_structured_benchmark_code_result(monkeypatch, tm
             structured_result_error="",
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase3_generate_and_execute", generate)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase3_generate_and_execute", generate)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("There are 42.", 0)
+        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("There are 42.", 0)
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question(
         "How many?",
@@ -534,17 +534,17 @@ def test_automatic_coder_sweep_reuses_one_discovery_context(monkeypatch, tmp_pat
         experiment=experiment,
     )
     (tmp_path / "gold.csv").write_text("value\n42\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["gold.csv"])
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_all_table_files", lambda _path: ["gold.csv"])
     discovery_calls = []
 
     def discover(**_kwargs):
         discovery_calls.append("called")
         return ["gold.csv"], ["gold"], {}, "shared reasoning", "trace", 0
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase12_agent", discover)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase12_agent", discover)
     coder_calls = []
 
     def generate(*_args, **kwargs):
@@ -562,12 +562,12 @@ def test_automatic_coder_sweep_reuses_one_discovery_context(monkeypatch, tmp_pat
             structured_result_error="",
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase3_generate_and_execute", generate)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase3_generate_and_execute", generate)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("There are 42.", 0)
+        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("There are 42.", 0)
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question(
         "How many?",
@@ -608,11 +608,11 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
     )
     (tmp_path / "first.csv").write_text("value\n1\n", encoding="utf-8")
     (tmp_path / "second.csv").write_text("value\n42\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.get_all_table_files",
+        "lakegen.workflow.pipeline.service.get_all_table_files",
         lambda _path: ["first.csv", "second.csv"],
     )
     discovery_calls = []
@@ -628,7 +628,7 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
         table = "first.csv" if len(discovery_calls) <= 2 else "second.csv"
         return [table], ["value"], {}, "selection", "trace", 0
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase12_agent", discover)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase12_agent", discover)
     coder_calls = []
 
     def generate(*args, **kwargs):
@@ -646,12 +646,12 @@ def test_automatic_coder_full_rejection_restarts_discovery_before_sweep(
             rejection_skip_tables=["first.csv"] if rejected else [],
         )
 
-    monkeypatch.setattr("lakegen.pipeline.service.phase3_generate_and_execute", generate)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.phase3_generate_and_execute", generate)
     monkeypatch.setattr(
-        "lakegen.pipeline.service.phase4_synthesize", lambda *_args: ("There are 42.", 0)
+        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("There are 42.", 0)
     )
-    monkeypatch.setattr("lakegen.pipeline.service.save_experiment_log", lambda **_kwargs: None)
-    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.save_experiment_log", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question(
         "How many?", runtime,

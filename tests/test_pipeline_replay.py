@@ -15,10 +15,10 @@ from golden.harness import (
     prepare_run,
 )
 from lakegen.domain.outcomes import SelectorKind
-from lakegen.pipeline import service
-from lakegen.pipeline.context import RunContext
-from lakegen.pipeline.engine import Pipeline
-from lakegen.pipeline.replay import (
+from lakegen.workflow.pipeline import service
+from lakegen.workflow.pipeline.engine import Pipeline
+from lakegen.workflow.pipeline.model.context import RunContext
+from lakegen.workflow.pipeline.replay import (
     Replay,
     StoredKeywords,
     StoredSelection,
@@ -114,7 +114,7 @@ def test_catalogue_metadata_reads_each_tables_document_from_solr():
 
 def test_the_generated_code_lives_under_the_manifests_run_id(monkeypatch, tmp_path):
     """The manifest file and the coding directory of a run carry the same id, so one leads to the other."""
-    from lakegen.observability.manifest import create_manifest
+    from lakegen.workflow.observability.manifest import create_manifest
 
     case = Case(experiment(), Script(phase12=[SELECTED], phase3=[phase3_result()], phase4=[ANSWER]), files=FILES)
     _replacements, log, capture = prepare_run(monkeypatch, tmp_path, service, case, SERVICE_NAMES)
