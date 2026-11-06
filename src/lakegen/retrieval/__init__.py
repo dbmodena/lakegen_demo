@@ -1,3 +1,11 @@
+"""Table retrieval: rank the lake's tables for a question.
+
+``RetrievalService`` runs one of the registered modes (keyword, semantic,
+hybrid, DuckDB, Pneuma; see ``registry`` and ``modes``) and reports each run to
+an observer; ``evaluation`` scores rankings and ``run_log`` keeps them. The
+names re-exported here are the package's public surface.
+"""
+
 from lakegen.config.retrieval import (
     DEFAULT_RERANK_DEPTH,
     DEFAULT_RERANK_MODEL,
@@ -8,30 +16,23 @@ from lakegen.config.retrieval import (
     RetrievalConfig,
     RetrievalMode,
 )
-from lakegen.domain.retrieval import RetrievalHit, RetrievalRun, min_max_normalize
-from lakegen.integrations.llm.embeddings import (
+from lakegen.datastructures.retrieval import RetrievalHit, RetrievalRun, min_max_normalize
+from lakegen.llm.embeddings import (
     EmbeddingGenerationError,
     check_embedding_health,
 )
-from lakegen.integrations.pneuma import SolrPneumaDocumentResolver
-from lakegen.integrations.solr.indexing import (
-    SolrEmbeddingIndexer,
-    ensure_vector_schema,
-    validate_stored_replacement_schema,
-    validate_vector_schema,
-)
-from lakegen.integrations.solr.representation import METADATA_V1, represent_table
-from lakegen.retrieval.evaluation import (
+from lakegen.retrieval.benchmark import (
     RetrievalRunLogger,
     evaluate_ranking,
     mean_metrics,
 )
 from lakegen.retrieval.modes.duckdb_agentic import DuckDBAgenticRetriever
-from lakegen.retrieval.modes.duckdb_semantic import DuckDBSemanticHybridRetriever
+from lakegen.retrieval.modes.duckdb_semantic import DuckDBSemanticRetriever
 from lakegen.retrieval.modes.hybrid import HybridRetriever
 from lakegen.retrieval.modes.keyword import KeywordRetriever
 from lakegen.retrieval.modes.pneuma import PneumaRetriever
 from lakegen.retrieval.modes.semantic import SemanticRetriever
+from lakegen.retrieval.pneuma import SolrPneumaDocumentResolver
 from lakegen.retrieval.registry import (
     Branches,
     ModeRetriever,
@@ -41,7 +42,7 @@ from lakegen.retrieval.registry import (
     register,
     registered_modes,
 )
-from lakegen.retrieval.service import TableRetrievalService
+from lakegen.retrieval.service import RetrievalService
 
 __all__ = [
     "Branches",
@@ -59,7 +60,6 @@ __all__ = [
     "EmbeddingGenerationError",
     "check_embedding_health",
     "KeywordRetriever",
-    "METADATA_V1",
     "MissingSignalPolicy",
     "PneumaContentFusion",
     "RetrievalConfig",
@@ -69,16 +69,11 @@ __all__ = [
     "RetrievalRunLogger",
     "PneumaRetriever",
     "DuckDBAgenticRetriever",
-    "DuckDBSemanticHybridRetriever",
+    "DuckDBSemanticRetriever",
     "SolrPneumaDocumentResolver",
     "SemanticRetriever",
-    "SolrEmbeddingIndexer",
-    "TableRetrievalService",
-    "ensure_vector_schema",
-    "validate_stored_replacement_schema",
-    "validate_vector_schema",
+    "RetrievalService",
     "evaluate_ranking",
     "mean_metrics",
     "min_max_normalize",
-    "represent_table",
 ]

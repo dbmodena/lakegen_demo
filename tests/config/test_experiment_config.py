@@ -6,17 +6,17 @@ import pytest
 from pydantic import ValidationError
 
 from lakegen.config.experiment import ExperimentConfig, load_experiment_config
-from lakegen.experiments.batch import resolve_config
-from lakegen.interfaces.chainlit.state import RuntimeSettings
-from lakegen.retrieval import RetrievalConfig
-from lakegen.workflow.observability.manifest import (
+from lakegen.entrypoints.api.submission import resolve_config
+from lakegen.entrypoints.cli.ask import resolve_cli_experiment
+from lakegen.entrypoints.webapp.state import RuntimeSettings
+from lakegen.pipeline.observability.manifest import (
     create_manifest,
     persist_manifest,
     redact_secrets,
 )
-from lakegen.workflow.pipeline.runner import ExperimentRunner
-from lakegen.workflow.pipeline.service import run_question
-from src.cli import resolve_cli_experiment
+from lakegen.pipeline.runner import ExperimentRunner
+from lakegen.pipeline.service import run_question
+from lakegen.retrieval import RetrievalConfig
 
 
 def test_default_config_matches_existing_interactive_workflow(monkeypatch):
@@ -26,8 +26,8 @@ def test_default_config_matches_existing_interactive_workflow(monkeypatch):
 
     config = ExperimentConfig()
 
-    assert config.discovery_architecture == "unified"
-    assert config.tool_access == "agentic"
+    assert config.discovery_architecture == "divided" and config.discovery.selector == "memgpt"
+    assert "tool_access" not in config.model_dump()
     assert config.retrieval.mode == "keyword"
     assert config.retrieval.top_k == 20
     assert "planner_enabled" not in config.model_dump()
@@ -57,36 +57,50 @@ def test_cli_defaults_keep_workflow_values_despite_retrieval_environment(monkeyp
 
 def test_api_default_and_explicit_retrieval_pool_sizes(monkeypatch):
     monkeypatch.delenv("LAKEGEN_RETRIEVAL_TOP_K", raising=False)
-    from lakegen.interfaces.api.app import QueryRequest
+    from lakegen.entrypoints.api.app import QueryRequest
 
     request = QueryRequest(question="How many parks?")
     assert request.top_k == 20
-    defaults = dict(core=request.core, model=request.model,
-                    retrieval_mode=request.retrieval_mode, top_k=request.top_k,
-                    hybrid_alpha=request.hybrid_alpha,
-                    candidate_multiplier=request.candidate_multiplier)
+    defaults = dict(
+        core=request.core,
+        model=request.model,
+        retrieval_mode=request.retrieval_mode,
+        top_k=request.top_k,
+        hybrid_alpha=request.hybrid_alpha,
+        candidate_multiplier=request.candidate_multiplier,
+    )
     assert resolve_config(**defaults, explicit_fields=set()).retrieval.top_k == 20
-    assert resolve_config(
-        **defaults, explicit_fields=set(), config_data={"retrieval": {"top_k": 10}},
-    ).retrieval.top_k == 10
-    assert resolve_config(
-        **{**defaults, "top_k": 30}, explicit_fields={"top_k"},
-        config_data={"retrieval": {"top_k": 10}},
-    ).retrieval.top_k == 30
+    assert (
+        resolve_config(
+            **defaults,
+            explicit_fields=set(),
+            config_data={"retrieval": {"top_k": 10}},
+        ).retrieval.top_k
+        == 10
+    )
+    assert (
+        resolve_config(
+            **{**defaults, "top_k": 30},
+            explicit_fields={"top_k"},
+            config_data={"retrieval": {"top_k": 10}},
+        ).retrieval.top_k
+        == 30
+    )
 
 
 def test_yaml_json_and_cli_overrides_resolve_identically(tmp_path):
     payload = {
+        "schema_version": 2,
         "experiment_id": "thesis-01",
-        "core": "bologna",
-        "discovery_architecture": "divided",
+        "lake": "bologna",
+        "discovery": {"architecture": "divided"},
         "retrieval": {"mode": "hybrid", "top_k": 20},
     }
     yaml_path = tmp_path / "experiment.yaml"
     json_path = tmp_path / "experiment.json"
     yaml_path.write_text(
-        "experiment_id: thesis-01\ncore: bologna\ndiscovery_architecture: divided\n"
-        "retrieval:\n  mode: hybrid\n  top_k: 20\n",
+        "schema_version: 2\nexperiment_id: thesis-01\nlake: bologna\n"
+        "discovery:\n  architecture: divided\nretrieval:\n  mode: hybrid\n  top_k: 20\n",
         encoding="utf-8",
     )
     json_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -128,13 +142,12 @@ def test_automatic_coder_context_sweep_is_supported():
     assert ExperimentConfig(automatic_test_coder=True).automatic_test_coder is True
 
 
-def test_orchestrated_context_is_supported_and_unknown_tool_access_is_rejected():
-    assert (
-        ExperimentConfig(tool_access="orchestrated_context").tool_access
-        == "orchestrated_context"
-    )
-    with pytest.raises(ValidationError):
-        ExperimentConfig(tool_access="not-a-mode")
+def test_past_runs_agentic_tool_access_is_dropped_and_the_orchestrated_mode_refused():
+    config = ExperimentConfig(tool_access="agentic", orchestrated_memory_enabled=False)
+    assert "tool_access" not in config.model_dump()
+    for removed in ({"tool_access": "orchestrated_context"}, {"orchestrated_memory_enabled": True}):
+        with pytest.raises(ValidationError, match="removed on 2026-10-29"):
+            ExperimentConfig(**removed)
 
 
 def test_code_gate_is_removed_from_the_schema():
@@ -181,9 +194,7 @@ def test_secrets_are_redacted_and_environment_is_not_serialized(tmp_path, monkey
         "api_key": "[REDACTED]",
         "nested": {"password": "[REDACTED]"},
     }
-    sanitized_url = redact_secrets(
-        "https://user:pass@example.test/v1?api_key=abc&mode=fast"
-    )
+    sanitized_url = redact_secrets("https://user:pass@example.test/v1?api_key=abc&mode=fast")
     assert "user" not in sanitized_url and "pass" not in sanitized_url
     assert "abc" not in sanitized_url and "mode=fast" in sanitized_url
 
@@ -273,23 +284,21 @@ def test_divided_autonomous_runner_executes_real_separate_phases(monkeypatch, tm
         experiment=config,
     )
     (tmp_path / "table.csv").write_text("value\n42\n", encoding="utf-8")
-    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_llm", lambda _name: (object(), None))
-    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_solr", lambda _core: object())
-    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_prompt_manager", object)
-    monkeypatch.setattr("lakegen.workflow.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
+    monkeypatch.setattr("lakegen.pipeline.service.get_llm", lambda _name: (object(), None))
+    monkeypatch.setattr("lakegen.pipeline.service.get_solr", lambda _core: object())
+    monkeypatch.setattr("lakegen.pipeline.service.get_prompt_manager", object)
+    monkeypatch.setattr("lakegen.pipeline.service.get_all_table_files", lambda _path: ["table.csv"])
     monkeypatch.setattr(
-        "lakegen.workflow.pipeline.service.phase12_agent",
+        "lakegen.pipeline.service.discover_tables",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unified must not run")),
     )
     monkeypatch.setattr(
-        "lakegen.workflow.pipeline.service.phase1_generate_keywords",
+        "lakegen.pipeline.service.write_keywords",
         lambda **_kwargs: (["value"], "raw", 2, "keyword reasoning"),
     )
     monkeypatch.setattr(
-        "lakegen.workflow.pipeline.service.phase2_select_tables",
-        lambda **_kwargs: (
-            ["table.csv"], ["table.csv"], {}, "selected", "tool trace", 3
-        ),
+        "lakegen.pipeline.service.select_tables",
+        lambda **_kwargs: (["table.csv"], ["table.csv"], {}, "selected", "tool trace", 3),
     )
     generated = SimpleNamespace(
         tokens=4,
@@ -300,17 +309,20 @@ def test_divided_autonomous_runner_executes_real_separate_phases(monkeypatch, tm
         raw_result="42",
     )
     monkeypatch.setattr(
-        "lakegen.workflow.pipeline.service.phase3_generate_and_execute", lambda *_args, **_kwargs: generated
+        "lakegen.pipeline.service.write_and_run_code",
+        lambda *_args, **_kwargs: generated,
     )
     monkeypatch.setattr(
-        "lakegen.workflow.pipeline.service.phase4_synthesize", lambda *_args: ("The answer is 42.", 5)
+        "lakegen.pipeline.service.phase4_synthesize",
+        lambda *_args: ("The answer is 42.", 5),
     )
-    monkeypatch.setattr("lakegen.workflow.pipeline.service.persist_manifest", lambda *_args: tmp_path)
+    monkeypatch.setattr("lakegen.pipeline.service.persist_manifest", lambda *_args: tmp_path)
     logged = {}
     monkeypatch.setattr(
-        "lakegen.workflow.pipeline.service.save_experiment_log", lambda **kwargs: logged.update(kwargs)
+        "lakegen.pipeline.service.save_experiment_log",
+        lambda **kwargs: logged.update(kwargs),
     )
-    monkeypatch.setattr("lakegen.workflow.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
+    monkeypatch.setattr("lakegen.pipeline.service.log_retrieval_decision", lambda **_kwargs: None)
 
     result = run_question("Question?", runtime)
 
@@ -319,7 +331,5 @@ def test_divided_autonomous_runner_executes_real_separate_phases(monkeypatch, tm
     assert result.tokens == {"p1_p2": 5, "p3": 4, "p4": 5}
     assert logged["tokens_phase1"] == 2
     assert logged["tokens_phase2"] == 3
-    assert {call["phase"] for call in result.llm_calls} == {
-        "discovery", "code", "result"
-    }
+    assert {call["phase"] for call in result.llm_calls} == {"discovery", "code", "result"}
     assert result.phase_metrics["total"]["latency_seconds"] >= 0

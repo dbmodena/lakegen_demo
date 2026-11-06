@@ -1,57 +1,47 @@
+# benchmark_lakes/target_bird_jev.yaml, converted to the nested layout on 2026-10-29.
+# Dropped as unused by its retrieval mode: retrieval.duckdb_max_columns_per_file, retrieval.duckdb_max_files, retrieval.duckdb_max_scan_rows_per_file, retrieval.duckdb_probe_files, retrieval.duckdb_probe_rows_per_file, retrieval.duckdb_sample_rows, retrieval.pneuma_base_url, retrieval.pneuma_cell_weight, retrieval.pneuma_column_name_weight, retrieval.pneuma_content_fusion, retrieval.pneuma_content_weight, retrieval.pneuma_entity_model, retrieval.pneuma_enumerate_tables, retrieval.pneuma_index_name, retrieval.pneuma_table_name_weight, retrieval.pneuma_timeout_seconds, retrieval.scan_workers.
+schema_version: 2
 experiment_id: bench-target_bird-jev
 seed: 0
-core: target_bird
+lake: target_bird
 model: together.gpt-oss-120b
-discovery_architecture: divided
-tool_access: agentic
-orchestrated_memory_enabled: false
 discovery:
-  initial_candidates: 10
-  expansion_size: 5
-  max_expansions: 1
-  max_search_attempts: 1
-  max_zero_result_retries: 2
-  initial_shortlist_size: 5
-  max_inspected_candidates: 8
-  max_inspections_per_file: 2
-  search_after_inspection: false
-  keyword_search: cascade
+  architecture: divided
+  budget:
+    initial_candidates: 10
+    expansion_size: 5
+    max_expansions: 1
+    max_search_attempts: 1
+    max_zero_result_retries: 2
+    initial_shortlist_size: 5
+    max_inspected_candidates: 8
+    max_inspections_per_file: 2
+    search_after_inspection: false
+  keyword_search:
+    strategy: cascade
   keyword_cascade_size: 5
-  state_board: true
-  compact_history: true
-  selector: jev
+  context:
+    state_board: true
+    compact_history: true
+  selector:
+    kind: jev
 retrieval:
   mode: hybrid
   top_k: 20
-  alpha: 0.25
+  hybrid:
+    alpha: 0.25
+    missing_signal: zero
+    fusion: weighted
+    rrf_k: 60
   candidate_multiplier: 5
   representation_version: metadata-v1
   embedding_model: cohere.embed-v4.0
   embedding_base_url: http://localhost:11434
   vector_field: table_embedding
   lexical_query_fields: null
-  missing_signal_policy: zero
-  fusion_method: weighted
-  rrf_k: 60
-  rerank_model: cohere.rerank-v4.0-fast
-  rerank_depth: 20
-  pneuma_index_name: lakegen-cohere-v4-1024
-  pneuma_base_url: http://localhost:8782
-  pneuma_timeout_seconds: 600.0
-  pneuma_content_weight: 0.5
-  pneuma_content_fusion: fill
-  pneuma_entity_model: together.gpt-oss-120b
-  pneuma_table_name_weight: 3.0
-  pneuma_column_name_weight: 2.0
-  pneuma_cell_weight: 1.0
-  pneuma_enumerate_tables: false
-  scan_workers: 8
-  duckdb_max_files: 250
-  duckdb_max_columns_per_file: 40
-  duckdb_sample_rows: 3
-  duckdb_max_scan_rows_per_file: 100000
-  duckdb_probe_files: 25
-  duckdb_probe_rows_per_file: 1000
+  rerank:
+    model: cohere.rerank-v4.0-fast
+    depth: 20
 benchmark:
   path: data/target_bird/benchmark/100q_target_bird.json
 reviewers:
@@ -59,15 +49,18 @@ reviewers:
   plan: false
   code: false
   result: false
-max_revision_rounds: 3
-coder_context_level: full
-automatic_test_coder: true
-require_semantic_plan: true
-semantic_code_judge_enabled: true
-semantic_code_judge_model: together.gpt-oss-120b
-interaction_mode: autonomous
-gates:
-  keywords: true
-  datasets: true
-  plan: false
-  result: false
+coding:
+  max_revision_rounds: 3
+  context_level: full
+  automatic_test_coder: true
+  require_semantic_plan: true
+judge:
+  enabled: true
+  model: together.gpt-oss-120b
+interaction:
+  mode: autonomous
+  gates:
+    keywords: true
+    datasets: true
+    plan: false
+    result: false

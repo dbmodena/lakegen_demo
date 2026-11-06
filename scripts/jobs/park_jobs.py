@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Park or un-park API batch jobs so a restarted API does not resume them.
+r"""Park or un-park API batch jobs so a restarted API does not resume them.
 
 The API resumes every job whose status is ``queued`` or ``running`` when it
-starts (``api.py``, ``_recover_incomplete_jobs``). While the code base is being
+starts (``experiment_runner.batches.batch.recover_incomplete_jobs``). While the code base is being
 refactored, a job must not continue on code that differs from the code that
 produced its earlier results, so unfinished jobs are given the status
 ``parked``, which the API ignores. The original status is kept in
 ``parked_from`` so the job can be restored unchanged.
 
-    python scripts/park_jobs.py park /data/bilel/lakegen/jobs/lakegen_jobs_qwen \\
-        --backup-dir /data/bilel/lakegen/jobs/_backup_pre_refactor \\
+    python scripts/jobs/park_jobs.py park /data/bilel/lakegen/jobs/lakegen_jobs_qwen \
+        --backup-dir /data/bilel/lakegen/jobs/_backup_pre_refactor \
         --reason "refactor on tesi, 2026-10-08"
-    python scripts/park_jobs.py unpark /data/bilel/lakegen/jobs/lakegen_jobs_qwen
+    python scripts/jobs/park_jobs.py unpark /data/bilel/lakegen/jobs/lakegen_jobs_qwen
 
 Every job file is copied to the backup directory before it is changed, under
 its job directory's name; an existing backup is never overwritten, so the
@@ -52,6 +52,7 @@ def write_job(path: Path, job: dict) -> None:
 
 
 def back_up(path: Path, backup_dir: Path) -> Path:
+    """Copy a job file to ``<backup_dir>/<job directory name>/`` unless a backup exists; the backup's path."""
     target = backup_dir / path.parent.name / path.name
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
@@ -60,6 +61,17 @@ def back_up(path: Path, backup_dir: Path) -> Path:
 
 
 def park(directory: Path, backup_dir: Path, reason: str, dry_run: bool) -> int:
+    """Park the directory's queued and running jobs, backing each up first.
+
+    Args:
+        directory: The API job directory.
+        backup_dir: Where the job files are backed up.
+        reason: Why, recorded as ``parked_reason``.
+        dry_run: Count the jobs without changing them.
+
+    Returns:
+        The number of jobs parked (or that would be).
+    """
     parked = 0
     for path in job_files(directory):
         job = json.loads(path.read_text(encoding="utf-8"))
@@ -80,6 +92,15 @@ def park(directory: Path, backup_dir: Path, reason: str, dry_run: bool) -> int:
 
 
 def unpark(directory: Path, dry_run: bool) -> int:
+    """Restore the directory's parked jobs to the status they were parked from.
+
+    Args:
+        directory: The API job directory.
+        dry_run: Count the jobs without changing them.
+
+    Returns:
+        The number of jobs restored (or that would be).
+    """
     restored = 0
     for path in job_files(directory):
         job = json.loads(path.read_text(encoding="utf-8"))
@@ -96,6 +117,14 @@ def unpark(directory: Path, dry_run: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the command line; print the count per directory and in total.
+
+    Args:
+        argv: The arguments; the process's when None.
+
+    Returns:
+        The exit code, 0.
+    """
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
     park_command = commands.add_parser("park", help="park every queued or running job")

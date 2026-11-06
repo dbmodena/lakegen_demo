@@ -1,8 +1,8 @@
 # The services LakeGen's experiments run against, and how this machine starts them.
 #
-#   python -m lakegen.experiments.cli services status [NAME...]
-#   python -m lakegen.experiments.cli services up NAME...     # start what is not healthy
-#   python -m lakegen.experiments.cli services down NAME...   # stop what `up` started
+#   python -m experiment_runner services status [NAME...]
+#   python -m experiment_runner services up NAME...     # start what is not healthy
+#   python -m experiment_runner services down NAME...   # stop what `up` started
 #
 # A service is healthy when its `health` URL answers 200 (a service without one
 # is "running" while the process `up` started is alive). `up` runs `command`
@@ -12,28 +12,30 @@
 # 2026 (experiments/*/start_in_screen.sh).
 #
 # A spec's `requires` names services by these names; `pneuma:{lake}` is filled
-# in per cell, and `exp run` refuses to submit while a required service is down.
+# in per cell, and `python -m experiment_runner run` refuses to submit while a
+# required service is down.
 
 # One Pneuma service per lake, `pneuma:<lake>`, built from this template: the
 # lake's index folder, and its port, which is the lake's route in
-# config/lakes.yaml (`ports` can still say otherwise). Runs and specs reach the
-# service at that route unless LAKEGEN_PNEUMA_<LAKE>_BASE_URL or a spec's
-# `pneuma_routes` points elsewhere.
+# config/lakes.yaml (`ports` can still say otherwise). Index folders are
+# relative to LAKEGEN_PNEUMA_INDEX_DIR (pneuma-out by default). Runs and specs
+# reach the service at that route unless LAKEGEN_PNEUMA_<LAKE>_BASE_URL or a
+# spec's `pneuma_routes` points elsewhere.
 pneuma:
   command: >-
-    .venv-pneuma/bin/python scripts/pneuma/pneuma_server.py --host 127.0.0.1 --port {port}
+    .venv-pneuma/bin/python -m pneuma_engine.server --host 127.0.0.1 --port {port}
     --out-path {index_path} --provider oci --oci-llm-model openai.gpt-oss-20b
     --oci-embedding-model cohere.embed-v4.0 --oci-embedding-dimensions 1024 --judge-workers 8
   health: http://127.0.0.1:{port}/health
   index_paths:
-    nyc: /data/bilel/pneuma/nyc
-    valencia: /data/bilel/pneuma/valencia
-    paris: /data/bilel/pneuma/paris
-    bologna: /data/bilel/pneuma/bologna
-    uk: /data/bilel/pneuma/uk_copy
-    kramabench: /data/bilel/pneuma/kramabench
-    target_bird: /data/bilel/pneuma/target_bird
-    chicago: /data/bilel/pneuma/chicago
+    nyc: nyc
+    valencia: valencia
+    paris: paris
+    bologna: bologna
+    uk: uk_copy
+    kramabench: kramabench
+    target_bird: target_bird
+    chicago: chicago
 
 services:
   ollama:
@@ -45,9 +47,9 @@ services:
     health: http://127.0.0.1:11600/health
     command: experiments/qwen_grid/llama_server.sh
   api:
-    description: a LakeGen API of this checkout for batch submissions (a grid's spec names its port in execution.api_url)
+    description: the batch server of this checkout (LakeGen's API plus the batch endpoints) that specs submit to (a grid's spec names its port in execution.api_url)
     health: http://127.0.0.1:8002/health
-    command: .venv/bin/python -m uvicorn lakegen.interfaces.api.app:app --host 127.0.0.1 --port 8002
+    command: .venv/bin/python -m uvicorn experiment_runner.batches.server:app --host 127.0.0.1 --port 8002
     env: {PYTHONPATH: ".:src"}
   dashboard:
     description: the grid dashboard over the API's jobs
@@ -60,4 +62,4 @@ services:
   runs_dashboard:
     description: the dashboard over the run store (every spec run and every indexed legacy grid)
     health: http://127.0.0.1:8792/health
-    command: .venv/bin/python -m lakegen.interfaces.dashboard --host 127.0.0.1 --port 8792
+    command: .venv/bin/python -m experiment_runner.dashboard --host 127.0.0.1 --port 8792

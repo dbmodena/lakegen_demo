@@ -1,0 +1,31 @@
+# The two stages of scripts/check.sh, on every push and merge request:
+# lint (ruff, ruff format, bandit, import contracts), then the test suite.
+# The suite is hermetic and needs no credentials; a deploy job that does
+# would read them from GitLab CI/CD variables, never from the repository.
+stages:
+  - lint
+  - test
+
+default:
+  image: python:3.13
+  before_script:
+    - pip install --quiet uv
+    - uv sync --locked
+  cache:
+    key:
+      files: [uv.lock]
+    paths: [.cache/uv]
+
+variables:
+  UV_CACHE_DIR: .cache/uv
+  UV_LINK_MODE: copy
+
+lint:
+  stage: lint
+  script:
+    - scripts/check.sh lint
+
+tests:
+  stage: test
+  script:
+    - scripts/check.sh tests

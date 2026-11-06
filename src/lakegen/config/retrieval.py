@@ -17,6 +17,8 @@ DEFAULT_RERANK_DEPTH = 20
 
 
 class RetrievalMode(StrEnum):
+    """How the tables are retrieved, with what each mode needs and does."""
+
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
     HYBRID = "hybrid"
@@ -119,11 +121,15 @@ class RetrievalMode(StrEnum):
 
 
 class MissingSignalPolicy(StrEnum):
+    """How ``hybrid`` scores a hit one branch missed: 0, or rescored."""
+
     ZERO = "zero"
     RESCORE = "rescore"
 
 
 class FusionMethod(StrEnum):
+    """How the two branches of a fused mode are combined: weighted scores or RRF."""
+
     WEIGHTED = "weighted"
     RRF = "rrf"
 
@@ -146,9 +152,88 @@ class RetrievalConfig:
     ``RetrievalExperimentConfig`` (lakegen.config.experiment) mirrors this field
     list for the experiment file; tests/config/test_retrieval_config_sync.py keeps the
     two in step and pins the production defaults of ``from_env``.
-    """
 
-    """Reproducible retrieval settings for a LakeGen experiment."""
+    Attributes:
+        mode: The retrieval mode.
+        top_k: Ranked pool size.
+        alpha: Lexical weight of weighted hybrid fusion.
+        candidate_multiplier: Per-branch pool size as a multiple of ``top_k``.
+        representation_version: Version of the indexed representation.
+        embedding_model: Embedding model of semantic retrieval.
+        embedding_base_url: Ollama URL for Ollama embedding models.
+        vector_field: Solr dense-vector field.
+        lexical_query_fields: BM25 fields and boosts in Solr qf format; None for the
+            default.
+        keyword_or_fallback: Keyword mode only. q.op=AND requires every tokenized word
+            across every keyword to appear in one document; a zero-hit AND query normally
+            just returns nothing. When true, retry it once as q.op=OR instead of
+            collapsing to zero candidates. Off by default to preserve the pre-existing
+            strict-AND baseline.
+        missing_signal_policy: How hybrid fusion treats a signal missing from one branch.
+        fusion_method: Hybrid fusion method: weighted or rrf.
+        rrf_k: RRF smoothing constant.
+        pneuma_index_name: Pneuma index name when the lake has no route.
+        pneuma_base_url: Pneuma service URL when the lake has no route.
+        pneuma_timeout_seconds: Pneuma request timeout.
+        pneuma_content_weight: Pneuma-Seeker: weight of the content-search branch against
+            Pneuma's own ranking. ``alpha`` cannot serve here -- it is forwarded to
+            Pneuma's internal hybrid search. The scan shares ``scan_workers`` and the
+            ``grep_max_files`` cut with grep, but reads every row and every column of a
+            file: the per-file ``grep_*`` row and column caps do not apply to it.
+        pneuma_content_fusion: Pneuma-Seeker: weighted or fill; ``fill`` ignores
+            ``pneuma_content_weight``: nothing is weighted.
+        pneuma_entity_model: Pneuma-Seeker: the chat model that extracts entities from the
+            question, with the reference code's prompt, when the caller passes none at all
+            (the benchmark). An agent's entities, even an empty list, are used as given.
+            None extracts nothing.
+        pneuma_enumerate_tables: Pneuma-Seeker: pull in tables whose names form a family.
+        pneuma_table_name_weight: Pneuma-Seeker content search, per entity and table: a
+            raw score of table_name_weight x a match in the table's catalog title
+            + column_name_weight x matching column names + cell_weight x matching cells,
+            damped by log(1 + raw). 3, 2 and 1 are upstream Pneuma-Seeker's weights. A
+            family weighted 0 is skipped: a cell weight of 0 reads no cell.
+        pneuma_column_name_weight: Pneuma-Seeker: weight of a column-name match.
+        pneuma_cell_weight: Pneuma-Seeker: weight of a cell match.
+        pneuma_value_scan_weight: Plain ``pneuma`` only: weight of a DuckDB value scan of
+            the tables Pneuma returned, against Pneuma's own ranking (Pneuma-Seeker's
+            content search, but within Pneuma's pool rather than the whole lake). The
+            agent's entities, else its keywords, are matched word-bounded in every column
+            cast to text, within the duckdb_max_columns_per_file /
+            duckdb_max_scan_rows_per_file bounds. 0 (the default) scans nothing and leaves
+            ``pneuma`` exactly as it was.
+        duckdb_max_files: duckdb_agentic: files scanned.
+        duckdb_max_columns_per_file: duckdb_agentic: columns scanned per file.
+        duckdb_sample_rows: duckdb_agentic: sample rows per file.
+        duckdb_max_scan_rows_per_file: duckdb_agentic: rows scanned per file.
+        duckdb_probe_files: duckdb_agentic: following files probed for value-only terms.
+        duckdb_probe_rows_per_file: duckdb_agentic: rows per probed file.
+        grep_max_files: Content scan file cap. None means no cap: every file in the lake is
+            scanned. A cap is an explicit, flagged approximation -- it changes which files
+            are read AND the IDF the survivors are scored with, so a capped run is not
+            comparable to a full one.
+        grep_max_columns_per_file: Content scan: columns per file.
+        grep_max_scan_rows_per_file: Content scan: rows per file.
+        grep_sample_rows: Content scan: sample rows.
+        grep_probe_files: Content scan: probed files.
+        grep_probe_rows_per_file: Content scan: rows per probed file.
+        scan_workers: Worker processes for the per-file scan map, shared by grep and the
+            Pneuma content search. Every polars query runs in these workers, never in the
+            calling process, so a native polars crash costs a retried batch rather than
+            the application. Each file is an independent bounded read; 16 is the measured
+            optimum on a 32-core host, where the speedup saturates because the work is
+            I/O-bound. 1 still scans outside the calling process, one file at a time.
+        grep_value_weight: Weight of the value evidence family in the score. A family
+            weighted 0 cannot change any ranking, so the work behind it is skipped rather
+            than computed and multiplied away: 0 for values means no cell is ever read.
+        grep_metadata_weight: Weight of the metadata evidence family: 0 means no filename,
+            column name, or catalog field is ever matched. Both weights at 0 would score
+            every table 0, so that is rejected.
+        rerank_model: Second-stage reranker for the modes RetrievalMode.reranked names: it
+            reorders the top rerank_depth hits and leaves the rest in retrieval order. None
+            (the default here) turns it off; the production configurations, from_env and
+            the experiment configuration, default to DEFAULT_RERANK_MODEL.
+        rerank_depth: How many top hits the reranker reorders.
+    """
 
     mode: RetrievalMode = RetrievalMode.KEYWORD
     top_k: int = DEFAULT_TOP_K
@@ -159,11 +244,6 @@ class RetrievalConfig:
     embedding_base_url: str = "http://localhost:11434"
     vector_field: str = "table_embedding"
     lexical_query_fields: str | None = None
-    # Keyword mode only. q.op=AND requires every tokenized word across every
-    # keyword to appear in one document; a zero-hit AND query normally just
-    # returns nothing. When true, retry it once as q.op=OR instead of
-    # collapsing to zero candidates. Off by default to preserve the
-    # pre-existing strict-AND baseline.
     keyword_or_fallback: bool = False
     missing_signal_policy: MissingSignalPolicy = MissingSignalPolicy.ZERO
     fusion_method: FusionMethod = FusionMethod.WEIGHTED
@@ -171,34 +251,13 @@ class RetrievalConfig:
     pneuma_index_name: str = "lakegen"
     pneuma_base_url: str = "http://localhost:8767"
     pneuma_timeout_seconds: float = 120.0
-    # Pneuma-Seeker: weight of the content-search branch against Pneuma's own
-    # ranking. ``alpha`` cannot serve here -- it is forwarded to Pneuma's
-    # internal hybrid search. The scan shares ``scan_workers`` and the
-    # ``grep_max_files`` cut with grep, but reads every row and every column of
-    # a file: the per-file ``grep_*`` row and column caps do not apply to it.
     pneuma_content_weight: float = 0.5
-    # ``fill`` ignores pneuma_content_weight: nothing is weighted.
     pneuma_content_fusion: PneumaContentFusion = PneumaContentFusion.WEIGHTED
-    # Pneuma-Seeker: the chat model that extracts entities from the question, with
-    # the reference code's prompt, when the caller passes none at all (the
-    # benchmark). An agent's entities, even an empty list, are used as given.
-    # None extracts nothing.
     pneuma_entity_model: str | None = None
     pneuma_enumerate_tables: bool = True
-    # Pneuma-Seeker content search, per entity and table: a raw score of
-    # table_name_weight x a match in the table's catalog title
-    # + column_name_weight x matching column names + cell_weight x matching
-    # cells, damped by log(1 + raw). 3, 2 and 1 are upstream Pneuma-Seeker's
-    # weights. A family weighted 0 is skipped: a cell weight of 0 reads no cell.
     pneuma_table_name_weight: float = 3.0
     pneuma_column_name_weight: float = 2.0
     pneuma_cell_weight: float = 1.0
-    # Plain ``pneuma`` only: weight of a DuckDB value scan of the tables Pneuma
-    # returned, against Pneuma's own ranking (Pneuma-Seeker's content search, but
-    # within Pneuma's pool rather than the whole lake). The agent's entities, else
-    # its keywords, are matched word-bounded in every column cast to text, within
-    # the duckdb_max_columns_per_file / duckdb_max_scan_rows_per_file bounds. 0
-    # (the default) scans nothing and leaves ``pneuma`` exactly as it was.
     pneuma_value_scan_weight: float = 0.0
     duckdb_max_files: int = 250
     duckdb_max_columns_per_file: int = 40
@@ -206,38 +265,29 @@ class RetrievalConfig:
     duckdb_max_scan_rows_per_file: int = 100_000
     duckdb_probe_files: int = 25
     duckdb_probe_rows_per_file: int = 1_000
-    # None means no cap: every file in the lake is scanned. A cap is an explicit,
-    # flagged approximation -- it changes which files are read AND the IDF the
-    # survivors are scored with, so a capped run is not comparable to a full one.
     grep_max_files: int | None = None
     grep_max_columns_per_file: int = 40
     grep_max_scan_rows_per_file: int = 100_000
     grep_sample_rows: int = 3
     grep_probe_files: int = 25
     grep_probe_rows_per_file: int = 1_000
-    # Worker processes for the per-file scan map, shared by grep and the Pneuma
-    # content search. Every polars query runs in these workers, never in the
-    # calling process, so a native polars crash costs a retried batch rather than
-    # the application. Each file is an independent bounded read; 16 is the
-    # measured optimum on a 32-core host, where the speedup saturates because the
-    # work is I/O-bound. 1 still scans outside the calling process, one file at a
-    # time.
     scan_workers: int = 8
-    # Weight of each grep evidence family in the score. A family weighted 0
-    # cannot change any ranking, so the work behind it is skipped rather than
-    # computed and multiplied away: 0 for values means no cell is ever read,
-    # 0 for metadata means no filename, column name, or catalog field is ever
-    # matched. Both at 0 would score every table 0, so that is rejected.
     grep_value_weight: float = 1.0
     grep_metadata_weight: float = 1.0
-    # Second-stage reranker for the modes RetrievalMode.reranked names: it
-    # reorders the top rerank_depth hits and leaves the rest in retrieval order.
-    # None (the default here) turns it off; the production configurations,
-    # from_env and the experiment configuration, default to DEFAULT_RERANK_MODEL.
     rerank_model: str | None = None
     rerank_depth: int = DEFAULT_RERANK_DEPTH
 
     def __post_init__(self) -> None:
+        self._coerce_enums()
+        self._check_pool_and_pneuma()
+        self._check_scan_bounds()
+        self._check_names()
+        self._blank_names_to_none()
+        if self.rerank_depth <= 0:
+            raise ValueError("rerank_depth must be greater than zero")
+
+    def _coerce_enums(self) -> None:
+        """Turn the enum fields given as strings into their enums."""
         object.__setattr__(self, "mode", RetrievalMode(self.mode))
         object.__setattr__(
             self,
@@ -250,6 +300,14 @@ class RetrievalConfig:
             "pneuma_content_fusion",
             PneumaContentFusion(self.pneuma_content_fusion),
         )
+
+    def _check_pool_and_pneuma(self) -> None:
+        """Check the pool size, the fusion knobs and the Pneuma weights.
+
+        Raises:
+            ValueError: A value is out of its range, or the three Pneuma-Seeker weights
+                are all zero.
+        """
         if self.top_k <= 0:
             raise ValueError("top_k must be greater than zero")
         if not 0.0 <= self.alpha <= 1.0:
@@ -278,6 +336,14 @@ class RetrievalConfig:
                 "pneuma_cell_weight must not all be zero: no content evidence "
                 "would remain to rank on"
             )
+
+    def _check_scan_bounds(self) -> None:
+        """Check the DuckDB and content-scan bounds and the grep weights.
+
+        Raises:
+            ValueError: A bound is not positive, a weight is negative, or both grep
+                weights are zero.
+        """
         for name in (
             "duckdb_max_files",
             "duckdb_max_columns_per_file",
@@ -304,6 +370,13 @@ class RetrievalConfig:
                 "grep_value_weight and grep_metadata_weight must not both be zero: "
                 "no evidence would remain to rank on"
             )
+
+    def _check_names(self) -> None:
+        """Check that the required names are not blank.
+
+        Raises:
+            ValueError: One of them is blank.
+        """
         for name in ("representation_version", "embedding_model", "vector_field"):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} must not be blank")
@@ -313,6 +386,9 @@ class RetrievalConfig:
         ):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} must not be blank")
+
+    def _blank_names_to_none(self) -> None:
+        """Strip the optional names; a blank one becomes None."""
         if self.lexical_query_fields is not None:
             query_fields = self.lexical_query_fields.strip()
             object.__setattr__(self, "lexical_query_fields", query_fields or None)
@@ -322,14 +398,13 @@ class RetrievalConfig:
             object.__setattr__(
                 self, "pneuma_entity_model", self.pneuma_entity_model.strip() or None
             )
-        if self.rerank_depth <= 0:
-            raise ValueError("rerank_depth must be greater than zero")
 
     @property
     def branch_candidate_count(self) -> int:
+        """How many candidates each branch of a fused mode retrieves."""
         return self.top_k * self.candidate_multiplier
 
-    def for_portal(self, portal: str) -> "RetrievalConfig":
+    def for_portal(self, portal: str) -> RetrievalConfig:
         """Select the independent Pneuma service belonging to a portal."""
         try:
             lake = get_lake(portal.strip().casefold())
@@ -346,11 +421,20 @@ class RetrievalConfig:
         top_k: int | None = None,
         alpha: float | None = None,
         candidate_multiplier: int | None = None,
-    ) -> "RetrievalConfig":
+    ) -> RetrievalConfig:
         """The production defaults, each overridable by its LAKEGEN_* variable.
 
         The variables and their defaults are listed in lakegen.config.settings
         (group ``retrieval``); the keyword arguments win over the environment.
+
+        Args:
+            mode: The retrieval mode.
+            top_k: The ranked pool size.
+            alpha: The lexical weight of weighted hybrid fusion.
+            candidate_multiplier: The per-branch pool size as a multiple of ``top_k``.
+
+        Returns:
+            The configuration.
         """
         values = retrieval_env_values()
         for name, value in (

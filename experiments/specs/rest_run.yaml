@@ -11,6 +11,11 @@ set:
   # available; every job's stored configuration says Together.
   model: together.gpt-oss-120b
   judge.model: together.gpt-oss-120b
+  # The base's defaults of the day; they became divided + memgpt on 2026-10-21.
+  discovery.architecture: unified
+  discovery.selector.kind: llm
+  # The base's default of the day; it became single on 2026-10-27, when the cascade was removed.
+  discovery.keyword_search.strategy: cascade
   retrieval.seeker.content_fusion: fill
   retrieval.seeker.enumerate_tables: false
   retrieval.pneuma.entity_model: together.gpt-oss-120b

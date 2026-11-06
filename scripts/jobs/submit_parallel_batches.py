@@ -26,8 +26,14 @@ def _split_payload(payload: Any, chunk_size: int) -> list[Any]:
         key = None
         questions = payload
     elif isinstance(payload, dict):
-        key = next((candidate for candidate in ("questions", "queries", "cases")
-                    if isinstance(payload.get(candidate), list)), None)
+        key = next(
+            (
+                candidate
+                for candidate in ("questions", "queries", "cases")
+                if isinstance(payload.get(candidate), list)
+            ),
+            None,
+        )
         if key is None:
             raise ValueError("expected a JSON list or an object with questions, queries, or cases")
         container = payload
@@ -38,7 +44,7 @@ def _split_payload(payload: Any, chunk_size: int) -> list[Any]:
         raise ValueError("question collection is empty")
     chunks: list[Any] = []
     for start in range(0, len(questions), chunk_size):
-        part = questions[start:start + chunk_size]
+        part = questions[start : start + chunk_size]
         chunks.append(part if container is None else {**container, key: part})
     return chunks
 
@@ -47,10 +53,12 @@ def _post_batch(api_url: str, payload: Any) -> dict[str, Any]:
     request = urllib.request.Request(
         f"{api_url.rstrip('/')}/v1/batches",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST",
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        # The URL is the operator's own --api-url, the LakeGen API over HTTP.
+        with urllib.request.urlopen(request, timeout=60) as response:  # nosec B310
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -64,8 +72,10 @@ def _wait_for_jobs(api_url: str, jobs: list[dict[str, Any]]) -> bool:
         time.sleep(2)
         for job_id in list(pending):
             try:
-                with urllib.request.urlopen(
-                    f"{api_url.rstrip('/')}/v1/batches/{job_id}?include_results=false", timeout=30,
+                # The URL is the operator's own --api-url, the LakeGen API over HTTP.
+                with urllib.request.urlopen(  # nosec B310
+                    f"{api_url.rstrip('/')}/v1/batches/{job_id}?include_results=false",
+                    timeout=30,
                 ) as response:
                     job_status = json.loads(response.read().decode("utf-8"))["status"]
             except (urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
@@ -79,18 +89,27 @@ def _wait_for_jobs(api_url: str, jobs: list[dict[str, Any]]) -> bool:
 
 
 def main() -> int:
+    """Submit the question file's chunks as API batches, and optionally wait for them.
+
+    Returns:
+        The exit code: 1 when a chunk was not accepted or, with ``--wait``, a job
+        failed; else 0.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("questions", type=Path, help="JSON questions/queries/cases file")
     parser.add_argument("--api-url", default="http://127.0.0.1:8000")
     parser.add_argument("--chunk-size", type=int, default=10)
-    parser.add_argument("--parallelism", type=int, default=2,
-                        help="maximum simultaneous submission requests")
+    parser.add_argument(
+        "--parallelism", type=int, default=2, help="maximum simultaneous submission requests"
+    )
     parser.add_argument("--wait", action="store_true", help="wait for every submitted job")
     args = parser.parse_args()
     if args.chunk_size < 1 or args.parallelism < 1:
         parser.error("--chunk-size and --parallelism must be positive")
     try:
-        chunks = _split_payload(json.loads(args.questions.read_text(encoding="utf-8")), args.chunk_size)
+        chunks = _split_payload(
+            json.loads(args.questions.read_text(encoding="utf-8")), args.chunk_size
+        )
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         parser.error(str(exc))
     jobs: list[dict[str, Any]] = []
@@ -103,7 +122,9 @@ def main() -> int:
                 print(f"chunk {number}/{len(chunks)} was not accepted: {exc}", file=sys.stderr)
                 return 1
             jobs.append(job)
-            print(f"chunk {number}/{len(chunks)}: {job['job_id']} ({job['question_count']} questions)")
+            print(
+                f"chunk {number}/{len(chunks)}: {job['job_id']} ({job['question_count']} questions)"
+            )
     return 0 if not args.wait or _wait_for_jobs(args.api_url, jobs) else 1
 
 

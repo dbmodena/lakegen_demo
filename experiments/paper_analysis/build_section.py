@@ -7,8 +7,8 @@ Writes paper/evaluation_section.tex from the template, results/section_tables.js
 """
 
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]

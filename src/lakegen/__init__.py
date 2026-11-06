@@ -1,16 +1,21 @@
 """LakeGen: answer a question over a data lake with generated code.
 
-The package is organised by pipeline phase, with the shared layers below it
-and the surfaces above it (an import may only go down this list; each folder
-holds at most ten entries):
+The package is organised in seven areas; an import may only go down this list:
 
-    interfaces      the API, the ``lakegen`` command, the Chainlit app, the dashboard
-    experiments     specs, the run store, executors, services; ``analysis`` reads the runs
-    workflow        pipeline (engine), coding, discovery, answer, evaluation,
-                    plus observability (recorder, logs) and the prompt templates
-    tools           the agents' tools: unified, coder, shared
-    retrieval       the registry, the service and the modes (keyword, semantic, hybrid, ...)
-    integrations    llm (chat, embeddings, rerank), solr (client, portal), pneuma, table_io
-    config          settings, registries, ``ExperimentConfig``, paths
-    domain          pure types, errors and result models
+    entrypoints     the API (one question), the ``lakegen`` command, the web app
+    pipeline        one question through discovery, coding, evaluation and the answer:
+                    the engine and its stages, the phases, the evidence they share,
+                    what a run records
+    retrieval       the service and the modes that rank the lake's tables, over Solr
+                    (client, catalogue) and Pneuma
+    llm             the chat models, embeddings, reranker, agent runner and prompts
+    config          settings, the lake and model registries, ``ExperimentConfig``, paths
+    datastructures  the records the areas exchange: results, outcomes, hits, errors
+    utils           general-purpose helpers: table files, naming, table ids, merge limits
+
+The prompts (``prompts/``) and the configuration (``config/``) are files at the
+repository root. What is built around LakeGen lives beside ``src/``, never
+imported by it: ``pneuma_engine`` (the Pneuma service), ``solr_builder`` (the
+Solr cores) and ``experiment_runner`` (specs, batches, the run store and their
+analysis).
 """

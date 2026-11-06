@@ -11,16 +11,14 @@ from lakegen.config.retrieval import (
     MissingSignalPolicy,
     RetrievalConfig,
 )
-from lakegen.domain.retrieval import (
+from lakegen.datastructures.retrieval import (
     RetrievalHit,
 )
 from lakegen.retrieval.modes.fusion import best_finite_hits, fuse
 from lakegen.retrieval.modes.keyword import KeywordRetriever
 from lakegen.retrieval.modes.semantic import SemanticRetriever
 
-MissingScoreResolver = Callable[
-    [str, dict[str, Any], str, Sequence[str]], float | None
-]
+MissingScoreResolver = Callable[[str, dict[str, Any], str, Sequence[str]], float | None]
 
 
 class HybridRetriever:
@@ -31,6 +29,20 @@ class HybridRetriever:
     applies a configurable weighted fusion.
 
     Reference: Balaka et al., 2025, DOI: 10.1145/3725337.
+
+    Args:
+        lexical: The BM25 branch.
+        semantic: The KNN branch.
+        config: The retrieval configuration (fusion method, alpha, candidate
+            multiplier, missing-signal policy).
+        missing_score_resolver: Scores a table one branch missed, under the
+            ``rescore`` missing-signal policy.
+
+    Attributes:
+        lexical: The BM25 branch.
+        semantic: The KNN branch.
+        config: The retrieval configuration.
+        missing_score_resolver: Scores a table one branch missed, or None.
     """
 
     def __init__(
@@ -53,6 +65,21 @@ class HybridRetriever:
         question: str,
         keywords: Sequence[str],
     ) -> float | None:
+        """The score ``branch`` would give a table it did not return.
+
+        Args:
+            branch: ``lexical`` or ``semantic``.
+            document: The table's document.
+            question: The question.
+            keywords: The keywords.
+
+        Returns:
+            The resolver's finite score, or None (the table scores 0 there) under
+            the ``zero`` policy or when the resolver has none.
+
+        Raises:
+            RuntimeError: Under the ``rescore`` policy without a resolver.
+        """
         if self.config.missing_signal_policy == MissingSignalPolicy.ZERO:
             return None
         if self.missing_score_resolver is None:
@@ -73,6 +100,16 @@ class HybridRetriever:
         *,
         top_k: int,
     ) -> list[RetrievalHit]:
+        """The fused ranking of at most ``top_k`` tables (see ``retrieve_with_lexical_count``).
+
+        Args:
+            question: The question, for the KNN branch.
+            keywords: The keywords, for the BM25 branch.
+            top_k: How many tables to return.
+
+        Returns:
+            The fused hits.
+        """
         return self.retrieve_with_lexical_count(question, keywords, top_k=top_k)[0]
 
     def retrieve_with_lexical_count(
@@ -88,6 +125,15 @@ class HybridRetriever:
         none, and truncating to ``top_k`` can drop every lexical hit from the
         result, so the fused hits cannot say whether the keywords matched. The
         count is ``None`` when the lexical branch was not run (``alpha == 0``).
+
+        Args:
+            question: The question, for the KNN branch.
+            keywords: The keywords, for the BM25 branch.
+            top_k: How many tables to return.
+
+        Returns:
+            The fused hits, and how many hits the lexical branch returned (None
+            when it was not run).
         """
         # Weighted fusion has two exact, useful boundary conditions.  Returning
         # the selected branch directly avoids normalization/tie-breaking from
@@ -108,28 +154,28 @@ class HybridRetriever:
         semantic_by_key = best_finite_hits(semantic_hits)
         all_keys = set(lexical_by_key) | set(semantic_by_key)
         documents = {
-            key: (lexical_by_key.get(key) or semantic_by_key[key]).document
-            for key in all_keys
+            key: (lexical_by_key.get(key) or semantic_by_key[key]).document for key in all_keys
         }
 
         lexical_scores = {key: hit.score for key, hit in lexical_by_key.items()}
         semantic_scores = {key: hit.score for key, hit in semantic_by_key.items()}
         for key in all_keys:
             if key not in lexical_scores:
-                score = self._resolve_missing(
-                    "lexical", documents[key], question, keywords
-                )
+                score = self._resolve_missing("lexical", documents[key], question, keywords)
                 if score is not None:
                     lexical_scores[key] = score
             if key not in semantic_scores:
-                score = self._resolve_missing(
-                    "semantic", documents[key], question, keywords
-                )
+                score = self._resolve_missing("semantic", documents[key], question, keywords)
                 if score is not None:
                     semantic_scores[key] = score
 
         fused = fuse(
-            lexical_by_key, semantic_by_key, config=self.config, top_k=top_k,
-            candidate_count=candidate_count, first_scores=lexical_scores, second_scores=semantic_scores,
+            lexical_by_key,
+            semantic_by_key,
+            config=self.config,
+            top_k=top_k,
+            candidate_count=candidate_count,
+            first_scores=lexical_scores,
+            second_scores=semantic_scores,
         )
         return fused, len(lexical_hits)

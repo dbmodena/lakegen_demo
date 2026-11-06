@@ -9,6 +9,10 @@ name: portal-grid2
 description: Valencia, Paris, Bologna x 5 modes on the unused questions
 base: [config/base.yaml]
 set:
+  # The base's default of the day; it became divided + memgpt on 2026-10-21.
+  discovery.architecture: unified
+  # The base's default of the day; it became single on 2026-10-27, when the cascade was removed.
+  discovery.keyword_search.strategy: cascade
   retrieval.pneuma.base_url: http://localhost:8765
   retrieval.pneuma.index_name: lakegen
   retrieval.seeker.scan_workers: 8

@@ -9,7 +9,7 @@ turns into a configuration. Nothing here is cached: every call re-reads the
 environment, so a test can change a variable between calls.
 
 The parse rules reproduce the rules the reading code used before the registry
-existed, including which malformed values are tolerated (the API's pacing
+existed, including which malformed values are tolerated (the batch server's pacing
 variables fall back to their default with a warning) and which raise (the
 retrieval knobs, so a typo cannot silently run a different experiment).
 
@@ -17,7 +17,8 @@ Groups:
     paths       where the runtime state lives
     solr        the Solr service and the per-lake core overrides
     pneuma      the per-lake Pneuma service overrides
-    providers   OCI, Together, Ollama, Groq and Jev credentials and endpoints
+    providers   OCI (on demand and its dedicated endpoints), Together, Ollama and Groq
+                credentials and endpoints
     api         the HTTP API's workers, batch pacing and model split
     switches    behaviour switches that are not part of the experiment config
     retrieval   the defaults of ``RetrievalConfig.from_env``, one per field
@@ -27,6 +28,7 @@ This module must stay importable with the standard library alone.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -38,7 +40,13 @@ logger = logging.getLogger(__name__)
 
 # Every registered name starts with one of these; the test suite scrubs them.
 SCRUBBED_PREFIXES = (
-    "LAKEGEN_", "SOLR_", "OCI_", "TOGETHER", "GROQ_", "GROP_", "JEV_", "TYPESAFE_",
+    "LAKEGEN_",
+    "SOLR_",
+    "OCI_",
+    "DEDICATE_OCI_",
+    "TOGETHER",
+    "GROQ_",
+    "GROP_",
 )
 
 
@@ -49,10 +57,12 @@ Parser = Callable[[str, Any, str], Any]
 
 
 def text(raw: str, default: Any, name: str = "") -> str:
+    """The string as given."""
     return raw
 
 
 def stripped(raw: str, default: Any, name: str = "") -> str:
+    """The string without surrounding whitespace."""
     return raw.strip()
 
 
@@ -62,10 +72,12 @@ def optional_text(raw: str, default: Any, name: str = "") -> str | None:
 
 
 def integer(raw: str, default: Any, name: str = "") -> int:
+    """An integer; anything else raises."""
     return int(raw)
 
 
 def number(raw: str, default: Any, name: str = "") -> float:
+    """A number; anything else raises."""
     return float(raw)
 
 
@@ -104,6 +116,7 @@ def non_negative_float_or_default(raw: str, default: Any, name: str = "") -> flo
 
 
 def non_negative_count_or_default(raw: str, default: Any, name: str = "") -> int:
+    """``non_negative_float_or_default``, truncated to an integer."""
     return int(non_negative_float_or_default(raw, default, name))
 
 
@@ -113,38 +126,73 @@ def share(raw: str, default: Any, name: str = "") -> float:
 
 
 def flag(raw: str, default: Any, name: str = "") -> bool:
+    """True for 1, true or yes, whatever the case."""
     return raw.strip().casefold() in {"1", "true", "yes"}
 
 
-def flag_or_on(raw: str, default: Any, name: str = "") -> bool:
-    return raw.strip().casefold() in {"1", "true", "yes", "on"}
-
-
 def not_disabled(raw: str, default: Any, name: str = "") -> bool:
+    """True unless 0, false or no, whatever the case."""
     return raw.strip().casefold() not in {"0", "false", "no"}
 
 
 def not_zero(raw: str, default: Any, name: str = "") -> bool:
+    """True unless 0."""
     return raw.strip() != "0"
 
 
 def is_one(raw: str, default: Any, name: str = "") -> bool:
+    """True for exactly 1."""
     return raw == "1"
+
+
+def json_object(raw: str, default: Any, name: str = "") -> dict[str, Any]:
+    """A JSON object, or the default when blank; anything else raises, naming the variable."""
+    if not raw.strip():
+        return default
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name} is not valid JSON: {exc}") from None
+    if not isinstance(value, dict):
+        raise ValueError(f'{name} must be a JSON object, e.g. {{"key": "value"}}')
+    return value
+
+
+def endpoint_url(raw: str, default: Any, name: str = "") -> str:
+    """An OpenAI-compatible base URL as the clients want it: no trailing slash, no /chat/completions."""
+    url = raw.strip().rstrip("/")
+    if url.endswith("/chat/completions"):
+        url = url[: -len("/chat/completions")].rstrip("/")
+    return url
 
 
 # --- the registry -------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class EnvVar:
+    """One environment variable: its name, default, parse rule and documentation.
+
+    Attributes:
+        name: The variable's name.
+        default: The value when the variable is unset.
+        parse: The parse rule applied to a set value.
+        group: The documentation group (paths, solr, providers, ...).
+        help: What the variable means, for docs/configuration.md.
+        read_at: When the variable is read.
+        field: The RetrievalConfig field a retrieval knob sets.
+    """
+
     name: str
     default: Any
     parse: Parser
     group: str
     help: str
     read_at: str = "call"
-    field: str | None = None  # the RetrievalConfig field a retrieval knob sets
+    field: str | None = None
 
     def read(self) -> Any:
+        """The parsed value now, or the default when the variable is unset."""
         raw = os.environ.get(self.name)
         if raw is None:
             return self.default
@@ -153,7 +201,14 @@ class EnvVar:
 
 @dataclass(frozen=True)
 class EnvFamily:
-    """Variables whose names carry a parameter, such as a lake."""
+    """Variables whose names carry a parameter, such as a lake.
+
+    Attributes:
+        pattern: The names, as documented (``LAKEGEN_SOLR_CORE_<LAKE>``).
+        group: The documentation group.
+        help: What the variables mean.
+        read_at: When the variables are read.
+    """
 
     pattern: str
     group: str
@@ -173,148 +228,489 @@ def _retrieval(name: str, field: str, default: Any, parse: Parser, help: str) ->
 
 VARIABLES: tuple[EnvVar, ...] = (
     # paths
-    EnvVar("LAKEGEN_STATE_DIR", None, stripped, "paths",
-           "Root of the runtime state (coding runs, logs, manifests, jobs, keyword memory); "
-           "the repository root when unset.", "import of core.config, and every call-time path"),
-    EnvVar("LAKEGEN_JOB_DIR", None, optional_text, "paths",
-           "Name of the API job folder under the state root (.lakegen_jobs when unset), "
-           "so an API instance can own its jobs.", "import of api"),
+    EnvVar(
+        "LAKEGEN_STATE_DIR",
+        None,
+        stripped,
+        "paths",
+        "Root of the runtime state (coding runs, logs, manifests, jobs); "
+        "the repository root when unset.",
+        "import of core.config, and every call-time path",
+    ),
+    EnvVar(
+        "LAKEGEN_PROMPTS_DIR",
+        None,
+        stripped,
+        "paths",
+        "Folder of the agents' prompt templates; prompts/ at the repository root when unset.",
+        "the first prompt rendered",
+    ),
+    EnvVar(
+        "LAKEGEN_JOB_DIR",
+        None,
+        optional_text,
+        "paths",
+        "Name of the batch server's job folder under the state root (.lakegen_jobs when "
+        "unset), so a batch server can own its jobs.",
+        "import of experiment_runner.batches",
+    ),
+    EnvVar(
+        "LAKEGEN_PNEUMA_INDEX_DIR",
+        None,
+        optional_text,
+        "paths",
+        "Folder of the Pneuma indexes, which the index_paths of config/services.yaml are "
+        "relative to; pneuma-out under the repository root when unset.",
+        "experiment_runner services and run",
+    ),
     # solr
-    EnvVar("SOLR_BASE_URL", "http://localhost:8983/solr", text, "solr",
-           "Base URL of the Solr service.", "every Solr client; the retrieval benchmark's --solr-base-url default"),
+    EnvVar(
+        "SOLR_BASE_URL",
+        "http://localhost:8983/solr",
+        text,
+        "solr",
+        "Base URL of the Solr service.",
+        "every Solr client; the retrieval benchmark's --solr-base-url default",
+    ),
     # providers
-    EnvVar("OCI_CONFIG_FILE", "~/.oci/config", text, "providers", "Path of the OCI configuration file."),
+    EnvVar(
+        "OCI_CONFIG_FILE", "~/.oci/config", text, "providers", "Path of the OCI configuration file."
+    ),
     EnvVar("OCI_PROFILE", "DEFAULT", text, "providers", "Profile of the OCI configuration file."),
-    EnvVar("OCI_COMPARTMENT_ID", None, optional_text, "providers",
-           "Compartment for OCI Generative AI; the profile's oci_compartment_id when unset."),
-    EnvVar("OCI_SERVICE_ENDPOINT", None, optional_text, "providers",
-           "OCI Generative AI endpoint; derived from the profile's region when unset."),
-    EnvVar("LAKEGEN_TOGETHER_BASE_URL", "https://api.together.xyz/v1", text, "providers",
-           "Base URL of the Together AI API."),
-    EnvVar("LAKEGEN_TOGETHER_TEMPERATURE", 0.1, number, "providers",
-           "Sampling temperature of the Together models."),
-    EnvVar("LAKEGEN_TOGETHER_PARALLEL_TOOL_CALLS", True, not_zero, "providers",
-           "Let Together's gpt-oss make parallel tool calls (0 turns it off)."),
-    EnvVar("LAKEGEN_TOGETHER_RECOVER_LEAKS", True, not_zero, "providers",
-           "Recover tool calls that Together's gpt-oss writes as plain text (0 turns it off)."),
-    EnvVar("LAKEGEN_OLLAMA_BASE_URL", "http://localhost:11434", text, "providers",
-           "Base URL of the local Ollama server for the ollama.* models."),
-    EnvVar("LAKEGEN_GROQ_OFFLOAD", False, flag, "providers",
-           "Send small tool-free gpt-oss-120b calls to Groq's free tier (1, true or yes)."),
-    EnvVar("LAKEGEN_GROQ_LEDGER", None, optional_text, "providers",
-           "Path of the Groq call ledger; logs/groq_calls.jsonl under the state root when unset.",
-           "first Groq call"),
+    EnvVar(
+        "OCI_COMPARTMENT_ID",
+        None,
+        optional_text,
+        "providers",
+        "Compartment for OCI Generative AI; the profile's oci_compartment_id when unset.",
+    ),
+    EnvVar(
+        "OCI_SERVICE_ENDPOINT",
+        None,
+        optional_text,
+        "providers",
+        "OCI Generative AI endpoint; derived from the profile's region when unset.",
+    ),
+    EnvVar(
+        "DEDICATE_OCI_API_KEY",
+        "",
+        stripped,
+        "providers",
+        "API key of the OCI Dedicated AI Cluster endpoints (sent as a bearer token), for the dedicated.* models.",
+    ),
+    EnvVar(
+        "DEDICATE_OCI_BASE_URL",
+        "",
+        endpoint_url,
+        "providers",
+        "OpenAI-compatible base URL of the dedicated endpoints; the clients append /chat/completions.",
+    ),
+    EnvVar(
+        "DEDICATE_OCI_HEADERS",
+        {},
+        json_object,
+        "providers",
+        "JSON object of extra request headers for the dedicated endpoints (e.g. a compartment header).",
+    ),
+    EnvVar(
+        "DEDICATE_OCI_EXTRA_BODY",
+        {},
+        json_object,
+        "providers",
+        'JSON object merged into every request to the dedicated endpoints, e.g. {"reasoning_effort": "high"}.',
+    ),
+    EnvVar(
+        "LAKEGEN_TOGETHER_BASE_URL",
+        "https://api.together.xyz/v1",
+        text,
+        "providers",
+        "Base URL of the Together AI API.",
+    ),
+    EnvVar(
+        "LAKEGEN_TOGETHER_TEMPERATURE",
+        0.1,
+        number,
+        "providers",
+        "Sampling temperature of the Together models.",
+    ),
+    EnvVar(
+        "LAKEGEN_TOGETHER_PARALLEL_TOOL_CALLS",
+        True,
+        not_zero,
+        "providers",
+        "Let Together's gpt-oss make parallel tool calls (0 turns it off).",
+    ),
+    EnvVar(
+        "LAKEGEN_TOGETHER_RECOVER_LEAKS",
+        True,
+        not_zero,
+        "providers",
+        "Recover tool calls that Together's gpt-oss writes as plain text (0 turns it off).",
+    ),
+    EnvVar(
+        "LAKEGEN_OLLAMA_BASE_URL",
+        "http://localhost:11434",
+        text,
+        "providers",
+        "Base URL of the local Ollama server for the ollama.* models.",
+    ),
+    EnvVar(
+        "LAKEGEN_GROQ_OFFLOAD",
+        False,
+        flag,
+        "providers",
+        "Send small tool-free gpt-oss-120b calls to Groq's free tier (1, true or yes).",
+    ),
+    EnvVar(
+        "LAKEGEN_GROQ_LEDGER",
+        None,
+        optional_text,
+        "providers",
+        "Path of the Groq call ledger; logs/groq_calls.jsonl under the state root when unset.",
+        "first Groq call",
+    ),
     # api
-    EnvVar("LAKEGEN_WORKFLOW_WORKERS", 1, positive_int_or_default, "api",
-           "Questions the API runs at once.", "import of api"),
-    EnvVar("LAKEGEN_BATCH_PAUSE_EVERY", 0, non_negative_count_or_default, "api",
-           "After this many finished questions a batch sleeps LAKEGEN_BATCH_PAUSE_SECONDS; 0 disables it.",
-           "import of api"),
-    EnvVar("LAKEGEN_BATCH_PAUSE_SECONDS", 0.0, non_negative_float_or_default, "api",
-           "Length of the periodic batch pause.", "import of api"),
-    EnvVar("LAKEGEN_BATCH_TOKENS_PER_MINUTE", 0.0, non_negative_float_or_default, "api",
-           "Token rate a batch is held to by sleeping after each question; 0 disables it.", "import of api"),
-    EnvVar("LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE", "", stripped, "api",
-           "A file whose number overrides the token rate, re-read before every rest.", "import of api"),
-    EnvVar("LAKEGEN_SPLIT_MODEL", "", stripped, "api",
-           "A second model that runs a share of every batch's questions.", "import of api"),
-    EnvVar("LAKEGEN_SPLIT_SHARE", 0.0, share, "api",
-           "The share of questions (0 to 1) that run on LAKEGEN_SPLIT_MODEL.", "import of api"),
-    EnvVar("LAKEGEN_DASHBOARD_TOKEN", "", stripped, "api",
-           "A token the run dashboard requires (open /?token=... once; it is kept in a cookie). Empty: open.",
-           "start of the dashboard"),
+    EnvVar(
+        "LAKEGEN_WORKFLOW_WORKERS",
+        1,
+        positive_int_or_default,
+        "api",
+        "Questions the API runs at once (a batch server's batches included).",
+        "import of lakegen.entrypoints.api",
+    ),
+    EnvVar(
+        "LAKEGEN_BATCH_PAUSE_EVERY",
+        0,
+        non_negative_count_or_default,
+        "api",
+        "After this many finished questions a batch sleeps LAKEGEN_BATCH_PAUSE_SECONDS; 0 disables it.",
+        "import of experiment_runner.batches",
+    ),
+    EnvVar(
+        "LAKEGEN_BATCH_PAUSE_SECONDS",
+        0.0,
+        non_negative_float_or_default,
+        "api",
+        "Length of the periodic batch pause.",
+        "import of experiment_runner.batches",
+    ),
+    EnvVar(
+        "LAKEGEN_BATCH_TOKENS_PER_MINUTE",
+        0.0,
+        non_negative_float_or_default,
+        "api",
+        "Token rate a batch is held to by sleeping after each question; 0 disables it.",
+        "import of experiment_runner.batches",
+    ),
+    EnvVar(
+        "LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE",
+        "",
+        stripped,
+        "api",
+        "A file whose number overrides the token rate, re-read before every rest.",
+        "import of experiment_runner.batches",
+    ),
+    EnvVar(
+        "LAKEGEN_SPLIT_MODEL",
+        "",
+        stripped,
+        "api",
+        "A second model that runs a share of every batch's questions.",
+        "import of experiment_runner.batches",
+    ),
+    EnvVar(
+        "LAKEGEN_SPLIT_SHARE",
+        0.0,
+        share,
+        "api",
+        "The share of questions (0 to 1) that run on LAKEGEN_SPLIT_MODEL.",
+        "import of experiment_runner.batches",
+    ),
+    EnvVar(
+        "LAKEGEN_DASHBOARD_TOKEN",
+        "",
+        stripped,
+        "api",
+        "A token the run dashboard requires (open /?token=... once; it is kept in a cookie). Empty: open.",
+        "start of the dashboard",
+    ),
     # switches
-    EnvVar("LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT", False, is_one, "switches",
-           "Adds the experimental table-count check to the unified architect's prompt (1)."),
-    EnvVar("LAKEGEN_ENABLE_TABPFN", False, flag_or_on, "switches",
-           "Lets generated analyses use the optional TabPFN stack (1, true, yes or on)."),
+    EnvVar(
+        "LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT",
+        False,
+        is_one,
+        "switches",
+        "Adds the experimental table-count check to the unified architect's prompt (1).",
+    ),
     # retrieval: the defaults of RetrievalConfig.from_env
     _retrieval("LAKEGEN_RETRIEVAL_MODE", "mode", "keyword", text, "Retrieval mode."),
     _retrieval("LAKEGEN_RETRIEVAL_TOP_K", "top_k", 20, integer, "Ranked pool size."),
-    _retrieval("LAKEGEN_HYBRID_ALPHA", "alpha", 0.5, number, "Lexical weight of weighted hybrid fusion."),
-    _retrieval("LAKEGEN_CANDIDATE_MULTIPLIER", "candidate_multiplier", 5, integer,
-               "Per-branch pool size as a multiple of top_k."),
-    _retrieval("LAKEGEN_REPRESENTATION_VERSION", "representation_version", "metadata-v1", text,
-               "Version of the indexed representation."),
-    _retrieval("LAKEGEN_EMBEDDING_MODEL", "embedding_model", "cohere.embed-v4.0", text,
-               "Embedding model of semantic retrieval."),
-    _retrieval("LAKEGEN_EMBEDDING_BASE_URL", "embedding_base_url", "http://localhost:11434", text,
-               "Ollama URL for Ollama embedding models."),
-    _retrieval("LAKEGEN_VECTOR_FIELD", "vector_field", "table_embedding", text,
-               "Solr dense-vector field."),
-    _retrieval("LAKEGEN_BM25_QUERY_FIELDS", "lexical_query_fields", None, text,
-               "BM25 fields and boosts in Solr qf format."),
-    _retrieval("LAKEGEN_MISSING_SIGNAL_POLICY", "missing_signal_policy", "zero", text,
-               "How hybrid fusion treats a signal missing from one branch."),
-    _retrieval("LAKEGEN_FUSION_METHOD", "fusion_method", "weighted", text,
-               "Hybrid fusion method: weighted or rrf."),
+    _retrieval(
+        "LAKEGEN_HYBRID_ALPHA", "alpha", 0.5, number, "Lexical weight of weighted hybrid fusion."
+    ),
+    _retrieval(
+        "LAKEGEN_CANDIDATE_MULTIPLIER",
+        "candidate_multiplier",
+        5,
+        integer,
+        "Per-branch pool size as a multiple of top_k.",
+    ),
+    _retrieval(
+        "LAKEGEN_REPRESENTATION_VERSION",
+        "representation_version",
+        "metadata-v1",
+        text,
+        "Version of the indexed representation.",
+    ),
+    _retrieval(
+        "LAKEGEN_EMBEDDING_MODEL",
+        "embedding_model",
+        "cohere.embed-v4.0",
+        text,
+        "Embedding model of semantic retrieval.",
+    ),
+    _retrieval(
+        "LAKEGEN_EMBEDDING_BASE_URL",
+        "embedding_base_url",
+        "http://localhost:11434",
+        text,
+        "Ollama URL for Ollama embedding models.",
+    ),
+    _retrieval(
+        "LAKEGEN_VECTOR_FIELD", "vector_field", "table_embedding", text, "Solr dense-vector field."
+    ),
+    _retrieval(
+        "LAKEGEN_BM25_QUERY_FIELDS",
+        "lexical_query_fields",
+        None,
+        text,
+        "BM25 fields and boosts in Solr qf format.",
+    ),
+    _retrieval(
+        "LAKEGEN_MISSING_SIGNAL_POLICY",
+        "missing_signal_policy",
+        "zero",
+        text,
+        "How hybrid fusion treats a signal missing from one branch.",
+    ),
+    _retrieval(
+        "LAKEGEN_FUSION_METHOD",
+        "fusion_method",
+        "weighted",
+        text,
+        "Hybrid fusion method: weighted or rrf.",
+    ),
     _retrieval("LAKEGEN_RRF_K", "rrf_k", 60, integer, "RRF smoothing constant."),
-    _retrieval("LAKEGEN_PNEUMA_INDEX_NAME", "pneuma_index_name", "lakegen-cohere-v4-1024", text,
-               "Pneuma index name when the lake has no route."),
-    _retrieval("LAKEGEN_PNEUMA_BASE_URL", "pneuma_base_url", "http://localhost:8767", text,
-               "Pneuma service URL when the lake has no route."),
-    _retrieval("LAKEGEN_PNEUMA_TIMEOUT_SECONDS", "pneuma_timeout_seconds", 120.0, number,
-               "Pneuma request timeout."),
-    _retrieval("LAKEGEN_PNEUMA_CONTENT_WEIGHT", "pneuma_content_weight", 0.5, number,
-               "Pneuma-Seeker: weight of content search against Pneuma's ranking."),
-    _retrieval("LAKEGEN_PNEUMA_CONTENT_FUSION", "pneuma_content_fusion", "weighted", text,
-               "Pneuma-Seeker: weighted or fill."),
-    _retrieval("LAKEGEN_PNEUMA_ENTITY_MODEL", "pneuma_entity_model", None, text,
-               "Pneuma-Seeker: chat model that extracts entities when the caller gives none."),
-    _retrieval("LAKEGEN_PNEUMA_ENUMERATE_TABLES", "pneuma_enumerate_tables", True, not_disabled,
-               "Pneuma-Seeker: pull in tables whose names form a family (0, false or no turns it off)."),
-    _retrieval("LAKEGEN_PNEUMA_TABLE_NAME_WEIGHT", "pneuma_table_name_weight", 3.0, number,
-               "Pneuma-Seeker: weight of a title match."),
-    _retrieval("LAKEGEN_PNEUMA_COLUMN_NAME_WEIGHT", "pneuma_column_name_weight", 2.0, number,
-               "Pneuma-Seeker: weight of a column-name match."),
-    _retrieval("LAKEGEN_PNEUMA_CELL_WEIGHT", "pneuma_cell_weight", 1.0, number,
-               "Pneuma-Seeker: weight of a cell match."),
-    _retrieval("LAKEGEN_PNEUMA_VALUE_SCAN_WEIGHT", "pneuma_value_scan_weight", 0.0, number,
-               "Plain pneuma: weight of a value scan of the returned tables; 0 scans nothing."),
-    _retrieval("LAKEGEN_DUCKDB_MAX_FILES", "duckdb_max_files", 250, integer, "duckdb_agentic: files scanned."),
-    _retrieval("LAKEGEN_DUCKDB_MAX_COLUMNS_PER_FILE", "duckdb_max_columns_per_file", 40, integer,
-               "duckdb_agentic: columns scanned per file."),
-    _retrieval("LAKEGEN_DUCKDB_SAMPLE_ROWS", "duckdb_sample_rows", 3, integer,
-               "duckdb_agentic: sample rows per file."),
-    _retrieval("LAKEGEN_DUCKDB_MAX_SCAN_ROWS_PER_FILE", "duckdb_max_scan_rows_per_file", 100_000, integer,
-               "duckdb_agentic: rows scanned per file."),
-    _retrieval("LAKEGEN_DUCKDB_PROBE_FILES", "duckdb_probe_files", 25, integer,
-               "duckdb_agentic: following files probed for value-only terms."),
-    _retrieval("LAKEGEN_DUCKDB_PROBE_ROWS_PER_FILE", "duckdb_probe_rows_per_file", 1_000, integer,
-               "duckdb_agentic: rows per probed file."),
-    _retrieval("LAKEGEN_GREP_MAX_FILES", "grep_max_files", None, optional_int,
-               "Pneuma-Seeker content scan: file cap; blank scans the whole lake."),
-    _retrieval("LAKEGEN_GREP_MAX_COLUMNS_PER_FILE", "grep_max_columns_per_file", 40, integer,
-               "Content scan: columns per file."),
-    _retrieval("LAKEGEN_GREP_MAX_SCAN_ROWS_PER_FILE", "grep_max_scan_rows_per_file", 100_000, integer,
-               "Content scan: rows per file."),
-    _retrieval("LAKEGEN_GREP_SAMPLE_ROWS", "grep_sample_rows", 3, integer, "Content scan: sample rows."),
-    _retrieval("LAKEGEN_GREP_PROBE_FILES", "grep_probe_files", 25, integer, "Content scan: probed files."),
-    _retrieval("LAKEGEN_SCAN_WORKERS", "scan_workers", 16, integer,
-               "Worker processes of the content scan."),
-    _retrieval("LAKEGEN_GREP_VALUE_WEIGHT", "grep_value_weight", 1.0, number,
-               "Content scan: weight of value evidence."),
-    _retrieval("LAKEGEN_GREP_METADATA_WEIGHT", "grep_metadata_weight", 1.0, number,
-               "Content scan: weight of metadata evidence."),
-    _retrieval("LAKEGEN_GREP_PROBE_ROWS_PER_FILE", "grep_probe_rows_per_file", 1_000, integer,
-               "Content scan: rows per probed file."),
-    _retrieval("LAKEGEN_RERANK_MODEL", "rerank_model", "cohere.rerank-v4.0-fast", text,
-               "Second-stage reranker; empty turns reranking off."),
-    _retrieval("LAKEGEN_RERANK_DEPTH", "rerank_depth", 20, integer,
-               "How many top hits the reranker reorders."),
+    _retrieval(
+        "LAKEGEN_PNEUMA_INDEX_NAME",
+        "pneuma_index_name",
+        "lakegen-cohere-v4-1024",
+        text,
+        "Pneuma index name when the lake has no route.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_BASE_URL",
+        "pneuma_base_url",
+        "http://localhost:8767",
+        text,
+        "Pneuma service URL when the lake has no route.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_TIMEOUT_SECONDS",
+        "pneuma_timeout_seconds",
+        120.0,
+        number,
+        "Pneuma request timeout.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_CONTENT_WEIGHT",
+        "pneuma_content_weight",
+        0.5,
+        number,
+        "Pneuma-Seeker: weight of content search against Pneuma's ranking.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_CONTENT_FUSION",
+        "pneuma_content_fusion",
+        "weighted",
+        text,
+        "Pneuma-Seeker: weighted or fill.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_ENTITY_MODEL",
+        "pneuma_entity_model",
+        None,
+        text,
+        "Pneuma-Seeker: chat model that extracts entities when the caller gives none.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_ENUMERATE_TABLES",
+        "pneuma_enumerate_tables",
+        True,
+        not_disabled,
+        "Pneuma-Seeker: pull in tables whose names form a family (0, false or no turns it off).",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_TABLE_NAME_WEIGHT",
+        "pneuma_table_name_weight",
+        3.0,
+        number,
+        "Pneuma-Seeker: weight of a title match.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_COLUMN_NAME_WEIGHT",
+        "pneuma_column_name_weight",
+        2.0,
+        number,
+        "Pneuma-Seeker: weight of a column-name match.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_CELL_WEIGHT",
+        "pneuma_cell_weight",
+        1.0,
+        number,
+        "Pneuma-Seeker: weight of a cell match.",
+    ),
+    _retrieval(
+        "LAKEGEN_PNEUMA_VALUE_SCAN_WEIGHT",
+        "pneuma_value_scan_weight",
+        0.0,
+        number,
+        "Plain pneuma: weight of a value scan of the returned tables; 0 scans nothing.",
+    ),
+    _retrieval(
+        "LAKEGEN_DUCKDB_MAX_FILES",
+        "duckdb_max_files",
+        250,
+        integer,
+        "duckdb_agentic: files scanned.",
+    ),
+    _retrieval(
+        "LAKEGEN_DUCKDB_MAX_COLUMNS_PER_FILE",
+        "duckdb_max_columns_per_file",
+        40,
+        integer,
+        "duckdb_agentic: columns scanned per file.",
+    ),
+    _retrieval(
+        "LAKEGEN_DUCKDB_SAMPLE_ROWS",
+        "duckdb_sample_rows",
+        3,
+        integer,
+        "duckdb_agentic: sample rows per file.",
+    ),
+    _retrieval(
+        "LAKEGEN_DUCKDB_MAX_SCAN_ROWS_PER_FILE",
+        "duckdb_max_scan_rows_per_file",
+        100_000,
+        integer,
+        "duckdb_agentic: rows scanned per file.",
+    ),
+    _retrieval(
+        "LAKEGEN_DUCKDB_PROBE_FILES",
+        "duckdb_probe_files",
+        25,
+        integer,
+        "duckdb_agentic: following files probed for value-only terms.",
+    ),
+    _retrieval(
+        "LAKEGEN_DUCKDB_PROBE_ROWS_PER_FILE",
+        "duckdb_probe_rows_per_file",
+        1_000,
+        integer,
+        "duckdb_agentic: rows per probed file.",
+    ),
+    _retrieval(
+        "LAKEGEN_GREP_MAX_FILES",
+        "grep_max_files",
+        None,
+        optional_int,
+        "Pneuma-Seeker content scan: file cap; blank scans the whole lake.",
+    ),
+    _retrieval(
+        "LAKEGEN_GREP_MAX_COLUMNS_PER_FILE",
+        "grep_max_columns_per_file",
+        40,
+        integer,
+        "Content scan: columns per file.",
+    ),
+    _retrieval(
+        "LAKEGEN_GREP_MAX_SCAN_ROWS_PER_FILE",
+        "grep_max_scan_rows_per_file",
+        100_000,
+        integer,
+        "Content scan: rows per file.",
+    ),
+    _retrieval(
+        "LAKEGEN_GREP_SAMPLE_ROWS", "grep_sample_rows", 3, integer, "Content scan: sample rows."
+    ),
+    _retrieval(
+        "LAKEGEN_GREP_PROBE_FILES", "grep_probe_files", 25, integer, "Content scan: probed files."
+    ),
+    _retrieval(
+        "LAKEGEN_SCAN_WORKERS", "scan_workers", 16, integer, "Worker processes of the content scan."
+    ),
+    _retrieval(
+        "LAKEGEN_GREP_VALUE_WEIGHT",
+        "grep_value_weight",
+        1.0,
+        number,
+        "Content scan: weight of value evidence.",
+    ),
+    _retrieval(
+        "LAKEGEN_GREP_METADATA_WEIGHT",
+        "grep_metadata_weight",
+        1.0,
+        number,
+        "Content scan: weight of metadata evidence.",
+    ),
+    _retrieval(
+        "LAKEGEN_GREP_PROBE_ROWS_PER_FILE",
+        "grep_probe_rows_per_file",
+        1_000,
+        integer,
+        "Content scan: rows per probed file.",
+    ),
+    _retrieval(
+        "LAKEGEN_RERANK_MODEL",
+        "rerank_model",
+        "cohere.rerank-v4.0-fast",
+        text,
+        "Second-stage reranker; empty turns reranking off.",
+    ),
+    _retrieval(
+        "LAKEGEN_RERANK_DEPTH",
+        "rerank_depth",
+        20,
+        integer,
+        "How many top hits the reranker reorders.",
+    ),
 )
 
 FAMILIES: tuple[EnvFamily, ...] = (
-    EnvFamily("LAKEGEN_SOLR_CORE_<LAKE>", "solr",
-              "Serves a lake from a differently named Solr core; blank means the lake's own name."),
+    EnvFamily(
+        "LAKEGEN_SOLR_CORE_<LAKE>",
+        "solr",
+        "Serves a lake from a differently named Solr core; blank means the lake's own name.",
+    ),
     EnvFamily("LAKEGEN_PNEUMA_<LAKE>_BASE_URL", "pneuma", "The lake's Pneuma service URL."),
     EnvFamily("LAKEGEN_PNEUMA_<LAKE>_INDEX_NAME", "pneuma", "The lake's Pneuma index name."),
-    EnvFamily("TOGETHERAI_API_KEY, TOGETHER_API_KEY", "providers",
-              "Together AI key; the first non-empty one wins."),
-    EnvFamily("GROQ_API_KEY*, GROP_API_KEY*", "providers",
-              "Groq keys for the offload, every variable matching GRO[QP]_API_KEY<digits>, in name order."),
-    EnvFamily("TYPESAFE_API_KEY, JEV_API_KEY", "providers",
-              "TypeSafe key for the Jev table selector; the first set one wins."),
+    EnvFamily(
+        "DEDICATE_OCI_MODEL, DEDICATE_OCI_MODEL_2, ...",
+        "providers",
+        "Model id of one dedicated endpoint (its OCID); each dedicated.* entry of config/models.yaml names "
+        "the variable it reads (model_env).",
+    ),
+    EnvFamily(
+        "TOGETHERAI_API_KEY, TOGETHER_API_KEY",
+        "providers",
+        "Together AI key; the first non-empty one wins.",
+    ),
+    EnvFamily(
+        "GROQ_API_KEY*, GROP_API_KEY*",
+        "providers",
+        "Groq keys for the offload, every variable matching GRO[QP]_API_KEY<digits>, in name order.",
+    ),
 )
 
 BY_NAME = {variable.name: variable for variable in VARIABLES}
@@ -343,6 +739,9 @@ def retrieval_env_overrides() -> dict[str, Any]:
     Only variables that are set count: these are the overrides an experiment
     config load applies on top of its static defaults, and what the manifest
     records as ``env_overrides``.
+
+    Returns:
+        The set knobs' parsed values.
     """
     return {
         f"retrieval.{v.field}": v.read()
@@ -352,6 +751,7 @@ def retrieval_env_overrides() -> dict[str, Any]:
 
 
 def solr_core_override(lake: str) -> str | None:
+    """The lake's ``LAKEGEN_SOLR_CORE_<LAKE>`` core; None when unset or blank."""
     value = os.environ.get(f"LAKEGEN_SOLR_CORE_{lake.strip().upper()}", "").strip()
     return value or None
 
@@ -362,11 +762,20 @@ def pneuma_override(lake: str) -> tuple[str | None, str | None]:
     return os.environ.get(f"{prefix}_BASE_URL"), os.environ.get(f"{prefix}_INDEX_NAME")
 
 
+def dedicated_model(variable: str) -> str:
+    """The model id of a dedicated endpoint, from the variable a dedicated.* model names; "" when unset."""
+    return os.environ.get(variable, "").strip()
+
+
 def together_api_key() -> str:
-    return (os.environ.get("TOGETHERAI_API_KEY") or os.environ.get("TOGETHER_API_KEY") or "").strip()
+    """The Together key: TOGETHERAI_API_KEY, else TOGETHER_API_KEY; "" when neither is set."""
+    return (
+        os.environ.get("TOGETHERAI_API_KEY") or os.environ.get("TOGETHER_API_KEY") or ""
+    ).strip()
 
 
 def groq_api_keys() -> tuple[str, ...]:
+    """The non-empty Groq keys, every variable matching GRO[QP]_API_KEY<digits>, in name order."""
     return tuple(
         os.environ[name].strip()
         for name in sorted(os.environ)
@@ -374,16 +783,44 @@ def groq_api_keys() -> tuple[str, ...]:
     )
 
 
-def jev_api_key() -> str | None:
-    for name in ("TYPESAFE_API_KEY", "JEV_API_KEY"):
-        if os.environ.get(name):
-            return os.environ[name]
-    return None
-
-
 @dataclass(frozen=True)
 class Settings:
-    """A snapshot of the infrastructure and operational variables."""
+    """A snapshot of the infrastructure and operational variables.
+
+    Each field is the parsed value of one variable of the registry (see
+    ``get_settings`` and docs/configuration.md).
+
+    Attributes:
+        state_dir: LAKEGEN_STATE_DIR.
+        job_dir_name: LAKEGEN_JOB_DIR.
+        solr_base_url: SOLR_BASE_URL.
+        oci_config_file: OCI_CONFIG_FILE.
+        oci_profile: OCI_PROFILE.
+        oci_compartment_id: OCI_COMPARTMENT_ID.
+        oci_service_endpoint: OCI_SERVICE_ENDPOINT.
+        dedicated_api_key: DEDICATE_OCI_API_KEY.
+        dedicated_base_url: DEDICATE_OCI_BASE_URL.
+        dedicated_headers: DEDICATE_OCI_HEADERS.
+        dedicated_extra_body: DEDICATE_OCI_EXTRA_BODY.
+        together_api_key: TOGETHERAI_API_KEY, else TOGETHER_API_KEY.
+        together_base_url: LAKEGEN_TOGETHER_BASE_URL.
+        together_temperature: LAKEGEN_TOGETHER_TEMPERATURE.
+        together_parallel_tool_calls: LAKEGEN_TOGETHER_PARALLEL_TOOL_CALLS.
+        together_recover_leaks: LAKEGEN_TOGETHER_RECOVER_LEAKS.
+        ollama_base_url: LAKEGEN_OLLAMA_BASE_URL.
+        groq_api_keys: The GRO[QP]_API_KEY<digits> keys.
+        groq_offload: LAKEGEN_GROQ_OFFLOAD.
+        groq_ledger: LAKEGEN_GROQ_LEDGER.
+        workflow_workers: LAKEGEN_WORKFLOW_WORKERS.
+        batch_pause_every: LAKEGEN_BATCH_PAUSE_EVERY.
+        batch_pause_seconds: LAKEGEN_BATCH_PAUSE_SECONDS.
+        batch_tokens_per_minute: LAKEGEN_BATCH_TOKENS_PER_MINUTE.
+        batch_tokens_per_minute_file: LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE.
+        split_model: LAKEGEN_SPLIT_MODEL.
+        split_share: LAKEGEN_SPLIT_SHARE.
+        dashboard_token: LAKEGEN_DASHBOARD_TOKEN.
+        selection_cardinality_experiment: LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT.
+    """
 
     state_dir: str | None
     job_dir_name: str | None
@@ -392,6 +829,10 @@ class Settings:
     oci_profile: str
     oci_compartment_id: str | None
     oci_service_endpoint: str | None
+    dedicated_api_key: str
+    dedicated_base_url: str
+    dedicated_headers: dict[str, str]
+    dedicated_extra_body: dict[str, Any]
     together_api_key: str
     together_base_url: str
     together_temperature: float
@@ -401,7 +842,6 @@ class Settings:
     groq_api_keys: tuple[str, ...]
     groq_offload: bool
     groq_ledger: str | None
-    jev_api_key: str | None
     workflow_workers: int
     batch_pause_every: int
     batch_pause_seconds: float
@@ -411,7 +851,6 @@ class Settings:
     split_share: float
     dashboard_token: str
     selection_cardinality_experiment: bool
-    enable_tabpfn: bool
 
     def solr_core(self, lake: str) -> str:
         """The Solr core that serves a lake: its override, else its own name."""
@@ -428,6 +867,10 @@ def get_settings() -> Settings:
         oci_profile=read("OCI_PROFILE"),
         oci_compartment_id=read("OCI_COMPARTMENT_ID"),
         oci_service_endpoint=read("OCI_SERVICE_ENDPOINT"),
+        dedicated_api_key=read("DEDICATE_OCI_API_KEY"),
+        dedicated_base_url=read("DEDICATE_OCI_BASE_URL"),
+        dedicated_headers=dict(read("DEDICATE_OCI_HEADERS")),
+        dedicated_extra_body=dict(read("DEDICATE_OCI_EXTRA_BODY")),
         together_api_key=together_api_key(),
         together_base_url=read("LAKEGEN_TOGETHER_BASE_URL"),
         together_temperature=read("LAKEGEN_TOGETHER_TEMPERATURE"),
@@ -437,7 +880,6 @@ def get_settings() -> Settings:
         groq_api_keys=groq_api_keys(),
         groq_offload=read("LAKEGEN_GROQ_OFFLOAD"),
         groq_ledger=read("LAKEGEN_GROQ_LEDGER"),
-        jev_api_key=jev_api_key(),
         workflow_workers=read("LAKEGEN_WORKFLOW_WORKERS"),
         batch_pause_every=read("LAKEGEN_BATCH_PAUSE_EVERY"),
         batch_pause_seconds=read("LAKEGEN_BATCH_PAUSE_SECONDS"),
@@ -447,7 +889,6 @@ def get_settings() -> Settings:
         split_share=read("LAKEGEN_SPLIT_SHARE"),
         dashboard_token=read("LAKEGEN_DASHBOARD_TOKEN"),
         selection_cardinality_experiment=read("LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT"),
-        enable_tabpfn=read("LAKEGEN_ENABLE_TABPFN"),
     )
 
 

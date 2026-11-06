@@ -7,19 +7,19 @@ from collections.abc import Sequence
 from lakegen.config.retrieval import (
     RetrievalConfig,
 )
-from lakegen.domain.retrieval import (
+from lakegen.datastructures.retrieval import (
     RetrievalHit,
     document_key,
-)
-from lakegen.integrations.pneuma import (
-    DocumentResolver,
 )
 from lakegen.retrieval.modes.duckdb_agentic import DuckDBAgenticRetriever, evidence_note
 from lakegen.retrieval.modes.fusion import best_finite_hits, fuse
 from lakegen.retrieval.modes.semantic import SemanticRetriever
+from lakegen.retrieval.pneuma import (
+    DocumentResolver,
+)
 
 
-class DuckDBSemanticHybridRetriever:
+class DuckDBSemanticRetriever:
     """Fusion of the DuckDB Parquet search and dense KNN.
 
     ``hybrid`` fuses BM25 with KNN; this fuses the ``duckdb_agentic`` ranking
@@ -35,6 +35,19 @@ class DuckDBSemanticHybridRetriever:
     before fusion; otherwise one table would count once per branch and never
     fuse. A file without a catalog document keeps DuckDB's own. DuckDB's
     evidence stays on the fused hit, as it does in ``duckdb_agentic``.
+
+    Args:
+        duckdb_branch: The DuckDB search over the local files.
+        semantic: The KNN branch.
+        config: The retrieval configuration (fusion method, alpha, rrf_k,
+            candidate multiplier).
+        resolver: Maps a file's resource id to its catalog document.
+
+    Attributes:
+        duckdb: The DuckDB branch.
+        semantic: The KNN branch.
+        config: The retrieval configuration.
+        resolver: Maps a file's resource id to its catalog document.
     """
 
     def __init__(
@@ -68,9 +81,7 @@ class DuckDBSemanticHybridRetriever:
                 }
             key = document_key(document)
             if key not in by_key:
-                by_key[key] = RetrievalHit(
-                    document=document, score=hit.score, rank=hit.rank
-                )
+                by_key[key] = RetrievalHit(document=document, score=hit.score, rank=hit.rank)
         return by_key
 
     def retrieve(
@@ -80,16 +91,28 @@ class DuckDBSemanticHybridRetriever:
         *,
         top_k: int,
     ) -> list[RetrievalHit]:
+        """Fuse the DuckDB and semantic rankings into at most ``top_k`` hits.
+
+        Args:
+            question: The question.
+            keywords: The keywords DuckDB searches the files for.
+            top_k: How many tables to return.
+
+        Returns:
+            The fused ranking.
+        """
         candidate_count = top_k * self.config.candidate_multiplier
         duckdb_by_key = self._duckdb_hits(question, keywords, candidate_count)
-        semantic_by_key = best_finite_hits(
-            self.semantic.retrieve(question, top_k=candidate_count)
-        )
+        semantic_by_key = best_finite_hits(self.semantic.retrieve(question, top_k=candidate_count))
         # The DuckDB document is the catalog one plus DuckDB's evidence, so it
         # is the richer of the two whenever both branches found the table: the
         # first branch's document wins in the fusion.
         return fuse(
-            duckdb_by_key, semantic_by_key, config=self.config, top_k=top_k, candidate_count=candidate_count,
+            duckdb_by_key,
+            semantic_by_key,
+            config=self.config,
+            top_k=top_k,
+            candidate_count=candidate_count,
         )
 
 

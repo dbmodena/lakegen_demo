@@ -18,7 +18,7 @@
     "\u001b[1m  Phase 2 – Table Search & Selection (keyword)\u001b[0m",
     "────────────────────────────────────────────────────────────",
     "\u001b[93m",
-    "⚠ Keywords rejected by table judge: the keywords only find fishing licences\u001b[0m",
+    "⚠ Keywords rejected by the table selector: the keywords only find fishing licences\u001b[0m",
     "",
     "────────────────────────────────────────────────────────────",
     "\u001b[1m  Phase 1 – Keyword Selection (AND logic)\u001b[0m",

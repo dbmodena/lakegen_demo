@@ -5,72 +5,82 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "bitarray>=3.8.0",
-    "dotenv>=0.9.9",
+    "chainlit>=2.11,<3",
     "duckdb>=1.5.1",
+    "fastapi>=0.115,<1",
     "jinja2>=3.1.6",
     "llama-index>=0.14.19",
+    "llama-index-embeddings-ollama>=0.9.0",
+    "llama-index-llms-oci-genai>=0.7.0",
     "llama-index-llms-openai-like>=0.7.1",
     "nltk>=3.9.4",
+    "numpy>=2",
+    "oci>=2.184.0",
+    "openai>=1.0",
     "pandas>=2.3.3",
     "polars>=1.39.3",
     "pyarrow>=23.0.1",
-    "python-dotenv>=1.2.2",
-    "scikit-learn>=1.8.0",
-    "thefuzz>=0.22.1",
-    "timeout-decorator>=0.5.0",
-    "chainlit>=2.11,<3",
-    "valentine>=1.0.0",
-    "nest-asyncio>=1.6.0",
-    "llama-index-embeddings-ollama>=0.9.0",
-    # Temporarily disabled: it pulls in the GPU-enabled PyTorch/CUDA stack.
-    # Re-enable together with LAKEGEN_ENABLE_TABPFN=1 when TabPFN is needed.
-    # "tabpfn>=8.0.8",
     "pydantic>=2.13.4",
+    "python-dotenv>=1.2.2",
+    # FastAPI needs it to read the API's file uploads.
     "python-multipart>=0.0.20",
     "pyyaml>=6.0.3",
-    "fastapi>=0.115,<1",
+    "requests>=2.32",
+    # Not imported by LakeGen itself: the analysis code the coder generates uses it.
+    "scikit-learn>=1.8.0",
     "uvicorn>=0.30,<1",
-    "oci>=2.184.0",
-    "llama-index-llms-oci-genai>=0.7.0",
+    "valentine>=1.0.0",
 ]
 
 [project.scripts]
-lakegen = "lakegen.interfaces.cli.main:main"
+lakegen = "lakegen.entrypoints.cli.main:main"
 
 [build-system]
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
-# The package is the lakegen tree under src/; the entry scripts next to it
-# (api.py, cli.py, app.py) are run by path.
+# The package is the lakegen tree under src/. The prompts (prompts/) and the
+# configuration (config/) are read from the repository root, not packaged.
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["lakegen*"]
 
-[tool.setuptools.package-data]
-lakegen = ["workflow/prompts/*.yaml"]
-
 [tool.pytest.ini_options]
 pythonpath = ["src", ".", "scripts/build"]
+testpaths = ["tests", "pneuma_engine/tests", "solr_builder/tests"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.14",
+    "bandit>=1.8",
     "import-linter>=2.3",
-    "pytest-cov>=6",
+    "pytest>=8.3",
+    "ruff>=0.14",
 ]
 
-# The quality bar of the refactor (docs/REFACTOR_PLAN.md). The gate applies
-# it to the Python files a commit touches, not to untouched legacy code.
+# The quality bar: the whole tree meets it, in scripts/check.sh and in CI.
+# experiments/ holds throwaway research code and is left out.
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
-extend-exclude = ["experiments", "scripts/analysis", "scripts/pneuma", "backups"]
+src = ["src", "tests", "."]
+# tests/needs_testing_grounds is quarantined (not collected, see tests/conftest.py).
+extend-exclude = ["experiments", "backups", "tests/needs_testing_grounds"]
 
 [tool.ruff.lint]
-select = ["F", "I", "B", "UP", "C901", "PLR0915", "TID251"]
+select = ["F", "I", "B", "UP", "C901", "PLR0915", "TID251", "D", "DOC201", "DOC402", "DOC501"]
+# Constructor arguments are documented on the class; magic methods need no docstring.
+ignore = ["D105", "D107"]
+# Only the preview rules named above (pydoclint's DOC checks) are enabled.
+preview = true
+explicit-preview-rules = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pydoclint]
+# Google style: a function whose name and signature say it all gets a one-line
+# docstring; every longer docstring documents its arguments, return and raises.
+ignore-one-line-docstrings = true
 
 # Only the settings registry reads the environment; everything else reads it
 # through lakegen.config.settings, which names every variable once.
@@ -85,83 +95,82 @@ max-complexity = 12
 max-statements = 60
 
 [tool.ruff.lint.isort]
-known-first-party = ["lakegen", "golden", "src"]
+known-first-party = ["lakegen", "golden", "src", "pneuma_engine", "solr_builder", "experiment_runner"]
 
 [tool.ruff.lint.per-file-ignores]
-# The entry scripts put src/ on sys.path before importing the package.
-"src/api.py" = ["E402", "I001"]
-"src/app.py" = ["E402", "I001"]
-"src/cli.py" = ["E402", "I001"]
-
+# Tests are named for what they check, so they carry no docstrings, and they
+# set up the environment of the code under test themselves.
+"tests/**" = ["D", "DOC", "TID251"]
+"pneuma_engine/tests/**" = ["D", "DOC"]
+"solr_builder/tests/**" = ["D", "DOC"]
+# The Pneuma engine is a separate application that reads its own environment.
+"pneuma_engine/**" = ["TID251"]
 # The registry itself, and the three places that build a subprocess's or a
 # library's environment from the process's own.
 "src/lakegen/config/settings.py" = ["TID251"]
-"src/lakegen/config/bootstrap.py" = ["TID251"]
-"src/lakegen/integrations/pneuma/cell_scan.py" = ["TID251"]
-"src/lakegen/experiments/services.py" = ["TID251"]
+"src/lakegen/config/startup.py" = ["TID251"]
+"src/lakegen/retrieval/pneuma/cell_scan.py" = ["TID251"]
+"experiment_runner/services.py" = ["TID251"]
 
-# The dependency rules between the packages (docs/REFACTOR_PLAN.md), checked by
-# `lint-imports` in scripts/check.sh. One import is tolerated until its code
-# moves: the experiment config reads the retrieval config (which belongs under
-# lakegen.config).
+[tool.bandit]
+exclude_dirs = ["tests", "pneuma_engine/tests", "solr_builder/tests", "experiments", "backups"]
+# Importing subprocess, and calling it without a shell (the safe form), are not findings.
+skips = ["B404", "B603"]
+
+# The dependency rules between the areas (src/lakegen/__init__.py), checked by
+# `lint-imports` in scripts/check.sh.
 [tool.importlinter]
 root_package = "lakegen"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Only the interfaces import the web and UI frameworks"
+name = "Only the entry points import the web and UI frameworks"
 type = "forbidden"
 source_modules = [
-    "lakegen.workflow", "lakegen.tools", "lakegen.retrieval", "lakegen.integrations",
-    "lakegen.config", "lakegen.domain", "lakegen.experiments", "lakegen.experiments.analysis",
-    "lakegen.interfaces.cli",
+    "lakegen.pipeline", "lakegen.retrieval", "lakegen.llm", "lakegen.config",
+    "lakegen.datastructures", "lakegen.utils", "lakegen.entrypoints.cli",
 ]
 forbidden_modules = ["chainlit", "fastapi"]
 
 [[tool.importlinter.contracts]]
-name = "The packages depend downwards only"
+name = "The areas depend downwards only"
 type = "layers"
 layers = [
-    "lakegen.interfaces",
-    "lakegen.experiments",
-    "lakegen.workflow.pipeline",
-    "lakegen.workflow.coding",
-    "lakegen.workflow.discovery",
-    "lakegen.workflow.answer",
-    "lakegen.workflow.evaluation",
-    "lakegen.tools",
+    "lakegen.entrypoints",
+    "lakegen.pipeline",
     "lakegen.retrieval",
-    "lakegen.integrations",
+    "lakegen.llm",
     "lakegen.config",
-    "lakegen.domain",
+    "lakegen.datastructures",
+    "lakegen.utils",
 ]
 
 [[tool.importlinter.contracts]]
-name = "The shared layers never import the workflow"
-type = "forbidden"
-source_modules = [
-    "lakegen.tools", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain",
+name = "Inside the pipeline, the phases depend downwards only"
+type = "layers"
+layers = [
+    "lakegen.pipeline.coding",
+    "lakegen.pipeline.discovery",
+    "lakegen.pipeline.answer",
+    "lakegen.pipeline.evaluation",
+    "lakegen.pipeline.evidence",
 ]
-forbidden_modules = ["lakegen.workflow"]
 
 [[tool.importlinter.contracts]]
-name = "observability is imported by the pipeline and what runs it only"
+name = "The phases never import the engine that runs them, nor what records the run"
 type = "forbidden"
 source_modules = [
-    "lakegen.workflow.discovery", "lakegen.workflow.coding", "lakegen.workflow.answer",
-    "lakegen.workflow.evaluation", "lakegen.workflow.prompts", "lakegen.tools", "lakegen.retrieval",
-    "lakegen.integrations", "lakegen.config", "lakegen.domain", "lakegen.experiments.analysis",
-]
-forbidden_modules = ["lakegen.workflow.observability"]
-
-[[tool.importlinter.contracts]]
-name = "The lower layers never import the pipeline, the experiments or the interfaces"
-type = "forbidden"
-source_modules = [
-    "lakegen.workflow.discovery", "lakegen.workflow.coding", "lakegen.workflow.answer",
-    "lakegen.workflow.evaluation", "lakegen.workflow.prompts", "lakegen.workflow.observability",
-    "lakegen.tools", "lakegen.retrieval", "lakegen.integrations", "lakegen.config", "lakegen.domain",
+    "lakegen.pipeline.coding", "lakegen.pipeline.discovery", "lakegen.pipeline.answer",
+    "lakegen.pipeline.evaluation", "lakegen.pipeline.evidence",
 ]
 forbidden_modules = [
-    "lakegen.workflow.pipeline", "lakegen.interfaces", "lakegen.experiments", "lakegen.experiments.analysis",
+    "lakegen.pipeline.engine", "lakegen.pipeline.stages", "lakegen.pipeline.strategies",
+    "lakegen.pipeline.service", "lakegen.pipeline.runner", "lakegen.pipeline.replay",
+    "lakegen.pipeline.run", "lakegen.pipeline.wiring", "lakegen.pipeline.observability",
 ]
+
+[[tool.importlinter.contracts]]
+name = "LakeGen never imports what is built around it: the Pneuma engine (reached over HTTP), the Solr builder, the experiment harness"
+type = "forbidden"
+source_modules = ["lakegen"]
+forbidden_modules = ["pneuma_engine", "pneuma", "solr_builder", "experiment_runner"]

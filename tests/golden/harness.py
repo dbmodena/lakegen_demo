@@ -33,17 +33,14 @@ from typing import Any
 
 from lakegen.config import paths as core_config
 from lakegen.config.experiment import ExperimentConfig
-from lakegen.workflow.discovery.context import PreparedCandidate, PreparedDiscoveryContext
-from lakegen.workflow.discovery.orchestrated import DiscoveryResult
 
 _HEX32 = re.compile(r"\b[0-9a-f]{32}\b")
-_TIMESTAMP = re.compile(
-    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?"
-)
+_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?")
 _MASKED_KEYS = {"git_version": "<git>"}
 
 
 # --- normalisation -----------------------------------------------------------
+
 
 def mask_text(text: str, replacements: dict[str, str]) -> str:
     for old, new in replacements.items():
@@ -57,8 +54,10 @@ def normalise(value: Any, replacements: dict[str, str], key: str | None = None) 
     if key in _MASKED_KEYS:
         return _MASKED_KEYS[key]
     if (
-        key and key.endswith("seconds")
-        and isinstance(value, (int, float)) and not isinstance(value, bool)
+        key
+        and key.endswith("seconds")
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
     ):
         return 0
     if value is None or isinstance(value, (bool, int, float)):
@@ -95,6 +94,7 @@ def describe(obj: Any, replacements: dict[str, str]) -> Any:
 
 
 # --- the call log and scripted fakes ----------------------------------------
+
 
 class CallLog:
     """What the orchestration asked of each phase, in order, copied at call time."""
@@ -150,9 +150,6 @@ class Script:
     phase1: list = dataclasses.field(default_factory=list)
     phase2: list = dataclasses.field(default_factory=list)
     phase12: list = dataclasses.field(default_factory=list)
-    unified_orchestrated: list = dataclasses.field(default_factory=list)
-    prepare_context: list = dataclasses.field(default_factory=list)
-    select_prepared: list = dataclasses.field(default_factory=list)
     phase3: list = dataclasses.field(default_factory=list)
     phase4: list = dataclasses.field(default_factory=list)
     judge: list = dataclasses.field(default_factory=list)
@@ -170,22 +167,37 @@ class Case:
 
 
 def experiment(**overrides) -> ExperimentConfig:
+    # The scenarios name the divided architecture when they use it; the others are unified,
+    # which was the default when they were recorded.
     base: dict[str, Any] = dict(
-        experiment_id="golden", core="nyc", model="openai.gpt-oss-120b",
+        experiment_id="golden",
+        core="nyc",
+        model="openai.gpt-oss-120b",
         interaction_mode="autonomous",
+        discovery_architecture="unified",
     )
     base.update(overrides)
     return ExperimentConfig(**base)
 
 
 def phase3_result(**overrides) -> SimpleNamespace:
-    """A Phase3Result stand-in: a successful run unless overridden."""
+    """A CoderResult stand-in: a successful run unless overridden."""
     base = dict(
-        tokens=6, clean_code="print(42)", code_raw="```python\nprint(42)\n```",
-        rejected_reason="", rejection_details={}, error=None, raw_result="42",
-        structured_result=42, structured_result_error="", coder_runs=1,
-        execution_error=None, coder_review=None, coder_context_audit=None,
-        rejection_keep_tables=[], rejection_skip_tables=[],
+        tokens=6,
+        clean_code="print(42)",
+        code_raw="```python\nprint(42)\n```",
+        rejected_reason="",
+        rejection_details={},
+        error=None,
+        raw_result="42",
+        structured_result=42,
+        structured_result_error="",
+        coder_runs=1,
+        execution_error=None,
+        coder_review=None,
+        coder_context_audit=None,
+        rejection_keep_tables=[],
+        rejection_skip_tables=[],
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -195,32 +207,9 @@ def phase1_result(keywords=("parks", "district")) -> tuple:
     return (list(keywords), "raw keyword output", 2, "phase 1 reasoning")
 
 
-def prepared(datasets: list[str], mode: str = "keyword") -> PreparedDiscoveryContext:
-    return PreparedDiscoveryContext(
-        query="q", retrieval_mode=mode, retrieved_hit_count=len(datasets),
-        prepared_candidate_count=len(datasets),
-        candidates=[
-            PreparedCandidate(
-                retrieval_rank=index + 1, prepared_position=index + 1, dataset=dataset,
-                scores={"score": round(1.0 - index / 10, 2)}, missing_signals=[],
-                metadata={"title": dataset.rsplit(".", 1)[0]},
-            )
-            for index, dataset in enumerate(datasets)
-        ],
-    )
-
-
-def discovery_result(selected: list[str], *, keywords=("parks",), reasoning="Selected.") -> DiscoveryResult:
-    rejected = reasoning.startswith("REJECT_KEYWORDS:")
-    return DiscoveryResult(
-        selected_datasets=list(selected), candidates=list(selected), keywords=list(keywords),
-        metadata={}, reasoning=reasoning, trace="", tokens=4, llm_invocations=2,
-        agent_count=1, retry_keywords=rejected, retry_reason=reasoning if rejected else None,
-        prepared_context=prepared(list(selected)),
-    )
-
-
-def make_runtime(config: ExperimentConfig, tmp_path: Path, portal_name: str = "Test portal") -> SimpleNamespace:
+def make_runtime(
+    config: ExperimentConfig, tmp_path: Path, portal_name: str = "Test portal"
+) -> SimpleNamespace:
     """The RuntimeSettings surface the three orchestrations read."""
     return SimpleNamespace(
         model_name=config.model,
@@ -261,7 +250,16 @@ class Capture:
         }
 
 
-def install_fakes(monkeypatch, module, case: Case, log: CallLog, capture: Capture, names: dict[str, str]) -> None:
+class MatchingSolr:
+    """The scripted runs' Solr: every strict-AND keyword count finds a table, so the scripted retrieval decides."""
+
+    def select(self, tokens, **_params) -> dict[str, Any]:
+        return {"response": {"numFound": 1, "docs": []}}
+
+
+def install_fakes(
+    monkeypatch, module, case: Case, log: CallLog, capture: Capture, names: dict[str, str]
+) -> None:
     """Replace the module's phase and resource names with the scripted fakes.
 
     ``names`` maps the harness's role to the attribute name on ``module``: the
@@ -271,16 +269,13 @@ def install_fakes(monkeypatch, module, case: Case, log: CallLog, capture: Captur
     script = case.script
     fakes = {
         "get_llm": lambda _model: (object(), None),
-        "get_solr": lambda _core: object(),
+        "get_solr": lambda _core: MatchingSolr(),
         "get_prompt_manager": object,
         "get_all_table_files": lambda _path: list(case.files),
-        "phase1": log.fake("phase1_generate_keywords", script.phase1, PHASE1_ARGS),
-        "phase2": log.fake("phase2_select_tables", script.phase2),
-        "phase12": log.fake("phase12_agent", script.phase12),
-        "unified_orchestrated": log.fake("run_unified_orchestrated_discovery", script.unified_orchestrated),
-        "prepare_context": log.fake("prepare_discovery_context", script.prepare_context),
-        "select_prepared": log.fake("select_from_prepared_context", script.select_prepared),
-        "phase3": log.fake("phase3_generate_and_execute", script.phase3, PHASE3_ARGS),
+        "phase1": log.fake("write_keywords", script.phase1, PHASE1_ARGS),
+        "phase2": log.fake("select_tables", script.phase2),
+        "phase12": log.fake("discover_tables", script.phase12),
+        "phase3": log.fake("write_and_run_code", script.phase3, PHASE3_ARGS),
         "phase4": log.fake("phase4_synthesize", script.phase4, PHASE4_ARGS),
         "judge": log.fake("judge_semantic_code_result", script.judge),
         "save_experiment_log": capture.save_experiment_log,
@@ -296,18 +291,19 @@ COMMON_NAMES = {
     "get_solr": "get_solr",
     "get_prompt_manager": "get_prompt_manager",
     "get_all_table_files": "get_all_table_files",
-    "phase1": "phase1_generate_keywords",
-    "phase2": "phase2_select_tables",
-    "phase12": "phase12_agent",
-    "unified_orchestrated": "run_unified_orchestrated_discovery",
-    "prepare_context": "prepare_discovery_context",
-    "select_prepared": "select_from_prepared_context",
-    "phase3": "phase3_generate_and_execute",
+    "phase1": "write_keywords",
+    "phase2": "select_tables",
+    "phase12": "discover_tables",
+    "phase3": "write_and_run_code",
     "phase4": "phase4_synthesize",
     "save_experiment_log": "save_experiment_log",
     "persist_manifest": "persist_manifest",
 }
-SERVICE_NAMES = {**COMMON_NAMES, "judge": "judge_semantic_code_result", "log_retrieval_decision": "log_retrieval_decision"}
+SERVICE_NAMES = {
+    **COMMON_NAMES,
+    "judge": "judge_semantic_code_result",
+    "log_retrieval_decision": "log_retrieval_decision",
+}
 
 
 def prepare_run(monkeypatch, tmp_path: Path, module, case: Case, names: dict[str, str]):

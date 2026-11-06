@@ -11,7 +11,6 @@ from lakegen.config.settings import (
     SCRUBBED_PREFIXES,
     VARIABLES,
     flag,
-    flag_or_on,
     get_settings,
     is_one,
     non_negative_float_or_default,
@@ -39,7 +38,9 @@ def test_positive_int_keeps_the_default_on_bad_input(raw, expected):
     assert positive_int_or_default(raw, 1) == expected
 
 
-@pytest.mark.parametrize(("raw", "expected"), [("2.5", 2.5), ("", 7.0), ("  ", 7.0), ("x", 7.0), ("-1", 7.0)])
+@pytest.mark.parametrize(
+    ("raw", "expected"), [("2.5", 2.5), ("", 7.0), ("  ", 7.0), ("x", 7.0), ("-1", 7.0)]
+)
 def test_non_negative_float_keeps_the_default_on_bad_input(raw, expected):
     assert non_negative_float_or_default(raw, 7.0) == expected
 
@@ -52,11 +53,10 @@ def test_share_is_capped_at_one():
 @pytest.mark.parametrize("raw", ["1", "true", "YES", " yes "])
 def test_flag_accepts_one_true_and_yes(raw):
     assert flag(raw, False) is True
-    assert flag_or_on(raw, False) is True
 
 
 def test_flag_variants_differ_exactly_as_the_readers_did():
-    assert flag("on", False) is False and flag_or_on("on", False) is True
+    assert flag("on", False) is False
     assert not_disabled("", True) is True and not_disabled("No", True) is False
     assert not_zero("0", True) is False and not_zero("", True) is True
     assert is_one("1", False) is True and is_one("true", False) is False
@@ -74,9 +74,9 @@ def test_defaults_match_the_documented_ones(tmp_path):
     assert found.solr_base_url == "http://localhost:8983/solr"
     assert found.workflow_workers == 1
     assert found.split_share == 0.0 and found.split_model == ""
-    assert found.enable_tabpfn is False and found.groq_offload is False
+    assert found.groq_offload is False
     assert found.groq_api_keys == () and found.together_api_key == ""
-    assert found.jev_api_key is None and found.job_dir_name is None
+    assert found.job_dir_name is None
     knobs = retrieval_env_values()
     assert knobs["mode"] == "keyword" and knobs["top_k"] == 20
     assert knobs["rerank_model"] == "cohere.rerank-v4.0-fast"
@@ -112,10 +112,39 @@ def test_key_families(monkeypatch):
     assert settings.together_api_key() == "fallback"
     monkeypatch.setenv("TOGETHERAI_API_KEY", " primary ")
     assert settings.together_api_key() == "primary"
-    monkeypatch.setenv("JEV_API_KEY", "jev")
-    assert settings.jev_api_key() == "jev"
-    monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe")
-    assert settings.jev_api_key() == "typesafe"
+
+
+def test_json_object_variables_take_an_object_or_nothing():
+    assert settings.json_object("", {}, "X") == {}
+    assert settings.json_object('{"reasoning_effort": "high"}', {}, "X") == {
+        "reasoning_effort": "high"
+    }
+    with pytest.raises(ValueError, match="DEDICATE_OCI_HEADERS is not valid JSON"):
+        settings.json_object("{", {}, "DEDICATE_OCI_HEADERS")
+    with pytest.raises(ValueError, match="DEDICATE_OCI_EXTRA_BODY must be a JSON object"):
+        settings.json_object("[1]", {}, "DEDICATE_OCI_EXTRA_BODY")
+
+
+def test_dedicated_endpoint_settings(monkeypatch):
+    assert settings.dedicated_model("DEDICATE_OCI_MODEL") == ""
+    blank = get_settings()
+    assert (blank.dedicated_api_key, blank.dedicated_base_url) == ("", "")
+    assert (blank.dedicated_headers, blank.dedicated_extra_body) == ({}, {})
+    monkeypatch.setenv("DEDICATE_OCI_MODEL", " ocid1.endpoint ")
+    monkeypatch.setenv("DEDICATE_OCI_API_KEY", " key ")
+    monkeypatch.setenv(
+        "DEDICATE_OCI_BASE_URL", "https://host/20231130/actions/v1/chat/completions/"
+    )
+    monkeypatch.setenv("DEDICATE_OCI_HEADERS", '{"x-compartment": "c"}')
+    monkeypatch.setenv("DEDICATE_OCI_EXTRA_BODY", '{"reasoning_effort": "low"}')
+    assert settings.dedicated_model("DEDICATE_OCI_MODEL") == "ocid1.endpoint"
+    got = get_settings()
+    assert got.dedicated_api_key == "key"
+    assert (
+        got.dedicated_base_url == "https://host/20231130/actions/v1"
+    )  # what the clients append to
+    assert got.dedicated_headers == {"x-compartment": "c"}
+    assert got.dedicated_extra_body == {"reasoning_effort": "low"}
 
 
 def test_configuration_docs_are_current():

@@ -9,10 +9,31 @@ from lakegen.config.experiment import ExperimentConfig
 from lakegen.config.recorded import load_recorded_config, schema_keys
 
 ROOT = Path(__file__).resolve().parents[2]
-STORED = json.loads((ROOT / "tests" / "golden" / "fixtures" / "configs" / "stored_job_configs.json").read_text(encoding="utf-8"))
-JEV_KEYS = {
-    "discovery.selector", "discovery.jev_model", "discovery.jev_max_candidates",
-    "discovery.jev_threshold", "discovery.jev_reject_floor",
+STORED = json.loads(
+    (ROOT / "tests" / "golden" / "fixtures" / "configs" / "stored_job_configs.json").read_text(
+        encoding="utf-8"
+    )
+)
+# The keyword cascade's size (removed 2026-10-27) and Jev's settings (removed 2026-10-29).
+RETIRED_KEYS = {
+    "discovery.keyword_cascade_size",
+    "discovery.jev_model",
+    "discovery.jev_max_candidates",
+    "discovery.jev_threshold",
+    "discovery.jev_reject_floor",
+    "discovery.initial_candidates",
+    "discovery.expansion_size",
+    "discovery.max_expansions",
+    "discovery.max_search_attempts",
+    "discovery.initial_shortlist_size",
+    "discovery.max_inspected_candidates",
+    "discovery.max_inspections_per_file",
+    "discovery.search_after_inspection",
+    "discovery.keyword_search",
+    "discovery.state_board",
+    "discovery.compact_history",
+    "tool_access",
+    "orchestrated_memory_enabled",
 }
 
 
@@ -33,25 +54,33 @@ def test_a_current_config_is_fully_recorded():
 
 
 def test_legacy_keys_are_kept_apart_and_missing_fields_are_not_filled():
-    recorded = load_recorded_config({
-        "experiment_id": "old",
+    recorded = load_recorded_config(
+        {
+            "experiment_id": "old",
+            "planner_enabled": True,
+            "discovery": {"parallel_inspection_enabled": True, "max_zero_result_retries": 3},
+            "retrieval": {"mode": "keyword"},
+        }
+    )
+    assert recorded.unknown == {
         "planner_enabled": True,
-        "discovery": {"parallel_inspection_enabled": True, "initial_candidates": 10},
-        "retrieval": {"mode": "keyword"},
-    })
-    assert recorded.unknown == {"planner_enabled": True, "discovery.parallel_inspection_enabled": True}
-    assert recorded.get("discovery.initial_candidates") == 10
-    assert "retrieval.rerank_model" in recorded.not_recorded and "discovery.keyword_search" in recorded.not_recorded
-    assert "discovery.initial_candidates" not in recorded.not_recorded
+        "discovery.parallel_inspection_enabled": True,
+    }
+    assert recorded.get("discovery.max_zero_result_retries") == 3
+    assert (
+        "retrieval.rerank_model" in recorded.not_recorded
+        and "discovery.selector" in recorded.not_recorded
+    )
+    assert "discovery.max_zero_result_retries" not in recorded.not_recorded
 
 
 def test_the_stored_job_configs_load_as_recorded():
-    missing_jev = 0
+    missing_selector = 0
     for entry in STORED.values():
         recorded = load_recorded_config(entry["config"])
-        assert recorded.unknown == {}, entry["jobs"]
+        assert set(recorded.unknown) <= RETIRED_KEYS, entry["jobs"]
         if recorded.not_recorded:
-            assert set(recorded.not_recorded) == JEV_KEYS, entry["jobs"]
-            missing_jev += 1
+            assert recorded.not_recorded == ("discovery.selector",), entry["jobs"]
+            missing_selector += 1
         recorded.with_todays_defaults()  # every stored config still re-runs under today's schema
-    assert missing_jev == 45  # the jobs that ran before the Jev selector existed
+    assert missing_selector == 45  # the jobs that ran before the selector setting existed

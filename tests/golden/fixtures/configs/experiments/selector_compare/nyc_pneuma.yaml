@@ -1,66 +1,53 @@
-# NYC Pneuma retrieval for the selector comparison: our own index (/data/bilel/pneuma/nyc,
-# finished 2026-09-30) served on 8774. Otherwise experiments/jev_selection_rate/configs/nyc.yaml.
-automatic_test_coder: true
+# selector_compare/nyc_pneuma.yaml, converted to the nested layout on 2026-10-29.
+# Dropped as unused by its retrieval mode: retrieval.alpha, retrieval.duckdb_max_columns_per_file, retrieval.duckdb_max_files, retrieval.duckdb_max_scan_rows_per_file, retrieval.duckdb_probe_files, retrieval.duckdb_probe_rows_per_file, retrieval.duckdb_sample_rows, retrieval.fusion_method, retrieval.missing_signal_policy, retrieval.pneuma_cell_weight, retrieval.pneuma_column_name_weight, retrieval.pneuma_content_fusion, retrieval.pneuma_content_weight, retrieval.pneuma_enumerate_tables, retrieval.pneuma_table_name_weight, retrieval.rerank_depth, retrieval.rerank_model, retrieval.rrf_k, retrieval.scan_workers.
+schema_version: 2
+coding:
+  automatic_test_coder: true
+  context_level: full
+  max_revision_rounds: 3
+  require_semantic_plan: true
 benchmark:
   path: benchmark/100q_nyc.json
-coder_context_level: full
-core: nyc
+lake: nyc
 discovery:
-  compact_history: true
-  expansion_size: 5
-  initial_candidates: 10
-  initial_shortlist_size: 5
+  context:
+    compact_history: true
+    state_board: true
+  budget:
+    expansion_size: 5
+    initial_candidates: 10
+    initial_shortlist_size: 5
+    max_expansions: 1
+    max_inspected_candidates: 8
+    max_inspections_per_file: 2
+    max_search_attempts: 1
+    max_zero_result_retries: 2
+    search_after_inspection: false
   keyword_cascade_size: 5
-  keyword_search: cascade
-  max_expansions: 1
-  max_inspected_candidates: 8
-  max_inspections_per_file: 2
-  max_search_attempts: 1
-  max_zero_result_retries: 2
-  search_after_inspection: false
-  state_board: true
-discovery_architecture: unified
+  keyword_search:
+    strategy: cascade
+  architecture: unified
 experiment_id: selcmp-nyc-pneuma
-gates:
-  datasets: true
-  keywords: true
-  plan: false
-  result: false
-interaction_mode: autonomous
-max_revision_rounds: 3
+interaction:
+  gates:
+    datasets: true
+    keywords: true
+    plan: false
+    result: false
+  mode: autonomous
 model: openai.gpt-oss-120b
-orchestrated_memory_enabled: false
-require_semantic_plan: true
 retrieval:
-  alpha: 0.25
   candidate_multiplier: 5
-  duckdb_max_columns_per_file: 40
-  duckdb_max_files: 250
-  duckdb_max_scan_rows_per_file: 100000
-  duckdb_probe_files: 25
-  duckdb_probe_rows_per_file: 1000
-  duckdb_sample_rows: 3
   embedding_base_url: http://localhost:11434
   embedding_model: cohere.embed-v4.0
-  fusion_method: rrf
   lexical_query_fields: null
-  missing_signal_policy: zero
   mode: pneuma
-  pneuma_base_url: http://localhost:8774
-  pneuma_cell_weight: 1.0
-  pneuma_column_name_weight: 2.0
-  pneuma_content_fusion: weighted
-  pneuma_content_weight: 0.5
-  pneuma_entity_model: null
-  pneuma_enumerate_tables: true
-  pneuma_index_name: lakegen-cohere-v4-1024
-  pneuma_table_name_weight: 3.0
-  pneuma_timeout_seconds: 120
+  pneuma:
+    base_url: http://localhost:8774
+    entity_model: null
+    index_name: lakegen-cohere-v4-1024
+    timeout_seconds: 120
   representation_version: metadata-v1
-  rerank_depth: 20
-  rerank_model: cohere.rerank-v4.0-fast
-  rrf_k: 60
-  scan_workers: 8
   top_k: 20
   vector_field: table_embedding
 reviewers:
@@ -69,6 +56,6 @@ reviewers:
   plan: false
   result: false
 seed: 0
-semantic_code_judge_enabled: true
-semantic_code_judge_model: openai.gpt-oss-120b
-tool_access: agentic
+judge:
+  enabled: true
+  model: openai.gpt-oss-120b

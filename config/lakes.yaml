@@ -9,6 +9,10 @@
 # another user's servers), the portals rebuilt in September 2026 on 8771-8773
 # and the benchmark lakes on 8781-8783. LAKEGEN_PNEUMA_<LAKE>_BASE_URL and
 # LAKEGEN_PNEUMA_<LAKE>_INDEX_NAME override a route.
+#
+# catalogue: the portal's note on its catalogue fields (what the title and the
+# second title are, who the publisher is), read into the table selector's
+# read-only block; a lake without one gets the generic sentence only.
 
 defaults:
   dataset_roots: [datasets]              # searched in this order under data/<lake>/
@@ -22,26 +26,35 @@ lakes:
     title: New York City Open Data portal
     starters: benchmark/100q_nyc.json
     pneuma_url: http://localhost:8774
+    catalogue: |-
+      Each candidate is one dataset of NYC Open Data (Socrata). The title is the dataset's title; the publisher is the city agency that owns it, and the datasets of one agency share vocabulary. A dataset may exist as a table and as a map of the same data.
   valencia:
     title: Valencia Open Data portal
     starters: benchmark/100q_valencia.json
     pneuma_url: http://localhost:8771
+    catalogue: |-
+      Each candidate is one file (resource) of a dataset of the Valencia portal (CKAN). The title is the dataset's title in Spanish; "also titled" is the file's own name: the same title in Valencian, or a code or label naming what the file holds (a sensor, a period, a language version). The files of one dataset share the part of the file name before "___". The publisher is the body that publishes the dataset, almost always Ajuntament de València.
   bologna:
     title: Bologna Open Data portal
     starters: benchmark/100q_bologna.json
     pneuma_url: http://localhost:8773
+    catalogue: |-
+      Each candidate is one dataset of the Bologna portal (OpenDataSoft). The title is the dataset's title in Italian and names the subject, often with its year or period. The publisher, when given, is the municipality area that produced the data.
   paris:
     title: Paris Open Data portal
     starters: benchmark/100q_paris.json
     pneuma_url: http://localhost:8772
+    catalogue: |-
+      Each candidate is one dataset of the Paris portal (OpenDataSoft). The title is the dataset's title, often short; the description carries the detail. The publisher is the city directorate that publishes it; the responsible entity, when given, is the body behind the data (a company, an institution).
   uk:
     title: UK Open Data portal
     starters: benchmark/100q_uk.json
-    reference_questions: benchmark/100q_uk.json
     pneuma_url: http://localhost:8767
     # The cleaned tables and metadata are preferred when they exist.
     dataset_roots: [clean_datasets, datasets]
     metadata_files: [metadata_retrieved_cleaned.json, metadata_retrieved_only.json, metadata.json]
+    catalogue: |-
+      Each candidate is one file (resource) of a dataset on data.gov.uk (CKAN). The title is the file's own name, often just "CSV" or a short label; "dataset" is the title of the dataset the file belongs to and names the subject. The description belongs to the dataset and is repeated on each of its files; the files of one dataset share the part of the file name before "___" and differ by edition, area, period or seniority, told by the file name, the tags and the data. The publisher is the department or organisation that published the dataset; files of different publishers can share a dataset title or a file name.
   kramabench:
     title: KramaBench data lake (archaeology, astronomy, biomedical, environment, legal, wildfire)
     starters: benchmark/100q_kramabench.json

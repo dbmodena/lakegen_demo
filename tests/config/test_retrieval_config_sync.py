@@ -38,7 +38,9 @@ def _dataclass_defaults() -> dict[str, object]:
 
 
 def test_same_fields_in_the_same_order():
-    assert [item.name for item in fields(RetrievalConfig)] == list(RetrievalExperimentConfig.model_fields)
+    assert [item.name for item in fields(RetrievalConfig)] == list(
+        RetrievalExperimentConfig.model_fields
+    )
 
 
 def test_same_types():
@@ -49,7 +51,9 @@ def test_same_types():
 
 def test_defaults_differ_only_where_documented():
     runtime = _dataclass_defaults()
-    experiment = {name: info.default for name, info in RetrievalExperimentConfig.model_fields.items()}
+    experiment = {
+        name: info.default for name, info in RetrievalExperimentConfig.model_fields.items()
+    }
     differing = {name for name in runtime if runtime[name] != experiment[name]}
     assert differing == set(EXPERIMENT_OVERRIDES)
     for name, (runtime_value, experiment_value) in EXPERIMENT_OVERRIDES.items():
@@ -70,7 +74,9 @@ def test_round_trip_between_the_two_classes():
     production = RetrievalConfig.from_env()
     assert RetrievalExperimentConfig.from_runtime(production).to_runtime() == production
     assert RetrievalExperimentConfig().to_runtime() == RetrievalConfig(
-        scan_workers=16, rerank_model="cohere.rerank-v4.0-fast", pneuma_index_name="lakegen-cohere-v4-1024",
+        scan_workers=16,
+        rerank_model="cohere.rerank-v4.0-fast",
+        pneuma_index_name="lakegen-cohere-v4-1024",
     )
     # The experiment config's static defaults are the production defaults.
     assert RetrievalExperimentConfig().to_runtime() == RetrievalConfig.from_env()

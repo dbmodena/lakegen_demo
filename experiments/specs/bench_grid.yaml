@@ -8,6 +8,8 @@ description: Benchmark lakes, 6 modes x 2 selectors
 base: [config/base.yaml, config/presets/model/together_gpt_oss_120b.yaml]
 set:
   discovery.architecture: divided
+  # The base's default of the day; it became single on 2026-10-27, when the cascade was removed.
+  discovery.keyword_search.strategy: cascade
   retrieval.pneuma.timeout_seconds: 600
   retrieval.seeker.content_fusion: fill
   retrieval.seeker.enumerate_tables: false

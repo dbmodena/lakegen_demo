@@ -43,10 +43,14 @@ def golden(request):
             pytest.fail(f"no golden snapshot {name}.json; run pytest --update-golden to record it")
         expected = path.read_text(encoding="utf-8")
         if text != expected:
-            diff = list(difflib.unified_diff(
-                expected.splitlines(True), text.splitlines(True),
-                f"{name}.json (golden)", f"{name}.json (this run)",
-            ))
+            diff = list(
+                difflib.unified_diff(
+                    expected.splitlines(True),
+                    text.splitlines(True),
+                    f"{name}.json (golden)",
+                    f"{name}.json (this run)",
+                )
+            )
             shown = "".join(diff[:160])
             if len(diff) > 160:
                 shown += f"... ({len(diff) - 160} more diff lines)\n"

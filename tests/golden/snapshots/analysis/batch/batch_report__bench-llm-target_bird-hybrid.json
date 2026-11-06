@@ -69,6 +69,7 @@
           ],
           "selected_table_count": 1,
           "selection_metrics": {
+            "AnyOfSelection": 0.0,
             "ExactSelection": 0.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -134,6 +135,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 1.0,
             "ExactSelection": 1.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -199,6 +201,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 1.0,
             "ExactSelection": 1.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -264,6 +267,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 0.0,
             "ExactSelection": 0.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 0.5,
@@ -441,6 +445,7 @@
         "nDCG@5": 1.0
       },
       "mean_selection_metrics": {
+        "AnyOfSelection": 0.5,
         "ExactSelection": 0.5,
         "SelectionHit": 1.0,
         "SelectionPrecision": 0.875,
@@ -511,6 +516,7 @@
             "nDCG@5": 0.9625862263836886
           },
           "selection": {
+            "AnyOfSelection": 0.5,
             "ExactSelection": 0.5,
             "SelectionHit": 1.0,
             "SelectionPrecision": 0.875,
@@ -592,6 +598,7 @@
           ],
           "selected_table_count": 1,
           "selection_metrics": {
+            "AnyOfSelection": 0.0,
             "ExactSelection": 0.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -657,6 +664,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 1.0,
             "ExactSelection": 1.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -722,6 +730,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 1.0,
             "ExactSelection": 1.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -787,6 +796,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 0.0,
             "ExactSelection": 0.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 0.5,
@@ -964,6 +974,7 @@
         "nDCG@5": 1.0
       },
       "mean_selection_metrics": {
+        "AnyOfSelection": 0.5,
         "ExactSelection": 0.5,
         "SelectionHit": 1.0,
         "SelectionPrecision": 0.875,
@@ -1034,6 +1045,7 @@
             "nDCG@5": 0.9625862263836886
           },
           "selection": {
+            "AnyOfSelection": 0.5,
             "ExactSelection": 0.5,
             "SelectionHit": 1.0,
             "SelectionPrecision": 0.875,
@@ -1115,6 +1127,7 @@
           ],
           "selected_table_count": 1,
           "selection_metrics": {
+            "AnyOfSelection": 0.0,
             "ExactSelection": 0.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -1180,6 +1193,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 1.0,
             "ExactSelection": 1.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -1245,6 +1259,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 1.0,
             "ExactSelection": 1.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 1.0,
@@ -1310,6 +1325,7 @@
           ],
           "selected_table_count": 2,
           "selection_metrics": {
+            "AnyOfSelection": 0.0,
             "ExactSelection": 0.0,
             "SelectionHit": 1.0,
             "SelectionPrecision": 0.5,
@@ -1487,6 +1503,7 @@
         "nDCG@5": 1.0
       },
       "mean_selection_metrics": {
+        "AnyOfSelection": 0.5,
         "ExactSelection": 0.5,
         "SelectionHit": 1.0,
         "SelectionPrecision": 0.875,
@@ -1557,6 +1574,7 @@
             "nDCG@5": 0.9625862263836886
           },
           "selection": {
+            "AnyOfSelection": 0.5,
             "ExactSelection": 0.5,
             "SelectionHit": 1.0,
             "SelectionPrecision": 0.875,

@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from lakegen.domain.retrieval import (
+from lakegen.datastructures.retrieval import (
     RetrievalHit,
     hits_from_solr_response,
 )
-from lakegen.integrations.solr.client import LocalSolrClient
+from lakegen.retrieval.solr.client import SolrClient
 
 
 class KeywordRetriever:
@@ -21,11 +21,22 @@ class KeywordRetriever:
     reimplementation of the BM25 formula.
 
     Reference: Robertson and Zaragoza, 2009, DOI: 10.1561/1500000019.
+
+    Args:
+        solr: The lake's Solr client.
+        query_fields: Solr's ``qf``; omitted from the query when None, which
+            keeps the Solr baseline.
+        or_fallback: Retry a zero-hit AND query as OR.
+
+    Attributes:
+        solr: The lake's Solr client.
+        query_fields: Solr's ``qf``, or None.
+        or_fallback: Whether a zero-hit AND query is retried as OR.
     """
 
     def __init__(
         self,
-        solr: LocalSolrClient,
+        solr: SolrClient,
         *,
         query_fields: str | None = None,
         or_fallback: bool = False,
@@ -44,6 +55,19 @@ class KeywordRetriever:
         top_k: int,
         q_op: str = "AND",
     ) -> list[RetrievalHit]:
+        """The ``top_k`` tables BM25 ranks highest for the keywords.
+
+        Args:
+            keywords: The keywords; blank ones are dropped.
+            top_k: How many tables to return.
+            q_op: The query operator, ``AND`` or ``OR``.
+
+        Returns:
+            The hits, with their lexical score and rank filled; none for no keywords.
+
+        Raises:
+            TypeError: When ``keywords`` is a string rather than a sequence of them.
+        """
         if isinstance(keywords, str):
             raise TypeError("keywords must be a sequence, not a string")
         clean_keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
@@ -61,9 +85,7 @@ class KeywordRetriever:
             hits = self._search(clean_keywords, top_k=top_k, q_op="OR")
         return hits
 
-    def _search(
-        self, clean_keywords: list[str], *, top_k: int, q_op: str
-    ) -> list[RetrievalHit]:
+    def _search(self, clean_keywords: list[str], *, top_k: int, q_op: str) -> list[RetrievalHit]:
         params: dict[str, Any] = {
             "q_op": q_op,
             "rows": top_k,
@@ -84,6 +106,12 @@ class KeywordRetriever:
 
         Never retried as OR, whatever ``or_fallback`` says: a count that a
         fallback could inflate would say nothing about which words fail together.
+
+        Args:
+            keywords: The keywords; blank ones are dropped.
+
+        Returns:
+            Solr's ``numFound``; 0 for no keywords.
         """
         clean_keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
         if not clean_keywords:

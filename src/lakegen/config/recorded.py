@@ -19,20 +19,27 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from lakegen.config.config_files import nest
 from lakegen.config.experiment import ExperimentConfig
-from lakegen.config.files import nest
 
 
 @dataclass(frozen=True)
 class RecordedConfig:
+    """A recorded configuration, split by what today's schema knows of it.
+
+    Attributes:
+        values: Dotted key -> value, for every key the schema knows and the run recorded.
+        unknown: Dotted key -> value, for keys today's schema does not have.
+        not_recorded: Schema keys the run did not record; their values are unknown, not
+            defaults.
+    """
+
     values: dict[str, Any] = field(default_factory=dict)
-    """Dotted key -> value, for every key the schema knows and the run recorded."""
     unknown: dict[str, Any] = field(default_factory=dict)
-    """Dotted key -> value, for keys today's schema does not have."""
     not_recorded: tuple[str, ...] = ()
-    """Schema keys the run did not record; their values are unknown, not defaults."""
 
     def get(self, key: str, default: Any = None) -> Any:
+        """The recorded value of a dotted key, or ``default`` when the run did not record it."""
         return self.values.get(key, default)
 
     def with_todays_defaults(self) -> ExperimentConfig:
@@ -40,6 +47,9 @@ class RecordedConfig:
 
         Use it to re-run a recorded setup; never to describe what ran, since
         the defaults may differ from what the run used.
+
+        Returns:
+            The validated config.
         """
         return ExperimentConfig.model_validate(nest(self.values))
 

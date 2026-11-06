@@ -8,8 +8,10 @@ retrieval benchmark; variables already set in the environment win over it.
 
 | Variable | Default | Meaning | Read |
 |---|---|---|---|
-| `LAKEGEN_STATE_DIR` | unset | Root of the runtime state (coding runs, logs, manifests, jobs, keyword memory); the repository root when unset. | import of core.config, and every call-time path |
-| `LAKEGEN_JOB_DIR` | unset | Name of the API job folder under the state root (.lakegen_jobs when unset), so an API instance can own its jobs. | import of api |
+| `LAKEGEN_STATE_DIR` | unset | Root of the runtime state (coding runs, logs, manifests, jobs); the repository root when unset. | import of core.config, and every call-time path |
+| `LAKEGEN_PROMPTS_DIR` | unset | Folder of the agents' prompt templates; prompts/ at the repository root when unset. | the first prompt rendered |
+| `LAKEGEN_JOB_DIR` | unset | Name of the batch server's job folder under the state root (.lakegen_jobs when unset), so a batch server can own its jobs. | import of experiment_runner.batches |
+| `LAKEGEN_PNEUMA_INDEX_DIR` | unset | Folder of the Pneuma indexes, which the index_paths of config/services.yaml are relative to; pneuma-out under the repository root when unset. | experiment_runner services and run |
 
 ## Solr
 
@@ -29,13 +31,17 @@ retrieval benchmark; variables already set in the environment win over it.
 
 | Variable | Default | Meaning | Read |
 |---|---|---|---|
+| `DEDICATE_OCI_MODEL, DEDICATE_OCI_MODEL_2, ...` | — | Model id of one dedicated endpoint (its OCID); each dedicated.* entry of config/models.yaml names the variable it reads (model_env). | call |
 | `TOGETHERAI_API_KEY, TOGETHER_API_KEY` | — | Together AI key; the first non-empty one wins. | call |
 | `GROQ_API_KEY*, GROP_API_KEY*` | — | Groq keys for the offload, every variable matching GRO[QP]_API_KEY<digits>, in name order. | call |
-| `TYPESAFE_API_KEY, JEV_API_KEY` | — | TypeSafe key for the Jev table selector; the first set one wins. | call |
 | `OCI_CONFIG_FILE` | `'~/.oci/config'` | Path of the OCI configuration file. | call |
 | `OCI_PROFILE` | `'DEFAULT'` | Profile of the OCI configuration file. | call |
 | `OCI_COMPARTMENT_ID` | unset | Compartment for OCI Generative AI; the profile's oci_compartment_id when unset. | call |
 | `OCI_SERVICE_ENDPOINT` | unset | OCI Generative AI endpoint; derived from the profile's region when unset. | call |
+| `DEDICATE_OCI_API_KEY` | `''` | API key of the OCI Dedicated AI Cluster endpoints (sent as a bearer token), for the dedicated.* models. | call |
+| `DEDICATE_OCI_BASE_URL` | `''` | OpenAI-compatible base URL of the dedicated endpoints; the clients append /chat/completions. | call |
+| `DEDICATE_OCI_HEADERS` | `{}` | JSON object of extra request headers for the dedicated endpoints (e.g. a compartment header). | call |
+| `DEDICATE_OCI_EXTRA_BODY` | `{}` | JSON object merged into every request to the dedicated endpoints, e.g. {"reasoning_effort": "high"}. | call |
 | `LAKEGEN_TOGETHER_BASE_URL` | `'https://api.together.xyz/v1'` | Base URL of the Together AI API. | call |
 | `LAKEGEN_TOGETHER_TEMPERATURE` | `0.1` | Sampling temperature of the Together models. | call |
 | `LAKEGEN_TOGETHER_PARALLEL_TOOL_CALLS` | `True` | Let Together's gpt-oss make parallel tool calls (0 turns it off). | call |
@@ -48,13 +54,13 @@ retrieval benchmark; variables already set in the environment win over it.
 
 | Variable | Default | Meaning | Read |
 |---|---|---|---|
-| `LAKEGEN_WORKFLOW_WORKERS` | `1` | Questions the API runs at once. | import of api |
-| `LAKEGEN_BATCH_PAUSE_EVERY` | `0` | After this many finished questions a batch sleeps LAKEGEN_BATCH_PAUSE_SECONDS; 0 disables it. | import of api |
-| `LAKEGEN_BATCH_PAUSE_SECONDS` | `0.0` | Length of the periodic batch pause. | import of api |
-| `LAKEGEN_BATCH_TOKENS_PER_MINUTE` | `0.0` | Token rate a batch is held to by sleeping after each question; 0 disables it. | import of api |
-| `LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE` | `''` | A file whose number overrides the token rate, re-read before every rest. | import of api |
-| `LAKEGEN_SPLIT_MODEL` | `''` | A second model that runs a share of every batch's questions. | import of api |
-| `LAKEGEN_SPLIT_SHARE` | `0.0` | The share of questions (0 to 1) that run on LAKEGEN_SPLIT_MODEL. | import of api |
+| `LAKEGEN_WORKFLOW_WORKERS` | `1` | Questions the API runs at once (a batch server's batches included). | import of lakegen.entrypoints.api |
+| `LAKEGEN_BATCH_PAUSE_EVERY` | `0` | After this many finished questions a batch sleeps LAKEGEN_BATCH_PAUSE_SECONDS; 0 disables it. | import of experiment_runner.batches |
+| `LAKEGEN_BATCH_PAUSE_SECONDS` | `0.0` | Length of the periodic batch pause. | import of experiment_runner.batches |
+| `LAKEGEN_BATCH_TOKENS_PER_MINUTE` | `0.0` | Token rate a batch is held to by sleeping after each question; 0 disables it. | import of experiment_runner.batches |
+| `LAKEGEN_BATCH_TOKENS_PER_MINUTE_FILE` | `''` | A file whose number overrides the token rate, re-read before every rest. | import of experiment_runner.batches |
+| `LAKEGEN_SPLIT_MODEL` | `''` | A second model that runs a share of every batch's questions. | import of experiment_runner.batches |
+| `LAKEGEN_SPLIT_SHARE` | `0.0` | The share of questions (0 to 1) that run on LAKEGEN_SPLIT_MODEL. | import of experiment_runner.batches |
 | `LAKEGEN_DASHBOARD_TOKEN` | `''` | A token the run dashboard requires (open /?token=... once; it is kept in a cookie). Empty: open. | start of the dashboard |
 
 ## Behaviour switches
@@ -62,7 +68,6 @@ retrieval benchmark; variables already set in the environment win over it.
 | Variable | Default | Meaning | Read |
 |---|---|---|---|
 | `LAKEGEN_SELECTION_CARDINALITY_EXPERIMENT` | `False` | Adds the experimental table-count check to the unified architect's prompt (1). | call |
-| `LAKEGEN_ENABLE_TABPFN` | `False` | Lets generated analyses use the optional TabPFN stack (1, true, yes or on). | call |
 
 ## Retrieval defaults
 

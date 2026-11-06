@@ -10,11 +10,11 @@ name) and results/section_numbers.json (the numbers the text quotes).
 
 from __future__ import annotations
 
-from collections import defaultdict
 import json
 import math
-from pathlib import Path
 import sys
+from collections import defaultdict
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from records import BENCH, PORTALS, STRATEGIES, load, solved_flag  # noqa: E402

@@ -1,0 +1,359 @@
+"""The Solr client of the query path and the indexers: lexical, KNN and cursor queries, schema and updates."""
+
+from __future__ import annotations
+
+import json
+import math
+from collections.abc import Sequence
+from typing import Any
+
+import requests
+
+from lakegen.config.settings import get_settings, solr_core_override
+
+KNN_METADATA_FIELDS = (
+    "id",
+    "resource_id",
+    "dataset_id",
+    "title",
+    "description",
+    "publisher",
+    "resource_name",
+    "responsible_entity",
+    "tags",
+    "columns.name",
+    "columns.description",
+    "columns.type",
+    "schema",
+    "dataset_url",
+    "download_url",
+    "url",
+    "permalink",
+    "link",
+    "owner",
+    "creator",
+    "source",
+    "portal",
+    "provenance",
+    "representation_version",
+    "embedding_model",
+    "score",
+)
+
+
+def resolve_solr_core(portal: str) -> str:
+    """The Solr core that serves a portal.
+
+    LakeGen names a portal and its Solr core with the same string ("uk"), and
+    derives the data directory, Pneuma route and database path from it.
+    ``LAKEGEN_SOLR_CORE_<PORTAL>`` (for example ``LAKEGEN_SOLR_CORE_UK=uk_fixed``)
+    points the portal at a differently named core without changing any of that.
+    Only the query path calls this; ``solr_builder.index`` writes to the core it
+    is told to, so an admin run can never be redirected by the environment.
+
+    Args:
+        portal: The portal's name.
+
+    Returns:
+        The core's name.
+    """
+    return solr_core_override(portal) or portal
+
+
+class SolrClient:
+    """A client of one Solr core over HTTP.
+
+    Documents come back with their flattened ``columns.*`` fields restored as
+    a ``columns`` list of per-column dicts.
+
+    Attributes:
+        core: The core's name.
+        base_url: The Solr service's URL, without a trailing slash.
+        timeout: The timeout of every request, in seconds.
+
+    Args:
+        core: The core's name.
+        base_url: The Solr service's URL; SOLR_BASE_URL when None.
+        timeout: The timeout of every request, in seconds.
+    """
+
+    _COLUMN_DEFAULTS = {"description": None}
+
+    def __init__(
+        self,
+        core: str,
+        base_url: str | None = None,
+        timeout: float = 30.0,
+    ) -> None:
+        self.core = core.strip("/")
+        resolved_base_url = base_url or get_settings().solr_base_url
+        self.base_url = resolved_base_url.rstrip("/")
+        self.timeout = timeout
+
+    @property
+    def core_url(self) -> str:
+        """The core's URL."""
+        return f"{self.base_url}/{self.core}"
+
+    @property
+    def select_url(self) -> str:
+        """The core's /select handler."""
+        return f"{self.core_url}/select"
+
+    @property
+    def query_url(self) -> str:
+        """The core's generic /query handler."""
+        return f"{self.core_url}/query"
+
+    @staticmethod
+    def _as_list(value: Any) -> list[Any]:
+        if isinstance(value, list):
+            return value
+        return [value]
+
+    @classmethod
+    def _restore_columns(cls, doc: dict[str, Any]) -> dict[str, Any]:
+        restored_doc: dict[str, Any] = {}
+        column_values: dict[str, list[Any]] = {}
+
+        for key, value in doc.items():
+            if key.startswith("columns."):
+                column_values[key.removeprefix("columns.")] = cls._as_list(value)
+            else:
+                restored_doc[key] = value
+
+        if not column_values:
+            return restored_doc
+
+        column_count = max(len(values) for values in column_values.values())
+        columns: list[dict[str, Any]] = []
+        for index in range(column_count):
+            column = {
+                field_name: values[index]
+                for field_name, values in column_values.items()
+                if index < len(values)
+            }
+            for field_name, default in cls._COLUMN_DEFAULTS.items():
+                column.setdefault(field_name, default)
+            columns.append(column)
+
+        restored_doc["columns"] = columns
+        return restored_doc
+
+    @classmethod
+    def _restore_response_docs(cls, result: dict[str, Any]) -> dict[str, Any]:
+        response = result.get("response")
+        if not isinstance(response, dict):
+            return result
+
+        docs = response.get("docs")
+        if not isinstance(docs, list):
+            return result
+
+        response["docs"] = [
+            cls._restore_columns(doc) if isinstance(doc, dict) else doc for doc in docs
+        ]
+        return result
+
+    def select(
+        self,
+        tokens: Sequence[str],
+        *,
+        def_type: str = "edismax",
+        q_op: str = "AND",
+        indent: bool = True,
+        **params: Any,
+    ) -> dict[str, Any]:
+        """Run a lexical query of the tokens joined by spaces.
+
+        Args:
+            tokens: The query terms.
+            def_type: The query parser.
+            q_op: The default operator between the terms.
+            indent: Whether Solr indents the response.
+            **params: Further Solr parameters.
+
+        Returns:
+            The Solr response, the documents' columns restored.
+
+        Raises:
+            TypeError: ``tokens`` is a string.
+        """
+        if isinstance(tokens, str):
+            raise TypeError("tokens must be a sequence of strings, not a string")
+
+        response = requests.get(
+            self.select_url,
+            params={
+                "defType": def_type,
+                "indent": str(indent).lower(),
+                "q.op": q_op,
+                "q": " ".join(tokens),
+                "wt": "json",
+                **params,
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return self._restore_response_docs(response.json())
+
+    def knn_select(
+        self,
+        vector: Sequence[float],
+        *,
+        vector_field: str,
+        top_k: int,
+        rows: int | None = None,
+        filters: Sequence[str] = (),
+        **params: Any,
+    ) -> dict[str, Any]:
+        """Run a Solr KNN query against a ``DenseVectorField``.
+
+        Solr/Lucene computes the vector similarity; this client only validates
+        and serializes the query vector. The configured Solr field must use
+        ``similarityFunction=cosine`` for LakeGen's semantic experiments.
+
+        Args:
+            vector: The query vector.
+            vector_field: The dense-vector field.
+            top_k: How many neighbours the KNN parser finds.
+            rows: How many documents to return; ``top_k`` when None.
+            filters: Filter queries.
+            **params: Further Solr parameters.
+
+        Returns:
+            The Solr response with the metadata fields only, the vector field removed.
+
+        Raises:
+            ValueError: The field name is not simple, ``top_k`` is not positive, or the
+                vector is empty or not finite.
+        """
+        if not vector_field or not vector_field.replace("_", "").isalnum():
+            raise ValueError("vector_field must be a simple Solr field name")
+        if top_k <= 0:
+            raise ValueError("top_k must be greater than zero")
+
+        values = [float(value) for value in vector]
+        if not values or any(not math.isfinite(value) for value in values):
+            raise ValueError("vector must contain finite numeric values")
+
+        query = f"{{!knn f={vector_field} topK={top_k}}}" + json.dumps(
+            values, separators=(",", ":")
+        )
+        request_params: dict[str, Any] = {
+            "q": query,
+            "rows": rows if rows is not None else top_k,
+            "wt": "json",
+            **params,
+        }
+        request_params["fl"] = ",".join(KNN_METADATA_FIELDS)
+        if filters:
+            request_params["fq"] = list(filters)
+
+        # Dense vectors easily exceed HTTP request-line limits when serialized
+        # as a GET query string. Use Solr's generic /query handler so a
+        # collection-specific /select default such as defType=edismax cannot
+        # reinterpret the KNN query parser. Both handlers accept form POSTs.
+        response = requests.post(
+            self.query_url,
+            data=request_params,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        result = self._restore_response_docs(response.json())
+        # Keep a defensive boundary even if a custom Solr handler ignores fl.
+        # Query vectors are large implementation details and must never escape
+        # through retrieval results or experiment logs.
+        docs = result.get("response", {}).get("docs", [])
+        for document in docs:
+            if isinstance(document, dict):
+                document.pop(vector_field, None)
+        return result
+
+    def iter_documents(
+        self,
+        *,
+        fields: Sequence[str],
+        batch_size: int = 100,
+        sort_field: str = "resource_id",
+        restore_columns: bool = True,
+    ):
+        """Yield all documents using Solr's cursor API."""
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than zero")
+
+        cursor = "*"
+        while True:
+            response = requests.get(
+                self.select_url,
+                params={
+                    "q": "*:*",
+                    "fl": ",".join(fields),
+                    "rows": batch_size,
+                    "sort": f"{sort_field} asc",
+                    "cursorMark": cursor,
+                    "wt": "json",
+                },
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if restore_columns:
+                payload = self._restore_response_docs(payload)
+            docs = payload.get("response", {}).get("docs", [])
+            for doc in docs:
+                if isinstance(doc, dict):
+                    yield doc
+
+            next_cursor = payload.get("nextCursorMark")
+            if not docs or not next_cursor or next_cursor == cursor:
+                break
+            cursor = next_cursor
+
+    def schema(self) -> dict[str, Any]:
+        """The core's schema."""
+        response = requests.get(
+            f"{self.core_url}/schema",
+            params={"wt": "json"},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def update_schema(self, commands: dict[str, Any]) -> dict[str, Any]:
+        """Send Schema API commands; returns Solr's response."""
+        response = requests.post(
+            f"{self.core_url}/schema",
+            params={"wt": "json"},
+            json=commands,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def update_documents(
+        self,
+        documents: Sequence[dict[str, Any]],
+        *,
+        commit: bool = False,
+    ) -> dict[str, Any]:
+        """Add or replace documents, committing when asked; returns Solr's response."""
+        response = requests.post(
+            f"{self.core_url}/update",
+            params={"commit": str(commit).lower(), "wt": "json"},
+            json=list(documents),
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def commit(self) -> dict[str, Any]:
+        """Commit the pending updates; returns Solr's response."""
+        response = requests.post(
+            f"{self.core_url}/update",
+            params={"wt": "json"},
+            json={"commit": {}},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()

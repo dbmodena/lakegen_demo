@@ -1,36 +1,40 @@
 {
   "calls": [
     {
-      "call": "phase1_generate_keywords",
+      "call": "write_keywords",
       "kwargs": {
         "avoid_keywords": [],
+        "follow_ups": [],
         "hint": "",
         "llm": "<object>",
         "pm": "<object>",
         "portal_name": "Test portal",
         "query": "How many parks are there per district?",
         "value_search": false,
-        "verbatim_entities": false
+        "verbatim_entities": false,
+        "zero_result_sets": []
       }
     },
     {
-      "call": "phase1_generate_keywords",
+      "call": "write_keywords",
       "kwargs": {
         "avoid_keywords": [
           "parks",
           "district"
         ],
+        "follow_ups": [],
         "hint": "add the year",
         "llm": "<object>",
         "pm": "<object>",
         "portal_name": "Test portal",
         "query": "How many parks are there per district?",
         "value_search": false,
-        "verbatim_entities": false
+        "verbatim_entities": false,
+        "zero_result_sets": []
       }
     },
     {
-      "call": "phase2_select_tables",
+      "call": "select_tables",
       "kwargs": {
         "all_files": [
           "gold.csv",
@@ -40,24 +44,8 @@
         "carried_tables": [],
         "csv_dir": "<TMP>",
         "discovery": {
-          "compact_history": true,
-          "expansion_size": 5,
-          "initial_candidates": 10,
-          "initial_shortlist_size": 3,
-          "jev_max_candidates": 8,
-          "jev_model": "jev-1.13.0",
-          "jev_reject_floor": 0.15,
-          "jev_threshold": 0.5,
-          "keyword_cascade_size": 5,
-          "keyword_search": "cascade",
-          "max_expansions": 1,
-          "max_inspected_candidates": 6,
-          "max_inspections_per_file": 2,
-          "max_search_attempts": 1,
           "max_zero_result_retries": 2,
-          "search_after_inspection": false,
-          "selector": "llm",
-          "state_board": true
+          "selector": "memgpt"
         },
         "entities": [],
         "excluded_tables": [],
@@ -67,6 +55,7 @@
           "district",
           "2024"
         ],
+        "lake": "nyc",
         "llm": "<object>",
         "pm": "<object>",
         "portal_name": "Test portal",
@@ -115,49 +104,25 @@
           "vector_field": "table_embedding"
         },
         "selection_state": {
-          "<type>": "P12State",
+          "<type>": "DiscoveryState",
           "all_candidates": [],
-          "banned_table_keyword_combinations": [],
-          "best_ranks": {},
-          "blocked_selection": {},
-          "candidate_scores": {},
           "carried_metadata": {},
           "carried_tables": [],
-          "confirm_blocks": 0,
           "confirmed_tables": [],
           "excluded_tables": [],
           "expansion_count": 0,
-          "expansion_requirements": [],
-          "failed_keyword_combinations": [],
-          "initial_stall_reason": null,
-          "inspection_cache": {},
-          "inspection_counts": {},
-          "keyword_history": [],
-          "last_confirm_error": null,
-          "plan_failure": null,
-          "proposed_tables": [],
-          "recovery_started": false,
-          "recovery_stop_reason": null,
-          "rejected_selections": [],
           "rejection_keep_tables": [],
           "rejection_skip_tables": [],
-          "retrieval_memory_events": [],
           "search_attempts": [],
-          "search_cache": {},
-          "search_calls": 0,
           "selection_advisories": [],
           "selection_plan": {},
           "selection_plan_source": "none",
           "selection_reasoning": "",
-          "selection_requirements": {},
-          "semantic_draft": {},
-          "semantic_failure": null,
-          "semantic_planner_attempts": 0,
           "solr_meta": {},
           "used_keywords": [],
           "visible_candidate_count": 0
         },
-        "solr_client": "<object>"
+        "solr_client": "<MatchingSolr>"
       }
     },
     {
@@ -179,7 +144,7 @@
           "gold.csv"
         ]
       },
-      "call": "phase3_generate_and_execute",
+      "call": "write_and_run_code",
       "kwargs": {
         "allow_semantic_revision": true,
         "brief_advisory": true,
@@ -234,7 +199,6 @@
             "pneuma_index_name": "lakegen-cohere-v4-1024",
             "solr_core": "nyc",
             "switches": {
-              "enable_tabpfn": false,
               "groq_offload": false,
               "selection_cardinality_experiment": false,
               "together_parallel_tool_calls": true,
@@ -275,24 +239,8 @@
             "coder_context_level": "full",
             "core": "nyc",
             "discovery": {
-              "compact_history": true,
-              "expansion_size": 5,
-              "initial_candidates": 10,
-              "initial_shortlist_size": 3,
-              "jev_max_candidates": 8,
-              "jev_model": "jev-1.13.0",
-              "jev_reject_floor": 0.15,
-              "jev_threshold": 0.5,
-              "keyword_cascade_size": 5,
-              "keyword_search": "cascade",
-              "max_expansions": 1,
-              "max_inspected_candidates": 6,
-              "max_inspections_per_file": 2,
-              "max_search_attempts": 1,
               "max_zero_result_retries": 2,
-              "search_after_inspection": false,
-              "selector": "llm",
-              "state_board": true
+              "selector": "memgpt"
             },
             "discovery_architecture": "divided",
             "experiment_id": "golden",
@@ -305,7 +253,6 @@
             "interaction_mode": "human_gated",
             "max_revision_rounds": 3,
             "model": "openai.gpt-oss-120b",
-            "orchestrated_memory_enabled": false,
             "require_semantic_plan": true,
             "retrieval": {
               "alpha": 0.5,
@@ -359,8 +306,7 @@
             "revision_experiment_mode": "current",
             "seed": 0,
             "semantic_code_judge_enabled": true,
-            "semantic_code_judge_model": "openai.gpt-oss-120b",
-            "tool_access": "agentic"
+            "semantic_code_judge_model": "openai.gpt-oss-120b"
           },
           "retrieval_parameters": {
             "alpha": 0.5,
@@ -439,24 +385,8 @@
             "coder_context_level": "full",
             "core": "nyc",
             "discovery": {
-              "compact_history": true,
-              "expansion_size": 5,
-              "initial_candidates": 10,
-              "initial_shortlist_size": 3,
-              "jev_max_candidates": 8,
-              "jev_model": "jev-1.13.0",
-              "jev_reject_floor": 0.15,
-              "jev_threshold": 0.5,
-              "keyword_cascade_size": 5,
-              "keyword_search": "cascade",
-              "max_expansions": 1,
-              "max_inspected_candidates": 6,
-              "max_inspections_per_file": 2,
-              "max_search_attempts": 1,
               "max_zero_result_retries": 2,
-              "search_after_inspection": false,
-              "selector": "llm",
-              "state_board": true
+              "selector": "memgpt"
             },
             "discovery_architecture": "divided",
             "experiment_id": "golden",
@@ -469,7 +399,6 @@
             "interaction_mode": "human_gated",
             "max_revision_rounds": 3,
             "model": "openai.gpt-oss-120b",
-            "orchestrated_memory_enabled": false,
             "require_semantic_plan": true,
             "retrieval": {
               "alpha": 0.5,
@@ -523,11 +452,9 @@
             "revision_experiment_mode": "current",
             "seed": 0,
             "semantic_code_judge_enabled": true,
-            "semantic_code_judge_model": "openai.gpt-oss-120b",
-            "tool_access": "agentic"
+            "semantic_code_judge_model": "openai.gpt-oss-120b"
           },
           "discovery": {
-            "expansion_requirements": [],
             "expansion_used": false,
             "keywords": [
               "parks",
@@ -543,8 +470,26 @@
             "selection_attempts": [
               {
                 "attempt": 1,
-                "initial_stall_reason": null,
                 "kept_tables": [],
+                "keyword_searches": [
+                  {
+                    "keywords": [
+                      "parks",
+                      "district"
+                    ],
+                    "outcome": "matched",
+                    "tables": 1
+                  },
+                  {
+                    "keywords": [
+                      "parks",
+                      "district",
+                      "2024"
+                    ],
+                    "outcome": "matched",
+                    "tables": 1
+                  }
+                ],
                 "keywords": [
                   "parks",
                   "district",
@@ -552,8 +497,6 @@
                 ],
                 "outcome": "selected",
                 "reasoning_available_to_coder": false,
-                "recovery_started": false,
-                "recovery_stop_reason": null,
                 "rejection_feedback": "",
                 "selected_datasets": [
                   "gold.csv"
@@ -561,9 +504,6 @@
                 "selection_advisories": [],
                 "selection_plan": {},
                 "selection_plan_source": "none",
-                "semantic_draft_present": false,
-                "semantic_plan_failure": null,
-                "semantic_planner_attempts": 0,
                 "skipped_tables": []
               }
             ]
@@ -690,18 +630,10 @@
             "agent_count": 2,
             "agent_direct_tools": [],
             "coder_context_audit": null,
-            "configured_tool_access": "agentic",
             "discovery_architecture": "divided",
-            "empty_context_retries": 0,
-            "execution_path": "agentic",
             "llm_invocations": 2,
             "orchestrator_retrieval_calls": {},
-            "preparation_error": null,
-            "prepared_candidate_count": 0,
-            "prepared_context_utf8_bytes": 0,
-            "request_protocol_error": null,
-            "retrieval_mode": "keyword",
-            "selector_error": null
+            "retrieval_mode": "keyword"
           },
           "tool_calls": []
         },
@@ -745,7 +677,6 @@
         "pneuma_index_name": "lakegen-cohere-v4-1024",
         "solr_core": "nyc",
         "switches": {
-          "enable_tabpfn": false,
           "groq_offload": false,
           "selection_cardinality_experiment": false,
           "together_parallel_tool_calls": true,
@@ -786,24 +717,8 @@
         "coder_context_level": "full",
         "core": "nyc",
         "discovery": {
-          "compact_history": true,
-          "expansion_size": 5,
-          "initial_candidates": 10,
-          "initial_shortlist_size": 3,
-          "jev_max_candidates": 8,
-          "jev_model": "jev-1.13.0",
-          "jev_reject_floor": 0.15,
-          "jev_threshold": 0.5,
-          "keyword_cascade_size": 5,
-          "keyword_search": "cascade",
-          "max_expansions": 1,
-          "max_inspected_candidates": 6,
-          "max_inspections_per_file": 2,
-          "max_search_attempts": 1,
           "max_zero_result_retries": 2,
-          "search_after_inspection": false,
-          "selector": "llm",
-          "state_board": true
+          "selector": "memgpt"
         },
         "discovery_architecture": "divided",
         "experiment_id": "golden",
@@ -816,7 +731,6 @@
         "interaction_mode": "human_gated",
         "max_revision_rounds": 3,
         "model": "openai.gpt-oss-120b",
-        "orchestrated_memory_enabled": false,
         "require_semantic_plan": true,
         "retrieval": {
           "alpha": 0.5,
@@ -870,8 +784,7 @@
         "revision_experiment_mode": "current",
         "seed": 0,
         "semantic_code_judge_enabled": true,
-        "semantic_code_judge_model": "openai.gpt-oss-120b",
-        "tool_access": "agentic"
+        "semantic_code_judge_model": "openai.gpt-oss-120b"
       },
       "retrieval_parameters": {
         "alpha": 0.5,

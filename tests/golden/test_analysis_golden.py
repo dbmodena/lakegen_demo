@@ -1,7 +1,7 @@
 """Goldens of the analysis over stored jobs: the batch report the API logs.
 
 The report of a job must keep coming out the same from its stored questions
-and results, whatever moves between the API and ``lakegen.experiments.analysis``; the
+and results, whatever moves between the API and ``experiment_runner.analysis``; the
 API's own wrapper must return the report's summary.
 """
 
@@ -12,11 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from lakegen.experiments.analysis.metrics import batch_cases, batch_report, report_summary
+from experiment_runner.batches.metrics import batch_cases, batch_report, report_summary
 
 ROOT = Path(__file__).resolve().parents[2]
 JOBS = ROOT / "tests" / "golden" / "fixtures" / "jobs" / "sample"
-JOB_IDS = sorted(path.stem for path in JOBS.glob("*.json") if not path.name.endswith(".questions.json"))
+JOB_IDS = sorted(
+    path.stem for path in JOBS.glob("*.json") if not path.name.endswith(".questions.json")
+)
 
 
 def _job(job_id: str) -> tuple[dict, list[dict], list[dict]]:
@@ -35,16 +37,20 @@ def test_batch_report_of_a_stored_job(job_id: str, golden):
     job, questions, results = _job(job_id)
     cases = batch_cases(questions, results)
     assert cases is not None
-    report = batch_report(cases, results, job["settings"]["resolved_config"], created_at="<created>")
+    report = batch_report(
+        cases, results, job["settings"]["resolved_config"], created_at="<created>"
+    )
     golden(f"analysis/batch_report__{job['settings']['resolved_config']['experiment_id']}", report)
 
 
 def test_the_batch_wrapper_returns_the_report_summary(monkeypatch):
-    from lakegen.experiments import batch
+    from experiment_runner.batches import batch
 
     job, questions, results = _job(JOB_IDS[0])
     logged = []
-    monkeypatch.setattr(batch, "append_benchmark_metrics_log", lambda report, *a, **k: logged.append(report))
+    monkeypatch.setattr(
+        batch, "append_benchmark_metrics_log", lambda report, *a, **k: logged.append(report)
+    )
     summary = batch.append_batch_table_metrics(job["job_id"], questions, results, job["settings"])
     assert len(logged) == 1
     assert summary == report_summary(logged[0])

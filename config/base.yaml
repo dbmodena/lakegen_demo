@@ -1,17 +1,16 @@
-# The base experiment configuration, in the nested layout (schema_version 2).
+# The base experiment configuration: every setting, with its accepted values.
 #
 # Every setting is explicit here, so a report never depends on a default hidden
 # in the code. An experiment file names this one in `extends:` and overrides
 # what it changes, usually by adding presets from config/presets/:
 #
 #     schema_version: 2
-#     extends: [base.yaml, presets/retrieval/hybrid_rrf.yaml, presets/selector/jev.yaml]
-#     experiment_id: bench-chicago-jev
+#     extends: [base.yaml, presets/retrieval/hybrid_rrf.yaml, presets/model/together_gpt_oss_120b.yaml]
+#     experiment_id: bench-chicago-hybrid
 #     lake: chicago
 #
-# `python -m lakegen.config.files show <file>` prints the resolved configuration.
-# The flat layout of the older config/examples/experiment.example*.yaml files is still
-# read; a file without `schema_version: 2` is flat.
+# Every config file starts with `schema_version: 2`. `lakegen config show <file>`
+# prints the resolved configuration.
 
 schema_version: 2
 
@@ -29,42 +28,18 @@ lake: nyc
 model: openai.gpt-oss-120b
 
 discovery:
-  # unified: one agent generates keywords and selects tables;
-  # divided: keyword generation and table selection are separate agents.
-  architecture: unified
-  # agentic: the agent calls its tools itself;
-  # orchestrated_context: retrieval runs first and the agent gets a fixed context.
-  tool_access: agentic
-  # Persistent query feedback in the orchestrated path; off for the baseline.
-  orchestrated_memory: false
-  # Who selects tables in the divided architecture: llm (the judge agent) or
-  # jev (TypeSafe's decision model, which falls back to the LLM on API errors).
+  # divided: a keyword writer, then the table selector over what retrieval found;
+  # unified: one agent that searches the catalogue itself and selects from what
+  # it finds (the selector with a search tool).
+  architecture: divided
+  # Who selects tables in the divided architecture: memgpt, an agent with a
+  # system-kept working memory. llm (the judge memgpt replaced) and jev
+  # (TypeSafe's decision model, removed) only appear in the configurations of
+  # past runs.
   selector:
-    kind: llm
-    model: jev-1.13.0        # pinned: the thresholds were tuned on this release
-    max_candidates: 8
-    threshold: 0.5
-    reject_floor: 0.15
-  # How far discovery may look before it must commit.
+    kind: memgpt
   budget:
-    initial_candidates: 10   # candidates the agent sees before any expansion
-    expansion_size: 5        # candidates one expansion reveals
-    max_expansions: 1
-    max_search_attempts: 1
-    max_zero_result_retries: 2
-    initial_shortlist_size: 5
-    max_inspected_candidates: 8
-    max_inspections_per_file: 2
-    search_after_inspection: false
-  # What one search call runs in keyword mode: single, decompose_preview or
-  # cascade (ranked AND word sets, run one at a time until one finds a table).
-  keyword_search:
-    strategy: cascade
-    cascade_size: 5
-  # Context management of the unified agent.
-  context:
-    state_board: true
-    compact_history: true
+    max_zero_result_retries: 2  # the divided writer's new keywords after a strict-AND search (hybrid: its keyword side) matched nothing
 
 retrieval:
   # keyword | semantic | hybrid | pneuma | pneuma_seeker | duckdb_agentic |

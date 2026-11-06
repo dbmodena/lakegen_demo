@@ -6,8 +6,6 @@ Everything a run writes lives under one root, ``resolve_state_dir``:
     logs/                         experiment logs, retrieval rankings, the Groq ledger
     logs/manifests/               one manifest per run
     .lakegen_jobs*/               API batch jobs (``LAKEGEN_JOB_DIR`` names the folder)
-    .lakegen_keyword_memory.json  the durable keyword memory of standalone runs
-    runs/<experiment>/memory.json the keyword memory of one experiment
 
 ``LOG_DIR`` and ``api.JOB_DIR`` are the same locations computed
 once at import; they stay because modules and tests refer to them by name.
@@ -38,6 +36,9 @@ def resolve_state_dir() -> Path:
     under one root: ``LAKEGEN_STATE_DIR`` when it is set, else the repository
     root, where they have always been. The test suite points the variable at
     a temporary directory so that no test touches the real state.
+
+    Returns:
+        The state root.
     """
     value = read("LAKEGEN_STATE_DIR")
     return Path(value).expanduser() if value else BASE_DIR
@@ -62,20 +63,21 @@ def resolve_portal_metadata_path(portal: str) -> Path:
     return get_lake(portal).metadata_path
 
 
-
 DEFAULT_JOBS_DIR_NAME = ".lakegen_jobs"
-KEYWORD_MEMORY_FILE = ".lakegen_keyword_memory.json"
 
 
 def log_dir() -> Path:
+    """The logs folder under the state root."""
     return resolve_state_dir() / LOGS_DIR_NAME
 
 
 def manifests_dir() -> Path:
+    """The run manifests' folder, inside the logs folder."""
     return log_dir() / "manifests"
 
 
 def coding_dir() -> Path:
+    """The folder of the coder's generated scripts, one subfolder per run."""
     return resolve_state_dir() / "coding"
 
 
@@ -90,17 +92,17 @@ def runs_dir() -> Path:
 
 
 def services_dir() -> Path:
-    """Logs and pids of the services ``lakegen services up`` started."""
+    """Logs and pids of the services ``python -m experiment_runner services up`` started."""
     return resolve_state_dir() / "services"
 
 
-def keyword_memory_path(experiment_id: str | None = None) -> Path:
-    """The keyword memory of an experiment, or the lake-wide file of standalone runs.
+def pneuma_index_dir() -> Path:
+    """The folder of the Pneuma indexes: ``LAKEGEN_PNEUMA_INDEX_DIR``, else ``pneuma-out``."""
+    value = read("LAKEGEN_PNEUMA_INDEX_DIR")
+    return Path(value).expanduser() if value else BASE_DIR / "pneuma-out"
 
-    Each experiment remembers on its own (``runs/<experiment>/memory.json``),
-    so concurrent experiments neither share bans nor contend for one file;
-    a run outside an experiment (the default id) keeps today's file.
-    """
-    if experiment_id and experiment_id != "default":
-        return runs_dir() / experiment_id / "memory.json"
-    return resolve_state_dir() / KEYWORD_MEMORY_FILE
+
+def prompts_dir() -> Path:
+    """The folder of the agents' prompt templates: ``LAKEGEN_PROMPTS_DIR``, else ``prompts`` at the root."""
+    value = read("LAKEGEN_PROMPTS_DIR")
+    return Path(value).expanduser() if value else BASE_DIR / "prompts"

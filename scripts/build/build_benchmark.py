@@ -26,7 +26,6 @@ DIFFICULTIES = ("easy", "medium", "hard")
 
 def _records(payload: Any) -> list[dict[str, Any]]:
     """Flatten only top-level generated query records and their group metadata."""
-
     if not isinstance(payload, dict):
         raise ValueError("The input root must be a JSON object")
     records: list[dict[str, Any]] = []
@@ -45,14 +44,16 @@ def _records(payload: Any) -> list[dict[str, Any]]:
                     if record_key == "_meta" or not isinstance(record, dict):
                         continue
                     if isinstance(record.get("question"), str) and "status" in record:
-                        records.append({
-                            "engine": str(engine),
-                            "query_kind": str(query_kind),
-                            "group": str(group_name),
-                            "record_key": str(record_key),
-                            "table_map": table_map if isinstance(table_map, dict) else {},
-                            "record": record,
-                        })
+                        records.append(
+                            {
+                                "engine": str(engine),
+                                "query_kind": str(query_kind),
+                                "group": str(group_name),
+                                "record_key": str(record_key),
+                                "table_map": table_map if isinstance(table_map, dict) else {},
+                                "record": record,
+                            }
+                        )
     return records
 
 
@@ -65,9 +66,51 @@ def _difficulty(value: Any) -> str:
     return normalized
 
 
-def _normalize(item: dict[str, Any]) -> dict[str, Any]:
-    """Produce the batch-compatible case without executing generated code."""
+def _accepted_alternatives(
+    retrieval_tables: Any, relevant_table_ids: list[str]
+) -> dict[str, list[str]]:
+    """The tables the record's retrieval contract accepts in place of each gold table.
 
+    Args:
+        retrieval_tables: The record's ``retrieval.tables``, by table id.
+        relevant_table_ids: The gold table ids.
+
+    Returns:
+        The non-empty alternatives by gold table id, in contract order without repeats.
+    """
+    accepted_table_alternatives: dict[str, list[str]] = {}
+    if isinstance(retrieval_tables, dict):
+        normalized_contract = {
+            str(table_id).rsplit("___", 1)[-1]: details
+            for table_id, details in retrieval_tables.items()
+            if isinstance(details, dict)
+        }
+        for table_id in relevant_table_ids:
+            resource_id = table_id.rsplit("___", 1)[-1]
+            alternatives = normalized_contract.get(resource_id, {}).get("accepted_table_ids", [])
+            if isinstance(alternatives, list):
+                normalized_alternatives = list(
+                    dict.fromkeys(str(value) for value in alternatives if str(value).strip())
+                )
+                if normalized_alternatives:
+                    accepted_table_alternatives[table_id] = normalized_alternatives
+    return accepted_table_alternatives
+
+
+def _normalize(item: dict[str, Any]) -> dict[str, Any]:
+    """Produce the batch-compatible case without executing generated code.
+
+    Args:
+        item: A flattened record of ``_records``.
+
+    Returns:
+        The case, with its gold tables resolved through the group's table map.
+
+    Raises:
+        ValueError: When the record lacks tables, resolvable aliases, code, a
+            question, a result, an expected result type or keywords, or has an
+            unsupported difficulty.
+    """
     record = item["record"]
     table_map = item["table_map"]
     raw_tables = record.get("tables")
@@ -88,40 +131,27 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Query {record.get('client_id')!r} has an empty question")
     if record.get("query_result") is None:
         raise ValueError(f"Query {record.get('client_id')!r} has no generated result")
-    if not isinstance(record.get("expected_result_type"), str) or not record[
-        "expected_result_type"
-    ].strip():
-        raise ValueError(
-            f"Query {record.get('client_id')!r} has no expected result type"
-        )
+    if (
+        not isinstance(record.get("expected_result_type"), str)
+        or not record["expected_result_type"].strip()
+    ):
+        raise ValueError(f"Query {record.get('client_id')!r} has no expected result type")
 
     aliases = list(dict.fromkeys(aliases))
     relevant_table_ids = list(dict.fromkeys(str(table_map[alias]) for alias in aliases))
-    retrieval_tables = record.get("retrieval", {}).get("tables", {})
-    accepted_table_alternatives: dict[str, list[str]] = {}
-    if isinstance(retrieval_tables, dict):
-        normalized_contract = {
-            str(table_id).rsplit("___", 1)[-1]: details
-            for table_id, details in retrieval_tables.items()
-            if isinstance(details, dict)
-        }
-        for table_id in relevant_table_ids:
-            resource_id = table_id.rsplit("___", 1)[-1]
-            alternatives = normalized_contract.get(resource_id, {}).get(
-                "accepted_table_ids", []
-            )
-            if isinstance(alternatives, list):
-                normalized_alternatives = list(dict.fromkeys(
-                    str(value) for value in alternatives if str(value).strip()
-                ))
-                if normalized_alternatives:
-                    accepted_table_alternatives[table_id] = normalized_alternatives
+    accepted_table_alternatives = _accepted_alternatives(
+        record.get("retrieval", {}).get("tables", {}),
+        relevant_table_ids,
+    )
     difficulty = _difficulty(record.get("difficulty"))
     keywords = record.get("question_keywords") or record.get("plan_keywords") or []
     if not isinstance(keywords, list) or not any(str(value).strip() for value in keywords):
         raise ValueError(f"Query {record.get('client_id')!r} has no retrieval keywords")
     return {
-        "id": str(record.get("client_id") or f"{item['engine']}-{item['query_kind']}-{item['group']}-{item['record_key']}"),
+        "id": str(
+            record.get("client_id")
+            or f"{item['engine']}-{item['query_kind']}-{item['group']}-{item['record_key']}"
+        ),
         "question": record["question"].strip(),
         "keywords": list(dict.fromkeys(str(value) for value in keywords if str(value).strip())),
         "relevant_table_ids": relevant_table_ids,
@@ -142,10 +172,14 @@ def _normalize(item: dict[str, Any]) -> dict[str, Any]:
 
 def _difficulty_quotas(count: int) -> dict[str, int]:
     base, remainder = divmod(count, len(DIFFICULTIES))
-    return {difficulty: base + int(index < remainder) for index, difficulty in enumerate(DIFFICULTIES)}
+    return {
+        difficulty: base + int(index < remainder) for index, difficulty in enumerate(DIFFICULTIES)
+    }
 
 
-def _select(cases: list[dict[str, Any]], *, count: int, seed: int) -> tuple[list[dict[str, Any]], dict[str, dict[str, int]]]:
+def _select(
+    cases: list[dict[str, Any]], *, count: int, seed: int
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, int]]]:
     quotas = _difficulty_quotas(count)
     scopes = ("single_table", "multi_table")
     pool: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -164,7 +198,8 @@ def _select(cases: list[dict[str, Any]], *, count: int, seed: int) -> tuple[list
                 proposed = {"easy": easy_multi, "medium": medium_multi, "hard": hard_multi}
                 if all(
                     0 <= proposed[difficulty] <= len(pool[(difficulty, "multi_table")])
-                    and quotas[difficulty] - proposed[difficulty] <= len(pool[(difficulty, "single_table")])
+                    and quotas[difficulty] - proposed[difficulty]
+                    <= len(pool[(difficulty, "single_table")])
                     for difficulty in DIFFICULTIES
                 ):
                     allocations.append((easy_multi, medium_multi, hard_multi))
@@ -182,7 +217,8 @@ def _select(cases: list[dict[str, Any]], *, count: int, seed: int) -> tuple[list
     # Prefer a balanced distribution of multi-table questions across levels.
     allocation = min(allocations, key=lambda values: max(values) - min(values))
     multi_by_difficulty = dict(zip(DIFFICULTIES, allocation, strict=True))
-    rng = random.Random(seed)
+    # Seeded sampling for a reproducible benchmark, not for security.
+    rng = random.Random(seed)  # nosec B311
     selected: list[dict[str, Any]] = []
     matrix: dict[str, dict[str, int]] = {}
     for difficulty in DIFFICULTIES:
@@ -199,7 +235,23 @@ def _select(cases: list[dict[str, Any]], *, count: int, seed: int) -> tuple[list
     return selected, matrix
 
 
-def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: str = "") -> dict[str, Any]:
+def build_benchmark(
+    payload: Any, *, count: int = 100, seed: int = 42, source: str = ""
+) -> dict[str, Any]:
+    """Select ``count`` successful generated questions, balanced by difficulty and table scope.
+
+    Invalid records are skipped and counted; a pool that cannot meet the
+    quotas raises ``ValueError`` from the selection.
+
+    Args:
+        payload: The generated queries file (engine -> query kind -> group -> record).
+        count: How many cases to select.
+        seed: The sampling seed.
+        source: The input's path, recorded in the sample metadata.
+
+    Returns:
+        The benchmark: its ``sample_metadata`` and its ``cases``.
+    """
     candidates: list[dict[str, Any]] = []
     rejected: list[str] = []
     seen_questions: set[tuple[str, tuple[str, ...]]] = set()
@@ -209,7 +261,10 @@ def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: s
     for item in sorted(
         _records(payload),
         key=lambda value: (
-            value["engine"], value["query_kind"], value["group"], value["record_key"],
+            value["engine"],
+            value["query_kind"],
+            value["group"],
+            value["record_key"],
         ),
     ):
         if item["record"].get("status") != "success":
@@ -230,10 +285,17 @@ def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: s
     # The remaining fields drive retrieval and direct reference/code metrics.
     # Sampling-only and source-navigation metadata stays in sample_metadata.
     output_fields = (
-        "id", "question", "keywords", "relevant_table_ids", "table_aliases",
+        "id",
+        "question",
+        "keywords",
+        "relevant_table_ids",
+        "table_aliases",
         "accepted_table_alternatives",
-        "reference_code", "reference_result", "expected_result_type",
-        "expected_result_description", "evaluation_contract",
+        "reference_code",
+        "reference_result",
+        "expected_result_type",
+        "expected_result_description",
+        "evaluation_contract",
     )
     return {
         "sample_metadata": {
@@ -258,10 +320,9 @@ def build_benchmark(payload: Any, *, count: int = 100, seed: int = 42, source: s
 
 
 def main() -> None:
+    """Build the benchmark of a dataset and write it, printing where."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--dataset", choices=sorted(DEFAULT_PATHS), default=DEFAULT_DATASET
-    )
+    parser.add_argument("--dataset", choices=sorted(DEFAULT_PATHS), default=DEFAULT_DATASET)
     parser.add_argument("--input", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--count", type=int, default=100)
@@ -275,8 +336,12 @@ def main() -> None:
     payload = json.loads(input_path.read_text(encoding="utf-8"))
     benchmark = build_benchmark(payload, count=args.count, seed=args.seed, source=str(input_path))
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(benchmark, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote {len(benchmark['cases'])} {args.dataset.upper()} benchmark cases to {output_path}.")
+    output_path.write_text(
+        json.dumps(benchmark, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        f"Wrote {len(benchmark['cases'])} {args.dataset.upper()} benchmark cases to {output_path}."
+    )
 
 
 if __name__ == "__main__":

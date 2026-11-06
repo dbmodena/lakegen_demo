@@ -20,11 +20,13 @@ from lakegen.config.experiment import (
     load_experiment_config,
 )
 from lakegen.config.paths import resolve_portal_tables_dir
-from lakegen.config.registry import get_lake, lake_names, lakes, model_names
+from lakegen.config.registry import get_lake, lake_names, lakes, model_names, models
 from lakegen.config.retrieval import RetrievalConfig, RetrievalMode
 
 # The option lists the interfaces show come from the registries.
 MODEL_OPTIONS = list(model_names())
+# Dropdown label -> model name; the label is what people see.
+MODEL_ITEMS = {model.title: model.name for model in models()}
 SOLR_CORE_OPTIONS = list(lake_names())
 SOLR_CORE_PORTAL_NAMES = {lake.name: lake.title for lake in lakes()}
 RETRIEVAL_MODE_OPTIONS = [mode.value for mode in RetrievalMode]
@@ -34,44 +36,63 @@ RETRIEVAL_MODE_ITEMS = {mode.label: mode.value for mode in RetrievalMode}
 
 @dataclass
 class RuntimeSettings:
+    """The model, lake, tables, retrieval and experiment of one run.
+
+    When no experiment is given, ``__post_init__`` builds one from the other
+    fields (human-gated, divided unless ``use_unified_agent``). The retrieval
+    configuration always takes the lake's Pneuma route (``for_portal``).
+
+    Attributes:
+        model_name: The model's registry name.
+        solr_core: The lake's name (its Solr core).
+        csv_dir: The lake's tables folder.
+        db_path: The lake's Blend database.
+        use_unified_agent: Whether discovery runs the unified agent instead of the divided
+            architecture.
+        retrieval: The retrieval configuration.
+        experiment: The resolved experiment.
+    """
+
     model_name: str = MODEL_OPTIONS[0]
     solr_core: str = SOLR_CORE_OPTIONS[0]
     csv_dir: Path = field(default_factory=lambda: resolve_portal_tables_dir("nyc"))
     db_path: Path = field(default_factory=lambda: get_lake("nyc").blend_db_path)
-    use_unified_agent: bool = True
+    use_unified_agent: bool = False
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig.from_env)
     experiment: ExperimentConfig | None = None
 
     def __post_init__(self) -> None:
         self.retrieval = self.retrieval.for_portal(self.solr_core)
         if self.experiment is None:
-            self.experiment = load_experiment_config(overrides={
-                "model": self.model_name,
-                "core": self.solr_core,
-                "discovery_architecture": (
-                    DiscoveryArchitecture.UNIFIED.value
-                    if self.use_unified_agent
-                    else DiscoveryArchitecture.DIVIDED.value
-                ),
-                "interaction_mode": InteractionMode.HUMAN_GATED.value,
-                **{
-                    f"retrieval.{key}": value
-                    for key, value in self.retrieval.__dict__.items()
-                },
-            })
+            self.experiment = load_experiment_config(
+                overrides={
+                    "model": self.model_name,
+                    "core": self.solr_core,
+                    "discovery_architecture": (
+                        DiscoveryArchitecture.UNIFIED.value
+                        if self.use_unified_agent
+                        else DiscoveryArchitecture.DIVIDED.value
+                    ),
+                    "interaction_mode": InteractionMode.HUMAN_GATED.value,
+                    **{f"retrieval.{key}": value for key, value in self.retrieval.__dict__.items()},
+                }
+            )
 
     @property
     def portal_name(self) -> str:
+        """The lake's display title, or its name when the registry has none."""
         return SOLR_CORE_PORTAL_NAMES.get(self.solr_core, self.solr_core)
 
     @property
     def discovery(self) -> DiscoveryConfig:
         """Discovery bounds for this run; ``__post_init__`` always resolves one."""
-        assert self.experiment is not None
+        if self.experiment is None:
+            raise RuntimeError("RuntimeSettings has no experiment; __post_init__ resolves one")
         return self.experiment.discovery
 
     @classmethod
     def default(cls) -> RuntimeSettings:
+        """The settings with every field at its default."""
         return cls()
 
     @classmethod
@@ -81,11 +102,19 @@ class RuntimeSettings:
         *,
         solr_core: str | None = None,
     ) -> RuntimeSettings:
+        """The settings the Chainlit settings panel chose, unknown choices at their defaults.
+
+        Args:
+            settings: The panel's values (``solr_core``, ``model_name``,
+                ``use_unified_agent``, ``retrieval_mode``).
+            solr_core: The lake, overriding the panel's.
+
+        Returns:
+            The settings, with a human-gated experiment built from them.
+        """
         default = cls()
 
-        selected_solr_core = str(
-            solr_core or settings.get("solr_core") or default.solr_core
-        )
+        selected_solr_core = str(solr_core or settings.get("solr_core") or default.solr_core)
         if selected_solr_core not in SOLR_CORE_OPTIONS:
             selected_solr_core = default.solr_core
 
@@ -94,24 +123,20 @@ class RuntimeSettings:
             model_name = default.model_name
 
         use_unified_agent = settings.get("use_unified_agent", default.use_unified_agent)
-        retrieval_mode = str(
-            settings.get("retrieval_mode") or default.retrieval.mode
-        )
+        retrieval_mode = str(settings.get("retrieval_mode") or default.retrieval.mode)
         if retrieval_mode not in RETRIEVAL_MODE_OPTIONS:
             retrieval_mode = default.retrieval.mode
-        
-        retrieval = RetrievalConfig.from_env(mode=retrieval_mode).for_portal(
-            selected_solr_core
+
+        retrieval = RetrievalConfig.from_env(mode=retrieval_mode).for_portal(selected_solr_core)
+        experiment = load_experiment_config(
+            overrides={
+                "model": model_name,
+                "core": selected_solr_core,
+                "discovery_architecture": ("unified" if bool(use_unified_agent) else "divided"),
+                "interaction_mode": "human_gated",
+                **{f"retrieval.{key}": value for key, value in retrieval.__dict__.items()},
+            }
         )
-        experiment = load_experiment_config(overrides={
-            "model": model_name,
-            "core": selected_solr_core,
-            "discovery_architecture": (
-                "unified" if bool(use_unified_agent) else "divided"
-            ),
-            "interaction_mode": "human_gated",
-            **{f"retrieval.{key}": value for key, value in retrieval.__dict__.items()},
-        })
         return cls(
             model_name=model_name,
             solr_core=selected_solr_core,

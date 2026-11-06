@@ -7,10 +7,10 @@ Writes results/metrics.json and results/metrics.md.
 
 from __future__ import annotations
 
-from collections import defaultdict
 import json
-from pathlib import Path
 import sys
+from collections import defaultdict
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from records import LAKES, SELECTORS, STRATEGIES, load  # noqa: E402

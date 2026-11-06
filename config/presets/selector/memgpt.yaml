@@ -1,0 +1,8 @@
+# The MemGPT selector selects the tables: an agent with a system-kept working
+# memory that may inspect the whole retrieved pool before it confirms; needs
+# the divided architecture.
+schema_version: 2
+discovery:
+  architecture: divided
+  selector:
+    kind: memgpt

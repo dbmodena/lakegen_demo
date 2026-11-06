@@ -15,6 +15,7 @@ TARGET = ROOT / "docs" / "configuration.md"
 
 
 def main() -> None:
+    """Write docs/configuration.md and print its path."""
     TARGET.parent.mkdir(exist_ok=True)
     TARGET.write_text(render_markdown(), encoding="utf-8")
     print(f"wrote {TARGET.relative_to(ROOT)}")

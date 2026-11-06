@@ -8,14 +8,14 @@ results/numbers.json, and prints both.
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
 import json
-from pathlib import Path
 import sys
+from collections import Counter, defaultdict
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from records import LAKES, SELECTORS, STRATEGIES, load  # noqa: E402
 from failures import DOWNSTREAM, RETRIEVAL, SELECTION  # noqa: E402
+from records import LAKES, SELECTORS, STRATEGIES, load  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "results"
 LAKE_NAME = {"valencia": "Valencia", "paris": "Paris", "bologna": "Bologna", "uk": "UK",

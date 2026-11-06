@@ -8,6 +8,8 @@ description: Full pipeline on local Qwen 27B, 5 lakes x 6 modes x 2 selectors
 base: [config/base.yaml, config/presets/model/ollama_qwen3_27b.yaml]
 set:
   discovery.architecture: divided
+  # The base's default of the day; it became single on 2026-10-27, when the cascade was removed.
+  discovery.keyword_search.strategy: cascade
   # The code judge and the entity extraction were submitted on OCI's
   # gpt-oss-120b and switched to Together's on 2026-10-02, when OCI's was no
   # longer available; every job's stored configuration says Together.

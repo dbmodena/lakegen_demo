@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
-from lakegen.integrations.llm.factory import get_llm
-from lakegen.workflow.evaluation.semantic_judge import judge_semantic_code_result
-from lakegen.workflow.prompts import get_prompt_manager
+from lakegen.llm.factory import get_llm
+from lakegen.llm.prompts import get_prompt_manager
+from lakegen.pipeline.evaluation.semantic_judge import judge_semantic_code_result
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+# The default output folder (TMPDIR, else /tmp); --output writes elsewhere.
+REPLAY_DIR = Path(tempfile.gettempdir())
 
 
 def _load_cases(path: Path) -> dict[str, Mapping[str, Any]]:
@@ -69,25 +73,26 @@ def _deterministic_only(evaluation: Mapping[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in evaluation.items()
-        if not key.startswith("semantic_")
-        and key not in {"semantic_judgment", "supported_correct"}
+        if not key.startswith("semantic_") and key not in {"semantic_judgment", "supported_correct"}
     }
 
 
 def main() -> None:
+    """Re-judge a job's non-exact results of one coder context; write and print each verdict."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("job_id", help="Completed source batch job ID")
     parser.add_argument("--context", default="full", choices=("full", "schema_only", "minimal"))
     parser.add_argument("--questions", type=Path, default=BASE_DIR / "benchmark/5q_uk_new.json")
     parser.add_argument(
-        "--metadata", type=Path,
+        "--metadata",
+        type=Path,
         default=BASE_DIR / "data/uk/metadata/metadata_retrieved_cleaned.json",
     )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     results_path = BASE_DIR / ".lakegen_jobs" / f"{args.job_id}.results.jsonl"
-    output_path = args.output or Path(f"/tmp/{args.job_id}.judge-replay.jsonl")
+    output_path = args.output or REPLAY_DIR / f"{args.job_id}.judge-replay.jsonl"
     cases = _load_cases(args.questions)
     metadata = _metadata_index(args.metadata)
     records = [json.loads(line) for line in results_path.read_text().splitlines() if line]
@@ -128,8 +133,12 @@ def main() -> None:
             output.write(json.dumps(replay, ensure_ascii=False, default=str) + "\n")
             output.flush()
             print(
-                record["source_id"], evaluation.get("semantic_correctness"),
-                "->", judgment["disposition"], f"({tokens} tokens)", flush=True,
+                record["source_id"],
+                evaluation.get("semantic_correctness"),
+                "->",
+                judgment["disposition"],
+                f"({tokens} tokens)",
+                flush=True,
             )
     print(f"Replay written to {output_path}")
 

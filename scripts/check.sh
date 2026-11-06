@@ -1,103 +1,110 @@
 #!/usr/bin/env bash
-# The commit gate of the refactor: run it before every commit
-# (docs/REFACTOR_PLAN.md, ground rule 6).
+# The quality gate: what every commit passes, locally (scripts/hooks/pre-commit)
+# and in CI (.gitlab-ci.yml runs its two stages as separate jobs).
 #
-#   scripts/check.sh                    # run the gate
+#   scripts/check.sh                    # lint, then tests
+#   scripts/check.sh lint               # ruff (lint and format), bandit, import contracts
+#   scripts/check.sh tests              # the suite against the baseline, and an import smoke
 #   scripts/check.sh --update-baseline  # also rewrite tests/golden/BASELINE.txt from this run
 #
-# 1. The test suite has no failure or error, and every test id recorded in
-#    tests/golden/BASELINE.txt still ran, so a test cannot disappear unnoticed. The
-#    golden snapshots under tests/golden run as part of the suite. The suite
-#    is hermetic through tests/conftest.py, which points the state root at a
-#    temporary directory.
-# 2. ruff on the Python files staged for this commit.
-# 3. Import smoke: the entry points still import and parse their arguments.
+# Lint covers the whole tree as configured in pyproject.toml ([tool.ruff],
+# [tool.bandit], [tool.importlinter]); experiments/ is left out there.
+# Tests: no failure or error, and every test id recorded in
+# tests/golden/BASELINE.txt still ran, so a test cannot disappear unnoticed.
+# The golden snapshots under tests/golden run as part of the suite, which is
+# hermetic through tests/conftest.py.
 set -euo pipefail
 # Byte-order sorting everywhere (sort, comm, and the baseline file), so the
 # comparison does not depend on the locale of whoever runs the gate.
 export LC_ALL=C
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
-# The launchers' interpreter (Python 3.13). venv/ holds an unrelated 3.11.
-PY="$ROOT/.venv/bin/python"
+BIN="$ROOT/.venv/bin"
 BASELINE="$ROOT/tests/golden/BASELINE.txt"
+STAGE=all
 UPDATE=0
-[ "${1:-}" = "--update-baseline" ] && UPDATE=1
 REPORT=$(mktemp)
 IDS=$(mktemp)
 trap 'rm -f "$REPORT" "$IDS"' EXIT
+for arg in "$@"; do
+  case "$arg" in
+    lint|tests) STAGE=$arg ;;
+    --update-baseline) UPDATE=1 ;;
+    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
+for tool in python ruff bandit lint-imports; do
+  [ -x "$BIN/$tool" ] || { echo "$tool is missing: run ./install.sh (uv sync --group dev)"; exit 1; }
+done
 
-echo "== 1. tests"
-"$PY" -m pytest -q -p no:cacheprovider --tb=short -rA tests > "$REPORT" || true
-# One line per test: "<node id> <OUTCOME>", sorted by id. Only pytest's own
-# summary lines qualify ("ERROR tests/..."); captured log lines such as
-# "ERROR    lakegen.retrieval..." start with the level padded by spaces.
-grep -E '^(PASSED|FAILED|ERROR|XFAIL|XPASS|SKIPPED) tests/' "$REPORT" \
-  | sed -E 's/ - .*//' | awk '{print $2, $1}' | sort > "$IDS"
-tail -1 "$REPORT"
-if ! grep -q ' PASSED$' "$IDS"; then
-  tail -30 "$REPORT"
-  echo "gate: pytest produced no results"
-  exit 1
-fi
-if grep -qE ' (FAILED|ERROR)$' "$IDS"; then
-  grep -E ' (FAILED|ERROR)$' "$IDS"
-  echo "gate: failing tests"
-  exit 1
-fi
-if [ "$UPDATE" = 1 ]; then
-  cut -d' ' -f1 "$IDS" > "$BASELINE"
-  echo "baseline rewritten: $(wc -l < "$BASELINE") tests"
-elif [ -f "$BASELINE" ]; then
-  MISSING=$(comm -23 "$BASELINE" <(cut -d' ' -f1 "$IDS"))
-  if [ -n "$MISSING" ]; then
-    echo "$MISSING" | head -20
-    echo "gate: tests recorded in tests/golden/BASELINE.txt did not run" \
-         "(removed or renamed? rerun with --update-baseline if that is intended)"
+lint() {
+  echo "== ruff"
+  "$BIN/ruff" check .
+  "$BIN/ruff" format --check .
+  echo "== bandit"
+  # The Python files git would commit, tests aside: not the local, ignored
+  # helpers in scripts/, which bandit (unlike ruff) does not skip by itself.
+  local files=()
+  mapfile -t files < <(git ls-files --cached --others --exclude-standard -- src pneuma_engine solr_builder experiment_runner scripts \
+    | grep '\.py$' | grep -v '/tests/' | while read -r file; do [ -f "$file" ] && echo "$file"; done)
+  # Bandit applies a line's `# nosec` to every literal of a multi-line dict or
+  # f-string and warns for each one that had nothing to report: noise, dropped.
+  "$BIN/bandit" -q -c pyproject.toml "${files[@]}" 2>&1 | { grep -v "nosec encountered" || true; }
+  echo "== import contracts"
+  PYTHONPATH="$ROOT/src" "$BIN/lint-imports" --no-cache > /dev/null \
+    || { PYTHONPATH="$ROOT/src" "$BIN/lint-imports" --no-cache; exit 1; }
+  echo "lint clean"
+}
+
+tests() {
+  echo "== tests"
+  "$BIN/python" -m pytest -q -p no:cacheprovider --tb=short -rA > "$REPORT" || true
+  # One line per test: "<node id> <OUTCOME>", sorted by id. Only pytest's own
+  # summary lines qualify ("ERROR tests/..."); captured log lines such as
+  # "ERROR    lakegen.retrieval..." start with the level padded by spaces.
+  grep -E '^(PASSED|FAILED|ERROR|XFAIL|XPASS|SKIPPED) (tests|pneuma_engine|solr_builder)/' "$REPORT" \
+    | sed -E 's/ - .*//' | awk '{print $2, $1}' | sort > "$IDS"
+  tail -1 "$REPORT"
+  if ! grep -q ' PASSED$' "$IDS"; then
+    tail -30 "$REPORT"
+    echo "gate: pytest produced no results"
     exit 1
   fi
-  echo "baseline: all $(wc -l < "$BASELINE") recorded tests ran"
-else
-  echo "no tests/golden/BASELINE.txt yet: run with --update-baseline once the suite is hermetic"
-fi
-
-echo "== 2. ruff on staged python files"
-# New and rewritten files meet the whole quality bar (pyproject [tool.ruff]).
-# Files listed in scripts/ruff_legacy.txt existed before the refactor and only
-# get pyflakes' real errors until they are rewritten and taken off the list.
-RUFF="$ROOT/.venv/bin/ruff"
-[ -x "$RUFF" ] || { echo "ruff is missing: uv pip install --python .venv/bin/python ruff"; exit 1; }
-STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
-if [ -z "$STAGED" ]; then
-  echo "no staged python files"
-else
-  NEW=$(echo "$STAGED" | grep -vFxf "$ROOT/scripts/ruff_legacy.txt" || true)
-  LEGACY=$(echo "$STAGED" | grep -Fxf "$ROOT/scripts/ruff_legacy.txt" || true)
-  if [ -n "$NEW" ]; then
-    # shellcheck disable=SC2086
-    "$RUFF" check $NEW
+  if grep -qE ' (FAILED|ERROR)$' "$IDS"; then
+    grep -E ' (FAILED|ERROR)$' "$IDS"
+    echo "gate: failing tests"
+    exit 1
   fi
-  if [ -n "$LEGACY" ]; then
-    # shellcheck disable=SC2086
-    "$RUFF" check --select F --ignore F401,F841,F541 $LEGACY
+  if [ "$UPDATE" = 1 ]; then
+    cut -d' ' -f1 "$IDS" > "$BASELINE"
+    echo "baseline rewritten: $(wc -l < "$BASELINE") tests"
+  else
+    local missing
+    missing=$(comm -23 "$BASELINE" <(cut -d' ' -f1 "$IDS"))
+    if [ -n "$missing" ]; then
+      echo "$missing" | head -20
+      echo "gate: tests recorded in tests/golden/BASELINE.txt did not run" \
+           "(removed or renamed? rerun with --update-baseline if that is intended)"
+      exit 1
+    fi
+    echo "baseline: all $(wc -l < "$BASELINE") recorded tests ran"
   fi
-  echo "ruff: $(echo "$NEW" | grep -c .) new and $(echo "$LEGACY" | grep -c .) legacy files clean"
-fi
 
-echo "== 3. import contracts"
-# The dependency rules between the packages (pyproject [tool.importlinter]).
-LINT_IMPORTS="$ROOT/.venv/bin/lint-imports"
-[ -x "$LINT_IMPORTS" ] || { echo "import-linter is missing: uv pip install --python .venv/bin/python import-linter"; exit 1; }
-PYTHONPATH="$ROOT/src" "$LINT_IMPORTS" --no-cache > /dev/null || { PYTHONPATH="$ROOT/src" "$LINT_IMPORTS" --no-cache; exit 1; }
-echo "contracts kept"
+  echo "== import smoke"
+  export PYTHONPATH="$ROOT/src:$ROOT"
+  "$BIN/lakegen" --help > /dev/null
+  "$BIN/lakegen" ask --help > /dev/null
+  "$BIN/python" -m experiment_runner --help > /dev/null
+  "$BIN/python" -m experiment_runner bench --help > /dev/null
+  "$BIN/python" -c "import experiment_runner.batches.server"
+  "$BIN/python" -c "import lakegen.entrypoints.api.app, lakegen.entrypoints.webapp.workflow"
+  # The installed package imports on its own: no PYTHONPATH, from another directory.
+  (cd /tmp && "$BIN/python" -I -c "import lakegen.pipeline.service")
+  echo "ok"
+}
 
-echo "== 4. import smoke"
-export PYTHONPATH="$ROOT/src:$ROOT"
-"$PY" src/cli.py --help > /dev/null
-"$ROOT/.venv/bin/lakegen" --help > /dev/null
-"$ROOT/.venv/bin/lakegen" ask --help > /dev/null
-"$PY" -m lakegen.retrieval.benchmark --help > /dev/null
-"$PY" -c "import api, lakegen.interfaces.chainlit.workflow"
-# The installed package imports on its own: no PYTHONPATH, from another directory.
-(cd /tmp && "$PY" -I -c "import lakegen.workflow.pipeline.service")
-echo "ok"
+case "$STAGE" in
+  lint) lint ;;
+  tests) tests ;;
+  all) lint; tests ;;
+esac

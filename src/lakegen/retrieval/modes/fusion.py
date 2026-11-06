@@ -13,7 +13,7 @@ import math
 from collections.abc import Mapping, Sequence
 
 from lakegen.config.retrieval import FusionMethod, RetrievalConfig
-from lakegen.domain.retrieval import RetrievalHit, min_max_normalize
+from lakegen.datastructures.retrieval import RetrievalHit, min_max_normalize
 
 
 def best_finite_hits(hits: Sequence[RetrievalHit]) -> dict[str, RetrievalHit]:
@@ -35,6 +35,18 @@ def fused_score(
     first_normalized: float,
     second_normalized: float,
 ) -> float:
+    """The fused score of one table.
+
+    Args:
+        config: The retrieval configuration (fusion method, ``rrf_k``, ``alpha``).
+        first: The first branch's hit, or None when it missed the table.
+        second: The second branch's hit, or None.
+        first_normalized: The first branch's normalised score (0 when missing).
+        second_normalized: The second branch's normalised score.
+
+    Returns:
+        The sum of reciprocal ranks under RRF, else the ``alpha`` weighted sum.
+    """
     if config.fusion_method == FusionMethod.RRF:
         return sum(
             1.0 / (config.rrf_k + hit.rank)
@@ -62,9 +74,29 @@ def fuse(
     branch's missing signals passes the completed maps, which are what gets
     normalised. ``candidate_count`` is the branches' fetch depth, which orders
     the hits a branch did not rank last.
+
+    Args:
+        first: The first branch's hits by key.
+        second: The second branch's hits by key.
+        config: The retrieval configuration.
+        top_k: How many hits to return.
+        candidate_count: The branches' fetch depth.
+        first_scores: The first branch's scores, completed; its hits' scores when None.
+        second_scores: The second branch's scores, completed; its hits' scores when None.
+
+    Returns:
+        The fused hits, ranked 1..k.
     """
-    first_scores = dict(first_scores) if first_scores is not None else {key: hit.score for key, hit in first.items()}
-    second_scores = dict(second_scores) if second_scores is not None else {key: hit.score for key, hit in second.items()}
+    first_scores = (
+        dict(first_scores)
+        if first_scores is not None
+        else {key: hit.score for key, hit in first.items()}
+    )
+    second_scores = (
+        dict(second_scores)
+        if second_scores is not None
+        else {key: hit.score for key, hit in second.items()}
+    )
     normalized_first = min_max_normalize(first_scores)
     normalized_second = min_max_normalize(second_scores)
     fused: list[RetrievalHit] = []

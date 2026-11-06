@@ -1,0 +1,5 @@
+# gpt-oss-20b on an OCI Dedicated AI Cluster endpoint (DEDICATE_OCI_* in .env); the code judge runs there too.
+schema_version: 2
+model: dedicated.gpt-oss-20b
+judge:
+  model: dedicated.gpt-oss-20b

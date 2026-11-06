@@ -1,6 +1,6 @@
 """The log of the retrieval runs of a question, and the capture of them for its record.
 
-Every run of a ``TableRetrievalService`` reaches ``log_and_capture_retrieval_run``
+Every run of a ``RetrievalService`` reaches ``log_and_capture_retrieval_run``
 (the service's default observer): it stamps the run with the current job and
 question (set with ``capture_retrieval_runs``), appends it to the lake-wide
 ``retrieval_rankings.jsonl`` and keeps a copy for the question's result.
@@ -24,12 +24,13 @@ from threading import Lock
 from typing import Any
 
 from lakegen.config.paths import LOG_DIR
-from lakegen.domain.retrieval import RetrievalRun
-from lakegen.retrieval.evaluation import RetrievalRunLogger
+from lakegen.datastructures.retrieval import RetrievalRun
+from lakegen.retrieval.benchmark import RetrievalRunLogger
 
 
 @lru_cache(maxsize=1)
 def get_retrieval_run_logger() -> RetrievalRunLogger:
+    """The logger of the lake-wide ``retrieval_rankings.jsonl``, built once."""
     return RetrievalRunLogger(LOG_DIR / "retrieval_rankings.jsonl")
 
 
@@ -39,15 +40,21 @@ _retrieval_capture: ContextVar[list[dict[str, Any]] | None] = ContextVar(
 _retrieval_context: ContextVar[dict[str, Any] | None] = ContextVar(
     "lakegen_retrieval_context", default=None
 )
-_retrieval_attempt: ContextVar[int] = ContextVar(
-    "lakegen_retrieval_attempt", default=0
-)
+_retrieval_attempt: ContextVar[int] = ContextVar("lakegen_retrieval_attempt", default=0)
 
 
 @contextmanager
 def capture_retrieval_runs(context: Mapping[str, Any] | None = None):
-    """Collect retrieval JSON records produced by the current workflow."""
+    """Collect retrieval JSON records produced by the current workflow.
 
+    Args:
+        context: The job and question context (``JOB_ID``, ``SOURCE_PATH``,
+            ``SOURCE_ID``, ``EXECUTION_ATTEMPT``, ``EXPERIMENT_ID``) stamped on
+            every run; the retrieval attempt counter restarts at zero.
+
+    Yields:
+        The list the runs of the block are appended to, as log records.
+    """
     captured: list[dict[str, Any]] = []
     token = _retrieval_capture.set(captured)
     context_token = _retrieval_context.set(dict(context or {}))
@@ -61,6 +68,11 @@ def capture_retrieval_runs(context: Mapping[str, Any] | None = None):
 
 
 def log_and_capture_retrieval_run(run: RetrievalRun) -> None:
+    """Stamp ``run`` with the current context, log it, and capture it when a capture is open.
+
+    Args:
+        run: The retrieval run; its job, source, attempt and experiment fields are set here.
+    """
     context = _retrieval_context.get() or {}
     attempt = _retrieval_attempt.get() + 1
     _retrieval_attempt.set(attempt)
@@ -87,8 +99,14 @@ def make_retrieval_run_observer(
     Agent tools may run in a worker context where ``ContextVar`` values are not
     propagated.  Binding the context and destination here keeps agentic
     retrieval telemetry attached to the correct job without changing retrieval.
-    """
 
+    Args:
+        context: The job and question context stamped on every run.
+        captured: The list each run is appended to, as a log record.
+
+    Returns:
+        The observer; it numbers the runs it sees from one.
+    """
     bound_context = dict(context or {})
     lock = Lock()
     attempt = 0
@@ -121,6 +139,17 @@ def log_retrieval_decision(
     keywords: Sequence[str] = (),
     retrieval_attempt: int | None = None,
 ) -> None:
+    """Record which of the retrieved tables a run kept, as a ``table_selection`` event.
+
+    Args:
+        question: The question.
+        selected_tables: The tables kept; none means the retrieval was rejected.
+        reason: Why they were kept or rejected.
+        context: The job and question context of the run.
+        mode: The retrieval mode.
+        keywords: The keywords searched.
+        retrieval_attempt: The number of the retrieval run decided on.
+    """
     context = dict(context or {})
     get_retrieval_run_logger().log_payload(
         {

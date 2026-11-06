@@ -1,28 +1,24 @@
 import csv
 import json
 import math
-import time
-from types import SimpleNamespace
 
 import pytest
-from scripts.pneuma.pneuma_judge import (
-    JudgeError,
-    RelevanceJudgment,
-    StructuredRelevanceJudge,
-    order_by_relevance,
-    structured_relevance_prompt,
-)
 
-from lakegen.integrations.llm.embeddings import (
+from experiment_runner import benchmark as benchmark_module
+from experiment_runner.benchmark import (
+    BenchmarkCase,
+    append_benchmark_metrics_log,
+    load_benchmark_cases,
+    run_retriever_benchmark,
+)
+from lakegen.llm.embeddings import (
     EmbeddingGenerationError,
     OllamaMultilingualEmbedding,
     _normalize_query,
     _validate,
 )
-from lakegen.integrations.solr.client import LocalSolrClient
-from lakegen.interfaces.cli.index import validate_source_coverage
 from lakegen.retrieval import (
-    DuckDBSemanticHybridRetriever,
+    DuckDBSemanticRetriever,
     FusionMethod,
     HybridRetriever,
     KeywordRetriever,
@@ -32,21 +28,12 @@ from lakegen.retrieval import (
     RetrievalHit,
     RetrievalMode,
     SemanticRetriever,
-    SolrEmbeddingIndexer,
     SolrPneumaDocumentResolver,
-    ensure_vector_schema,
     evaluate_ranking,
     min_max_normalize,
-    represent_table,
-    validate_stored_replacement_schema,
 )
-from lakegen.retrieval import benchmark as benchmark_module
-from lakegen.retrieval.benchmark import (
-    BenchmarkCase,
-    append_benchmark_metrics_log,
-    load_benchmark_cases,
-    run_retriever_benchmark,
-)
+from lakegen.retrieval.pneuma.client import PneumaHttpClient
+from lakegen.retrieval.solr.client import SolrClient
 
 
 def test_solr_select_keeps_strict_and_for_words_in_multiword_concepts(monkeypatch):
@@ -63,10 +50,8 @@ def test_solr_select_keeps_strict_and_for_words_in_multiword_concepts(monkeypatc
         captured.update(params)
         return Response()
 
-    monkeypatch.setattr("lakegen.integrations.solr.client.requests.get", fake_get)
-    LocalSolrClient("uk").select(
-        ["Transport for Greater Manchester", "invoices"], q_op="AND"
-    )
+    monkeypatch.setattr("lakegen.retrieval.solr.client.requests.get", fake_get)
+    SolrClient("uk").select(["Transport for Greater Manchester", "invoices"], q_op="AND")
 
     assert captured["q"] == "Transport for Greater Manchester invoices"
     assert captured["q.op"] == "AND"
@@ -148,14 +133,21 @@ def test_pneuma_retriever_preserves_order_and_maps_documents():
         pneuma_index_name="test-index",
     )
 
-    hits = PneumaRetriever(config, documents.get, client=client).retrieve(
-        "Which tables?", top_k=2
-    )
+    hits = PneumaRetriever(config, documents.get, client=client).retrieve("Which tables?", top_k=2)
 
     assert [item.document["resource_id"] for item in hits] == ["b", "a"]
     assert [item.rank for item in hits] == [1, 2]
     assert [item.score for item in hits] == [1.0, 0.5]
     assert client.calls == [("test-index", "Which tables?", 2, 7, 0.25)]
+
+
+def test_pneuma_retriever_without_a_client_builds_the_http_client_of_its_route():
+    config = RetrievalConfig(mode="pneuma", pneuma_base_url="http://127.0.0.1:8774/")
+
+    retriever = PneumaRetriever(config, lambda _table_id: None)
+
+    assert isinstance(retriever.client, PneumaHttpClient)
+    assert retriever.client.query_url == "http://127.0.0.1:8774/query"
 
 
 def test_pneuma_retriever_rejects_failed_response():
@@ -218,9 +210,7 @@ def test_embedding_validation_rejects_unexpected_dimension_and_implausible_norm(
 
 
 def test_query_normalization_is_conservative_and_rejects_oversized_input():
-    assert _normalize_query("  full\u2011width\x00  ２０２４\nNYC  ") == (
-        "full‐width 2024 NYC"
-    )
+    assert _normalize_query("  full\u2011width\x00  ２０２４\nNYC  ") == ("full‐width 2024 NYC")
     with pytest.raises(EmbeddingGenerationError, match="character limit of 3"):
         _normalize_query("four", max_chars=3)
 
@@ -342,9 +332,7 @@ def test_keyword_retrieval_uses_phase1_keywords_and_preserves_default_solr_field
         ]
     )
 
-    results = KeywordRetriever(solr).retrieve(
-        ["mobilità", "incidenti"], top_k=10, q_op="AND"
-    )
+    results = KeywordRetriever(solr).retrieve(["mobilità", "incidenti"], top_k=10, q_op="AND")
 
     assert [result.document["resource_id"] for result in results] == ["a", "b"]
     assert solr.select_calls == [
@@ -358,9 +346,7 @@ def test_keyword_retrieval_uses_phase1_keywords_and_preserves_default_solr_field
 
 def test_keyword_field_weights_are_opt_in():
     solr = FakeSolr()
-    KeywordRetriever(solr, query_fields="title^3 description tags").retrieve(
-        ["acqua"], top_k=5
-    )
+    KeywordRetriever(solr, query_fields="title^3 description tags").retrieve(["acqua"], top_k=5)
 
     assert solr.select_calls[0][1]["qf"] == "title^3 description tags"
 
@@ -392,9 +378,7 @@ def test_keyword_retrieval_or_fallback_is_off_by_default():
 
 
 def test_keyword_retrieval_falls_back_to_or_when_and_returns_nothing_and_enabled():
-    solr = FakeSolrByOp(
-        docs_by_op={"OR": [{"resource_id": "a", "score": 1.0}]}
-    )
+    solr = FakeSolrByOp(docs_by_op={"OR": [{"resource_id": "a", "score": 1.0}]})
 
     results = KeywordRetriever(solr, or_fallback=True).retrieve(
         ["Transport for Greater Manchester", "invoice spending"],
@@ -409,9 +393,7 @@ def test_keyword_retrieval_falls_back_to_or_when_and_returns_nothing_and_enabled
 def test_keyword_retrieval_does_not_fall_back_when_and_already_has_hits():
     solr = FakeSolrByOp(docs_by_op={"AND": [{"resource_id": "a", "score": 1.0}]})
 
-    results = KeywordRetriever(solr, or_fallback=True).retrieve(
-        ["acqua"], top_k=10, q_op="AND"
-    )
+    results = KeywordRetriever(solr, or_fallback=True).retrieve(["acqua"], top_k=10, q_op="AND")
 
     assert [result.document["resource_id"] for result in results] == ["a"]
     assert len(solr.select_calls) == 1
@@ -420,9 +402,7 @@ def test_keyword_retrieval_does_not_fall_back_when_and_already_has_hits():
 def test_keyword_retrieval_does_not_fall_back_when_already_or():
     solr = FakeSolrByOp(docs_by_op={})
 
-    results = KeywordRetriever(solr, or_fallback=True).retrieve(
-        ["acqua"], top_k=10, q_op="OR"
-    )
+    results = KeywordRetriever(solr, or_fallback=True).retrieve(["acqua"], top_k=10, q_op="OR")
 
     assert results == []
     assert len(solr.select_calls) == 1
@@ -485,9 +465,7 @@ def test_hybrid_handles_empty_branch_duplicates_and_non_finite_candidates():
     semantic = StubBranch([])
     config = RetrievalConfig(mode="hybrid")
 
-    results = HybridRetriever(lexical, semantic, config).retrieve(
-        "question", ["keyword"], top_k=10
-    )
+    results = HybridRetriever(lexical, semantic, config).retrieve("question", ["keyword"], top_k=10)
 
     assert {result.document["resource_id"] for result in results} == {"a", "b"}
     assert all(result.score == pytest.approx(0.5) for result in results)
@@ -497,14 +475,10 @@ def test_hybrid_handles_empty_branch_duplicates_and_non_finite_candidates():
 def test_hybrid_rescore_policy_requires_and_uses_reliable_resolver():
     lexical = StubBranch([hit("a", 8, 1)])
     semantic = StubBranch([hit("b", 0.9, 1)])
-    config = RetrievalConfig(
-        mode="hybrid", missing_signal_policy=MissingSignalPolicy.RESCORE
-    )
+    config = RetrievalConfig(mode="hybrid", missing_signal_policy=MissingSignalPolicy.RESCORE)
 
     with pytest.raises(RuntimeError, match="missing_score_resolver"):
-        HybridRetriever(lexical, semantic, config).retrieve(
-            "question", ["keyword"], top_k=10
-        )
+        HybridRetriever(lexical, semantic, config).retrieve("question", ["keyword"], top_k=10)
 
     calls = []
 
@@ -512,9 +486,9 @@ def test_hybrid_rescore_policy_requires_and_uses_reliable_resolver():
         calls.append((branch, document["resource_id"], question, list(keywords)))
         return {("semantic", "a"): 0.1, ("lexical", "b"): 2.0}[branch, document["resource_id"]]
 
-    results = HybridRetriever(
-        lexical, semantic, config, missing_score_resolver=resolver
-    ).retrieve("question", ["keyword"], top_k=10)
+    results = HybridRetriever(lexical, semantic, config, missing_score_resolver=resolver).retrieve(
+        "question", ["keyword"], top_k=10
+    )
 
     assert len(calls) == 2
     assert {result.document["resource_id"] for result in results} == {"a", "b"}
@@ -525,13 +499,9 @@ def test_hybrid_rescore_policy_requires_and_uses_reliable_resolver():
 def test_hybrid_rrf_is_a_configurable_rank_fusion_baseline():
     lexical = StubBranch([hit("a", 100, 1), hit("b", 1, 2)])
     semantic = StubBranch([hit("b", 0.99, 1), hit("c", 0.98, 2)])
-    config = RetrievalConfig(
-        mode="hybrid", fusion_method=FusionMethod.RRF, rrf_k=60
-    )
+    config = RetrievalConfig(mode="hybrid", fusion_method=FusionMethod.RRF, rrf_k=60)
 
-    results = HybridRetriever(lexical, semantic, config).retrieve(
-        "question", ["keyword"], top_k=3
-    )
+    results = HybridRetriever(lexical, semantic, config).retrieve("question", ["keyword"], top_k=3)
 
     assert [item.document["resource_id"] for item in results] == ["b", "a", "c"]
     assert results[0].score == pytest.approx(1 / 62 + 1 / 61)
@@ -547,12 +517,8 @@ def test_hybrid_rrf_is_a_configurable_rank_fusion_baseline():
 def test_weighted_hybrid_endpoints_exactly_match_the_selected_branch(
     alpha, expected_ids, expected_ranks, expected_branch
 ):
-    lexical = StubBranch(
-        [hit("bm25-a", 10.0, 1), hit("bm25-b", 9.0, 2), hit("bm25-c", 8.0, 3)]
-    )
-    semantic = StubBranch(
-        [hit("dense-a", 0.9, 1), hit("dense-b", 0.8, 2), hit("dense-c", 0.7, 3)]
-    )
+    lexical = StubBranch([hit("bm25-a", 10.0, 1), hit("bm25-b", 9.0, 2), hit("bm25-c", 8.0, 3)])
+    semantic = StubBranch([hit("dense-a", 0.9, 1), hit("dense-b", 0.8, 2), hit("dense-c", 0.7, 3)])
     config = RetrievalConfig(
         mode="hybrid",
         alpha=alpha,
@@ -573,32 +539,6 @@ def test_weighted_hybrid_endpoints_exactly_match_the_selected_branch(
     else:
         assert semantic.calls == [("complete question", 2)]
         assert lexical.calls == []
-
-
-def test_metadata_v1_is_stable_and_includes_requested_table_metadata():
-    representation = represent_table(
-        {
-            "title": "Incidenti",
-            "description": "Serie comunale",
-            "tags": ["mobilità", "sicurezza"],
-            "columns": [
-                {"name": "quartiere", "description": "Nome del quartiere"},
-                {"name": "totale", "description": "Numero di incidenti"},
-            ],
-        },
-        "metadata-v1",
-    )
-
-    assert representation.splitlines() == [
-        "Represent this table metadata for information retrieval.",
-        "Title: Incidenti",
-        "Description: Serie comunale",
-        "Tags: mobilità | sicurezza",
-        "Column names: quartiere | totale",
-        "Column descriptions: Nome del quartiere | Numero di incidenti",
-    ]
-    with pytest.raises(ValueError, match="Unknown table representation"):
-        represent_table({}, "future-version")
 
 
 def test_target_metrics_include_hit_recall_mrr_and_graded_ndcg():
@@ -694,8 +634,7 @@ def test_retriever_benchmark_uses_identical_cases_and_top_k_for_all_modes():
 def test_benchmark_metrics_csv_uses_variable_case_count_and_reuses_job_id(tmp_path):
     solr = FakeSolr(select_docs=[{"resource_id": "gold", "score": 2.0}])
     cases = [
-        BenchmarkCase(str(index), f"Question {index}?", ("gold",), ("gold",))
-        for index in range(3)
+        BenchmarkCase(str(index), f"Question {index}?", ("gold",), ("gold",)) for index in range(3)
     ]
     report = run_retriever_benchmark(
         solr,
@@ -768,173 +707,10 @@ def test_benchmark_log_evolves_legacy_header_without_backfilling_old_rows(tmp_pa
     assert rows[1]["PORTAL_NAME"] == "NYC Open Data"
 
 
-class FakeIndexSolr:
-    def __init__(self):
-        self.schema_commands = []
-        self.updates = []
-        self.commits = 0
-
-    def schema(self):
-        return {"schema": {"uniqueKey": "resource_id", "fields": [], "fieldTypes": []}}
-
-    def iter_documents(self, **params):
-        assert params["fields"] == ("*",)
-        assert params["restore_columns"] is False
-        yield {
-            "resource_id": "table-1",
-            "title": "Incidenti",
-            "columns.name": ["anno", "totale"],
-        }
-
-    def update_schema(self, command):
-        self.schema_commands.append(command)
-        return {}
-
-    def update_documents(self, documents):
-        self.updates.append(documents)
-        return {}
-
-    def commit(self):
-        self.commits += 1
-        return {}
-
-
-def test_embedding_indexer_stores_vector_and_representation_provenance():
-    solr = FakeIndexSolr()
-    embedding = FakeEmbedding()
-    config = RetrievalConfig(embedding_model="test-multilingual")
-
-    summary = SolrEmbeddingIndexer(solr, config, embedding).run(
-        batch_size=4, create_schema=True
-    )
-
-    assert summary.indexed_documents == 1
-    assert summary.vector_dimension == 2
-    assert embedding.documents == [[
-        "Represent this table metadata for information retrieval.\n"
-        "Title: Incidenti\nColumn names: anno | totale"
-    ]]
-    assert solr.updates == [
-        [
-            {
-                "resource_id": "table-1",
-                "title": "Incidenti",
-                "columns.name": ["anno", "totale"],
-                "table_embedding": [1.0, 1.0],
-                "representation_version": "metadata-v1",
-                "embedding_model": "test-multilingual",
-            }
-        ]
-    ]
-    assert solr.commits == 1
-
-
-def test_vector_schema_creation_uses_cosine_and_provenance_fields():
-    solr = FakeIndexSolr()
-
-    ensure_vector_schema(solr, vector_field="table_embedding", dimension=1024)
-
-    serialized = json.dumps(solr.schema_commands)
-    assert "solr.DenseVectorField" in serialized
-    assert '"vectorDimension": 1024' in serialized
-    assert '"similarityFunction": "cosine"' in serialized
-    assert '"name": "representation_version"' in serialized
-    assert '"name": "embedding_model"' in serialized
-
-
-def test_indexing_dry_run_validates_existing_vector_schema_without_writes():
-    class IncompatibleVectorSolr(FakeIndexSolr):
-        def schema(self):
-            return {
-                "schema": {
-                    "uniqueKey": "resource_id",
-                    "fields": [
-                        {
-                            "name": "table_embedding",
-                            "type": "wrong_vector",
-                            "indexed": True,
-                            "stored": True,
-                        },
-                        {
-                            "name": "representation_version",
-                            "indexed": True,
-                            "stored": True,
-                        },
-                        {
-                            "name": "embedding_model",
-                            "indexed": True,
-                            "stored": True,
-                        },
-                    ],
-                    "fieldTypes": [
-                        {
-                            "name": "wrong_vector",
-                            "vectorDimension": 3,
-                            "similarityFunction": "cosine",
-                        }
-                    ],
-                }
-            }
-
-    solr = IncompatibleVectorSolr()
-    with pytest.raises(RuntimeError, match="dimension=2"):
-        SolrEmbeddingIndexer(
-            solr,
-            RetrievalConfig(embedding_model="test-multilingual"),
-            FakeEmbedding(),
-        ).run(create_schema=True, dry_run=True)
-
-    assert solr.schema_commands == []
-    assert solr.updates == []
-    assert solr.commits == 0
-
-
-def test_indexer_aborts_before_reading_when_indexed_fields_are_not_stored():
-    schema = {
-        "uniqueKey": "resource_id",
-        "fields": [
-            {"name": "resource_id", "indexed": True, "stored": True},
-            {"name": "private_sort", "indexed": True, "stored": False},
-        ],
-        "fieldTypes": [],
-    }
-
-    with pytest.raises(RuntimeError, match="private_sort"):
-        validate_stored_replacement_schema(schema, vector_field="table_embedding")
-
-
-def test_source_reindex_requires_all_ids_and_preserves_every_stored_field():
-    current = [
-        {
-            "resource_id": "table-1",
-            "title": "Incidenti",
-            "stored_provenance": "portal-a",
-            "table_embedding": [0.1, 0.2],
-            "representation_version": "metadata-v1",
-        }
-    ]
-    incomplete_source = [{"resource_id": "table-1", "title": "Incidenti"}]
-
-    with pytest.raises(RuntimeError, match="stored_provenance"):
-        validate_source_coverage(
-            incomplete_source,
-            current,
-            unique_key="resource_id",
-            vector_field="table_embedding",
-        )
-
-    validate_source_coverage(
-        [{**incomplete_source[0], "stored_provenance": "portal-a"}],
-        current,
-        unique_key="resource_id",
-        vector_field="table_embedding",
-    )
-
-
 def test_direct_solr_client_uses_shared_environment_base_url(monkeypatch):
     monkeypatch.setenv("SOLR_BASE_URL", "http://127.0.0.1:8993/solr")
 
-    client = LocalSolrClient("nyc")
+    client = SolrClient("nyc")
 
     assert client.base_url == "http://127.0.0.1:8993/solr"
 
@@ -964,8 +740,8 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
         captured.update(url=url, params=data, timeout=timeout)
         return Response()
 
-    monkeypatch.setattr("lakegen.integrations.solr.client.requests.post", fake_post)
-    client = LocalSolrClient("bologna", timeout=4)
+    monkeypatch.setattr("lakegen.retrieval.solr.client.requests.post", fake_post)
+    client = SolrClient("bologna", timeout=4)
 
     response = client.knn_select(
         [0.25, -0.5],
@@ -976,25 +752,17 @@ def test_solr_knn_query_serializes_finite_vector_and_filters(monkeypatch):
     )
 
     assert captured["url"].endswith("/bologna/query")
-    assert captured["params"]["q"] == (
-        "{!knn f=table_embedding topK=50}[0.25,-0.5]"
-    )
-    assert captured["params"]["fq"] == [
-        'representation_version:"metadata-v1"'
-    ]
+    assert captured["params"]["q"] == ("{!knn f=table_embedding topK=50}[0.25,-0.5]")
+    assert captured["params"]["fq"] == ['representation_version:"metadata-v1"']
     assert "*" not in captured["params"]["fl"]
     assert "table_embedding" not in captured["params"]["fl"]
     assert "title" in captured["params"]["fl"]
     assert "score" in captured["params"]["fl"]
     assert "table_embedding" not in response["response"]["docs"][0]
-    assert response["response"]["docs"][0]["columns"] == [
-        {"name": "anno", "description": None}
-    ]
+    assert response["response"]["docs"][0]["columns"] == [{"name": "anno", "description": None}]
 
     with pytest.raises(ValueError, match="finite"):
-        client.knn_select(
-            [math.nan], vector_field="table_embedding", top_k=10
-        )
+        client.knn_select([math.nan], vector_field="table_embedding", top_k=10)
 
 
 def _generated_queries_payload():
@@ -1080,15 +848,13 @@ def test_benchmark_rejects_generated_query_with_unresolved_table_alias(tmp_path)
         load_benchmark_cases(path)
 
 
-def test_benchmark_cli_takes_input_core_and_retrieval_settings_from_config(
-    tmp_path, monkeypatch
-):
+def test_benchmark_cli_takes_input_core_and_retrieval_settings_from_config(tmp_path, monkeypatch):
     generated = tmp_path / "generated_queries_semantic.json"
     generated.write_text(json.dumps(_generated_queries_payload()), encoding="utf-8")
     config = tmp_path / "experiment.yaml"
     config.write_text(
-        f"core: uk\nbenchmark:\n  path: {generated}\n"
-        "retrieval:\n  top_k: 20\n  alpha: 0.25\n",
+        f"schema_version: 2\nlake: uk\nbenchmark:\n  path: {generated}\n"
+        "retrieval:\n  mode: hybrid\n  top_k: 20\n  hybrid:\n    alpha: 0.25\n",
         encoding="utf-8",
     )
     captured = {}
@@ -1122,12 +888,10 @@ def test_benchmark_cli_takes_input_core_and_retrieval_settings_from_config(
 
 def test_benchmark_cli_requires_input_or_configured_benchmark_path(tmp_path):
     config = tmp_path / "experiment.yaml"
-    config.write_text("core: nyc\n", encoding="utf-8")
+    config.write_text("schema_version: 2\nlake: nyc\n", encoding="utf-8")
 
     with pytest.raises(SystemExit):
-        benchmark_module.main(
-            ["--config", str(config), "--output", str(tmp_path / "report.json")]
-        )
+        benchmark_module.main(["--config", str(config), "--output", str(tmp_path / "report.json")])
 
 
 def test_only_question_ranking_modes_leave_discovery_keywords_unsearched():
@@ -1141,225 +905,6 @@ def test_only_question_ranking_modes_leave_discovery_keywords_unsearched():
     )
     assert RetrievalMode.HYBRID.split_keywords(["Home"]) == (["Home"], [])
     assert RetrievalMode.KEYWORD.split_keywords(None) == ([], [])
-
-
-class ScriptedTransport:
-    """A judge transport replaying canned responses and recording each request."""
-
-    def __init__(self, *responses):
-        self.responses = list(responses)
-        self.requests = []
-
-    def __call__(self, messages, **params):
-        self.requests.append({"messages": [dict(message) for message in messages], **params})
-        return self.responses.pop(0)
-
-
-def test_structured_judge_decodes_greedily_against_the_verdict_schema():
-    transport = ScriptedTransport('{"relevant": true, "reason": "It has FTE posts per region."}')
-
-    judgment = StructuredRelevanceJudge(transport, retry_delay=0).judge("Is it relevant?")
-
-    assert judgment == RelevanceJudgment(relevant=True, reason="It has FTE posts per region.")
-    (request,) = transport.requests
-    assert request["temperature"] == 0.0
-    assert request["schema"] == RelevanceJudgment.model_json_schema()
-    assert request["schema"]["additionalProperties"] is False
-    assert [message["role"] for message in request["messages"]] == ["system", "user"]
-    assert request["messages"][1]["content"] == "Is it relevant?"
-    with pytest.raises(ValueError):
-        RelevanceJudgment(relevant=True, reason="   ")
-
-
-def test_structured_judge_feeds_errors_back_until_the_verdict_validates():
-    transport = ScriptedTransport(
-        "**Yes**, the table is relevant.",
-        '{"relevant": "maybe", "reason": "Unsure."}',
-        '```json\n{"relevant": false, "reason": "No Asylum rows."}\n```',
-    )
-
-    judgment = StructuredRelevanceJudge(transport, retry_delay=0).judge("Is it relevant?")
-
-    assert judgment.relevant is False
-    first, after_json_error, after_validation_error = (
-        request["messages"] for request in transport.requests
-    )
-    # Rebuilt on every attempt, never appended to; the system message is fixed.
-    assert len(after_json_error) == len(after_validation_error) == 2
-    assert after_json_error[0] == after_validation_error[0] == first[0]
-    assert "JSON PARSING ERROR" in after_json_error[1]["content"]
-    assert "**Yes**, the table is relevant." in after_json_error[1]["content"]
-    assert "SCHEMA VALIDATION ERROR" in after_validation_error[1]["content"]
-    assert "  - relevant:" in after_validation_error[1]["content"]
-
-
-def test_structured_judge_raises_rather_than_guessing_a_verdict():
-    transport = ScriptedTransport("Yes", "Yes", "Yes")
-
-    with pytest.raises(JudgeError, match="no valid verdict after 3 attempt"):
-        StructuredRelevanceJudge(transport, retry_delay=0).judge("Is it relevant?")
-
-
-def test_judge_all_returns_verdicts_in_document_order_across_workers():
-    def transport(messages, **_params):
-        prompt = messages[1]["content"]
-        index = int(prompt[-1])
-        time.sleep(0.01 * (5 - index))  # later documents answer first
-        return json.dumps({"relevant": index % 2 == 0, "reason": prompt})
-
-    judge = StructuredRelevanceJudge(transport, workers=4, retry_delay=0)
-    judgments = judge.judge_all([f"document {index}" for index in range(5)])
-
-    assert [judgment.reason for judgment in judgments] == [
-        f"document {index}" for index in range(5)
-    ]
-    assert [judgment.relevant for judgment in judgments] == [True, False, True, False, True]
-
-
-class _FakeChatEndpoint:
-    """An OpenAI-compatible client that records requests and replays answers."""
-
-    def __init__(self, *answers):
-        self.answers = list(answers)
-        self.requests = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    def _create(self, **request):
-        self.requests.append(json.loads(json.dumps(request)))
-        text = self.answers.pop(0)
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
-
-
-def _endpoint_chat_client(endpoint, **settings):
-    from scripts.pneuma.pneuma_oci import OCICompatOpenAI, OCISettings
-
-    # Built without __init__: no OCI config is needed to exercise the chat path.
-    client = object.__new__(OCICompatOpenAI)
-    client._oci_settings = OCISettings(
-        chat_base_url="http://127.0.0.1:11434/v1", retry_initial_delay=0, **settings
-    )
-    client._chat_client = endpoint
-    client._oci_client = None
-    return client
-
-
-def test_pneuma_chat_on_an_openai_endpoint_keeps_the_oci_contract():
-    """Judge requests reach the local model with the settings OCI would get."""
-    endpoint = _FakeChatEndpoint('{"relevant": true, "reason": "r"}')
-    client = _endpoint_chat_client(endpoint)
-    schema = {"type": "object", "properties": {"relevant": {"type": "boolean"}}}
-
-    text = client.chat_completion(
-        [{"role": "system", "content": "judge"}, {"role": "user", "content": "doc"}],
-        model="gpt-4o-mini", max_tokens=200, temperature=0.0, top_p=1.0, seed=7,
-        json_schema=schema, json_schema_name="verdict",
-    )
-
-    assert text == '{"relevant": true, "reason": "r"}'
-    [request] = endpoint.requests
-    # Pneuma's OpenAI default name never reaches the endpoint.
-    assert request["model"] == "gpt-oss:20b"
-    assert request["max_tokens"] == 1024  # the OCI floor, as for OCI
-    assert request["reasoning_effort"] == "low" and request["seed"] == 7
-    assert request["response_format"] == {
-        "type": "json_schema",
-        "json_schema": {"name": "verdict", "schema": schema, "strict": True},
-    }
-
-
-def test_pneuma_narration_through_openai_client_surface_uses_the_endpoint():
-    """Pneuma's summarizer calls chat.completions.create on the client it holds."""
-    endpoint = _FakeChatEndpoint("", "The borough of the incident.")
-    client = _endpoint_chat_client(endpoint, chat_model="local-model")
-    from scripts.pneuma.pneuma_oci import _Chat
-
-    client.chat = _Chat(client)
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": "Describe the boro column."}],
-        max_tokens=400,
-    )
-
-    assert response.choices[0].message.content == "The borough of the incident."
-    first, second = endpoint.requests
-    assert first["model"] == second["model"] == "local-model"
-    # An empty answer is retried with twice the budget and a plain-text nudge.
-    assert second["max_tokens"] == 2 * first["max_tokens"]
-    assert second["messages"][-1]["content"].endswith("Return the requested brief answer as plain text.")
-    assert "response_format" not in first
-
-
-def test_concurrent_narration_answers_every_conversation_in_place_and_in_order():
-    """Pneuma reads the answer appended to each conversation; concurrency must not reorder."""
-    from openai import APIConnectionError
-    from scripts.pneuma.pneuma_narration import concurrent_prompt_openai_llm
-
-    failures = {"c2": 1}  # one transient failure, retried like Pneuma's own loop
-
-    def create(**request):
-        column = request["messages"][0]["content"]
-        time.sleep(0.01 * (5 - int(column[1])))  # later columns answer first
-        if failures.get(column):
-            failures[column] -= 1
-            raise APIConnectionError(request=None)
-        assert request["seed"] == 42 and request["max_tokens"] == 400
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=f"about {column}"))])
-
-    llm = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    conversations = [[{"role": "user", "content": f"c{index}"}] for index in range(5)]
-
-    returned = concurrent_prompt_openai_llm(4)(llm, conversations, max_new_tokens=400)
-
-    assert returned is conversations
-    assert [conversation[-1]["content"] for conversation in conversations] == [
-        f"about c{index}" for index in range(5)
-    ]
-
-
-def test_row_sample_cells_are_capped_without_touching_other_values():
-    import pandas as pd
-    from scripts.pneuma.pneuma_narration import cap_long_cells
-
-    frame = pd.DataFrame({
-        "the_geom": ["MULTIPOLYGON (((" + "1 2, " * 500 + ")))", None],
-        "boro": ["Brooklyn", "Queens"],
-        "count": [3, 4],
-    })
-
-    capped = cap_long_cells(frame, 20)
-
-    assert capped.loc[0, "the_geom"] == frame.loc[0, "the_geom"][:20] + "…"
-    assert pd.isna(capped.loc[1, "the_geom"])
-    assert capped["boro"].tolist() == ["Brooklyn", "Queens"]
-    assert capped["count"].tolist() == [3, 4]
-    assert frame.loc[0, "the_geom"].endswith(")))")  # the input is not modified
-
-
-def test_order_by_relevance_moves_irrelevant_documents_behind_in_fused_order():
-    def verdict(relevant):
-        return RelevanceJudgment(relevant=relevant, reason="r")
-
-    nodes = ["a", "b", "c", "d"]
-    verdicts = [verdict(False), verdict(True), verdict(False), verdict(True)]
-
-    assert order_by_relevance(nodes, verdicts) == ["b", "d", "a", "c"]
-    with pytest.raises(ValueError):
-        order_by_relevance(nodes, verdicts[:1])
-
-
-def test_structured_relevance_prompt_changes_only_the_answer_instruction():
-    pneuma_prompt = (
-        "and this question:\n/*\nWhich?\n*/\n"
-        "Is the table relevant to answer the question? Begin your answer with yes/no."
-    )
-
-    prompt = structured_relevance_prompt(pneuma_prompt)
-
-    assert prompt == (
-        "and this question:\n/*\nWhich?\n*/\n"
-        "Is the table relevant to answer the question? "
-        "Answer with the JSON verdict described in the system message."
-    )
 
 
 def test_hybrid_reports_lexical_branch_count_even_when_fusion_hides_it():
@@ -1407,7 +952,7 @@ def test_hybrid_boundary_alphas_report_count_only_when_lexical_runs(
 
 
 def test_service_exposes_lexical_branch_count_of_latest_hybrid_retrieve():
-    from lakegen.retrieval import TableRetrievalService
+    from lakegen.retrieval import RetrievalService
 
     config = RetrievalConfig(
         mode=RetrievalMode.HYBRID,
@@ -1415,13 +960,15 @@ def test_service_exposes_lexical_branch_count_of_latest_hybrid_retrieve():
         representation_version="metadata-v1",
     )
     semantic_docs = [{"resource_id": "b", "score": 0.9}]
-    empty = TableRetrievalService(
-        FakeSolr(select_docs=[], knn_docs=semantic_docs), config,
+    empty = RetrievalService(
+        FakeSolr(select_docs=[], knn_docs=semantic_docs),
+        config,
         embedding_model=FakeEmbedding(),
     )
-    matched = TableRetrievalService(
+    matched = RetrievalService(
         FakeSolr(select_docs=[{"resource_id": "a", "score": 1.0}], knn_docs=semantic_docs),
-        config, embedding_model=FakeEmbedding(),
+        config,
+        embedding_model=FakeEmbedding(),
     )
 
     assert empty.last_lexical_hit_count is None
@@ -1432,9 +979,9 @@ def test_service_exposes_lexical_branch_count_of_latest_hybrid_retrieve():
 
 
 def test_service_reports_no_lexical_count_outside_hybrid():
-    from lakegen.retrieval import TableRetrievalService
+    from lakegen.retrieval import RetrievalService
 
-    service = TableRetrievalService(
+    service = RetrievalService(
         FakeSolr(select_docs=[{"resource_id": "a", "score": 1.0}]),
         RetrievalConfig(mode=RetrievalMode.KEYWORD),
     )
@@ -1457,14 +1004,10 @@ class CountingSolr:
 def test_keyword_count_asks_solr_for_the_strict_and_match_count_only():
     solr = CountingSolr(7)
 
-    count = KeywordRetriever(solr, query_fields="title^2 text").count(
-        ["belfast", " lough ", ""]
-    )
+    count = KeywordRetriever(solr, query_fields="title^2 text").count(["belfast", " lough ", ""])
 
     assert count == 7
-    assert solr.calls == [
-        (["belfast", "lough"], {"q_op": "AND", "rows": 0, "qf": "title^2 text"})
-    ]
+    assert solr.calls == [(["belfast", "lough"], {"q_op": "AND", "rows": 0, "qf": "title^2 text"})]
 
 
 def test_keyword_count_never_retries_as_or_even_when_the_fallback_is_on():
@@ -1482,10 +1025,10 @@ def test_keyword_count_of_no_keywords_is_zero_without_a_query():
 
 
 def test_service_lexical_match_count_delegates_to_the_keyword_retriever():
-    from lakegen.retrieval import TableRetrievalService
+    from lakegen.retrieval import RetrievalService
 
     solr = CountingSolr(3)
-    service = TableRetrievalService(solr, RetrievalConfig(mode=RetrievalMode.KEYWORD))
+    service = RetrievalService(solr, RetrievalConfig(mode=RetrievalMode.KEYWORD))
 
     assert service.lexical_match_count(["a", "b"]) == 3
     assert solr.calls[0][1]["rows"] == 0
@@ -1534,22 +1077,24 @@ def test_duckdb_semantic_mode_reads_parquet_embeds_the_question_and_has_a_label(
 
 
 def test_duckdb_semantic_hybrid_fuses_by_rrf_on_the_catalog_document():
-    catalog = {
-        "dataset_id": "DS", "resource_id": "b", "title": "B", "description": "Catalog."
-    }
+    catalog = {"dataset_id": "DS", "resource_id": "b", "title": "B", "description": "Catalog."}
     resolver = SolrPneumaDocumentResolver(FakeCatalogSolr([catalog]))
-    duckdb = StubDuckDB([
-        duckdb_hit("DS___b.parquet", 50.0, 1),
-        duckdb_hit("orphan.parquet", 10.0, 2),
-    ])
-    semantic = StubBranch([
-        hit("c", 0.9, 1),
-        RetrievalHit(
-            document={"dataset_id": "DS", "resource_id": "b", "title": "B"},
-            score=0.8,
-            rank=2,
-        ),
-    ])
+    duckdb = StubDuckDB(
+        [
+            duckdb_hit("DS___b.parquet", 50.0, 1),
+            duckdb_hit("orphan.parquet", 10.0, 2),
+        ]
+    )
+    semantic = StubBranch(
+        [
+            hit("c", 0.9, 1),
+            RetrievalHit(
+                document={"dataset_id": "DS", "resource_id": "b", "title": "B"},
+                score=0.8,
+                rank=2,
+            ),
+        ]
+    )
     config = RetrievalConfig(
         mode=RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
         fusion_method=FusionMethod.RRF,
@@ -1557,20 +1102,17 @@ def test_duckdb_semantic_hybrid_fuses_by_rrf_on_the_catalog_document():
         rrf_k=60,
     )
 
-    results = DuckDBSemanticHybridRetriever(
-        duckdb, semantic, config, resolver
-    ).retrieve("q?", ["fiber"], top_k=3)
+    results = DuckDBSemanticRetriever(duckdb, semantic, config, resolver).retrieve(
+        "q?", ["fiber"], top_k=3
+    )
 
     # The UK file DS___b is catalog document b, so both branches fuse into one hit.
-    assert [item.document["resource_id"] for item in results] == [
-        "b", "c", "orphan.parquet"
-    ]
+    assert [item.document["resource_id"] for item in results] == ["b", "c", "orphan.parquet"]
     assert results[0].score == pytest.approx(1 / 61 + 1 / 62)
     assert (results[0].lexical_rank, results[0].semantic_rank) == (1, 2)
     assert [item.rank for item in results] == [1, 2, 3]
     assert results[0].document["description"] == (
-        "Catalog. DuckDB keyword evidence: 1 primary terms, 1 found in values; "
-        "9 total rows."
+        "Catalog. DuckDB keyword evidence: 1 primary terms, 1 found in values; 9 total rows."
     )
     assert results[0].document["duckdb_evidence"]["term_counts"] == {"fiber": 2}
     assert catalog["description"] == "Catalog."
@@ -1583,33 +1125,27 @@ def test_duckdb_semantic_hybrid_fuses_by_rrf_on_the_catalog_document():
 def test_service_runs_the_duckdb_semantic_hybrid_over_local_parquet(tmp_path):
     import pandas as pd
 
-    from lakegen.retrieval import TableRetrievalService
+    from lakegen.retrieval import RetrievalService
 
-    pd.DataFrame({"connection_type": ["fiber", "dsl"]}).to_parquet(
-        tmp_path / "DS___b.parquet"
-    )
+    pd.DataFrame({"connection_type": ["fiber", "dsl"]}).to_parquet(tmp_path / "DS___b.parquet")
     catalog = {"dataset_id": "DS", "resource_id": "b", "title": "Connectivity"}
     solr = FakeSolr(knn_docs=[{**catalog, "score": 0.9}])
     config = RetrievalConfig(
         mode=RetrievalMode.HYBRID_DUCKDB_SEMANTIC, fusion_method=FusionMethod.RRF
     )
     with pytest.raises(ValueError, match="requires a local table_dir"):
-        TableRetrievalService(solr, config, embedding_model=FakeEmbedding())
+        RetrievalService(solr, config, embedding_model=FakeEmbedding())
 
     runs = []
-    service = TableRetrievalService(
+    service = RetrievalService(
         solr,
         config,
         embedding_model=FakeEmbedding(),
-        pneuma_document_resolver=SolrPneumaDocumentResolver(
-            FakeCatalogSolr([catalog])
-        ),
+        pneuma_document_resolver=SolrPneumaDocumentResolver(FakeCatalogSolr([catalog])),
         table_dir=str(tmp_path),
         observer=runs.append,
     )
-    hits = service.retrieve(
-        question="Which schools have fiber?", keywords=["fiber"], top_k=5
-    )
+    hits = service.retrieve(question="Which schools have fiber?", keywords=["fiber"], top_k=5)
 
     assert len(hits) == 1
     assert (hits[0].lexical_rank, hits[0].semantic_rank) == (1, 1)
@@ -1618,32 +1154,38 @@ def test_service_runs_the_duckdb_semantic_hybrid_over_local_parquet(tmp_path):
 
 
 def test_duckdb_semantic_hybrid_weighted_fusion_normalizes_each_branch():
-    duckdb = StubDuckDB([
-        duckdb_hit("a.parquet", 100.0, 1),
-        duckdb_hit("b.parquet", 40.0, 2),
-        duckdb_hit("c.parquet", 20.0, 3),
-    ])
-    semantic = StubBranch([
-        RetrievalHit(document={"resource_id": "c.parquet"}, score=0.9, rank=1),
-        RetrievalHit(document={"resource_id": "d"}, score=0.5, rank=2),
-    ])
+    duckdb = StubDuckDB(
+        [
+            duckdb_hit("a.parquet", 100.0, 1),
+            duckdb_hit("b.parquet", 40.0, 2),
+            duckdb_hit("c.parquet", 20.0, 3),
+        ]
+    )
+    semantic = StubBranch(
+        [
+            RetrievalHit(document={"resource_id": "c.parquet"}, score=0.9, rank=1),
+            RetrievalHit(document={"resource_id": "d"}, score=0.5, rank=2),
+        ]
+    )
     config = RetrievalConfig(
         mode=RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
         fusion_method=FusionMethod.WEIGHTED,
         alpha=0.25,
     )
 
-    results = DuckDBSemanticHybridRetriever(
+    results = DuckDBSemanticRetriever(
         duckdb, semantic, config, SolrPneumaDocumentResolver(FakeCatalogSolr([]))
     ).retrieve("q?", ["fiber"], top_k=4)
 
     scores = {item.document["resource_id"]: item.score for item in results}
     # DuckDB 100/40/20 -> 1/0.25/0; semantic 0.9/0.5 -> 1/0; a missing branch is 0.
-    assert scores == pytest.approx({
-        "c.parquet": 0.75, "a.parquet": 0.25, "b.parquet": 0.0625, "d": 0.0
-    })
+    assert scores == pytest.approx(
+        {"c.parquet": 0.75, "a.parquet": 0.25, "b.parquet": 0.0625, "d": 0.0}
+    )
     assert [item.document["resource_id"] for item in results][:3] == [
-        "c.parquet", "a.parquet", "b.parquet"
+        "c.parquet",
+        "a.parquet",
+        "b.parquet",
     ]
 
 
@@ -1652,9 +1194,7 @@ def test_benchmark_runs_the_duckdb_semantic_arms_like_hybrid():
         RetrievalConfig(), [RetrievalMode.HYBRID_DUCKDB_SEMANTIC], (0.5,), True
     )
 
-    assert [
-        (label, config.fusion_method, config.alpha) for label, config in configs
-    ] == [
+    assert [(label, config.fusion_method, config.alpha) for label, config in configs] == [
         ("hybrid (duckdb + semantic)-weighted-a0.5", FusionMethod.WEIGHTED, 0.5),
         ("hybrid (duckdb + semantic)-rrf-k60", FusionMethod.RRF, 0.5),
     ]
@@ -1663,9 +1203,7 @@ def test_benchmark_runs_the_duckdb_semantic_arms_like_hybrid():
 def test_benchmark_scores_hits_under_the_local_file_they_map_to(tmp_path):
     # Gold ids are file stems; a UK Solr document holds only the resource half.
     (tmp_path / "DS___gold.parquet").write_bytes(b"")
-    solr = FakeSolr(
-        select_docs=[{"dataset_id": "DS", "resource_id": "gold", "score": 1.0}]
-    )
+    solr = FakeSolr(select_docs=[{"dataset_id": "DS", "resource_id": "gold", "score": 1.0}])
 
     report = run_retriever_benchmark(
         solr,
@@ -1704,11 +1242,11 @@ def _keyword_docs(count):
 
 
 def test_reranker_reorders_only_the_top_depth_and_records_it_on_the_run():
-    from lakegen.retrieval import TableRetrievalService
+    from lakegen.retrieval import RetrievalService
 
     reranker = ReversingReranker()
     runs = []
-    service = TableRetrievalService(
+    service = RetrievalService(
         FakeSolr(select_docs=_keyword_docs(4)),
         RetrievalConfig(mode=RetrievalMode.KEYWORD, rerank_model="test-rerank", rerank_depth=3),
         reranker=reranker,
@@ -1725,16 +1263,18 @@ def test_reranker_reorders_only_the_top_depth_and_records_it_on_the_run():
     question, documents = reranker.calls[0]
     assert question == "Which table?" and documents[0] == "Title: Table 1"
     assert (runs[0].rerank_model, runs[0].rerank_depth, runs[0].rerank_error) == (
-        "test-rerank", 3, ""
+        "test-rerank",
+        3,
+        "",
     )
     assert runs[0].rerank_seconds is not None
 
 
 def test_a_failing_reranker_keeps_the_retrieval_order_and_the_search_succeeds():
-    from lakegen.retrieval import TableRetrievalService
+    from lakegen.retrieval import RetrievalService
 
     runs = []
-    service = TableRetrievalService(
+    service = RetrievalService(
         FakeSolr(select_docs=_keyword_docs(3)),
         RetrievalConfig(mode=RetrievalMode.KEYWORD, rerank_model="test-rerank"),
         reranker=FailingReranker(),
@@ -1749,7 +1289,7 @@ def test_a_failing_reranker_keeps_the_retrieval_order_and_the_search_succeeds():
 
 
 def test_only_keyword_semantic_and_the_hybrids_are_reranked():
-    from lakegen.retrieval import TableRetrievalService
+    from lakegen.retrieval import RetrievalService
 
     assert [mode for mode in RetrievalMode if mode.reranked] == [
         RetrievalMode.KEYWORD,
@@ -1758,7 +1298,7 @@ def test_only_keyword_semantic_and_the_hybrids_are_reranked():
         RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
     ]
     # No model, no reranking, whatever the mode.
-    service = TableRetrievalService(
+    service = RetrievalService(
         FakeSolr(select_docs=_keyword_docs(2)),
         RetrievalConfig(mode=RetrievalMode.KEYWORD),
         reranker=ReversingReranker(),
@@ -1771,7 +1311,7 @@ def test_only_keyword_semantic_and_the_hybrids_are_reranked():
 def test_the_duckdb_semantic_hybrid_is_reranked_after_rrf(tmp_path):
     import pandas as pd
 
-    from lakegen.retrieval import TableRetrievalService
+    from lakegen.retrieval import RetrievalService
 
     pd.DataFrame({"connection_type": ["fiber", "fiber", "dsl"]}).to_parquet(
         tmp_path / "DS___b.parquet"
@@ -1785,7 +1325,7 @@ def test_the_duckdb_semantic_hybrid_is_reranked_after_rrf(tmp_path):
     ]
     reranker = ReversingReranker()
     runs = []
-    service = TableRetrievalService(
+    service = RetrievalService(
         FakeSolr(knn_docs=[{**catalog[0], "score": 0.9}, {**catalog[1], "score": 0.8}]),
         RetrievalConfig(
             mode=RetrievalMode.HYBRID_DUCKDB_SEMANTIC,
@@ -1829,14 +1369,16 @@ def test_production_configurations_rerank_with_cohere_unless_turned_off(monkeypa
 
 
 def test_rerank_candidate_text_leaves_out_duckdb_search_bookkeeping():
-    from lakegen.integrations.llm.rerank import candidate_text
+    from lakegen.llm.rerank import candidate_text
 
-    text = candidate_text({
-        "title": "Cash Management",
-        "publisher": "Food Standards Agency",
-        "description": "Monthly receipts. DuckDB keyword evidence: 2 primary terms, 1 found in values; 12 total rows.",
-        "columns": [{"name": "InvoiceMonth"}, {"name": "GovernmentCash"}],
-    })
+    text = candidate_text(
+        {
+            "title": "Cash Management",
+            "publisher": "Food Standards Agency",
+            "description": "Monthly receipts. DuckDB keyword evidence: 2 primary terms, 1 found in values; 12 total rows.",
+            "columns": [{"name": "InvoiceMonth"}, {"name": "GovernmentCash"}],
+        }
+    )
 
     assert text == (
         "Title: Cash Management\nPublisher: Food Standards Agency\n"
@@ -1850,12 +1392,25 @@ def _pneuma_pool(tmp_path):
 
     import pandas as pd
 
-    pd.DataFrame({"department": ["Arts", "Finance"], "year": [2019, 2020]}).to_parquet(tmp_path / "a.parquet")
-    pd.DataFrame({"place": ["Leeds"], "note": ["Department of art"]}).to_parquet(tmp_path / "b.parquet")
-    pd.DataFrame({"catchment": ["Belfast Lough", "Belfast Lough", "Lagan"], "year": [2007, 2007, 2008]}).to_parquet(tmp_path / "c.parquet")
+    pd.DataFrame({"department": ["Arts", "Finance"], "year": [2019, 2020]}).to_parquet(
+        tmp_path / "a.parquet"
+    )
+    pd.DataFrame({"place": ["Leeds"], "note": ["Department of art"]}).to_parquet(
+        tmp_path / "b.parquet"
+    )
+    pd.DataFrame(
+        {"catchment": ["Belfast Lough", "Belfast Lough", "Lagan"], "year": [2007, 2007, 2008]}
+    ).to_parquet(tmp_path / "c.parquet")
     paths = [str(tmp_path / f"{name}.parquet") for name in "abc"]
     client = FakePneuma({"status": "SUCCESS", "data": [{"query": "q", "retrieved_tables": paths}]})
-    documents = {path: {"resource_id": Path(path).stem, "title": Path(path).stem.upper(), "description": "D."} for path in paths}
+    documents = {
+        path: {
+            "resource_id": Path(path).stem,
+            "title": Path(path).stem.upper(),
+            "description": "D.",
+        }
+        for path in paths
+    }
     return client, documents.get
 
 
@@ -1899,7 +1454,9 @@ def test_pneuma_value_scan_off_or_without_terms_is_plain_pneuma(tmp_path):
         (RetrievalConfig(mode="pneuma", top_k=3), ["belfast"]),
         (RetrievalConfig(mode="pneuma", top_k=3, pneuma_value_scan_weight=0.5), []),
     ):
-        hits = PneumaRetriever(config, resolver, client=client).retrieve("q", top_k=3, keywords=keywords)
+        hits = PneumaRetriever(config, resolver, client=client).retrieve(
+            "q", top_k=3, keywords=keywords
+        )
         assert [hit.document["resource_id"] for hit in hits] == ["a", "b", "c"]
         assert [hit.score for hit in hits] == [1.0, 0.5, pytest.approx(1 / 3)]
         assert all("pneuma_evidence" not in hit.document for hit in hits)
@@ -1908,14 +1465,17 @@ def test_pneuma_value_scan_off_or_without_terms_is_plain_pneuma(tmp_path):
 
 
 def test_count_matching_rows_reads_parquet_and_csv_and_reports_unreadable(tmp_path):
-    from lakegen.integrations.pneuma.seeker import _entity_pattern
     from lakegen.retrieval.modes.duckdb_agentic import count_matching_rows
+    from lakegen.retrieval.pneuma.seeker import _entity_pattern
 
     (tmp_path / "t.csv").write_text("city;year\nNew York;2007\nNEW-YORK;2008\nYork;2007\n")
     patterns = [_entity_pattern("New York"), _entity_pattern("2007")]
     assert count_matching_rows(tmp_path / "t.csv", patterns, max_rows=100, max_columns=40) == [2, 2]
     assert count_matching_rows(tmp_path / "t.csv", patterns, max_rows=1, max_columns=40) == [1, 1]
-    assert count_matching_rows(tmp_path / "missing.parquet", patterns, max_rows=10, max_columns=40) is None
+    assert (
+        count_matching_rows(tmp_path / "missing.parquet", patterns, max_rows=10, max_columns=40)
+        is None
+    )
 
 
 def test_pneuma_routes_cover_the_rebuilt_portals(monkeypatch):
@@ -1930,7 +1490,7 @@ def test_pneuma_routes_cover_the_rebuilt_portals(monkeypatch):
 
 
 def test_seeker_entity_extraction_can_run_on_together(monkeypatch):
-    from lakegen.integrations.pneuma import entities as pneuma
+    from lakegen.retrieval.pneuma import entities as pneuma
 
     sent = {}
 
@@ -1942,7 +1502,9 @@ def test_seeker_entity_extraction_can_run_on_together(monkeypatch):
             pass
 
         def json(self):
-            return {"choices": [{"message": {"content": '{"entities": ["N Lake Shore Dr", "60611"]}'}}]}
+            return {
+                "choices": [{"message": {"content": '{"entities": ["N Lake Shore Dr", "60611"]}'}}]
+            }
 
     def fake_post(url, headers, json, timeout):
         sent.update(url=url, auth=headers["Authorization"], payload=json)
@@ -1954,7 +1516,10 @@ def test_seeker_entity_extraction_can_run_on_together(monkeypatch):
     extractor = pneuma.entity_extractor_for("together.gpt-oss-120b")
 
     assert isinstance(extractor, pneuma.TogetherEntityExtractor)
-    assert extractor.entities("Crashes on N Lake Shore Dr in 60611?") == ["N Lake Shore Dr", "60611"]
+    assert extractor.entities("Crashes on N Lake Shore Dr in 60611?") == [
+        "N Lake Shore Dr",
+        "60611",
+    ]
     assert sent["url"] == pneuma.TOGETHER_CHAT_URL
     assert sent["auth"] == "Bearer together-secret"
     assert sent["payload"]["model"] == "openai/gpt-oss-120b"
@@ -1962,3 +1527,44 @@ def test_seeker_entity_extraction_can_run_on_together(monkeypatch):
     assert sent["payload"]["temperature"] == 0.0
     # OCI model ids keep the OCI path.
     assert isinstance(pneuma.entity_extractor_for("openai.gpt-oss-120b"), pneuma.OCIEntityExtractor)
+
+
+def test_dedicated_entity_models_use_the_endpoint(monkeypatch):
+    from lakegen.retrieval.pneuma import entities as pneuma
+
+    sent = {}
+
+    class Reply:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"entities": ["60611"]}'}}]}
+
+    def fake_post(url, headers, json, timeout):
+        sent.update(url=url, headers=headers, payload=json)
+        return Reply()
+
+    monkeypatch.setenv("DEDICATE_OCI_API_KEY", "dedicated-secret")
+    monkeypatch.setenv("DEDICATE_OCI_BASE_URL", "https://host/20231130/actions/v1/")
+    monkeypatch.setenv("DEDICATE_OCI_MODEL", "ocid1.endpoint")
+    monkeypatch.setenv("DEDICATE_OCI_HEADERS", '{"x-compartment": "c"}')
+    monkeypatch.setattr(pneuma.requests, "post", fake_post)
+    pneuma._dedicated_entities.cache_clear()
+    extractor = pneuma.entity_extractor_for("dedicated.gpt-oss-20b")
+
+    assert isinstance(extractor, pneuma.DedicatedEntityExtractor)
+    assert extractor.entities("Crashes in 60611?") == ["60611"]
+    assert sent["url"] == "https://host/20231130/actions/v1/chat/completions"
+    assert sent["headers"]["Authorization"] == "Bearer dedicated-secret"
+    assert sent["headers"]["x-compartment"] == "c"
+    assert sent["payload"]["model"] == "ocid1.endpoint"
+    assert sent["payload"]["messages"][0]["content"] == pneuma.ENTITY_EXTRACTION_PROMPT
+    # Without the endpoint in .env the error names what is missing.
+    monkeypatch.delenv("DEDICATE_OCI_API_KEY")
+    pneuma._dedicated_entities.cache_clear()
+    with pytest.raises(RuntimeError, match="set DEDICATE_OCI_MODEL_2, DEDICATE_OCI_API_KEY"):
+        pneuma.entity_extractor_for("dedicated.gpt-oss-20b-2").entities("x")

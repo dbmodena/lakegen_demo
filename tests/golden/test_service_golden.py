@@ -1,8 +1,8 @@
-"""Pipeline goldens of the autonomous service, ``lakegen.workflow.pipeline.service.run_question``.
+"""Pipeline goldens of the autonomous service, ``lakegen.pipeline.service.run_question``.
 
 Every scenario runs the service with scripted phases and snapshots the call
 log, the QueryResult, the log rows and the manifest. The scenarios cover each
-discovery variant (unified/divided x agentic/orchestrated, divided with Jev)
+discovery architecture (unified and divided)
 and each way a run can go: first-try success, a coder rejection that sends
 discovery back, the last-attempt fallback, the automatic coder sweep, a
 synthesized refusal, a semantic-judge adjudication, a selection-contract
@@ -19,16 +19,13 @@ from golden.harness import (
     SERVICE_NAMES,
     Case,
     Script,
-    discovery_result,
     experiment,
     make_runtime,
     normalise,
     phase1_result,
     phase3_result,
     prepare_run,
-    prepared,
 )
-from lakegen.workflow.discovery.selectors.jev_service import TRACE_HEADER as JEV_TRACE_HEADER
 
 SCENARIOS: dict[str, Callable[[], Case]] = {}
 
@@ -37,12 +34,23 @@ def scenario(name: str):
     def register(build: Callable[[], Case]) -> Callable[[], Case]:
         SCENARIOS[name] = build
         return build
+
     return register
 
 
-SELECTED = (["gold.csv"], ["parks"], {"gold.csv": {"title": "gold"}}, "The table covers the question.", "trace", 5)
+SELECTED = (
+    ["gold.csv"],
+    ["parks"],
+    {"gold.csv": {"title": "gold"}},
+    "The table covers the question.",
+    "trace",
+    5,
+)
 ANSWER = ("There are 42 parks.", 3)
-NUMBER_CONTEXT = {"SOURCE_EXPECTED_RESULT_TYPE": "number", "SOURCE_REFERENCE_RESULT": [{"total": 42}]}
+NUMBER_CONTEXT = {
+    "SOURCE_EXPECTED_RESULT_TYPE": "number",
+    "SOURCE_REFERENCE_RESULT": [{"total": 42}],
+}
 
 
 @scenario("unified_agentic_success")
@@ -56,44 +64,20 @@ def _():
         experiment(discovery_architecture="divided"),
         Script(
             phase1=[phase1_result()],
-            phase2=[(["gold.csv"], ["gold.csv", "other.csv"], {"gold.csv": {"title": "gold"}}, "The selection covers the question.", "trace", 4)],
-            phase3=[phase3_result()], phase4=[ANSWER],
+            phase2=[
+                (
+                    ["gold.csv"],
+                    ["gold.csv", "other.csv"],
+                    {"gold.csv": {"title": "gold"}},
+                    "The selection covers the question.",
+                    "trace",
+                    4,
+                )
+            ],
+            phase3=[phase3_result()],
+            phase4=[ANSWER],
         ),
         files=("gold.csv", "other.csv"),
-    )
-
-
-@scenario("unified_orchestrated_success")
-def _():
-    return Case(
-        experiment(tool_access="orchestrated_context"),
-        Script(unified_orchestrated=[discovery_result(["gold.csv"])], phase3=[phase3_result()], phase4=[ANSWER]),
-    )
-
-
-@scenario("divided_orchestrated_success")
-def _():
-    return Case(
-        experiment(discovery_architecture="divided", tool_access="orchestrated_context"),
-        Script(
-            phase1=[phase1_result()],
-            prepare_context=[(prepared(["gold.csv", "other.csv"]), {"gold.csv": {"title": "gold"}})],
-            select_prepared=[(["gold.csv"], "Selected.", "", 3)],
-            phase3=[phase3_result()], phase4=[ANSWER],
-        ),
-        files=("gold.csv", "other.csv"),
-    )
-
-
-@scenario("divided_jev_success")
-def _():
-    return Case(
-        experiment(discovery_architecture="divided", discovery={"selector": "jev"}),
-        Script(
-            phase1=[phase1_result()],
-            phase2=[(["gold.csv"], ["gold.csv"], {}, "Jev chose gold.csv.", JEV_TRACE_HEADER + "\ngold.csv 0.91", 0)],
-            phase3=[phase3_result()], phase4=[ANSWER],
-        ),
     )
 
 
@@ -108,9 +92,12 @@ def _():
             ],
             phase3=[
                 phase3_result(
-                    rejected_reason="bad.csv has no 2024 rows.", rejection_details={"category": "temporal_coverage"},
-                    raw_result=None, structured_result=None,
-                    rejection_keep_tables=["good.csv"], rejection_skip_tables=["bad.csv"],
+                    rejected_reason="bad.csv has no 2024 rows.",
+                    rejection_details={"category": "temporal_coverage"},
+                    raw_result=None,
+                    structured_result=None,
+                    rejection_keep_tables=["good.csv"],
+                    rejection_skip_tables=["bad.csv"],
                 ),
                 phase3_result(),
             ],
@@ -133,8 +120,11 @@ def _():
             phase2=[phase2],
             phase3=[
                 phase3_result(
-                    rejected_reason="good.csv covers part of the answer.", raw_result=None, structured_result=None,
-                    rejection_keep_tables=["good.csv"], rejection_skip_tables=["bad.csv"],
+                    rejected_reason="good.csv covers part of the answer.",
+                    raw_result=None,
+                    structured_result=None,
+                    rejection_keep_tables=["good.csv"],
+                    rejection_skip_tables=["bad.csv"],
                 ),
                 phase3_result(),
             ],
@@ -148,11 +138,20 @@ def _():
 def _():
     def phase12(*, state, **_kwargs):
         state.all_candidates = [
-            table for table in ["bad.csv", "good.csv"] if table.casefold() not in state.excluded_tables
+            table
+            for table in ["bad.csv", "good.csv"]
+            if table.casefold() not in state.excluded_tables
         ]
         state.rejection_keep_tables = []
         state.rejection_skip_tables = ["bad.csv"] if "bad.csv" in state.all_candidates else []
-        return (list(state.all_candidates), ["parks"], {}, "REJECT_KEYWORDS: still missing the organisation", "trace", 5)
+        return (
+            list(state.all_candidates),
+            ["parks"],
+            {},
+            "REJECT_KEYWORDS: still missing the organisation",
+            "trace",
+            5,
+        )
 
     return Case(
         experiment(),
@@ -166,11 +165,20 @@ def _():
     def phase2(*, selection_state, **_kwargs):
         selection_state.rejection_keep_tables = []
         selection_state.rejection_skip_tables = ["bad.csv"]
-        return ([], ["bad.csv", "good.csv"], {}, "REJECT_KEYWORDS: bad.csv has no matching rows", "trace", 4)
+        return (
+            [],
+            ["bad.csv", "good.csv"],
+            {},
+            "REJECT_KEYWORDS: bad.csv has no matching rows",
+            "trace",
+            4,
+        )
 
     return Case(
         experiment(discovery_architecture="divided"),
-        Script(phase1=[phase1_result()], phase2=[phase2], phase3=[phase3_result()], phase4=[ANSWER]),
+        Script(
+            phase1=[phase1_result()], phase2=[phase2], phase3=[phase3_result()], phase4=[ANSWER]
+        ),
         files=("bad.csv", "good.csv"),
     )
 
@@ -179,10 +187,13 @@ def _():
 def _():
     def phase3(*_args, coder_context_level, **_kwargs):
         value = 41 if coder_context_level.value == "minimal" else 42
-        return phase3_result(tokens=10, clean_code=f"print({value})", raw_result=str(value), structured_result=value)
+        return phase3_result(
+            tokens=10, clean_code=f"print({value})", raw_result=str(value), structured_result=value
+        )
 
     verdict = {
-        "disposition": "incorrect", "requested_disposition": "incorrect",
+        "disposition": "incorrect",
+        "requested_disposition": "incorrect",
         "requirements": [{"id": "r1", "text": "count the parks per district"}],
         "requirement_assessments": [{"id": "r1", "status": "failed"}],
         "critique": {"objections": [{"severity": "major", "text": "41 is not the count of parks"}]},
@@ -208,7 +219,8 @@ def _():
         rejected = args[1][0] == "first.csv" and coder_context_level.value == "full"
         return phase3_result(
             rejected_reason="wrong tables" if rejected else "",
-            raw_result=None if rejected else "42", structured_result=None if rejected else 42,
+            raw_result=None if rejected else "42",
+            structured_result=None if rejected else 42,
         )
 
     return Case(
@@ -223,24 +235,31 @@ def _():
 def _():
     return Case(
         experiment(),
-        Script(phase12=[SELECTED], phase3=[phase3_result()], phase4=[("The necessary data is not available.", 2)]),
+        Script(
+            phase12=[SELECTED],
+            phase3=[phase3_result()],
+            phase4=[("The necessary data is not available.", 2)],
+        ),
     )
 
 
 @scenario("unified_judge_adjudication")
 def _():
     judgment = {
-        "disposition": "alternative_correct", "requested_disposition": "alternative_correct",
+        "disposition": "alternative_correct",
+        "requested_disposition": "alternative_correct",
         "requirements": [{"id": "r1", "text": "count the parks per district"}],
         "requirement_assessments": [{"id": "r1", "status": "verified"}],
-        "critique": {"objections": []}, "code_analysis": {"hardcoding_risk": "low"},
+        "critique": {"objections": []},
+        "code_analysis": {"hardcoding_risk": "low"},
     }
     return Case(
         experiment(),
         Script(
             phase12=[SELECTED],
             phase3=[phase3_result(clean_code="print(41)", raw_result="41", structured_result=41)],
-            phase4=[ANSWER], judge=[(judgment, 7)],
+            phase4=[ANSWER],
+            judge=[(judgment, 7)],
         ),
         log_context={**NUMBER_CONTEXT, "SOURCE_EXPECTED_RESULT_DESCRIPTION": "the number of parks"},
     )
@@ -257,11 +276,23 @@ def _():
             ],
             phase3=[
                 phase3_result(
-                    error="The selection contract was not verified.", raw_result=None, structured_result=None,
-                    execution_error={"stage": "selection_contract_gate", "category": "selection_contract_gate", "retryable": False},
+                    error="The selection contract was not verified.",
+                    raw_result=None,
+                    structured_result=None,
+                    execution_error={
+                        "stage": "selection_contract_gate",
+                        "category": "selection_contract_gate",
+                        "retryable": False,
+                    },
                     coder_context_audit={
                         "status": "invalid",
-                        "validation_diagnostics": [{"category": "unknown_column", "table": "a.csv", "evidence": {"unknown": ["year"]}}],
+                        "validation_diagnostics": [
+                            {
+                                "category": "unknown_column",
+                                "table": "a.csv",
+                                "evidence": {"unknown": ["year"]},
+                            }
+                        ],
                     },
                 ),
                 phase3_result(),
@@ -279,19 +310,17 @@ def _():
     def phase3(*_args, **_kwargs):
         coder_calls.append(1)
         return phase3_result(
-            error="result needs revision", raw_result=None, structured_result=None,
-            execution_error={"stage": "result_validation", "category": "result_needs_revision", "retryable": len(coder_calls) == 1},
+            error="result needs revision",
+            raw_result=None,
+            structured_result=None,
+            execution_error={
+                "stage": "result_validation",
+                "category": "result_needs_revision",
+                "retryable": len(coder_calls) == 1,
+            },
         )
 
     return Case(experiment(), Script(phase12=[SELECTED], phase3=[phase3]))
-
-
-@scenario("divided_orchestrated_empty_context")
-def _():
-    return Case(
-        experiment(discovery_architecture="divided", tool_access="orchestrated_context"),
-        Script(phase1=[phase1_result()], prepare_context=[(prepared([]), {})]),
-    )
 
 
 @scenario("unified_empty_result_retry")
@@ -308,15 +337,20 @@ def _():
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
 def test_service_golden(name, golden, monkeypatch, tmp_path):
-    import lakegen.workflow.pipeline.service as service
+    import lakegen.pipeline.service as service
 
     case = SCENARIOS[name]()
     replacements, log, capture = prepare_run(monkeypatch, tmp_path, service, case, SERVICE_NAMES)
 
-    result = service.run_question(case.question, make_runtime(case.experiment, tmp_path), log_context=case.log_context)
+    result = service.run_question(
+        case.question, make_runtime(case.experiment, tmp_path), log_context=case.log_context
+    )
 
-    golden(f"service/{name}", {
-        "result": normalise(result.to_dict(), replacements),
-        "calls": log.calls,
-        **capture.payload(),
-    })
+    golden(
+        f"service/{name}",
+        {
+            "result": normalise(result.to_dict(), replacements),
+            "calls": log.calls,
+            **capture.payload(),
+        },
+    )

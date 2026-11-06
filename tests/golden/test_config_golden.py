@@ -1,7 +1,7 @@
 """Goldens of configuration loading.
 
-Every experiment YAML in the repository and in the (git-ignored) experiment
-directories must keep resolving to the same ExperimentConfig, and every
+The base configuration and every experiment YAML kept as a fixture must keep
+resolving to the same ExperimentConfig, and every
 resolved config stored with an API job must keep loading. The snapshot of the
 stored configs records what loading changes about them (fields added with a
 default, values normalised), which is what a later config migration must
@@ -20,7 +20,7 @@ from lakegen.config.experiment import ExperimentConfig, load_experiment_config
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "golden" / "fixtures" / "configs"
-YAMLS = sorted(ROOT.glob("config/examples/experiment.example*.yaml")) + sorted(FIXTURES.glob("experiments/*/*.yaml"))
+YAMLS = [ROOT / "config" / "base.yaml", *sorted(FIXTURES.glob("experiments/*/*.yaml"))]
 
 
 def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
@@ -42,8 +42,8 @@ def _changes(stored: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
 
 
 def _group(path: Path) -> str:
-    """The folder a snapshot is filed under: the examples keep their old name, ``config``."""
-    return "config" if path.parent.name == "examples" else path.parent.name
+    """The folder a snapshot is filed under: ``config`` for the base, else the fixture's folder."""
+    return "config" if path.parent.name == "config" else path.parent.name
 
 
 @pytest.mark.parametrize("path", YAMLS, ids=[f"{_group(p)}/{p.name}" for p in YAMLS])

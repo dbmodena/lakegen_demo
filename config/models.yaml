@@ -1,38 +1,70 @@
 # The chat models LakeGen can run, in the order the interfaces list them.
 #
-# provider: oci (OCI Generative AI, credentials from ~/.oci/config), ollama (a
-# local Ollama server, LAKEGEN_OLLAMA_BASE_URL) or together (Together AI,
-# TOGETHERAI_API_KEY). provider_model is the provider's own id when it differs
-# from the name; groq_model is the id of the same weights on Groq, for the
-# optional offload of small calls (LAKEGEN_GROQ_OFFLOAD).
+# title is the label the interfaces show for an entry (the webapp's model
+# picker); the entry's name is what the CLI, the API and the experiment
+# configs take.
+# provider: oci (OCI Generative AI, credentials from ~/.oci/config), oci_dedicated
+# (an OCI Dedicated AI Cluster endpoint through its OpenAI-compatible API:
+# DEDICATE_OCI_API_KEY, DEDICATE_OCI_BASE_URL, and the model id in the .env
+# variable the entry's model_env names), ollama (a local Ollama server,
+# LAKEGEN_OLLAMA_BASE_URL) or together (Together AI, TOGETHERAI_API_KEY).
+# provider_model is the provider's own id when it differs from the name;
+# groq_model is the id of the same weights on Groq, for the optional offload of
+# small calls (LAKEGEN_GROQ_OFFLOAD). Any other key is the provider's.
 
 defaults:
   temperature: 0.1
 
 models:
   openai.gpt-oss-120b:
+    title: gpt-oss-120b (OCI)
     provider: oci
     context_window: 128000
     max_output_tokens: 16000
     groq_model: openai/gpt-oss-120b
   meta.llama-3.3-70b-instruct:
+    title: Llama 3.3 70B (OCI)
     provider: oci
     max_output_tokens: 4000
   ollama.gpt-oss-20b:
+    title: gpt-oss-20b (local Ollama)
     provider: ollama
     provider_model: "gpt-oss:20b"
     context_window: 32768   # the local servers load a 32k window, not the native 128k
     max_output_tokens: 16000
     timeout_seconds: 600
   ollama.qwen3.8-27b:
+    title: Qwen3.8 27B (local Ollama)
     provider: ollama
     provider_model: "qwen3.8:27b"
     context_window: 32768   # not the native 256k
     max_output_tokens: 16000
     timeout_seconds: 600
   together.gpt-oss-120b:
+    title: gpt-oss-120b (Together AI)
     provider: together
     provider_model: openai/gpt-oss-120b   # the same open weights as OCI's gpt-oss-120b
     context_window: 128000
+    max_output_tokens: 16000
+    timeout_seconds: 300
+  dedicated.gpt-oss-20b:
+    title: gpt-oss-20b (OCI dedicated endpoint 1)
+    provider: oci_dedicated
+    model_env: DEDICATE_OCI_MODEL     # the .env variable holding the endpoint's model id (its OCID)
+    context_window: 128000
+    max_output_tokens: 16000
+    timeout_seconds: 300
+  dedicated.gpt-oss-20b-2:
+    title: gpt-oss-20b (OCI dedicated endpoint 2)
+    provider: oci_dedicated
+    model_env: DEDICATE_OCI_MODEL_2   # a second endpoint of the same weights
+    context_window: 128000
+    max_output_tokens: 16000
+    timeout_seconds: 300
+  dedicated.qwen3.8-27b:
+    title: Qwen3.8 27B (OCI dedicated endpoint 3)
+    provider: oci_dedicated
+    model_env: DEDICATE_OCI_MODEL_3   # a third endpoint, serving Qwen3.8 27B
+    context_window: 128000            # the same budget as the other endpoints; the weights' native window is 256k
     max_output_tokens: 16000
     timeout_seconds: 300

@@ -13,9 +13,22 @@ from pathlib import Path
 from typing import Any
 
 RETRIEVAL_ORDER = (
-    "Hit@1", "Hit@5", "Hit@10", "Hit@15", "Hit@20",
-    "Recall@1", "Recall@5", "Recall@10", "Recall@15", "Recall@20",
-    "MRR", "nDCG@1", "nDCG@5", "nDCG@10", "nDCG@15", "nDCG@20",
+    "Hit@1",
+    "Hit@5",
+    "Hit@10",
+    "Hit@15",
+    "Hit@20",
+    "Recall@1",
+    "Recall@5",
+    "Recall@10",
+    "Recall@15",
+    "Recall@20",
+    "MRR",
+    "nDCG@1",
+    "nDCG@5",
+    "nDCG@10",
+    "nDCG@15",
+    "nDCG@20",
 )
 CODE_RATES = (
     "generation_success_rate",
@@ -37,6 +50,7 @@ LABEL_OVERRIDES = {
     "SelectionRecall": "Selection Recall",
     "SelectionPrecision": "Selection Precision",
     "ExactSelection": "Exact Selection",
+    "AnyOfSelection": "Any-of Selection",
     "AlternativeHit@1": "Alternative Hit@1",
     "AlternativeHit@5": "Alternative Hit@5",
     "AlternativeHit@10": "Alternative Hit@10",
@@ -51,38 +65,82 @@ LABEL_OVERRIDES = {
     "StrictMissRescued": "Strict Miss Rescued",
 }
 METRIC_DESCRIPTIONS = (
-    ("Retrieval Hit@k", "Quota di domande per cui il retriever colloca almeno una tabella gold nelle prime k posizioni."),
-    ("Retrieval Recall@k", "Quota media delle tabelle gold presenti nelle prime k posizioni del retriever."),
+    (
+        "Retrieval Hit@k",
+        "Quota di domande per cui il retriever colloca almeno una tabella gold nelle prime k posizioni.",
+    ),
+    (
+        "Retrieval Recall@k",
+        "Quota media delle tabelle gold presenti nelle prime k posizioni del retriever.",
+    ),
     ("MRR", "Premia i casi in cui la prima tabella rilevante appare molto in alto nel ranking."),
-    ("nDCG@k", "Misura la qualità dell'ordinamento delle tabelle rilevanti entro le prime k posizioni."),
+    (
+        "nDCG@k",
+        "Misura la qualità dell'ordinamento delle tabelle rilevanti entro le prime k posizioni.",
+    ),
     ("Selection Hit", "Quota di domande per cui l'agente seleziona almeno una tabella gold."),
     ("Selection Recall", "Quota media delle tabelle gold effettivamente selezionate dall'agente."),
     ("Selection Precision", "Quota delle tabelle selezionate dall'agente che sono realmente gold."),
-    ("Exact Selection", "Quota di domande in cui le tabelle selezionate coincidono esattamente con tutte e sole le gold."),
-    ("Execution success", "Quota di casi applicabili in cui il codice generato viene eseguito con successo."),
-    ("Exact result match", "Quota di risultati che coincidono esattamente con il risultato di riferimento."),
-    ("Supported result", "Quota di risultati esatti o equivalenti e supportati dalle evidenze disponibili."),
+    (
+        "Exact Selection",
+        "Quota di domande in cui le tabelle selezionate coincidono esattamente con tutte e sole le gold.",
+    ),
+    (
+        "Any-of Selection",
+        "Quota di domande in cui la selezione, o una delle selezioni alternative offerte, coincide con le gold.",
+    ),
+    (
+        "Execution success",
+        "Quota di casi applicabili in cui il codice generato viene eseguito con successo.",
+    ),
+    (
+        "Exact result match",
+        "Quota di risultati che coincidono esattamente con il risultato di riferimento.",
+    ),
+    (
+        "Supported result",
+        "Quota di risultati esatti o equivalenti e supportati dalle evidenze disponibili.",
+    ),
     ("Pass@1", "Quota di casi risolti correttamente al primo tentativo di generazione."),
-    ("Requirement pass rate", "Percentuale media dei requisiti della domanda soddisfatti dal risultato."),
-    ("Semantic evidence coverage", "Quota media dei requisiti del judge LLM accompagnati da evidenza verificata."),
-    ("Semantic downgrade rate", "Quota dei giudizi LLM positivi richiesti ma declassati dai gate di evidenza."),
-    ("Numeric coverage", "Quota di risultati attesi numerici che hanno prodotto uno scalare confrontabile."),
-    ("MSE / RMSE", "Errore quadratico medio e sua radice sui soli scalari numerici confrontabili; dipendono dall'unità e dalla scala."),
-    ("MSRE / RMSRE", "Versioni quadratiche relative, utili per confrontare valori numerici su scale diverse."),
+    (
+        "Requirement pass rate",
+        "Percentuale media dei requisiti della domanda soddisfatti dal risultato.",
+    ),
+    (
+        "Semantic evidence coverage",
+        "Quota media dei requisiti del judge LLM accompagnati da evidenza verificata.",
+    ),
+    (
+        "Semantic downgrade rate",
+        "Quota dei giudizi LLM positivi richiesti ma declassati dai gate di evidenza.",
+    ),
+    (
+        "Numeric coverage",
+        "Quota di risultati attesi numerici che hanno prodotto uno scalare confrontabile.",
+    ),
+    (
+        "MSE / RMSE",
+        "Errore quadratico medio e sua radice sui soli scalari numerici confrontabili; dipendono dall'unità e dalla scala.",
+    ),
+    (
+        "MSRE / RMSRE",
+        "Versioni quadratiche relative, utili per confrontare valori numerici su scale diverse.",
+    ),
 )
 
 
 def label(value: str) -> str:
-    return LABEL_OVERRIDES.get(
-        value, value.replace("_", " ").title().replace("Ndcg", "nDCG")
-    )
+    """A metric key as a readable label (``LABEL_OVERRIDES``, else title case)."""
+    return LABEL_OVERRIDES.get(value, value.replace("_", " ").title().replace("Ndcg", "nDCG"))
 
 
 def pct(value: Any) -> str:
+    """A rate as a percentage with one decimal."""
     return f"{float(value) * 100:.1f}%"
 
 
 def duration(value: Any) -> str:
+    """Seconds as ``1h 02m 03s``, or ``2m 03s`` under an hour."""
     seconds = max(0, round(float(value)))
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -90,6 +148,7 @@ def duration(value: Any) -> str:
 
 
 def bar(value: float, color: str = "#2563eb") -> str:
+    """An HTML bar filled to the rate ``value``, clamped to 0-100%."""
     width = max(0.0, min(100.0, value * 100))
     return (
         '<div class="bar-track"><div class="bar" '
@@ -109,17 +168,21 @@ def display(value: Any) -> str:
 
 
 def key_value_table(rows: list[tuple[str, Any]]) -> str:
-    return "<table><tbody>" + "".join(
-        f"<tr><td>{html.escape(name)}</td><td>{html.escape(display(value))}</td></tr>"
-        for name, value in rows
-    ) + "</tbody></table>"
+    """An HTML table of name/value rows, the values shown with ``display``."""
+    return (
+        "<table><tbody>"
+        + "".join(
+            f"<tr><td>{html.escape(name)}</td><td>{html.escape(display(value))}</td></tr>"
+            for name, value in rows
+        )
+        + "</tbody></table>"
+    )
 
 
 def configuration_summary(job: dict[str, Any]) -> str:
     """Show the resolved, decision-relevant configuration without dumping secrets."""
     config = job.get("settings", {}).get("resolved_config", {})
     retrieval = config.get("retrieval", {})
-    discovery = config.get("discovery", {})
     reviewers = config.get("reviewers", {})
     gates = config.get("gates", {})
     main_rows = [
@@ -128,7 +191,6 @@ def configuration_summary(job: dict[str, Any]) -> str:
         ("Core", config.get("core")),
         ("Modello", config.get("model")),
         ("Architettura discovery", config.get("discovery_architecture")),
-        ("Accesso agli strumenti", config.get("tool_access")),
         ("Contesto coder", config.get("coder_context_level")),
         ("Test automatico dei contesti coder", config.get("automatic_test_coder")),
         ("Piano semantico obbligatorio", config.get("require_semantic_plan")),
@@ -147,29 +209,27 @@ def configuration_summary(job: dict[str, Any]) -> str:
         ("Modello embedding", retrieval.get("embedding_model")),
         ("Politica segnali mancanti", retrieval.get("missing_signal_policy")),
     ]
-    discovery_rows = [
-        ("Candidati iniziali visibili", discovery.get("initial_candidates")),
-        ("Dimensione espansione", discovery.get("expansion_size")),
-        ("Massime espansioni", discovery.get("max_expansions")),
-        ("Massimi tentativi di ricerca", discovery.get("max_search_attempts")),
-        ("Shortlist iniziale per ispezione", discovery.get("initial_shortlist_size")),
-        ("Massimi candidati ispezionabili", discovery.get("max_inspected_candidates")),
-        ("Ricerca dopo ispezione", discovery.get("search_after_inspection")),
-    ]
-    control_rows = [
-        (f"Gate: {name}", value) for name, value in gates.items()
-    ] + [
+    discovery_rows = []
+    control_rows = [(f"Gate: {name}", value) for name, value in gates.items()] + [
         (f"Reviewer: {name}", value) for name, value in reviewers.items()
     ]
-    controls = key_value_table(control_rows) if control_rows else "<p>Nessun gate o reviewer configurato.</p>"
+    controls = (
+        key_value_table(control_rows)
+        if control_rows
+        else "<p>Nessun gate o reviewer configurato.</p>"
+    )
     return (
         "<section><h2>Configurazione principale</h2>"
         "<p>Valori risolti e usati dal job; endpoint, chiavi e altri dettagli sensibili "
         "non vengono inclusi.</p>"
-        "<h3>Run</h3>" + key_value_table(main_rows)
-        + "<h3>Retrieval</h3>" + key_value_table(retrieval_rows)
-        + "<h3>Discovery</h3>" + key_value_table(discovery_rows)
-        + "<h3>Controlli</h3>" + controls
+        "<h3>Run</h3>"
+        + key_value_table(main_rows)
+        + "<h3>Retrieval</h3>"
+        + key_value_table(retrieval_rows)
+        + "<h3>Discovery</h3>"
+        + key_value_table(discovery_rows)
+        + "<h3>Controlli</h3>"
+        + controls
         + "</section>"
     )
 
@@ -178,25 +238,32 @@ def benchmark_summary(job: dict[str, Any], questions: list[dict[str, Any]]) -> s
     """Describe the benchmark configuration and the immutable sampled input."""
     config = job.get("settings", {}).get("resolved_config", {})
     benchmark = config.get("benchmark", {})
-    engines = sorted({
-        str(question.get("log_fields", {}).get("SOURCE_ENGINE"))
-        for question in questions
-        if question.get("log_fields", {}).get("SOURCE_ENGINE")
-    })
-    result_types = sorted({
-        str(question.get("log_fields", {}).get("SOURCE_EXPECTED_RESULT_TYPE"))
-        for question in questions
-        if question.get("log_fields", {}).get("SOURCE_EXPECTED_RESULT_TYPE")
-    })
+    engines = sorted(
+        {
+            str(question.get("log_fields", {}).get("SOURCE_ENGINE"))
+            for question in questions
+            if question.get("log_fields", {}).get("SOURCE_ENGINE")
+        }
+    )
+    result_types = sorted(
+        {
+            str(question.get("log_fields", {}).get("SOURCE_EXPECTED_RESULT_TYPE"))
+            for question in questions
+            if question.get("log_fields", {}).get("SOURCE_EXPECTED_RESULT_TYPE")
+        }
+    )
     gold_tables = {
         str(table)
         for question in questions
         for table in question.get("log_fields", {}).get("SOURCE_RELEVANT_TABLE_IDS", [])
     }
-    source_paths = sorted({
-        re.sub(r"\[\d+\]", "[*]", str(question.get("source_path")))
-        for question in questions if question.get("source_path")
-    })
+    source_paths = sorted(
+        {
+            re.sub(r"\[\d+\]", "[*]", str(question.get("source_path")))
+            for question in questions
+            if question.get("source_path")
+        }
+    )
     rows = [
         ("Benchmark configurato", benchmark.get("path")),
         ("Domande nel campione immutabile", len(questions)),
@@ -209,11 +276,13 @@ def benchmark_summary(job: dict[str, Any], questions: list[dict[str, Any]]) -> s
         "<section><h2>Benchmark e campione usato</h2>"
         "<p>Il benchmark configurato identifica la sorgente prevista; il campione sotto è quello "
         "effettivamente persistito insieme al job e su cui sono calcolate le metriche.</p>"
-        + key_value_table(rows) + "</section>"
+        + key_value_table(rows)
+        + "</section>"
     )
 
 
 def question_catalog(questions: list[dict[str, Any]]) -> str:
+    """The HTML section listing the questions, each opening to its id, keywords and gold tables."""
     if not questions:
         return (
             "<section><h2>Domande usate</h2>"
@@ -231,7 +300,7 @@ def question_catalog(questions: list[dict[str, Any]]) -> str:
             ("Tabelle gold", fields.get("SOURCE_RELEVANT_TABLE_IDS")),
         ]
         entries.append(
-            "<details class=\"question\"><summary>"
+            '<details class="question"><summary>'
             f"<span>{index}. <code>{html.escape(display(source_id))}</code></span> "
             f"{html.escape(str(question.get('question', 'Domanda non disponibile')))}"
             "</summary>" + key_value_table(details) + "</details>"
@@ -239,13 +308,24 @@ def question_catalog(questions: list[dict[str, Any]]) -> str:
     return (
         f"<section><h2>Domande usate ({len(questions)})</h2>"
         "<p>Apri una riga per vedere ID, keyword, tipo di risultato e tabelle gold di riferimento.</p>"
-        f"<div class=\"question-list\">{''.join(entries)}</div></section>"
+        f'<div class="question-list">{"".join(entries)}</div></section>'
     )
 
 
 def metric_table(
     title: str, metrics: dict[str, Any], keys: tuple[str, ...], *, rates: bool = True
 ) -> str:
+    """An HTML section with a bar per metric of ``keys`` present in ``metrics``.
+
+    Args:
+        title: The section's title.
+        metrics: The values by metric key.
+        keys: The metrics to show, in order.
+        rates: Whether to show the values as percentages, else with three decimals.
+
+    Returns:
+        The section's HTML.
+    """
     rows = []
     for key in keys:
         if key not in metrics:
@@ -260,6 +340,7 @@ def metric_table(
 
 
 def retrieval_comparison(table_metrics: dict[str, Any]) -> str:
+    """The HTML section of the ranking metrics, over all queries and over the successful ones."""
     all_rows = table_metrics.get("mean_metrics", {})
     ok_rows = table_metrics.get("mean_metrics_successful_queries", {})
     rows = []
@@ -283,12 +364,20 @@ def retrieval_comparison(table_metrics: dict[str, Any]) -> str:
 
 
 def selection_summary(table_metrics: dict[str, Any]) -> str:
+    """The HTML section of the selected tables' metrics."""
     metrics = table_metrics.get("mean_selection_metrics", {})
-    keys = ("SelectionHit", "SelectionRecall", "SelectionPrecision", "ExactSelection")
+    keys = (
+        "SelectionHit",
+        "SelectionRecall",
+        "SelectionPrecision",
+        "ExactSelection",
+        "AnyOfSelection",
+    )
     return metric_table("2. Tabelle finali selezionate dall'agente", metrics, keys)
 
 
 def expansion_summary(table_metrics: dict[str, Any]) -> str:
+    """The HTML section of the expansion's observed contribution."""
     metrics = table_metrics.get("expansion_metrics", {})
     queries = int(metrics.get("query_count", 0))
     contributions = int(metrics.get("gold_selected_beyond_initial_count", 0))
@@ -297,13 +386,14 @@ def expansion_summary(table_metrics: dict[str, Any]) -> str:
         "<section><h2>3. Contributo osservabile dell'espansione</h2>"
         "<p>Conta i casi in cui l'agente ha usato l'espansione e ha poi selezionato "
         "una tabella gold che nel ranking originale era oltre le prime 10.</p>"
-        f"<div class=\"cards\"><div class=\"card\"><span>Espansioni usate</span><strong>{queries}</strong></div>"
-        f"<div class=\"card\"><span>Espansioni con contributo</span><strong>{contributions}</strong></div>"
-        f"<div class=\"card\"><span>Tasso di contributo</span><strong>{pct(rate)}</strong></div></div></section>"
+        f'<div class="cards"><div class="card"><span>Espansioni usate</span><strong>{queries}</strong></div>'
+        f'<div class="card"><span>Espansioni con contributo</span><strong>{contributions}</strong></div>'
+        f'<div class="card"><span>Tasso di contributo</span><strong>{pct(rate)}</strong></div></div></section>'
     )
 
 
 def table_count_analysis(table_metrics: dict[str, Any]) -> str:
+    """The HTML section of the figures and selection outcomes by number of gold tables."""
     groups = table_metrics.get("table_count_analysis", {})
     rows = []
     outcome_rows = []
@@ -352,6 +442,15 @@ def table_count_analysis(table_metrics: dict[str, Any]) -> str:
 
 
 def performance_summary(job: dict[str, Any], table_metrics: dict[str, Any]) -> str:
+    """The HTML section of the times per query, the batch's wall-clock time and the tokens by phase.
+
+    Args:
+        job: The job, for its start and finish times and its configuration.
+        table_metrics: The batch's table-selection metrics.
+
+    Returns:
+        The section's HTML.
+    """
     values = table_metrics.get("performance_metrics", {})
     try:
         wall_seconds = (
@@ -373,28 +472,34 @@ def performance_summary(job: dict[str, Any], table_metrics: dict[str, Any]) -> s
     coder_note = (
         " Poiché automatic_test_coder è attivo, P3 comprende le varianti full, "
         "schema_only e minimal; il residuo non attribuito copre lavoro P3 senza variante salvata."
-        if automatic_coder else ""
+        if automatic_coder
+        else ""
     )
     token_rows = "".join(
-        f"<tr><td>{html.escape(name)}</td><td class=\"num\">{float(means.get(key, 0)):,.0f}</td>"
-        f"<td class=\"num\">{int(totals.get(key, 0)):,}</td></tr>"
+        f'<tr><td>{html.escape(name)}</td><td class="num">{float(means.get(key, 0)):,.0f}</td>'
+        f'<td class="num">{int(totals.get(key, 0)):,}</td></tr>'
         for key, name in token_labels
     )
     if automatic_coder:
         context_means = values.get("mean_coder_tokens_per_query_by_context", {})
         context_totals = values.get("coder_token_totals_by_context", {})
-        for key, name in (("full", "↳ Coder full"), ("schema_only", "↳ Coder schema only"), ("minimal", "↳ Coder minimal"), ("unattributed", "↳ Coder condiviso/non attribuito")):
+        for key, name in (
+            ("full", "↳ Coder full"),
+            ("schema_only", "↳ Coder schema only"),
+            ("minimal", "↳ Coder minimal"),
+            ("unattributed", "↳ Coder condiviso/non attribuito"),
+        ):
             token_rows += (
-                f"<tr><td>{html.escape(name)}</td><td class=\"num\">{float(context_means.get(key, 0)):,.0f}</td>"
-                f"<td class=\"num\">{int(context_totals.get(key, 0)):,}</td></tr>"
+                f'<tr><td>{html.escape(name)}</td><td class="num">{float(context_means.get(key, 0)):,.0f}</td>'
+                f'<td class="num">{int(context_totals.get(key, 0)):,}</td></tr>'
             )
     return (
         "<section><h2>5. Costi e tempi</h2>"
-        "<div class=\"cards\">"
-        f"<div class=\"card\"><span>Tempo medio per query</span><strong>{duration(values.get('mean_query_elapsed_seconds', 0))}</strong></div>"
-        f"<div class=\"card\"><span>Tempo mediano per query</span><strong>{duration(values.get('median_query_elapsed_seconds', 0))}</strong></div>"
-        f"<div class=\"card\"><span>P90 per query</span><strong>{duration(values.get('p90_query_elapsed_seconds', 0))}</strong></div>"
-        f"<div class=\"card\"><span>Durata totale batch</span><strong>{duration(wall_seconds)}</strong></div></div>"
+        '<div class="cards">'
+        f'<div class="card"><span>Tempo medio per query</span><strong>{duration(values.get("mean_query_elapsed_seconds", 0))}</strong></div>'
+        f'<div class="card"><span>Tempo mediano per query</span><strong>{duration(values.get("median_query_elapsed_seconds", 0))}</strong></div>'
+        f'<div class="card"><span>P90 per query</span><strong>{duration(values.get("p90_query_elapsed_seconds", 0))}</strong></div>'
+        f'<div class="card"><span>Durata totale batch</span><strong>{duration(wall_seconds)}</strong></div></div>'
         "<p>La durata totale è wall-clock da <code>started_at</code> a <code>finished_at</code>. "
         f"P1 e P2 sono tracciate congiuntamente; P4 è la sintesi finale.{coder_note}</p>"
         "<table><thead><tr><th>Fase</th><th>Token medi/query</th><th>Token totali</th></tr></thead>"
@@ -403,6 +508,7 @@ def performance_summary(job: dict[str, Any], table_metrics: dict[str, Any]) -> s
 
 
 def metric_descriptions() -> str:
+    """The HTML section explaining the main metrics."""
     rows = "".join(
         f"<tr><td>{html.escape(name)}</td><td>{html.escape(description)}</td></tr>"
         for name, description in METRIC_DESCRIPTIONS
@@ -411,12 +517,13 @@ def metric_descriptions() -> str:
         "<section><h2>Come leggere le metriche principali</h2>"
         "<p>Tutte le metriche sono migliori quando il valore è più alto. "
         "Le metriche del codice sono calcolate sui casi dichiarati applicabili.</p>"
-        "<table class=\"metric-guide\"><thead><tr><th>Metrica</th>"
+        '<table class="metric-guide"><thead><tr><th>Metrica</th>'
         f"<th>Descrizione</th></tr></thead><tbody>{rows}</tbody></table></section>"
     )
 
 
 def code_comparison(code: dict[str, Any]) -> str:
+    """The HTML section of the code rates and numeric errors, one column per coder context."""
     contexts = [name for name in CONTEXT_ORDER if name in code]
     header = "".join(f"<th>{html.escape(label(name))}</th>" for name in contexts)
     rows = []
@@ -444,9 +551,7 @@ def code_comparison(code: dict[str, Any]) -> str:
             value = code[name].get(key)
             shown = "—" if value is None else pct(value) if is_rate else f"{float(value):.6g}"
             cells.append(f'<td class="num">{shown}</td>')
-        numeric_rows.append(
-            f"<tr><td>{html.escape(shown_label)}</td>{''.join(cells)}</tr>"
-        )
+        numeric_rows.append(f"<tr><td>{html.escape(shown_label)}</td>{''.join(cells)}</tr>")
     numeric_table = (
         "<h3>Errori dei risultati numerici</h3>"
         "<p>MSE e RMSE usano soltanto output scalari confrontabili. I risultati mancanti "
@@ -454,7 +559,8 @@ def code_comparison(code: dict[str, Any]) -> str:
         "solo fra esperimenti con le stesse unità e domande.</p>"
         f"<table><thead><tr><th>Metrica</th>{header}</tr></thead>"
         f"<tbody>{''.join(numeric_rows)}</tbody></table>"
-        if numeric_rows else ""
+        if numeric_rows
+        else ""
     )
     return (
         "<section><h2>Esecuzione del codice per livello di contesto</h2>"
@@ -465,12 +571,26 @@ def code_comparison(code: dict[str, Any]) -> str:
 
 
 def count_comparison(title: str, code: dict[str, Any], field: str) -> str:
+    """An HTML section of the counts by category of ``field``, one column per coder context.
+
+    Args:
+        title: The section's title.
+        code: The code metrics by coder context.
+        field: The code metric holding counts by category.
+
+    Returns:
+        The section's HTML, empty when no context has a category.
+    """
     contexts = [name for name in CONTEXT_ORDER if name in code]
     categories = sorted({key for name in contexts for key in code[name].get(field, {})})
     if not categories:
         return ""
     maximum = max(
-        (int(code[name].get(field, {}).get(category, 0)) for name in contexts for category in categories),
+        (
+            int(code[name].get(field, {}).get(category, 0))
+            for name in contexts
+            for category in categories
+        ),
         default=1,
     )
     rows = []
@@ -519,90 +639,230 @@ def semantic_judge_summary(code: dict[str, Any]) -> str:
     )
 
 
-def write_csv(path: Path, job: dict[str, Any]) -> None:
-    metrics = job["batch_metrics"]
+def _is_number(value: Any) -> bool:
+    """Whether the value is an int or a float, not a bool."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _selection_rows(table_metrics: dict[str, Any]) -> list[tuple[str, str, str, Any]]:
+    """The CSV rows of the retrieval, selection, expansion and augmented metrics."""
     rows: list[tuple[str, str, str, Any]] = []
-    retrieval = metrics["table_selection"]
     for group in (
-        "mean_metrics", "mean_metrics_successful_queries", "mean_selection_metrics",
+        "mean_metrics",
+        "mean_metrics_successful_queries",
+        "mean_selection_metrics",
     ):
-        for name, value in retrieval.get(group, {}).items():
+        for name, value in table_metrics.get(group, {}).items():
             area = "selection" if group == "mean_selection_metrics" else "retrieval"
             rows.append((area, group, name, value))
-    for name, value in retrieval.get("expansion_metrics", {}).items():
+    for name, value in table_metrics.get("expansion_metrics", {}).items():
         rows.append(("expansion", "observed_contribution", name, value))
-    augmented = retrieval.get("augmented_retrieval", {})
-    rows.append(("augmented", "coverage", "eligible_case_count", augmented.get("eligible_case_count", 0)))
+    augmented = table_metrics.get("augmented_retrieval", {})
+    rows.append(
+        ("augmented", "coverage", "eligible_case_count", augmented.get("eligible_case_count", 0))
+    )
     for group in ("mean_retrieval_metrics", "mean_selection_metrics"):
         for name, value in augmented.get(group, {}).items():
             rows.append(("augmented", group, name, value))
-    for bucket, values in retrieval.get("table_count_analysis", {}).items():
+    return rows
+
+
+def _table_count_rows(table_metrics: dict[str, Any]) -> list[tuple[str, str, str, Any]]:
+    """The CSV rows of the figures by number of gold tables."""
+    rows: list[tuple[str, str, str, Any]] = []
+    for bucket, values in table_metrics.get("table_count_analysis", {}).items():
         for name, value in values.items():
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if _is_number(value):
                 rows.append(("table_count", bucket, name, value))
         for subgroup in ("retrieval", "selection", "selection_outcomes"):
             for name, value in values.get(subgroup, {}).items():
                 rows.append(("table_count", f"{bucket}:{subgroup}", name, value))
-    performance = retrieval.get("performance_metrics", {})
-    for name, value in performance.items():
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            rows.append(("performance", "timing", name, value))
+    return rows
+
+
+def _performance_rows(table_metrics: dict[str, Any]) -> list[tuple[str, str, str, Any]]:
+    """The CSV rows of the timings and the tokens."""
+    performance = table_metrics.get("performance_metrics", {})
+    rows: list[tuple[str, str, str, Any]] = [
+        ("performance", "timing", name, value)
+        for name, value in performance.items()
+        if _is_number(value)
+    ]
     for group in (
-        "mean_tokens_per_query", "token_totals",
-        "mean_coder_tokens_per_query_by_context", "coder_token_totals_by_context",
+        "mean_tokens_per_query",
+        "token_totals",
+        "mean_coder_tokens_per_query_by_context",
+        "coder_token_totals_by_context",
     ):
         for name, value in performance.get(group, {}).items():
             rows.append(("performance", group, name, value))
-    code_metrics = metrics.get("code", {})
+    return rows
+
+
+def _code_rows(code_metrics: dict[str, Any]) -> list[tuple[str, str, str, Any]]:
+    """The CSV rows of the code metrics, by coder context when the sweep ran, else ``configured``."""
     contextual_code = any(context in code_metrics for context in CONTEXT_ORDER)
     code_groups = (
         ((context, code_metrics[context]) for context in CONTEXT_ORDER if context in code_metrics)
         if contextual_code
         else (("configured", code_metrics),)
     )
+    rows: list[tuple[str, str, str, Any]] = []
     for context, values in code_groups:
         if not isinstance(values, dict):
             continue
         for name, value in values.items():
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if _is_number(value):
                 rows.append(("code", context, name, value))
+    return rows
+
+
+def write_csv(path: Path, job: dict[str, Any]) -> None:
+    """Write the batch's metrics as ``area, group, metric, value`` rows.
+
+    Args:
+        path: The CSV file to write.
+        job: The completed job, with its ``batch_metrics``.
+    """
+    metrics = job["batch_metrics"]
+    table_metrics = metrics["table_selection"]
+    rows = [
+        *_selection_rows(table_metrics),
+        *_table_count_rows(table_metrics),
+        *_performance_rows(table_metrics),
+        *_code_rows(metrics.get("code", {})),
+    ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(("area", "group", "metric", "value"))
         writer.writerows(rows)
 
 
+def _numeric_metric(values: dict[str, Any], key: str) -> str:
+    """A numeric error of the code metrics, or a dash when it is missing."""
+    value = values.get(key)
+    return f"{float(value):.6g}" if value is not None else "—"
+
+
+def _markdown_execution_lines(code: dict[str, Any]) -> list[str]:
+    """The summary's code execution table, one row per coder context."""
+    lines = [
+        "",
+        "## Esecuzione codice",
+        "",
+        "| Contesto | Execution | Exact match | Pass@1 | Numeric coverage | MSE | RMSE | MSRE | RMSRE |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for context in CONTEXT_ORDER:
+        values = code.get(context)
+        if values:
+            lines.append(
+                f"| {context} | {pct(values['execution_success_rate'])} | "
+                f"{pct(values['exact_result_match_rate'])} | {pct(values['pass_at_1'])} | "
+                f"{pct(values['numeric_comparable_rate']) if values.get('numeric_comparable_rate') is not None else '—'} | "
+                f"{_numeric_metric(values, 'mean_numeric_squared_error')} | "
+                f"{_numeric_metric(values, 'root_mean_numeric_squared_error')} | "
+                f"{_numeric_metric(values, 'mean_numeric_squared_relative_error')} | "
+                f"{_numeric_metric(values, 'root_mean_numeric_squared_relative_error')} |"
+            )
+    return lines
+
+
+def _markdown_judge_lines(code: dict[str, Any]) -> list[str]:
+    """The summary's semantic judge diagnostics; none when no case was judged."""
+    if not any(code.get(context, {}).get("semantic_judge_case_count") for context in CONTEXT_ORDER):
+        return []
+    lines = [
+        "",
+        "## Diagnostica semantic judge LLM",
+        "",
+        "Il downgrade segnala un verdetto positivo richiesto dal modello ma non "
+        "confermato dai gate di evidenza.",
+        "",
+        "| Contesto | Casi | Parse success | Evidence coverage | Downgrade | Obiezioni bloccanti | Token |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for context in CONTEXT_ORDER:
+        values = code.get(context)
+        if not values:
+            continue
+        parse_rate = values.get("semantic_judge_parse_success_rate")
+        coverage = values.get("semantic_judge_mean_evidence_coverage")
+        downgrade = values.get("semantic_judge_downgrade_rate")
+        lines.append(
+            f"| {context} | {int(values.get('semantic_judge_case_count', 0))} | "
+            f"{pct(parse_rate) if parse_rate is not None else '—'} | "
+            f"{pct(coverage) if coverage is not None else '—'} | "
+            f"{pct(downgrade) if downgrade is not None else '—'} | "
+            f"{int(values.get('semantic_judge_blocking_objection_count', 0))} | "
+            f"{int(values.get('semantic_judge_total_tokens', 0)):,} |"
+        )
+    return lines
+
+
 def write_markdown(path: Path, job: dict[str, Any]) -> None:
+    """Write the batch's summary in Markdown: metric guide, retrieval, selection, costs and code.
+
+    Args:
+        path: The Markdown file to write.
+        job: The completed job, with its ``batch_metrics``.
+    """
     table = job["batch_metrics"]["table_selection"]
-    def numeric_metric(values: dict[str, Any], key: str) -> str:
-        value = values.get(key)
-        return f"{float(value):.6g}" if value is not None else "—"
     retrieval = table["mean_metrics"]
     lines = [
-        f"# LakeGen batch {job['job_id']}", "",
+        f"# LakeGen batch {job['job_id']}",
+        "",
         f"- Stato: **{job['status']}**",
         f"- Domande: **{job['processed']} / {job['question_count']}**",
-        f"- Fallite: **{job['failed']}**", "",
-        "## Come leggere le metriche principali", "",
+        f"- Fallite: **{job['failed']}**",
+        "",
+        "## Come leggere le metriche principali",
+        "",
         "Tutte le metriche sono migliori quando il valore è più alto. Le metriche del codice "
-        "sono calcolate sui casi dichiarati applicabili.", "",
-        "| Metrica | Descrizione |", "|---|---|",
+        "sono calcolate sui casi dichiarati applicabili.",
+        "",
+        "| Metrica | Descrizione |",
+        "|---|---|",
     ]
     lines.extend(f"| {name} | {description} |" for name, description in METRIC_DESCRIPTIONS)
     lines.extend(["", "## Retrieval", "", "| Metrica | Valore |", "|---|---:|"])
-    lines.extend(f"| {key} | {float(retrieval[key]):.3f} |" for key in RETRIEVAL_ORDER if key in retrieval)
+    lines.extend(
+        f"| {key} | {float(retrieval[key]):.3f} |" for key in RETRIEVAL_ORDER if key in retrieval
+    )
     selection = table.get("mean_selection_metrics", {})
     lines.extend(["", "## Selezione finale dell'agente", "", "| Metrica | Valore |", "|---|---:|"])
-    lines.extend(f"| {key} | {pct(selection[key])} |" for key in ("SelectionHit", "SelectionRecall", "SelectionPrecision", "ExactSelection") if key in selection)
+    lines.extend(
+        f"| {key} | {pct(selection[key])} |"
+        for key in (
+            "SelectionHit",
+            "SelectionRecall",
+            "SelectionPrecision",
+            "ExactSelection",
+            "AnyOfSelection",
+        )
+        if key in selection
+    )
     expansion = table.get("expansion_metrics", {})
-    lines.extend([
-        "", "## Contributo osservabile dell'espansione", "",
-        f"- Espansioni usate: **{int(expansion.get('query_count', 0))}**",
-        f"- Espansioni che hanno portato a selezionare una gold oltre la posizione 10: **{int(expansion.get('gold_selected_beyond_initial_count', 0))}**",
-        f"- Tasso di contributo: **{pct(expansion.get('gold_selected_beyond_initial_rate', 0))}**",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Contributo osservabile dell'espansione",
+            "",
+            f"- Espansioni usate: **{int(expansion.get('query_count', 0))}**",
+            f"- Espansioni che hanno portato a selezionare una gold oltre la posizione 10: **{int(expansion.get('gold_selected_beyond_initial_count', 0))}**",
+            f"- Tasso di contributo: **{pct(expansion.get('gold_selected_beyond_initial_rate', 0))}**",
+        ]
+    )
     groups = table.get("table_count_analysis", {})
-    lines.extend(["", "## Prestazioni per numero di tabelle gold", "", "| Gold | Query | Applicabili | Recall@20 | Full coverage@20 | Selection recall | Exact selection | Exact result | Tempo mediano |", "|---:|---:|---:|---:|---:|---:|---:|---:|---:|"])
+    lines.extend(
+        [
+            "",
+            "## Prestazioni per numero di tabelle gold",
+            "",
+            "| Gold | Query | Applicabili | Recall@20 | Full coverage@20 | Selection recall | Exact selection | Exact result | Tempo mediano |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
     for bucket in ("1", "2", "3", "4+"):
         values = groups.get(bucket)
         if values:
@@ -616,73 +876,70 @@ def write_markdown(path: Path, job: dict[str, Any]) -> None:
             )
     performance = table.get("performance_metrics", {})
     try:
-        wall_seconds = (datetime.fromisoformat(str(job["finished_at"])) - datetime.fromisoformat(str(job["started_at"]))).total_seconds()
+        wall_seconds = (
+            datetime.fromisoformat(str(job["finished_at"]))
+            - datetime.fromisoformat(str(job["started_at"]))
+        ).total_seconds()
     except (KeyError, TypeError, ValueError):
         wall_seconds = performance.get("total_query_elapsed_seconds", 0)
-    lines.extend([
-        "", "## Costi e tempi", "",
-        f"- Tempo medio per query: **{duration(performance.get('mean_query_elapsed_seconds', 0))}**",
-        f"- Tempo mediano per query: **{duration(performance.get('median_query_elapsed_seconds', 0))}**",
-        f"- P90 per query: **{duration(performance.get('p90_query_elapsed_seconds', 0))}**",
-        f"- Durata totale batch: **{duration(wall_seconds)}**", "",
-        "| Fase | Token medi/query | Token totali |", "|---|---:|---:|",
-    ])
-    for key, name in (("p1_p2", "Discovery (P1+P2)"), ("p3", "Coder complessivo (P3)"), ("p4", "Sintesi (P4)")):
-        lines.append(f"| {name} | {float(performance.get('mean_tokens_per_query', {}).get(key, 0)):,.0f} | {int(performance.get('token_totals', {}).get(key, 0)):,} |")
+    lines.extend(
+        [
+            "",
+            "## Costi e tempi",
+            "",
+            f"- Tempo medio per query: **{duration(performance.get('mean_query_elapsed_seconds', 0))}**",
+            f"- Tempo mediano per query: **{duration(performance.get('median_query_elapsed_seconds', 0))}**",
+            f"- P90 per query: **{duration(performance.get('p90_query_elapsed_seconds', 0))}**",
+            f"- Durata totale batch: **{duration(wall_seconds)}**",
+            "",
+            "| Fase | Token medi/query | Token totali |",
+            "|---|---:|---:|",
+        ]
+    )
+    for key, name in (
+        ("p1_p2", "Discovery (P1+P2)"),
+        ("p3", "Coder complessivo (P3)"),
+        ("p4", "Sintesi (P4)"),
+    ):
+        lines.append(
+            f"| {name} | {float(performance.get('mean_tokens_per_query', {}).get(key, 0)):,.0f} | {int(performance.get('token_totals', {}).get(key, 0)):,} |"
+        )
     if job.get("settings", {}).get("resolved_config", {}).get("automatic_test_coder"):
-        for key, name in (("full", "↳ Coder full"), ("schema_only", "↳ Coder schema only"), ("minimal", "↳ Coder minimal"), ("unattributed", "↳ Coder condiviso/non attribuito")):
+        for key, name in (
+            ("full", "↳ Coder full"),
+            ("schema_only", "↳ Coder schema only"),
+            ("minimal", "↳ Coder minimal"),
+            ("unattributed", "↳ Coder condiviso/non attribuito"),
+        ):
             lines.append(
                 f"| {name} | {float(performance.get('mean_coder_tokens_per_query_by_context', {}).get(key, 0)):,.0f} | "
                 f"{int(performance.get('coder_token_totals_by_context', {}).get(key, 0)):,} |"
             )
-        lines.extend(["", "Nota: con `automatic_test_coder` attivo, P3 comprende le varianti full, schema_only e minimal; l'eventuale residuo condiviso/non attribuito copre lavoro P3 non associato a una variante salvata."])
-    lines.extend(["", "## Esecuzione codice", "", "| Contesto | Execution | Exact match | Pass@1 | Numeric coverage | MSE | RMSE | MSRE | RMSRE |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
-    for context in CONTEXT_ORDER:
-        values = job["batch_metrics"].get("code", {}).get(context)
-        if values:
-            lines.append(
-                f"| {context} | {pct(values['execution_success_rate'])} | "
-                f"{pct(values['exact_result_match_rate'])} | {pct(values['pass_at_1'])} | "
-                f"{pct(values['numeric_comparable_rate']) if values.get('numeric_comparable_rate') is not None else '—'} | "
-                f"{numeric_metric(values, 'mean_numeric_squared_error')} | "
-                f"{numeric_metric(values, 'root_mean_numeric_squared_error')} | "
-                f"{numeric_metric(values, 'mean_numeric_squared_relative_error')} | "
-                f"{numeric_metric(values, 'root_mean_numeric_squared_relative_error')} |"
-            )
-    if any(
-        job["batch_metrics"].get("code", {}).get(context, {}).get(
-            "semantic_judge_case_count"
+        lines.extend(
+            [
+                "",
+                "Nota: con `automatic_test_coder` attivo, P3 comprende le varianti full, schema_only e minimal; l'eventuale residuo condiviso/non attribuito copre lavoro P3 non associato a una variante salvata.",
+            ]
         )
-        for context in CONTEXT_ORDER
-    ):
-        lines.extend([
-            "", "## Diagnostica semantic judge LLM", "",
-            "Il downgrade segnala un verdetto positivo richiesto dal modello ma non "
-            "confermato dai gate di evidenza.", "",
-            "| Contesto | Casi | Parse success | Evidence coverage | Downgrade | Obiezioni bloccanti | Token |",
-            "|---|---:|---:|---:|---:|---:|---:|",
-        ])
-        for context in CONTEXT_ORDER:
-            values = job["batch_metrics"].get("code", {}).get(context)
-            if not values:
-                continue
-            parse_rate = values.get("semantic_judge_parse_success_rate")
-            coverage = values.get("semantic_judge_mean_evidence_coverage")
-            downgrade = values.get("semantic_judge_downgrade_rate")
-            lines.append(
-                f"| {context} | {int(values.get('semantic_judge_case_count', 0))} | "
-                f"{pct(parse_rate) if parse_rate is not None else '—'} | "
-                f"{pct(coverage) if coverage is not None else '—'} | "
-                f"{pct(downgrade) if downgrade is not None else '—'} | "
-                f"{int(values.get('semantic_judge_blocking_objection_count', 0))} | "
-                f"{int(values.get('semantic_judge_total_tokens', 0)):,} |"
-            )
+    code = job["batch_metrics"].get("code", {})
+    lines.extend(_markdown_execution_lines(code))
+    lines.extend(_markdown_judge_lines(code))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def generate(
     job: dict[str, Any], output_dir: Path, *, questions: list[dict[str, Any]] | None = None
 ) -> None:
+    """Write ``report.html``, ``metrics.csv`` and ``summary.md`` for a completed job.
+
+    Args:
+        job: The job, as its job file holds it.
+        output_dir: The folder to write the report to.
+        questions: The job's questions, for the benchmark and question sections.
+
+    Raises:
+        ValueError: When the job is not completed or has no batch metrics.
+    """
     if job.get("status") != "completed" or not job.get("batch_metrics"):
         raise ValueError("Il job deve essere completato e contenere batch_metrics")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -701,27 +958,29 @@ def generate(
         f'<div class="card"><span>{html.escape(str(name))}</span><strong>{html.escape(str(value))}</strong></div>'
         for name, value in cards
     )
-    body = "".join((
-        configuration_summary(job),
-        benchmark_summary(job, questions),
-        question_catalog(questions),
-        metric_descriptions(),
-        retrieval_comparison(table),
-        selection_summary(table),
-        expansion_summary(table),
-        table_count_analysis(table),
-        performance_summary(job, table),
-        code_comparison(code),
-        semantic_judge_summary(code),
-        count_comparison("Categorie di errore del codice", code, "error_categories"),
-        count_comparison("Esiti della valutazione", code, "evaluation_dispositions"),
-        count_comparison("Esiti del semantic judge", code, "semantic_judge_outcomes"),
-        count_comparison(
-            "Segnale diagnostico di possibile hardcoding",
-            code,
-            "semantic_judge_hardcoding_risks",
-        ),
-    ))
+    body = "".join(
+        (
+            configuration_summary(job),
+            benchmark_summary(job, questions),
+            question_catalog(questions),
+            metric_descriptions(),
+            retrieval_comparison(table),
+            selection_summary(table),
+            expansion_summary(table),
+            table_count_analysis(table),
+            performance_summary(job, table),
+            code_comparison(code),
+            semantic_judge_summary(code),
+            count_comparison("Categorie di errore del codice", code, "error_categories"),
+            count_comparison("Esiti della valutazione", code, "evaluation_dispositions"),
+            count_comparison("Esiti del semantic judge", code, "semantic_judge_outcomes"),
+            count_comparison(
+                "Segnale diagnostico di possibile hardcoding",
+                code,
+                "semantic_judge_hardcoding_risks",
+            ),
+        )
+    )
     document = f"""<!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LakeGen batch report</title><style>
@@ -738,7 +997,7 @@ th,td{{padding:10px;text-align:left;border-bottom:1px solid var(--line)}}th{{col
 .question-list{{display:grid;gap:8px}}details.question{{border:1px solid var(--line);border-radius:8px;padding:10px 12px}}details.question summary{{cursor:pointer;font-weight:600}}details.question table{{margin-top:12px;min-width:0}}details.question td{{white-space:normal;word-break:break-word}}
 @media(max-width:600px){{main{{padding:16px}}}}
 </style></head><body><main>
-<h1>LakeGen batch report</h1><p>Job <code>{html.escape(str(job['job_id']))}</code> · {html.escape(str(job.get('finished_at', '')))}</p>
+<h1>LakeGen batch report</h1><p>Job <code>{html.escape(str(job["job_id"]))}</code> · {html.escape(str(job.get("finished_at", "")))}</p>
 <div class="cards">{cards_html}</div>{body}
 </main></body></html>"""
     (output_dir / "report.html").write_text(document, encoding="utf-8")
@@ -747,6 +1006,7 @@ th,td{{padding:10px;text-align:left;border-bottom:1px solid var(--line)}}th{{col
 
 
 def main() -> None:
+    """Write the report of a job given by id or path, and print where its files are."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("job_id", help="ID del batch oppure percorso del relativo JSON")
     parser.add_argument("--jobs-dir", type=Path, default=Path(".lakegen_jobs"))

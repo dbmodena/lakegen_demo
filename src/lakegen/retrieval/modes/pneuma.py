@@ -18,22 +18,23 @@ from lakegen.config.retrieval import (
     RetrievalConfig,
     RetrievalMode,
 )
-from lakegen.domain.retrieval import RetrievalHit, document_key, min_max_normalize
-from lakegen.integrations.pneuma import entities, seeker
-from lakegen.integrations.pneuma.client import PneumaClient, _table_ids
-from lakegen.integrations.pneuma.entities import EntityExtractor
-from lakegen.integrations.pneuma.enumeration import (
+from lakegen.datastructures.retrieval import RetrievalHit, document_key, min_max_normalize
+from lakegen.retrieval.modes.duckdb_agentic import count_matching_rows
+from lakegen.retrieval.pneuma import client as pneuma_client
+from lakegen.retrieval.pneuma import entities, seeker
+from lakegen.retrieval.pneuma.client import PneumaClient, _table_ids
+from lakegen.retrieval.pneuma.entities import EntityExtractor
+from lakegen.retrieval.pneuma.enumeration import (
     _ENUMERATION_DECAY,
     _ENUMERATION_MAX_SIBLINGS,
     _enumeration_pattern,
 )
-from lakegen.integrations.pneuma.resolver import DocumentResolver
-from lakegen.integrations.pneuma.seeker import (
+from lakegen.retrieval.pneuma.resolver import DocumentResolver
+from lakegen.retrieval.pneuma.seeker import (
     ScanResult,
     _entity_pattern,
     _scan_terms,
 )
-from lakegen.retrieval.modes.duckdb_agentic import count_matching_rows
 
 
 @dataclass
@@ -59,6 +60,8 @@ class _Content:
 
 @dataclass
 class _Candidate:
+    """A table in the fused ranking, with what each branch said about it."""
+
     key: str
     document: dict[str, Any]
     path: Path | None = None
@@ -87,6 +90,27 @@ class PneumaRetriever:
     literally right, but reusing them means the existing run log reports both
     contributions with no schema change; ``pneuma_evidence`` on the document
     carries the same numbers under honest names.
+
+    Args:
+        config: The retrieval configuration (mode, Pneuma service, Seeker weights).
+        resolver: Maps Pneuma's table ids and local paths to catalog documents.
+        client: The Pneuma service client; built from the configuration when not given.
+        table_dir: The lake's local tables, required by ``pneuma_seeker`` and
+            read by plain ``pneuma``'s value scan.
+        entity_extractor: Extracts entities for callers that pass none; built
+            from ``pneuma_entity_model`` when not given.
+
+    Attributes:
+        config: The retrieval configuration.
+        resolver: Maps table ids to catalog documents.
+        client: The Pneuma service client.
+        content_search: Whether the Seeker's content search and enumeration run.
+        entity_extractor: The extractor of ``pneuma_entity_model``, or None.
+        value_scan: Whether plain ``pneuma`` value-scans its own pool.
+        table_dir: The resolved table directory, when a mode reads it.
+
+    Raises:
+        ValueError: When ``pneuma_seeker`` has no existing table directory.
     """
 
     def __init__(
@@ -100,7 +124,7 @@ class PneumaRetriever:
     ) -> None:
         self.config = config
         self.resolver = resolver
-        self.client = client or client.create_pneuma_client(config)
+        self.client = client or pneuma_client.create_pneuma_client(config)
         self.content_search = config.mode is RetrievalMode.PNEUMA_SEEKER
         # Pneuma-Seeker only: entities for callers that pass none (see
         # pneuma_entity_model).
@@ -122,15 +146,11 @@ class PneumaRetriever:
                 raise ValueError("pneuma_seeker retrieval requires a local table_dir")
             self.table_dir = Path(table_dir).resolve()
             if not self.table_dir.is_dir():
-                raise ValueError(
-                    f"pneuma_seeker table directory does not exist: {table_dir}"
-                )
+                raise ValueError(f"pneuma_seeker table directory does not exist: {table_dir}")
 
     # ---------------------------------------------------------------- Pneuma
 
-    def _pneuma_candidates(
-        self, question: str, limit: int
-    ) -> list[tuple[str, dict[str, Any]]]:
+    def _pneuma_candidates(self, question: str, limit: int) -> list[tuple[str, dict[str, Any]]]:
         """Query the index and resolve its ordered table IDs to documents."""
         response = self.client.query_index(
             self.config.pneuma_index_name,
@@ -158,11 +178,10 @@ class PneumaRetriever:
 
     def _lake(self) -> list[_FileFacts]:
         """List the lake from Parquet footers alone -- no data pages are read."""
-        assert self.table_dir is not None
+        if self.table_dir is None:
+            raise RuntimeError("the Pneuma retriever lists the lake only when it has a table_dir")
         facts: list[_FileFacts] = []
-        paths = sorted(
-            (*self.table_dir.glob("*.parquet"), *self.table_dir.glob("*.pq"))
-        )
+        paths = sorted((*self.table_dir.glob("*.parquet"), *self.table_dir.glob("*.pq")))
         for path in paths:
             try:
                 parquet = pq.ParquetFile(path)
@@ -207,6 +226,16 @@ class PneumaRetriever:
         maximum over the pool, so a truncated pool moves every table's score --
         the same defect a truncated IDF population causes in the grep modality --
         and the parallel map made scanning the whole lake affordable.
+
+        Args:
+            lake: The lake's files, from their footers.
+            terms: The entities to scan for.
+            anchors: The casefolded stems of the tables Pneuma returned.
+            titles: The catalog title of each file, by stem.
+
+        Returns:
+            The files to scan: the whole lake when ``grep_max_files`` is unset,
+            else at most that many, in the order above.
         """
         budget = self.config.grep_max_files
         if budget is None:
@@ -250,7 +279,8 @@ class PneumaRetriever:
             workers=self.config.scan_workers,
             pattern=_entity_pattern,
         )
-        for facts, hits in zip(remaining, counts):
+        # probe_many answers once per path.
+        for facts, hits in zip(remaining, counts, strict=True):
             if len(chosen) >= budget:
                 break
             if hits:
@@ -264,8 +294,6 @@ class PneumaRetriever:
         titles: dict[str, str],
     ) -> tuple[dict[str, _Content], int]:
         """Score each scanned file by stem, as the reference implementation does.
-
-        Also returns how many files the scanner could not read at all.
 
         Per entity, a match in the table's catalog title (once per text column),
         its matching text-column names, and its occurrences in text cells are
@@ -281,6 +309,15 @@ class PneumaRetriever:
 
         Every row of every text column is read: the grep modality's per-file
         caps do not apply here.
+
+        Args:
+            pool: The files to scan.
+            terms: The entities to scan for.
+            titles: The catalog title of each file, by stem.
+
+        Returns:
+            Each file's content evidence by stem, and how many files the scanner
+            could not read at all.
         """
         table_weight = self.config.pneuma_table_name_weight
         column_weight = self.config.pneuma_column_name_weight
@@ -303,7 +340,8 @@ class PneumaRetriever:
         damped: dict[str, dict[str, float]] = {}
         evidence: dict[str, tuple[dict[str, int], tuple[str, ...], tuple[str, ...]]] = {}
         unscannable = 0
-        for facts, result in zip(pool, scanned):
+        # scan_many answers once per path, and the unscanned stand-in matches the pool.
+        for facts, result in zip(pool, scanned, strict=True):
             # A file that crashed the scanner twice is skipped; its title and
             # column names, known without reading a data page, still count.
             unscannable += result is None
@@ -316,11 +354,7 @@ class PneumaRetriever:
             for term in terms:
                 cell_hits = sum(counts.get(term, {}).values())
                 name_hits = (
-                    sum(
-                        1
-                        for name in facts.text_columns
-                        if patterns[term].search(name)
-                    )
+                    sum(1 for name in facts.text_columns if patterns[term].search(name))
                     if column_weight
                     else 0
                 )
@@ -337,22 +371,17 @@ class PneumaRetriever:
                 if title_hit:
                     titled.append(term)
                 per_term[term] = math.log1p(
-                    table_weight * title_hit
-                    + column_weight * name_hits
-                    + cell_weight * cell_hits
+                    table_weight * title_hit + column_weight * name_hits + cell_weight * cell_hits
                 )
             damped[facts.stem] = per_term
             evidence[facts.stem] = (cells, tuple(named), tuple(titled))
 
         peaks = {
-            term: max((values[term] for values in damped.values()), default=0.0)
-            for term in terms
+            term: max((values[term] for values in damped.values()), default=0.0) for term in terms
         }
         scores: dict[str, _Content] = {}
         for stem, values in damped.items():
-            normalized = [
-                values[term] / peaks[term] if peaks[term] else 0.0 for term in terms
-            ]
+            normalized = [values[term] / peaks[term] if peaks[term] else 0.0 for term in terms]
             if terms:
                 mean = sum(normalized) / len(terms)
                 coverage = sum(1 for value in normalized if value > 0) / len(terms)
@@ -386,6 +415,14 @@ class PneumaRetriever:
         terms times the fraction it matched, and is fused with Pneuma's rank
         score (1/rank, min-max over the pool) by ``pneuma_value_scan_weight``.
         A table whose file cannot be found or read scores 0 on values.
+
+        Args:
+            ordered: Pneuma's tables, in its order, with their documents.
+            terms: The values to scan for.
+
+        Returns:
+            The tables reranked by the fused score, each document carrying the
+            searched values it contains and the scan's evidence.
         """
         patterns = [_entity_pattern(term) for term in terms]
         started = time.monotonic()
@@ -410,7 +447,10 @@ class PneumaRetriever:
         peaks = [max((values[i] for values in damped), default=0.0) for i in range(len(terms))]
         value_scores = []
         for values in damped:
-            normalized = [value / peak if peak else 0.0 for value, peak in zip(values, peaks)]
+            # One count per term, as count_matching_rows answers per pattern.
+            normalized = [
+                value / peak if peak else 0.0 for value, peak in zip(values, peaks, strict=True)
+            ]
             mean = sum(normalized) / len(terms)
             coverage = sum(1 for value in normalized if value > 0) / len(terms)
             value_scores.append(mean * coverage)
@@ -441,7 +481,10 @@ class PneumaRetriever:
             document = dict(source_document)
             counts = rows[index]
             term_rows = {
-                term: count for term, count in zip(terms, counts or []) if count
+                # An unscanned table has no counts, so it pairs with nothing.
+                term: count
+                for term, count in zip(terms, counts or [], strict=False)
+                if count
             }
             if term_rows:
                 description = str(document.get("description") or "").strip()
@@ -483,9 +526,7 @@ class PneumaRetriever:
     ) -> list[_Candidate]:
         """Pull in the identifier siblings of the strongest tables."""
         by_stem = {facts.stem: facts for facts in lake}
-        present = {
-            candidate.path.stem for candidate in ranked if candidate.path is not None
-        }
+        present = {candidate.path.stem for candidate in ranked if candidate.path is not None}
         added: list[_Candidate] = []
         for seed in list(ranked)[:top_k]:
             if seed.path is None:
@@ -496,8 +537,7 @@ class PneumaRetriever:
             siblings = [
                 facts
                 for stem, facts in by_stem.items()
-                if stem != seed.path.stem
-                and re.fullmatch(pattern, stem, re.IGNORECASE)
+                if stem != seed.path.stem and re.fullmatch(pattern, stem, re.IGNORECASE)
             ]
             # A pattern matching half the lake describes a naming convention,
             # not a series, so it is dropped rather than trusted.
@@ -529,6 +569,19 @@ class PneumaRetriever:
         entities: Sequence[str] | None = None,
         keywords: Sequence[str] | None = None,
     ) -> list[RetrievalHit]:
+        """Pneuma's ranking, with the Seeker's content search and enumeration fused in under that mode.
+
+        Args:
+            question: The question sent to Pneuma.
+            top_k: How many tables to return.
+            entities: The entities to scan for; extracted with
+                ``pneuma_entity_model`` when None and a model is configured.
+            keywords: Plain ``pneuma``'s value-scan terms when no entity is given.
+
+        Returns:
+            The hits, best first, each document carrying ``pneuma_evidence``
+            under ``pneuma_seeker``.
+        """
         if not self.content_search:
             return self._plain_hits(question, top_k, entities, keywords)
         fill = self.config.pneuma_content_fusion is PneumaContentFusion.FILL
@@ -572,10 +625,17 @@ class PneumaRetriever:
             "truncated": bool(content_by_stem) and len(content_by_stem) < len(lake),
             "unscannable_files": unscannable,
         }
-        return [self._hit(candidate, rank, terms, scan) for rank, candidate in enumerate(ranked[:top_k], 1)]
+        return [
+            self._hit(candidate, rank, terms, scan)
+            for rank, candidate in enumerate(ranked[:top_k], 1)
+        ]
 
     def _plain_hits(
-        self, question: str, top_k: int, entities: Sequence[str] | None, keywords: Sequence[str] | None,
+        self,
+        question: str,
+        top_k: int,
+        entities: Sequence[str] | None,
+        keywords: Sequence[str] | None,
     ) -> list[RetrievalHit]:
         """Plain Pneuma: its ranking as hits, or its pool value-scanned when that is configured."""
         ordered = self._pneuma_candidates(question, top_k)
@@ -589,7 +649,9 @@ class PneumaRetriever:
         ]
 
     def _extract_entities(
-        self, question: str, entities: Sequence[str] | None,
+        self,
+        question: str,
+        entities: Sequence[str] | None,
     ) -> tuple[Sequence[str] | None, dict[str, Any] | None]:
         """The entities to scan for, extracted when the caller passed none, and what the extraction recorded."""
         if entities is not None or self.entity_extractor is None:
@@ -616,12 +678,18 @@ class PneumaRetriever:
         for rank, (table_id, document) in enumerate(self._pneuma_candidates(question, limit), 1):
             key = document_key(document)
             candidates[key] = _Candidate(
-                key=key, document=document, path=Path(table_id) if table_id else None, pneuma_rank=rank,
+                key=key,
+                document=document,
+                path=Path(table_id) if table_id else None,
+                pneuma_rank=rank,
             )
         return candidates
 
     def _scan_lake(
-        self, candidates: dict[str, _Candidate], lake: list[_FileFacts], terms: list[str],
+        self,
+        candidates: dict[str, _Candidate],
+        lake: list[_FileFacts],
+        terms: list[str],
     ) -> tuple[dict[str, _Content], int]:
         """The content search over the lake, its evidence folded into the candidates; what it scored and could not scan."""
         # A table's name is the title its catalog document carries: the lakes
@@ -634,7 +702,9 @@ class PneumaRetriever:
             if document is not None
         }
         anchors = {
-            candidate.path.stem.casefold() for candidate in candidates.values() if candidate.path is not None
+            candidate.path.stem.casefold()
+            for candidate in candidates.values()
+            if candidate.path is not None
         }
         pool = self._scan_pool(lake, terms, anchors, titles)
         content_by_stem, unscannable = self._content_scores(pool, terms, titles)
@@ -664,9 +734,13 @@ class PneumaRetriever:
     @staticmethod
     def _score(candidates: dict[str, _Candidate], weight: float) -> list[str]:
         """Each candidate's fused score; the keys of the content matches, strongest first."""
-        normalized_pneuma = min_max_normalize({
-            key: 1.0 / candidate.pneuma_rank for key, candidate in candidates.items() if candidate.pneuma_rank
-        })
+        normalized_pneuma = min_max_normalize(
+            {
+                key: 1.0 / candidate.pneuma_rank
+                for key, candidate in candidates.items()
+                if candidate.pneuma_rank
+            }
+        )
         # Only the Pneuma branch is min-max normalized. The content score is
         # already on a 0..1 scale by the paper's own recipe -- damped, then
         # normalized per keyword -- and re-normalizing it across the candidates
@@ -683,20 +757,37 @@ class PneumaRetriever:
             # the zero missing-signal policy the hybrid retriever also uses.
             candidate.normalized_content = candidate.content_score or 0.0
             candidate.normalized_pneuma = normalized_pneuma.get(key, 0.0)
-            candidate.score = weight * candidate.normalized_content + (1.0 - weight) * candidate.normalized_pneuma
+            candidate.score = (
+                weight * candidate.normalized_content + (1.0 - weight) * candidate.normalized_pneuma
+            )
         return content_order
 
     def _rank_fill(
-        self, candidates: dict[str, _Candidate], content_order: list[str], lake: list[_FileFacts], top_k: int,
+        self,
+        candidates: dict[str, _Candidate],
+        content_order: list[str],
+        lake: list[_FileFacts],
+        top_k: int,
     ) -> list[_Candidate]:
         """The reference merge: Pneuma's tables in Pneuma's order, then the content matches it did not return.
 
         Only tables that matched an entity, strongest first, where the
         reference would pad with zero-score tables in name order; enumerated
         siblings come last. Positions are the scores.
+
+        Args:
+            candidates: The candidates by key.
+            content_order: The keys of the content matches, strongest first.
+            lake: The lake's files, for enumeration.
+            top_k: How many leading tables seed enumeration.
+
+        Returns:
+            The ranked candidates, scored ``1 / position``.
         """
         ranked = [
-            *sorted((c for c in candidates.values() if c.pneuma_rank), key=lambda c: c.pneuma_rank or 0),
+            *sorted(
+                (c for c in candidates.values() if c.pneuma_rank), key=lambda c: c.pneuma_rank or 0
+            ),
             *(candidates[key] for key in content_order if not candidates[key].pneuma_rank),
         ]
         if self.config.pneuma_enumerate_tables and lake:
@@ -706,7 +797,11 @@ class PneumaRetriever:
         return ranked
 
     def _rank_weighted(
-        self, candidates: dict[str, _Candidate], limit: int, lake: list[_FileFacts], top_k: int,
+        self,
+        candidates: dict[str, _Candidate],
+        limit: int,
+        lake: list[_FileFacts],
+        top_k: int,
     ) -> list[_Candidate]:
         """The weighted ranking: by fused score, seeds before their siblings, then the branch ranks and the key."""
         no_rank = limit + 1
@@ -728,14 +823,19 @@ class PneumaRetriever:
         return ranked
 
     @staticmethod
-    def _hit(candidate: _Candidate, rank: int, terms: list[str], scan: dict[str, Any]) -> RetrievalHit:
+    def _hit(
+        candidate: _Candidate, rank: int, terms: list[str], scan: dict[str, Any]
+    ) -> RetrievalHit:
         """The candidate as a hit, its document carrying the entities found and the search's evidence."""
         # The resolver hands out shared, cached dicts; evidence from one
         # query must not leak into the next.
         document = dict(candidate.document)
         found = [
-            term for term in terms
-            if candidate.term_cells.get(term) or term in candidate.column_name_terms or term in candidate.title_terms
+            term
+            for term in terms
+            if candidate.term_cells.get(term)
+            or term in candidate.column_name_terms
+            or term in candidate.title_terms
         ]
         if found:
             # The reference implementation tells the agent which entities a
@@ -743,7 +843,9 @@ class PneumaRetriever:
             description = str(document.get("description") or "").strip()
             document["description"] = (
                 (description + " " if description else "")
-                + "Contains the searched entities: " + ", ".join(found) + "."
+                + "Contains the searched entities: "
+                + ", ".join(found)
+                + "."
             )
         document["pneuma_evidence"] = {
             "scan_terms": scan["scan_terms"],
